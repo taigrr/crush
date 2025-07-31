@@ -90,8 +90,38 @@ func Load(workingDir string, debug bool) (*Config, error) {
 	return cfg, nil
 }
 
+func PushPopCrushEnv() func() {
+	found := []string{}
+	for _, ev := range os.Environ() {
+		if strings.HasPrefix(ev, "CRUSH_") {
+			pair := strings.SplitN(ev, "=", 2)
+			if len(pair) != 2 {
+				continue
+			}
+			found = append(found, strings.TrimPrefix(pair[0], "CRUSH_"))
+		}
+	}
+	backups := make(map[string]string)
+	for _, ev := range found {
+		backups[ev] = os.Getenv(ev)
+	}
+
+	for _, ev := range found {
+		os.Setenv(ev, os.Getenv("CRUSH_"+ev))
+	}
+
+	restore := func() {
+		for k, v := range backups {
+			os.Setenv(k, v)
+		}
+	}
+	return restore
+}
+
 func (c *Config) configureProviders(env env.Env, resolver VariableResolver, knownProviders []catwalk.Provider) error {
 	knownProviderNames := make(map[string]bool)
+	restore := PushPopCrushEnv()
+	defer restore()
 	for _, p := range knownProviders {
 		knownProviderNames[string(p.ID)] = true
 		config, configExists := c.Providers.Get(string(p.ID))
@@ -189,10 +219,7 @@ func (c *Config) configureProviders(env env.Env, resolver VariableResolver, know
 				}
 				continue
 			}
-			prepared.ExtraParams["region"] = env.Get("CRUSH_AWS_REGION")
-			if prepared.ExtraParams["region"] == "" {
-				prepared.ExtraParams["region"] = env.Get("AWS_REGION")
-			}
+			prepared.ExtraParams["region"] = env.Get("AWS_REGION")
 			if prepared.ExtraParams["region"] == "" {
 				prepared.ExtraParams["region"] = env.Get("AWS_DEFAULT_REGION")
 			}
@@ -480,23 +507,6 @@ func hasVertexCredentials(env env.Env) bool {
 }
 
 func hasAWSCredentials(env env.Env) bool {
-	if env.Get("CRUSH_AWS_ACCESS_KEY_ID") != "" && env.Get("CRUSH_AWS_SECRET_ACCESS_KEY") != "" {
-		return true
-	}
-
-	if env.Get("CRUSH_AWS_PROFILE") != "" || env.Get("CRUSH_AWS_DEFAULT_PROFILE") != "" {
-		return true
-	}
-
-	if env.Get("CRUSH_AWS_REGION") != "" || env.Get("CRUSH_AWS_DEFAULT_REGION") != "" {
-		return true
-	}
-
-	if env.Get("CRUSH_AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" ||
-		env.Get("CRUSH_AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
-		return true
-	}
-
 	if env.Get("AWS_ACCESS_KEY_ID") != "" && env.Get("AWS_SECRET_ACCESS_KEY") != "" {
 		return true
 	}
