@@ -3,8 +3,10 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
+
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/llm/tools"
 	"github.com/charmbracelet/crush/internal/message"
@@ -186,6 +188,8 @@ func NewProvider(cfg config.ProviderConfig, opts ...ProviderClientOption) (Provi
 			client:  newGeminiClient(clientOptions),
 		}, nil
 	case catwalk.TypeBedrock:
+		restore := pushPopCrushEnv()
+		defer restore()
 		return &baseProvider[BedrockClient]{
 			options: clientOptions,
 			client:  newBedrockClient(clientOptions),
@@ -202,4 +206,40 @@ func NewProvider(cfg config.ProviderConfig, opts ...ProviderClientOption) (Provi
 		}, nil
 	}
 	return nil, fmt.Errorf("provider not supported: %s", cfg.Type)
+}
+
+func pushPopCrushEnv() func() {
+	crushVars := []string{
+		"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+		"AWS_PROFILE",
+		"AWS_ACCESS_KEY_ID",
+		"AWS_REGION",
+		"AWS_ACCESS_KEY_ID",
+		"AWS_SECRET_ACCESS_KEY",
+		"AWS_DEFAULT_PROFILE",
+		"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI",
+		"AWS_DEFAULT_REGION",
+	}
+	found := []string{}
+	for _, ev := range crushVars {
+		if v := os.Getenv("CRUSH_" + ev); v != "" {
+			found = append(found, ev)
+		}
+	}
+	backups := make(map[string]string)
+	for _, ev := range found {
+		backups[ev] = os.Getenv(ev)
+	}
+
+	for _, ev := range found {
+		os.Setenv(ev, os.Getenv("CRUSH_"+ev))
+	}
+
+	restore := func() {
+		for k, v := range backups {
+			os.Setenv(k, v)
+		}
+	}
+	return restore
 }

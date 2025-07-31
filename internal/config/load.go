@@ -189,7 +189,10 @@ func (c *Config) configureProviders(env env.Env, resolver VariableResolver, know
 				}
 				continue
 			}
-			prepared.ExtraParams["region"] = env.Get("AWS_REGION")
+			prepared.ExtraParams["region"] = env.Get("CRUSH_AWS_REGION")
+			if prepared.ExtraParams["region"] == "" {
+				prepared.ExtraParams["region"] = env.Get("AWS_REGION")
+			}
 			if prepared.ExtraParams["region"] == "" {
 				prepared.ExtraParams["region"] = env.Get("AWS_DEFAULT_REGION")
 			}
@@ -477,6 +480,23 @@ func hasVertexCredentials(env env.Env) bool {
 }
 
 func hasAWSCredentials(env env.Env) bool {
+	if env.Get("CRUSH_AWS_ACCESS_KEY_ID") != "" && env.Get("CRUSH_AWS_SECRET_ACCESS_KEY") != "" {
+		return true
+	}
+
+	if env.Get("CRUSH_AWS_PROFILE") != "" || env.Get("CRUSH_AWS_DEFAULT_PROFILE") != "" {
+		return true
+	}
+
+	if env.Get("CRUSH_AWS_REGION") != "" || env.Get("CRUSH_AWS_DEFAULT_REGION") != "" {
+		return true
+	}
+
+	if env.Get("CRUSH_AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" ||
+		env.Get("CRUSH_AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
+		return true
+	}
+
 	if env.Get("AWS_ACCESS_KEY_ID") != "" && env.Get("AWS_SECRET_ACCESS_KEY") != "" {
 		return true
 	}
@@ -493,7 +513,6 @@ func hasAWSCredentials(env env.Env) bool {
 		env.Get("AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
 		return true
 	}
-
 	return false
 }
 
