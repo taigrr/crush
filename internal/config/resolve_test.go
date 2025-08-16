@@ -334,6 +334,9 @@ func TestNewEnvironmentVariableResolver(t *testing.T) {
 }
 
 func TestMCPConfig_ResolvedCommand(t *testing.T) {
+	homeDir, err := os.UserHomeDir()
+	require.NoError(t, err)
+
 	tests := []struct {
 		name     string
 		command  string
@@ -354,12 +357,12 @@ func TestMCPConfig_ResolvedCommand(t *testing.T) {
 		{
 			name:     "command with tilde expansion",
 			command:  "~/bin/gopls",
-			expected: filepath.Join(os.Getenv("HOME"), "bin/gopls"),
+			expected: filepath.Join(homeDir, "bin/gopls"),
 		},
 		{
 			name:     "command with just tilde",
 			command:  "~",
-			expected: os.Getenv("HOME"),
+			expected: homeDir,
 		},
 		{
 			name:     "command with braced variable",
@@ -387,6 +390,9 @@ func TestMCPConfig_ResolvedCommand(t *testing.T) {
 }
 
 func TestLSPConfig_ResolvedCommand(t *testing.T) {
+	homeDir, err := os.UserHomeDir()
+	require.NoError(t, err)
+
 	tests := []struct {
 		name     string
 		command  string
@@ -407,12 +413,12 @@ func TestLSPConfig_ResolvedCommand(t *testing.T) {
 		{
 			name:     "command with tilde expansion",
 			command:  "~/bin/gopls",
-			expected: filepath.Join(os.Getenv("HOME"), "bin/gopls"),
+			expected: filepath.Join(homeDir, "bin/gopls"),
 		},
 		{
 			name:     "command with just tilde",
 			command:  "~",
-			expected: os.Getenv("HOME"),
+			expected: homeDir,
 		},
 		{
 			name:     "command with XDG_CONFIG_HOME variable",
