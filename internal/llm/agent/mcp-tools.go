@@ -348,7 +348,7 @@ func createMcpClient(m config.MCPConfig) (*client.Client, error) {
 	switch m.Type {
 	case config.MCPStdio:
 		return client.NewStdioMCPClientWithOptions(
-			m.Command,
+			m.ResolvedCommand(),
 			m.ResolvedEnv(),
 			m.Args,
 			transport.WithCommandLogger(mcpLogger{}),
