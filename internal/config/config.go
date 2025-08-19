@@ -209,9 +209,7 @@ func (m MCPConfig) ResolvedHeaders() map[string]string {
 	return m.Headers
 }
 
-func (m MCPConfig) ResolvedCommand() string {
-	command := m.Command
-
+func resolveCommand(command, logContext string) string {
 	// Handle tilde expansion first
 	if strings.HasPrefix(command, "~/") {
 		homeDir, err := os.UserHomeDir()
@@ -229,36 +227,18 @@ func (m MCPConfig) ResolvedCommand() string {
 	resolver := NewShellVariableResolver(env.New())
 	resolved, err := resolver.ResolveValue(command)
 	if err != nil {
-		slog.Error("error resolving MCP command variable", "error", err, "command", m.Command)
+		slog.Error("error resolving command variable", "error", err, "command", command, "context", logContext)
 		return command
 	}
 	return resolved
 }
 
+func (m MCPConfig) ResolvedCommand() string {
+	return resolveCommand(m.Command, "MCP")
+}
+
 func (l LSPConfig) ResolvedCommand() string {
-	command := l.Command
-
-	// Handle tilde expansion first
-	if strings.HasPrefix(command, "~/") {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			command = filepath.Join(homeDir, command[2:])
-		}
-	} else if command == "~" {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			command = homeDir
-		}
-	}
-
-	// Then handle environment variable expansion
-	resolver := NewShellVariableResolver(env.New())
-	resolved, err := resolver.ResolveValue(command)
-	if err != nil {
-		slog.Error("error resolving LSP command variable", "error", err, "command", l.Command)
-		return command
-	}
-	return resolved
+	return resolveCommand(l.Command, "LSP")
 }
 
 type Agent struct {
