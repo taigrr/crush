@@ -212,15 +212,11 @@ func (m MCPConfig) ResolvedHeaders() map[string]string {
 func resolveCommand(command, logContext string) string {
 	// Handle tilde expansion first
 	if strings.HasPrefix(command, "~/") {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			command = filepath.Join(homeDir, command[2:])
-		}
+		homeDir := HomeDir()
+		command = filepath.Join(homeDir, command[2:])
 	} else if command == "~" {
-		homeDir, err := os.UserHomeDir()
-		if err == nil {
-			command = homeDir
-		}
+		homeDir := HomeDir()
+		command = homeDir
 	}
 
 	// Then handle environment variable expansion
