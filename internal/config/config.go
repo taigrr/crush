@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/env"
+	"github.com/charmbracelet/crush/internal/home"
 	"github.com/tidwall/sjson"
 )
 
@@ -212,10 +213,10 @@ func (m MCPConfig) ResolvedHeaders() map[string]string {
 func resolveCommand(command, logContext string) string {
 	// Handle tilde expansion first
 	if strings.HasPrefix(command, "~/") {
-		homeDir := HomeDir()
+		homeDir := home.Dir()
 		command = filepath.Join(homeDir, command[2:])
 	} else if command == "~" {
-		homeDir := HomeDir()
+		homeDir := home.Dir()
 		command = homeDir
 	}
 

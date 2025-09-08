@@ -3,11 +3,11 @@ package config
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/charmbracelet/crush/internal/env"
+	"github.com/charmbracelet/crush/internal/home"
 	"github.com/stretchr/testify/require"
 )
 
@@ -334,8 +334,7 @@ func TestNewEnvironmentVariableResolver(t *testing.T) {
 }
 
 func TestMCPConfig_ResolvedCommand(t *testing.T) {
-	homeDir, err := os.UserHomeDir()
-	require.NoError(t, err)
+	homeDir := home.Dir()
 
 	tests := []struct {
 		name     string
@@ -390,8 +389,7 @@ func TestMCPConfig_ResolvedCommand(t *testing.T) {
 }
 
 func TestLSPConfig_ResolvedCommand(t *testing.T) {
-	homeDir, err := os.UserHomeDir()
-	require.NoError(t, err)
+	homeDir := home.Dir()
 
 	tests := []struct {
 		name     string
