@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -206,6 +207,58 @@ func (m MCPConfig) ResolvedHeaders() map[string]string {
 		}
 	}
 	return m.Headers
+}
+
+func (m MCPConfig) ResolvedCommand() string {
+	command := m.Command
+
+	// Handle tilde expansion first
+	if strings.HasPrefix(command, "~/") {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			command = filepath.Join(homeDir, command[2:])
+		}
+	} else if command == "~" {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			command = homeDir
+		}
+	}
+
+	// Then handle environment variable expansion
+	resolver := NewShellVariableResolver(env.New())
+	resolved, err := resolver.ResolveValue(command)
+	if err != nil {
+		slog.Error("error resolving MCP command variable", "error", err, "command", m.Command)
+		return command
+	}
+	return resolved
+}
+
+func (l LSPConfig) ResolvedCommand() string {
+	command := l.Command
+
+	// Handle tilde expansion first
+	if strings.HasPrefix(command, "~/") {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			command = filepath.Join(homeDir, command[2:])
+		}
+	} else if command == "~" {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			command = homeDir
+		}
+	}
+
+	// Then handle environment variable expansion
+	resolver := NewShellVariableResolver(env.New())
+	resolved, err := resolver.ResolveValue(command)
+	if err != nil {
+		slog.Error("error resolving LSP command variable", "error", err, "command", l.Command)
+		return command
+	}
+	return resolved
 }
 
 type Agent struct {
