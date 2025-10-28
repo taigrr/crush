@@ -14,13 +14,16 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
+// uiState represents the current focus state of the UI.
 type uiState uint8
 
+// Possible uiState values.
 const (
 	uiChat uiState = iota
 	uiEdit
 )
 
+// UI represents the main user interface model.
 type UI struct {
 	app *app.App
 	com *common.Common
@@ -37,6 +40,7 @@ type UI struct {
 	layout layout
 }
 
+// New creates a new instance of the [UI] model.
 func New(com *common.Common, app *app.App) *UI {
 	return &UI{
 		app:    app,
@@ -48,10 +52,12 @@ func New(com *common.Common, app *app.App) *UI {
 	}
 }
 
+// Init initializes the UI model.
 func (m *UI) Init() tea.Cmd {
 	return nil
 }
 
+// Update handles updates to the UI model.
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
@@ -89,6 +95,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// View renders the UI model's view.
 func (m *UI) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
