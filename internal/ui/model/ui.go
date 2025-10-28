@@ -25,8 +25,7 @@ type UI struct {
 	app *app.App
 	com *common.Common
 
-	state        uiState
-	showFullHelp bool
+	state uiState
 
 	keyMap KeyMap
 
@@ -74,8 +73,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, m.editor.Blur())
 				}
 			case key.Matches(msg, m.keyMap.Help):
-				m.showFullHelp = !m.showFullHelp
-				m.help.ShowAll = m.showFullHelp
+				m.help.ShowAll = !m.help.ShowAll
 				m.updateLayout(m.layout.area.Dx(), m.layout.area.Dy())
 			case key.Matches(msg, m.keyMap.Quit):
 				if !m.dialog.ContainsDialog(dialog.QuitDialogID) {
@@ -218,7 +216,7 @@ func (m *UI) updateLayout(w, h int) {
 	if m.dialog.HasDialogs() && len(m.dialog.FullHelp()) > 0 && len(m.dialog.ShortHelp()) > 0 {
 		helpKeyMap = m.dialog
 	}
-	if m.showFullHelp {
+	if m.help.ShowAll {
 		for _, row := range helpKeyMap.FullHelp() {
 			helpHeight = max(helpHeight, len(row))
 		}
