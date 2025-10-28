@@ -1,19 +1,20 @@
-package ui
+package dialog
 
 import (
 	"github.com/charmbracelet/bubbles/v2/key"
 	tea "github.com/charmbracelet/bubbletea/v2"
+	"github.com/charmbracelet/crush/internal/ui/component"
 	"github.com/charmbracelet/lipgloss/v2"
 )
 
-// DialogOverlayKeyMap defines key bindings for dialogs.
-type DialogOverlayKeyMap struct {
+// OverlayKeyMap defines key bindings for dialogs.
+type OverlayKeyMap struct {
 	Close key.Binding
 }
 
-// DefaultDialogOverlayKeyMap returns the default key bindings for dialogs.
-func DefaultDialogOverlayKeyMap() DialogOverlayKeyMap {
-	return DialogOverlayKeyMap{
+// DefaultOverlayKeyMap returns the default key bindings for dialogs.
+func DefaultOverlayKeyMap() OverlayKeyMap {
+	return OverlayKeyMap{
 		Close: key.NewBinding(
 			key.WithKeys("esc", "alt+esc"),
 		),
@@ -22,21 +23,21 @@ func DefaultDialogOverlayKeyMap() DialogOverlayKeyMap {
 
 // Dialog is a component that can be displayed on top of the UI.
 type Dialog interface {
-	Model[Dialog]
+	component.Model[Dialog]
 	ID() string
 }
 
 // Overlay manages multiple dialogs as an overlay.
 type Overlay struct {
 	dialogs []Dialog
-	keyMap  DialogOverlayKeyMap
+	keyMap  OverlayKeyMap
 }
 
-// NewDialogOverlay creates a new [Overlay] instance.
-func NewDialogOverlay(dialogs ...Dialog) *Overlay {
+// NewOverlay creates a new [Overlay] instance.
+func NewOverlay(dialogs ...Dialog) *Overlay {
 	return &Overlay{
 		dialogs: dialogs,
-		keyMap:  DefaultDialogOverlayKeyMap(),
+		keyMap:  DefaultOverlayKeyMap(),
 	}
 }
 

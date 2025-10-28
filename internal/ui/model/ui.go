@@ -1,4 +1,4 @@
-package ui
+package model
 
 import (
 	"image"
@@ -6,6 +6,8 @@ import (
 	"github.com/charmbracelet/bubbles/v2/key"
 	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/app"
+	"github.com/charmbracelet/crush/internal/ui/common"
+	"github.com/charmbracelet/crush/internal/ui/dialog"
 	"github.com/charmbracelet/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 )
@@ -18,22 +20,21 @@ const (
 
 type UI struct {
 	app *app.App
-	com *Common
+	com *common.Common
 
 	width, height int
 	state         uiState
 
 	keyMap KeyMap
-	styles Styles
 
-	dialog *Overlay
+	dialog *dialog.Overlay
 }
 
-func New(com *Common, app *app.App) *UI {
+func New(com *common.Common, app *app.App) *UI {
 	return &UI{
 		app:    app,
 		com:    com,
-		dialog: NewDialogOverlay(),
+		dialog: dialog.NewOverlay(),
 		keyMap: DefaultKeyMap(),
 	}
 }
@@ -53,7 +54,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case uiStateMain:
 			switch {
 			case key.Matches(msg, m.keyMap.Quit):
-				quitDialog := NewQuitDialog(m.com)
+				quitDialog := dialog.NewQuit(m.com)
 				if !m.dialog.ContainsDialog(quitDialog.ID()) {
 					m.dialog.AddDialog(quitDialog)
 					return m, nil
@@ -73,6 +74,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *UI) View() tea.View {
 	var v tea.View
+	v.AltScreen = true
 
 	// The screen area we're working with
 	area := image.Rect(0, 0, m.width, m.height)
@@ -87,6 +89,29 @@ func (m *UI) View() tea.View {
 				Y(dialogArea.Min.Y),
 		)
 	}
+
+	mainRect, sideRect := uv.SplitHorizontal(area, uv.Fixed(area.Dx()-40))
+	mainRect, footRect := uv.SplitVertical(mainRect, uv.Fixed(area.Dy()-7))
+
+	layers = append(layers, lipgloss.NewLayer(
+		lipgloss.NewStyle().Width(mainRect.Dx()).
+			Height(mainRect.Dy()).
+			Border(lipgloss.NormalBorder()).
+			Render(" Main View "),
+	).X(mainRect.Min.X).Y(mainRect.Min.Y),
+		lipgloss.NewLayer(
+			lipgloss.NewStyle().Width(sideRect.Dx()).
+				Height(sideRect.Dy()).
+				Border(lipgloss.NormalBorder()).
+				Render(" Side View "),
+		).X(sideRect.Min.X).Y(sideRect.Min.Y),
+		lipgloss.NewLayer(
+			lipgloss.NewStyle().Width(footRect.Dx()).
+				Height(footRect.Dy()).
+				Border(lipgloss.NormalBorder()).
+				Render(" Footer View "),
+		).X(footRect.Min.X).Y(footRect.Min.Y),
+	)
 
 	v.Layer = lipgloss.NewCanvas(layers...)
 

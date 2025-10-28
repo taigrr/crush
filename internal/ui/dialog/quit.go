@@ -1,8 +1,9 @@
-package ui
+package dialog
 
 import (
 	"github.com/charmbracelet/bubbles/v2/key"
 	tea "github.com/charmbracelet/bubbletea/v2"
+	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/lipgloss/v2"
 )
 
@@ -46,16 +47,16 @@ func DefaultQuitKeyMap() QuitDialogKeyMap {
 	}
 }
 
-// QuitDialog represents a confirmation dialog for quitting the application.
-type QuitDialog struct {
-	com        *Common
+// Quit represents a confirmation dialog for quitting the application.
+type Quit struct {
+	com        *common.Common
 	keyMap     QuitDialogKeyMap
 	selectedNo bool // true if "No" button is selected
 }
 
-// NewQuitDialog creates a new quit confirmation dialog.
-func NewQuitDialog(com *Common) *QuitDialog {
-	q := &QuitDialog{
+// NewQuit creates a new quit confirmation dialog.
+func NewQuit(com *common.Common) *Quit {
+	q := &Quit{
 		com:    com,
 		keyMap: DefaultQuitKeyMap(),
 	}
@@ -63,12 +64,12 @@ func NewQuitDialog(com *Common) *QuitDialog {
 }
 
 // ID implements [Model].
-func (*QuitDialog) ID() string {
+func (*Quit) ID() string {
 	return "quit"
 }
 
 // Update implements [Model].
-func (q *QuitDialog) Update(msg tea.Msg) (Dialog, tea.Cmd) {
+func (q *Quit) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
@@ -91,7 +92,7 @@ func (q *QuitDialog) Update(msg tea.Msg) (Dialog, tea.Cmd) {
 }
 
 // View implements [Model].
-func (q *QuitDialog) View() string {
+func (q *Quit) View() string {
 	const question = "Are you sure you want to quit?"
 	baseStyle := q.com.Styles.Base
 	yesStyle := q.com.Styles.ButtonSelected
@@ -125,7 +126,7 @@ func (q *QuitDialog) View() string {
 }
 
 // ShortHelp implements [help.KeyMap].
-func (q *QuitDialog) ShortHelp() []key.Binding {
+func (q *Quit) ShortHelp() []key.Binding {
 	return []key.Binding{
 		q.keyMap.LeftRight,
 		q.keyMap.EnterSpace,
@@ -133,7 +134,7 @@ func (q *QuitDialog) ShortHelp() []key.Binding {
 }
 
 // FullHelp implements [help.KeyMap].
-func (q *QuitDialog) FullHelp() [][]key.Binding {
+func (q *Quit) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{q.keyMap.LeftRight, q.keyMap.EnterSpace, q.keyMap.Yes, q.keyMap.No},
 		{q.keyMap.Tab, q.keyMap.Close},

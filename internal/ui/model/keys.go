@@ -1,4 +1,4 @@
-package ui
+package model
 
 import "github.com/charmbracelet/bubbles/v2/key"
 

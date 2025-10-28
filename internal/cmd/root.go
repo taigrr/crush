@@ -18,7 +18,8 @@ import (
 	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/event"
 	"github.com/charmbracelet/crush/internal/tui"
-	"github.com/charmbracelet/crush/internal/ui"
+	"github.com/charmbracelet/crush/internal/ui/common"
+	ui "github.com/charmbracelet/crush/internal/ui/model"
 	"github.com/charmbracelet/crush/internal/version"
 	"github.com/charmbracelet/fang"
 	"github.com/charmbracelet/lipgloss/v2"
@@ -83,7 +84,8 @@ crush -y
 
 		// Set up the TUI.
 		// ui := tui.New(app)
-		ui := ui.New(app)
+		com := common.DefaultCommon(app.Config())
+		ui := ui.New(com, app)
 		program := tea.NewProgram(
 			ui,
 			tea.WithContext(cmd.Context()),
