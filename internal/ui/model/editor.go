@@ -124,19 +124,19 @@ func (m *EditorModel) Cursor() *tea.Cursor {
 }
 
 // Blur implements Container.
-func (c *EditorModel) Blur() tea.Cmd {
-	c.textarea.Blur()
+func (m *EditorModel) Blur() tea.Cmd {
+	m.textarea.Blur()
 	return nil
 }
 
 // Focus implements Container.
-func (c *EditorModel) Focus() tea.Cmd {
-	return c.textarea.Focus()
+func (m *EditorModel) Focus() tea.Cmd {
+	return m.textarea.Focus()
 }
 
 // Focused returns whether the editor is focused.
-func (c *EditorModel) Focused() bool {
-	return c.textarea.Focused()
+func (m *EditorModel) Focused() bool {
+	return m.textarea.Focused()
 }
 
 // SetSize sets the size of the editor.
