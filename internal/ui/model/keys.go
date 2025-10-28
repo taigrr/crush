@@ -8,6 +8,7 @@ type KeyMap struct {
 	Commands key.Binding
 	Suspend  key.Binding
 	Sessions key.Binding
+	Tab      key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -31,6 +32,10 @@ func DefaultKeyMap() KeyMap {
 		Sessions: key.NewBinding(
 			key.WithKeys("ctrl+s"),
 			key.WithHelp("ctrl+s", "sessions"),
+		),
+		Tab: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "change focus"),
 		),
 	}
 }

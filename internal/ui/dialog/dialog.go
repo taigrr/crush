@@ -3,7 +3,7 @@ package dialog
 import (
 	"github.com/charmbracelet/bubbles/v2/key"
 	tea "github.com/charmbracelet/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/ui/component"
+	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/lipgloss/v2"
 )
 
@@ -23,7 +23,7 @@ func DefaultOverlayKeyMap() OverlayKeyMap {
 
 // Dialog is a component that can be displayed on top of the UI.
 type Dialog interface {
-	component.Model[Dialog]
+	common.Model[Dialog]
 	ID() string
 }
 
@@ -39,6 +39,11 @@ func NewOverlay(dialogs ...Dialog) *Overlay {
 		dialogs: dialogs,
 		keyMap:  DefaultOverlayKeyMap(),
 	}
+}
+
+// HasDialogs checks if there are any active dialogs.
+func (d *Overlay) HasDialogs() bool {
+	return len(d.dialogs) > 0
 }
 
 // ContainsDialog checks if a dialog with the specified ID exists.

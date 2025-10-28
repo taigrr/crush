@@ -5,6 +5,7 @@ import (
 	"github.com/charmbracelet/bubbles/v2/help"
 	"github.com/charmbracelet/bubbles/v2/textarea"
 	"github.com/charmbracelet/bubbles/v2/textinput"
+	tea "github.com/charmbracelet/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/tui/exp/diffview"
 	"github.com/charmbracelet/glamour/v2/ansi"
 	"github.com/charmbracelet/lipgloss/v2"
@@ -28,6 +29,11 @@ const (
 
 	BorderThin  string = "│"
 	BorderThick string = "▌"
+)
+
+const (
+	defaultMargin     = 2
+	defaultListIndent = 2
 )
 
 type Styles struct {
@@ -96,20 +102,28 @@ type Styles struct {
 	// Borders
 	BorderFocus lipgloss.Style
 	BorderBlur  lipgloss.Style
+
+	// Editor
+	EditorPromptNormalFocused   lipgloss.Style
+	EditorPromptNormalBlurred   lipgloss.Style
+	EditorPromptYoloIconFocused lipgloss.Style
+	EditorPromptYoloIconBlurred lipgloss.Style
+	EditorPromptYoloDotsFocused lipgloss.Style
+	EditorPromptYoloDotsBlurred lipgloss.Style
 }
 
 func DefaultStyles() Styles {
 	var (
-		// primary   = charmtone.Charple
+		primary   = charmtone.Charple
 		secondary = charmtone.Dolly
-		// tertiary  = charmtone.Bok
+		tertiary  = charmtone.Bok
 		// accent    = charmtone.Zest
 
 		// Backgrounds
 		bgBase        = charmtone.Pepper
 		bgBaseLighter = charmtone.BBQ
 		bgSubtle      = charmtone.Charcoal
-		// bgOverlay     = charmtone.Iron
+		bgOverlay     = charmtone.Iron
 
 		// Foregrounds
 		fgBase      = charmtone.Ash
@@ -119,7 +133,7 @@ func DefaultStyles() Styles {
 		// fgSelected  = charmtone.Salt
 
 		// Borders
-		// border      = charmtone.Charcoal
+		border      = charmtone.Charcoal
 		borderFocus = charmtone.Charple
 
 		// Status
@@ -147,7 +161,333 @@ func DefaultStyles() Styles {
 		// cherry   = charmtone.Cherry
 	)
 
+	base := lipgloss.NewStyle().Foreground(fgBase)
+
 	s := Styles{}
+
+	s.TextInput = textinput.Styles{
+		Focused: textinput.StyleState{
+			Text:        base,
+			Placeholder: base.Foreground(fgSubtle),
+			Prompt:      base.Foreground(tertiary),
+			Suggestion:  base.Foreground(fgSubtle),
+		},
+		Blurred: textinput.StyleState{
+			Text:        base.Foreground(fgMuted),
+			Placeholder: base.Foreground(fgSubtle),
+			Prompt:      base.Foreground(fgMuted),
+			Suggestion:  base.Foreground(fgSubtle),
+		},
+		Cursor: textinput.CursorStyle{
+			Color: secondary,
+			Shape: tea.CursorBar,
+			Blink: true,
+		},
+	}
+
+	s.TextArea = textarea.Styles{
+		Focused: textarea.StyleState{
+			Base:             base,
+			Text:             base,
+			LineNumber:       base.Foreground(fgSubtle),
+			CursorLine:       base,
+			CursorLineNumber: base.Foreground(fgSubtle),
+			Placeholder:      base.Foreground(fgSubtle),
+			Prompt:           base.Foreground(tertiary),
+		},
+		Blurred: textarea.StyleState{
+			Base:             base,
+			Text:             base.Foreground(fgMuted),
+			LineNumber:       base.Foreground(fgMuted),
+			CursorLine:       base,
+			CursorLineNumber: base.Foreground(fgMuted),
+			Placeholder:      base.Foreground(fgSubtle),
+			Prompt:           base.Foreground(fgMuted),
+		},
+		Cursor: textarea.CursorStyle{
+			Color: secondary,
+			Shape: tea.CursorBar,
+			Blink: true,
+		},
+	}
+
+	s.Markdown = ansi.StyleConfig{
+		Document: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				// BlockPrefix: "\n",
+				// BlockSuffix: "\n",
+				Color: stringPtr(charmtone.Smoke.Hex()),
+			},
+			// Margin: uintPtr(defaultMargin),
+		},
+		BlockQuote: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{},
+			Indent:         uintPtr(1),
+			IndentToken:    stringPtr("│ "),
+		},
+		List: ansi.StyleList{
+			LevelIndent: defaultListIndent,
+		},
+		Heading: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				BlockSuffix: "\n",
+				Color:       stringPtr(charmtone.Malibu.Hex()),
+				Bold:        boolPtr(true),
+			},
+		},
+		H1: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix:          " ",
+				Suffix:          " ",
+				Color:           stringPtr(charmtone.Zest.Hex()),
+				BackgroundColor: stringPtr(charmtone.Charple.Hex()),
+				Bold:            boolPtr(true),
+			},
+		},
+		H2: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix: "## ",
+			},
+		},
+		H3: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix: "### ",
+			},
+		},
+		H4: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix: "#### ",
+			},
+		},
+		H5: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix: "##### ",
+			},
+		},
+		H6: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix: "###### ",
+				Color:  stringPtr(charmtone.Guac.Hex()),
+				Bold:   boolPtr(false),
+			},
+		},
+		Strikethrough: ansi.StylePrimitive{
+			CrossedOut: boolPtr(true),
+		},
+		Emph: ansi.StylePrimitive{
+			Italic: boolPtr(true),
+		},
+		Strong: ansi.StylePrimitive{
+			Bold: boolPtr(true),
+		},
+		HorizontalRule: ansi.StylePrimitive{
+			Color:  stringPtr(charmtone.Charcoal.Hex()),
+			Format: "\n--------\n",
+		},
+		Item: ansi.StylePrimitive{
+			BlockPrefix: "• ",
+		},
+		Enumeration: ansi.StylePrimitive{
+			BlockPrefix: ". ",
+		},
+		Task: ansi.StyleTask{
+			StylePrimitive: ansi.StylePrimitive{},
+			Ticked:         "[✓] ",
+			Unticked:       "[ ] ",
+		},
+		Link: ansi.StylePrimitive{
+			Color:     stringPtr(charmtone.Zinc.Hex()),
+			Underline: boolPtr(true),
+		},
+		LinkText: ansi.StylePrimitive{
+			Color: stringPtr(charmtone.Guac.Hex()),
+			Bold:  boolPtr(true),
+		},
+		Image: ansi.StylePrimitive{
+			Color:     stringPtr(charmtone.Cheeky.Hex()),
+			Underline: boolPtr(true),
+		},
+		ImageText: ansi.StylePrimitive{
+			Color:  stringPtr(charmtone.Squid.Hex()),
+			Format: "Image: {{.text}} →",
+		},
+		Code: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix:          " ",
+				Suffix:          " ",
+				Color:           stringPtr(charmtone.Coral.Hex()),
+				BackgroundColor: stringPtr(charmtone.Charcoal.Hex()),
+			},
+		},
+		CodeBlock: ansi.StyleCodeBlock{
+			StyleBlock: ansi.StyleBlock{
+				StylePrimitive: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Charcoal.Hex()),
+				},
+				Margin: uintPtr(defaultMargin),
+			},
+			Chroma: &ansi.Chroma{
+				Text: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Smoke.Hex()),
+				},
+				Error: ansi.StylePrimitive{
+					Color:           stringPtr(charmtone.Butter.Hex()),
+					BackgroundColor: stringPtr(charmtone.Sriracha.Hex()),
+				},
+				Comment: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Oyster.Hex()),
+				},
+				CommentPreproc: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Bengal.Hex()),
+				},
+				Keyword: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Malibu.Hex()),
+				},
+				KeywordReserved: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Pony.Hex()),
+				},
+				KeywordNamespace: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Pony.Hex()),
+				},
+				KeywordType: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Guppy.Hex()),
+				},
+				Operator: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Salmon.Hex()),
+				},
+				Punctuation: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Zest.Hex()),
+				},
+				Name: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Smoke.Hex()),
+				},
+				NameBuiltin: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Cheeky.Hex()),
+				},
+				NameTag: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Mauve.Hex()),
+				},
+				NameAttribute: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Hazy.Hex()),
+				},
+				NameClass: ansi.StylePrimitive{
+					Color:     stringPtr(charmtone.Salt.Hex()),
+					Underline: boolPtr(true),
+					Bold:      boolPtr(true),
+				},
+				NameDecorator: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Citron.Hex()),
+				},
+				NameFunction: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Guac.Hex()),
+				},
+				LiteralNumber: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Julep.Hex()),
+				},
+				LiteralString: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Cumin.Hex()),
+				},
+				LiteralStringEscape: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Bok.Hex()),
+				},
+				GenericDeleted: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Coral.Hex()),
+				},
+				GenericEmph: ansi.StylePrimitive{
+					Italic: boolPtr(true),
+				},
+				GenericInserted: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Guac.Hex()),
+				},
+				GenericStrong: ansi.StylePrimitive{
+					Bold: boolPtr(true),
+				},
+				GenericSubheading: ansi.StylePrimitive{
+					Color: stringPtr(charmtone.Squid.Hex()),
+				},
+				Background: ansi.StylePrimitive{
+					BackgroundColor: stringPtr(charmtone.Charcoal.Hex()),
+				},
+			},
+		},
+		Table: ansi.StyleTable{
+			StyleBlock: ansi.StyleBlock{
+				StylePrimitive: ansi.StylePrimitive{},
+			},
+		},
+		DefinitionDescription: ansi.StylePrimitive{
+			BlockPrefix: "\n ",
+		},
+	}
+
+	s.Help = help.Styles{
+		ShortKey:       base.Foreground(fgMuted),
+		ShortDesc:      base.Foreground(fgSubtle),
+		ShortSeparator: base.Foreground(border),
+		Ellipsis:       base.Foreground(border),
+		FullKey:        base.Foreground(fgMuted),
+		FullDesc:       base.Foreground(fgSubtle),
+		FullSeparator:  base.Foreground(border),
+	}
+
+	s.Diff = diffview.Style{
+		DividerLine: diffview.LineStyle{
+			LineNumber: lipgloss.NewStyle().
+				Foreground(fgHalfMuted).
+				Background(bgBaseLighter),
+			Code: lipgloss.NewStyle().
+				Foreground(fgHalfMuted).
+				Background(bgBaseLighter),
+		},
+		MissingLine: diffview.LineStyle{
+			LineNumber: lipgloss.NewStyle().
+				Background(bgBaseLighter),
+			Code: lipgloss.NewStyle().
+				Background(bgBaseLighter),
+		},
+		EqualLine: diffview.LineStyle{
+			LineNumber: lipgloss.NewStyle().
+				Foreground(fgMuted).
+				Background(bgBase),
+			Code: lipgloss.NewStyle().
+				Foreground(fgMuted).
+				Background(bgBase),
+		},
+		InsertLine: diffview.LineStyle{
+			LineNumber: lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#629657")).
+				Background(lipgloss.Color("#2b322a")),
+			Symbol: lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#629657")).
+				Background(lipgloss.Color("#323931")),
+			Code: lipgloss.NewStyle().
+				Background(lipgloss.Color("#323931")),
+		},
+		DeleteLine: diffview.LineStyle{
+			LineNumber: lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#a45c59")).
+				Background(lipgloss.Color("#312929")),
+			Symbol: lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#a45c59")).
+				Background(lipgloss.Color("#383030")),
+			Code: lipgloss.NewStyle().
+				Background(lipgloss.Color("#383030")),
+		},
+	}
+
+	s.FilePicker = filepicker.Styles{
+		DisabledCursor:   base.Foreground(fgMuted),
+		Cursor:           base.Foreground(fgBase),
+		Symlink:          base.Foreground(fgSubtle),
+		Directory:        base.Foreground(primary),
+		File:             base.Foreground(fgBase),
+		DisabledFile:     base.Foreground(fgMuted),
+		DisabledSelected: base.Background(bgOverlay).Foreground(fgMuted),
+		Permission:       base.Foreground(fgMuted),
+		Selected:         base.Background(primary).Foreground(fgBase),
+		FileSize:         base.Foreground(fgMuted),
+		EmptyDirectory:   base.Foreground(fgMuted).PaddingLeft(2).SetString("Empty directory"),
+	}
 
 	// borders
 	s.FocusedMessageBorder = lipgloss.Border{Left: BorderThick}
@@ -190,5 +530,18 @@ func DefaultStyles() Styles {
 	// Borders
 	s.BorderFocus = lipgloss.NewStyle().BorderForeground(borderFocus).Border(lipgloss.RoundedBorder()).Padding(1, 2)
 
+	// Editor
+	s.EditorPromptNormalFocused = lipgloss.NewStyle().Foreground(greenDark).SetString("::: ")
+	s.EditorPromptNormalBlurred = s.EditorPromptNormalFocused.Foreground(fgMuted)
+	s.EditorPromptYoloIconFocused = lipgloss.NewStyle().Foreground(charmtone.Oyster).Background(charmtone.Citron).Bold(true).SetString(" ! ")
+	s.EditorPromptYoloIconBlurred = s.EditorPromptYoloIconFocused.Foreground(charmtone.Pepper).Background(charmtone.Squid)
+	s.EditorPromptYoloDotsFocused = lipgloss.NewStyle().Foreground(charmtone.Zest).SetString(":::")
+	s.EditorPromptYoloDotsBlurred = s.EditorPromptYoloDotsFocused.Foreground(charmtone.Squid)
+
 	return s
 }
+
+// Helper functions for style pointers
+func boolPtr(b bool) *bool       { return &b }
+func stringPtr(s string) *string { return &s }
+func uintPtr(u uint) *uint       { return &u }

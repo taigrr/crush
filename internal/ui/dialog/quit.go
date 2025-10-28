@@ -7,6 +7,9 @@ import (
 	"github.com/charmbracelet/lipgloss/v2"
 )
 
+// QuitDialogID is the identifier for the quit dialog.
+const QuitDialogID = "quit"
+
 // QuitDialogKeyMap represents key bindings for the quit dialog.
 type QuitDialogKeyMap struct {
 	LeftRight,
@@ -65,7 +68,7 @@ func NewQuit(com *common.Common) *Quit {
 
 // ID implements [Model].
 func (*Quit) ID() string {
-	return "quit"
+	return QuitDialogID
 }
 
 // Update implements [Model].
