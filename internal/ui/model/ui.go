@@ -59,6 +59,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.updateLayout(msg.Width, msg.Height)
 		m.editor.SetSize(m.layout.editor.Dx(), m.layout.editor.Dy())
+		m.help.Width = m.layout.help.Dx()
 	case tea.KeyPressMsg:
 		if m.dialog.HasDialogs() {
 			m.updateDialogs(msg, &cmds)
@@ -75,6 +76,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, m.keyMap.Help):
 				m.showFullHelp = !m.showFullHelp
 				m.help.ShowAll = m.showFullHelp
+				m.updateLayout(m.layout.area.Dx(), m.layout.area.Dy())
 			case key.Matches(msg, m.keyMap.Quit):
 				if !m.dialog.ContainsDialog(dialog.QuitDialogID) {
 					m.dialog.AddDialog(dialog.NewQuit(m.com))
@@ -130,27 +132,28 @@ func (m *UI) View() tea.View {
 		v.Cursor = cur
 	}
 
-	layers = append(layers, lipgloss.NewLayer(
-		lipgloss.NewStyle().Width(chatRect.Dx()).
-			Height(chatRect.Dy()).
-			Background(lipgloss.ANSIColor(rand.Intn(256))).
-			Render(" Main View "),
-	).X(chatRect.Min.X).Y(chatRect.Min.Y),
-		lipgloss.NewLayer(
-			lipgloss.NewStyle().Width(sideRect.Dx()).
-				Height(sideRect.Dy()).
-				Background(lipgloss.ANSIColor(rand.Intn(256))).
-				Render(" Side View "),
-		).X(sideRect.Min.X).Y(sideRect.Min.Y),
-		lipgloss.NewLayer(m.editor.View()).
-			X(editRect.Min.X).Y(editRect.Min.Y),
-		lipgloss.NewLayer(
-			lipgloss.NewStyle().Width(helpRect.Dx()).
-				Height(helpRect.Dy()).
-				Background(lipgloss.ANSIColor(rand.Intn(256))).
-				Render(m.help.View(helpKeyMap)),
-		).X(helpRect.Min.X).Y(helpRect.Min.Y),
-	)
+	mainLayer := lipgloss.NewLayer("").X(area.Min.X).Y(area.Min.Y).
+		Width(area.Dx()).Height(area.Dy()).
+		AddLayers(
+			lipgloss.NewLayer(
+				lipgloss.NewStyle().Width(chatRect.Dx()).
+					Height(chatRect.Dy()).
+					Background(lipgloss.ANSIColor(rand.Intn(256))).
+					Render(" Main View "),
+			).X(chatRect.Min.X).Y(chatRect.Min.Y),
+			lipgloss.NewLayer(
+				lipgloss.NewStyle().Width(sideRect.Dx()).
+					Height(sideRect.Dy()).
+					Background(lipgloss.ANSIColor(rand.Intn(256))).
+					Render(" Side View "),
+			).X(sideRect.Min.X).Y(sideRect.Min.Y),
+			lipgloss.NewLayer(m.editor.View()).
+				X(editRect.Min.X).Y(editRect.Min.Y),
+			lipgloss.NewLayer(m.help.View(helpKeyMap)).
+				X(helpRect.Min.X).Y(helpRect.Min.Y),
+		)
+
+	layers = append(layers, mainLayer)
 
 	v.Layer = lipgloss.NewCanvas(layers...)
 
@@ -209,23 +212,37 @@ func (m *UI) updateEditor(msg tea.KeyPressMsg, cmds *[]tea.Cmd) {
 // height given in cells.
 func (m *UI) updateLayout(w, h int) {
 	// The screen area we're working with
-	area := image.Rect(1, 1, w-1, h-1) // -1 for margins
+	area := image.Rect(0, 0, w, h)
 	helpKeyMap := m.focusedKeyMap()
 	helpHeight := 1
+	if m.dialog.HasDialogs() && len(m.dialog.FullHelp()) > 0 && len(m.dialog.ShortHelp()) > 0 {
+		helpKeyMap = m.dialog
+	}
 	if m.showFullHelp {
-		helpHeight = max(1, len(helpKeyMap.FullHelp()))
+		for _, row := range helpKeyMap.FullHelp() {
+			helpHeight = max(helpHeight, len(row))
+		}
 	}
 
-	chatRect, sideRect := uv.SplitHorizontal(area, uv.Fixed(area.Dx()-40))
-	chatRect, editRect := uv.SplitVertical(chatRect, uv.Fixed(area.Dy()-5-helpHeight))
-	// Add 1 line margin bottom of mainRect
+	// Add app margins
+	mainRect := area
+	mainRect.Min.X += 1
+	mainRect.Min.Y += 1
+	mainRect.Max.X -= 1
+	mainRect.Max.Y -= 1
+
+	mainRect, helpRect := uv.SplitVertical(mainRect, uv.Fixed(mainRect.Dy()-helpHeight))
+	chatRect, sideRect := uv.SplitHorizontal(mainRect, uv.Fixed(mainRect.Dx()-40))
+	chatRect, editRect := uv.SplitVertical(chatRect, uv.Fixed(mainRect.Dy()-5))
+
+	// Add 1 line margin bottom of chatRect
 	chatRect, _ = uv.SplitVertical(chatRect, uv.Fixed(chatRect.Dy()-1))
-	editRect, helpRect := uv.SplitVertical(editRect, uv.Fixed(5))
-	// Add 1 line margin bottom of footRect
+	// Add 1 line margin bottom of editRect
 	editRect, _ = uv.SplitVertical(editRect, uv.Fixed(editRect.Dy()-1))
 
 	m.layout = layout{
 		area:    area,
+		main:    mainRect,
 		chat:    chatRect,
 		editor:  editRect,
 		sidebar: sideRect,
@@ -237,6 +254,9 @@ func (m *UI) updateLayout(w, h int) {
 type layout struct {
 	// area is the overall available area.
 	area uv.Rectangle
+
+	// main is the main area excluding help.
+	main uv.Rectangle
 
 	// chat is the area for the chat pane.
 	chat uv.Rectangle

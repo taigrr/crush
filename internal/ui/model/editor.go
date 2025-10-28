@@ -15,6 +15,11 @@ type EditorKeyMap struct {
 	SendMessage key.Binding
 	OpenEditor  key.Binding
 	Newline     key.Binding
+
+	// Attachments key maps
+	AttachmentDeleteMode key.Binding
+	Escape               key.Binding
+	DeleteAllAttachments key.Binding
 }
 
 func DefaultEditorKeyMap() EditorKeyMap {
@@ -38,6 +43,18 @@ func DefaultEditorKeyMap() EditorKeyMap {
 			// to reflect that.
 			key.WithHelp("ctrl+j", "newline"),
 		),
+		AttachmentDeleteMode: key.NewBinding(
+			key.WithKeys("ctrl+r"),
+			key.WithHelp("ctrl+r+{i}", "delete attachment at index i"),
+		),
+		Escape: key.NewBinding(
+			key.WithKeys("esc", "alt+esc"),
+			key.WithHelp("esc", "cancel delete mode"),
+		),
+		DeleteAllAttachments: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("ctrl+r+r", "delete all attachments"),
+		),
 	}
 }
 
@@ -48,6 +65,8 @@ type EditorModel struct {
 
 	keyMap   EditorKeyMap
 	textarea *textarea.Model
+
+	attachments []any // TODO: Implement attachments
 
 	readyPlaceholder   string
 	workingPlaceholder string
@@ -110,12 +129,30 @@ func (m *EditorModel) View() string {
 
 // ShortHelp returns the short help view for the editor model.
 func (m *EditorModel) ShortHelp() []key.Binding {
-	return nil
+	k := m.keyMap
+	binds := []key.Binding{
+		k.AddFile,
+		k.SendMessage,
+		k.OpenEditor,
+		k.Newline,
+	}
+
+	if len(m.attachments) > 0 {
+		binds = append(binds,
+			k.AttachmentDeleteMode,
+			k.DeleteAllAttachments,
+			k.Escape,
+		)
+	}
+
+	return binds
 }
 
 // FullHelp returns the full help view for the editor model.
 func (m *EditorModel) FullHelp() [][]key.Binding {
-	return nil
+	return [][]key.Binding{
+		m.ShortHelp(),
+	}
 }
 
 // Cursor returns the relative cursor position of the editor.
