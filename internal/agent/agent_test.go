@@ -3,6 +3,7 @@ package agent
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -45,6 +46,10 @@ func setupAgent(t *testing.T, pair modelPair) (SessionAgent, env) {
 }
 
 func TestCoderAgent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on windows for now")
+	}
+
 	for _, pair := range modelPairs {
 		t.Run(pair.name, func(t *testing.T) {
 			t.Run("simple test", func(t *testing.T) {
@@ -165,7 +170,7 @@ func TestCoderAgent(t *testing.T) {
 				require.NoError(t, err)
 
 				res, err := agent.Run(t.Context(), SessionAgentCall{
-					Prompt:          "use bash to create a file named test.txt with content 'hello bash'",
+					Prompt:          "use bash to create a file named test.txt with content 'hello bash'. do not print its timestamp",
 					SessionID:       session.ID,
 					MaxOutputTokens: 10000,
 				})

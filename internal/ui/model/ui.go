@@ -3,6 +3,8 @@ package model
 import (
 	"image"
 	"math/rand"
+	"slices"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/v2/help"
 	"github.com/charmbracelet/bubbles/v2/key"
@@ -38,6 +40,14 @@ type UI struct {
 	help   help.Model
 
 	layout layout
+
+	// sendProgressBar instructs the TUI to send progress bar updates to the
+	// terminal.
+	sendProgressBar bool
+
+	// QueryVersion instructs the TUI to query for the terminal version when it
+	// starts.
+	QueryVersion bool
 }
 
 // New creates a new instance of the [UI] model.
@@ -54,6 +64,10 @@ func New(com *common.Common, app *app.App) *UI {
 
 // Init initializes the UI model.
 func (m *UI) Init() tea.Cmd {
+	if m.QueryVersion {
+		return tea.RequestTerminalVersion
+	}
+
 	return nil
 }
 
@@ -61,6 +75,18 @@ func (m *UI) Init() tea.Cmd {
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
+	case tea.EnvMsg:
+		// Is this Windows Terminal?
+		if !m.sendProgressBar {
+			m.sendProgressBar = slices.Contains(msg, "WT_SESSION")
+		}
+	case tea.TerminalVersionMsg:
+		termVersion := strings.ToLower(string(msg))
+		// Only enable progress bar for the following terminals.
+		if !m.sendProgressBar {
+			m.sendProgressBar = strings.Contains(termVersion, "ghostty")
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.updateLayout(msg.Width, msg.Height)
 		m.editor.SetSize(m.layout.editor.Dx(), m.layout.editor.Dy())
@@ -161,6 +187,11 @@ func (m *UI) View() tea.View {
 	layers = append(layers, mainLayer)
 
 	v.Layer = lipgloss.NewCanvas(layers...)
+	if m.sendProgressBar && m.app != nil && m.app.AgentCoordinator != nil && m.app.AgentCoordinator.IsBusy() {
+		// HACK: use a random percentage to prevent ghostty from hiding it
+		// after a timeout.
+		v.ProgressBar = tea.NewProgressBar(tea.ProgressBarIndeterminate, rand.Intn(100))
+	}
 
 	return v
 }
