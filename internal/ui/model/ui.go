@@ -36,6 +36,7 @@ type UI struct {
 
 	chat   *ChatModel
 	editor *EditorModel
+	side   *SidebarModel
 	dialog *dialog.Overlay
 	help   help.Model
 
@@ -58,6 +59,7 @@ func New(com *common.Common, app *app.App) *UI {
 		dialog: dialog.NewOverlay(),
 		keyMap: DefaultKeyMap(),
 		editor: NewEditorModel(com, app),
+		side:   NewSidebarModel(com),
 		help:   help.New(),
 	}
 }
@@ -88,9 +90,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
-		m.updateLayout(msg.Width, msg.Height)
-		m.editor.SetSize(m.layout.editor.Dx(), m.layout.editor.Dy())
-		m.help.Width = m.layout.help.Dx()
+		m.updateLayoutAndSize(msg.Width, msg.Height)
 	case tea.KeyPressMsg:
 		if m.dialog.HasDialogs() {
 			m.updateDialogs(msg, &cmds)
@@ -106,7 +106,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case key.Matches(msg, m.keyMap.Help):
 				m.help.ShowAll = !m.help.ShowAll
-				m.updateLayout(m.layout.area.Dx(), m.layout.area.Dy())
+				m.updateLayoutAndSize(m.layout.area.Dx(), m.layout.area.Dy())
 			case key.Matches(msg, m.keyMap.Quit):
 				if !m.dialog.ContainsDialog(dialog.QuitDialogID) {
 					m.dialog.AddDialog(dialog.NewQuit(m.com))
@@ -172,12 +172,8 @@ func (m *UI) View() tea.View {
 					Background(lipgloss.ANSIColor(rand.Intn(256))).
 					Render(" Main View "),
 			).X(chatRect.Min.X).Y(chatRect.Min.Y),
-			lipgloss.NewLayer(
-				lipgloss.NewStyle().Width(sideRect.Dx()).
-					Height(sideRect.Dy()).
-					Background(lipgloss.ANSIColor(rand.Intn(256))).
-					Render(" Side View "),
-			).X(sideRect.Min.X).Y(sideRect.Min.Y),
+			lipgloss.NewLayer(m.side.View()).
+				X(sideRect.Min.X).Y(sideRect.Min.Y),
 			lipgloss.NewLayer(m.editor.View()).
 				X(editRect.Min.X).Y(editRect.Min.Y),
 			lipgloss.NewLayer(m.help.View(helpKeyMap)).
@@ -244,9 +240,9 @@ func (m *UI) updateEditor(msg tea.KeyPressMsg, cmds *[]tea.Cmd) {
 	}
 }
 
-// updateLayout updates the layout based on the given terminal width and
-// height given in cells.
-func (m *UI) updateLayout(w, h int) {
+// updateLayoutAndSize updates the layout and sub-models sizes based on the
+// given terminal width and height given in cells.
+func (m *UI) updateLayoutAndSize(w, h int) {
 	// The screen area we're working with
 	area := image.Rect(0, 0, w, h)
 	helpKeyMap := m.focusedKeyMap()
@@ -284,6 +280,11 @@ func (m *UI) updateLayout(w, h int) {
 		sidebar: sideRect,
 		help:    helpRect,
 	}
+
+	// Update sub-model sizes
+	m.side.SetWidth(m.layout.sidebar.Dx())
+	m.editor.SetSize(m.layout.editor.Dx(), m.layout.editor.Dy())
+	m.help.Width = m.layout.help.Dx()
 }
 
 // layout defines the positioning of UI elements.

@@ -1,6 +1,8 @@
 package styles
 
 import (
+	"image/color"
+
 	"github.com/charmbracelet/bubbles/v2/filepicker"
 	"github.com/charmbracelet/bubbles/v2/help"
 	"github.com/charmbracelet/bubbles/v2/textarea"
@@ -110,6 +112,17 @@ type Styles struct {
 	EditorPromptYoloIconBlurred lipgloss.Style
 	EditorPromptYoloDotsFocused lipgloss.Style
 	EditorPromptYoloDotsBlurred lipgloss.Style
+
+	// Logo
+	LogoFieldColor   color.Color
+	LogoTitleColorA  color.Color
+	LogoTitleColorB  color.Color
+	LogoCharmColor   color.Color
+	LogoVersionColor color.Color
+
+	// Sidebar
+	SidebarFull    lipgloss.Style
+	SidebarCompact lipgloss.Style
 }
 
 func DefaultStyles() Styles {
@@ -537,6 +550,17 @@ func DefaultStyles() Styles {
 	s.EditorPromptYoloIconBlurred = s.EditorPromptYoloIconFocused.Foreground(charmtone.Pepper).Background(charmtone.Squid)
 	s.EditorPromptYoloDotsFocused = lipgloss.NewStyle().Foreground(charmtone.Zest).SetString(":::")
 	s.EditorPromptYoloDotsBlurred = s.EditorPromptYoloDotsFocused.Foreground(charmtone.Squid)
+
+	// Logo colors
+	s.LogoFieldColor = primary
+	s.LogoTitleColorA = secondary
+	s.LogoTitleColorB = primary
+	s.LogoCharmColor = secondary
+	s.LogoVersionColor = primary
+
+	// Sidebar
+	s.SidebarFull = lipgloss.NewStyle().Padding(1, 1)
+	s.SidebarCompact = s.SidebarFull.PaddingTop(0)
 
 	return s
 }
