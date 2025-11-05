@@ -319,6 +319,14 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 		allTools = append(allTools, agentTool)
 	}
 
+	if slices.Contains(agent.AllowedTools, tools.AgenticFetchToolName) {
+		agenticFetchTool, err := c.agenticFetchTool(ctx, nil)
+		if err != nil {
+			return nil, err
+		}
+		allTools = append(allTools, agenticFetchTool)
+	}
+
 	allTools = append(allTools,
 		tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Options.Attribution),
 		tools.NewDownloadTool(c.permissions, c.cfg.WorkingDir(), nil),
@@ -344,28 +352,24 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent) ([]fan
 		}
 	}
 
-	mcpTools := tools.GetMCPTools(context.Background(), c.permissions, c.cfg)
-
-	for _, mcpTool := range mcpTools {
+	for _, tool := range tools.GetMCPTools(c.permissions, c.cfg.WorkingDir()) {
 		if agent.AllowedMCP == nil {
 			// No MCP restrictions
-			filteredTools = append(filteredTools, mcpTool)
-		} else if len(agent.AllowedMCP) == 0 {
-			// no mcps allowed
+			filteredTools = append(filteredTools, tool)
+			continue
+		}
+		if len(agent.AllowedMCP) == 0 {
+			// No MCPs allowed
+			slog.Warn("MCPs not allowed")
 			break
 		}
 
 		for mcp, tools := range agent.AllowedMCP {
-			if mcp == mcpTool.MCP() {
-				if len(tools) == 0 {
-					filteredTools = append(filteredTools, mcpTool)
-				}
-				for _, t := range tools {
-					if t == mcpTool.MCPToolName() {
-						filteredTools = append(filteredTools, mcpTool)
-					}
-				}
-				break
+			if mcp != tool.MCP() {
+				continue
+			}
+			if len(tools) == 0 || slices.Contains(tools, tool.MCPToolName()) {
+				filteredTools = append(filteredTools, tool)
 			}
 		}
 	}
@@ -658,7 +662,6 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 		}
 	}
 
-	// TODO: make sure we have
 	apiKey, _ := c.cfg.Resolve(providerCfg.APIKey)
 	baseURL, _ := c.cfg.Resolve(providerCfg.BaseURL)
 

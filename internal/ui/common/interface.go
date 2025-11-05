@@ -1,7 +1,7 @@
 package common
 
 import (
-	tea "github.com/charmbracelet/bubbletea/v2"
+	tea "charm.land/bubbletea/v2"
 )
 
 // Model represents a common interface for UI components.

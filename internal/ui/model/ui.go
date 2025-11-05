@@ -6,13 +6,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/v2/help"
-	"github.com/charmbracelet/bubbles/v2/key"
-	tea "github.com/charmbracelet/bubbletea/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/dialog"
-	"github.com/charmbracelet/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
@@ -83,7 +83,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sendProgressBar = slices.Contains(msg, "WT_SESSION")
 		}
 	case tea.TerminalVersionMsg:
-		termVersion := strings.ToLower(string(msg))
+		termVersion := strings.ToLower(msg.Name)
 		// Only enable progress bar for the following terminals.
 		if !m.sendProgressBar {
 			m.sendProgressBar = strings.Contains(termVersion, "ghostty")
