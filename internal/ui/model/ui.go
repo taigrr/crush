@@ -8,8 +8,10 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/dialog"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -20,20 +22,21 @@ type uiState uint8
 
 // Possible uiState values.
 const (
-	uiChat uiState = iota
-	uiEdit
+	uiEdit uiState = iota
+	uiChat
 )
 
 // UI represents the main user interface model.
 type UI struct {
-	com *common.Common
+	com  *common.Common
+	sess *session.Session
 
 	state uiState
 
 	keyMap KeyMap
+	keyenh tea.KeyboardEnhancementsMsg
 
 	chat   *ChatModel
-	editor *EditorModel
 	side   *SidebarModel
 	dialog *dialog.Overlay
 	help   help.Model
@@ -47,18 +50,40 @@ type UI struct {
 	// QueryVersion instructs the TUI to query for the terminal version when it
 	// starts.
 	QueryVersion bool
+
+	// Editor components
+	textarea textarea.Model
+
+	attachments []any // TODO: Implement attachments
+
+	readyPlaceholder   string
+	workingPlaceholder string
 }
 
 // New creates a new instance of the [UI] model.
 func New(com *common.Common) *UI {
-	return &UI{
-		com:    com,
-		dialog: dialog.NewOverlay(),
-		keyMap: DefaultKeyMap(),
-		editor: NewEditorModel(com),
-		side:   NewSidebarModel(com),
-		help:   help.New(),
+	// Editor components
+	ta := textarea.New()
+	ta.SetStyles(com.Styles.TextArea)
+	ta.ShowLineNumbers = false
+	ta.CharLimit = -1
+	ta.SetVirtualCursor(false)
+	ta.Focus()
+
+	ui := &UI{
+		com:      com,
+		dialog:   dialog.NewOverlay(),
+		keyMap:   DefaultKeyMap(),
+		side:     NewSidebarModel(com),
+		help:     help.New(),
+		textarea: ta,
 	}
+
+	ui.setEditorPrompt()
+	ui.randomizePlaceholders()
+	ui.textarea.Placeholder = ui.readyPlaceholder
+
+	return ui
 }
 
 // Init initializes the UI model.
@@ -73,6 +98,7 @@ func (m *UI) Init() tea.Cmd {
 // Update handles updates to the UI model.
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	hasDialogs := m.dialog.HasDialogs()
 	switch msg := msg.(type) {
 	case tea.EnvMsg:
 		// Is this Windows Terminal?
@@ -88,18 +114,30 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.updateLayoutAndSize(msg.Width, msg.Height)
+	case tea.KeyboardEnhancementsMsg:
+		m.keyenh = msg
+		if msg.SupportsKeyDisambiguation() {
+			m.keyMap.Models.SetHelp("ctrl+m", "models")
+			m.keyMap.Editor.Newline.SetHelp("shift+enter", "newline")
+		}
 	case tea.KeyPressMsg:
-		if m.dialog.HasDialogs() {
+		if hasDialogs {
 			m.updateDialogs(msg, &cmds)
-		} else {
+		}
+	}
+
+	if !hasDialogs {
+		// This branch only handles UI elements when there's no dialog shown.
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
 			switch {
 			case key.Matches(msg, m.keyMap.Tab):
 				if m.state == uiChat {
 					m.state = uiEdit
-					cmds = append(cmds, m.editor.Focus())
+					cmds = append(cmds, m.textarea.Focus())
 				} else {
 					m.state = uiChat
-					cmds = append(cmds, m.editor.Blur())
+					m.textarea.Blur()
 				}
 			case key.Matches(msg, m.keyMap.Help):
 				m.help.ShowAll = !m.help.ShowAll
@@ -109,8 +147,29 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.dialog.AddDialog(dialog.NewQuit(m.com))
 					return m, nil
 				}
+			case key.Matches(msg, m.keyMap.Commands):
+				// TODO: Implement me
+			case key.Matches(msg, m.keyMap.Models):
+				// TODO: Implement me
+			case key.Matches(msg, m.keyMap.Sessions):
+				// TODO: Implement me
 			default:
 				m.updateFocused(msg, &cmds)
+			}
+		}
+
+		// This logic gets triggered on any message type, but should it?
+		switch m.state {
+		case uiChat:
+		case uiEdit:
+			// Textarea placeholder logic
+			if m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
+				m.textarea.Placeholder = m.workingPlaceholder
+			} else {
+				m.textarea.Placeholder = m.readyPlaceholder
+			}
+			if m.com.App.Permissions.SkipRequests() {
+				m.textarea.Placeholder = "Yolo mode!"
 			}
 		}
 	}
@@ -126,7 +185,7 @@ func (m *UI) View() tea.View {
 	layers := []*lipgloss.Layer{}
 
 	// Determine the help key map based on focus
-	helpKeyMap := m.focusedKeyMap()
+	var helpKeyMap help.KeyMap = m
 
 	// The screen areas we're working with
 	area := m.layout.area
@@ -137,11 +196,6 @@ func (m *UI) View() tea.View {
 
 	if m.dialog.HasDialogs() {
 		if dialogView := m.dialog.View(); dialogView != "" {
-			// If the dialog has its own help, use that instead
-			if len(m.dialog.FullHelp()) > 0 || len(m.dialog.ShortHelp()) > 0 {
-				helpKeyMap = m.dialog
-			}
-
 			dialogWidth, dialogHeight := lipgloss.Width(dialogView), lipgloss.Height(dialogView)
 			dialogArea := common.CenterRect(area, dialogWidth, dialogHeight)
 			layers = append(layers,
@@ -153,8 +207,8 @@ func (m *UI) View() tea.View {
 		}
 	}
 
-	if m.state == uiEdit && m.editor.Focused() {
-		cur := m.editor.Cursor()
+	if m.state == uiEdit && m.textarea.Focused() {
+		cur := m.textarea.Cursor()
 		cur.X++ // Adjust for app margins
 		cur.Y += editRect.Min.Y
 		v.Cursor = cur
@@ -171,7 +225,7 @@ func (m *UI) View() tea.View {
 			).X(chatRect.Min.X).Y(chatRect.Min.Y),
 			lipgloss.NewLayer(m.side.View()).
 				X(sideRect.Min.X).Y(sideRect.Min.Y),
-			lipgloss.NewLayer(m.editor.View()).
+			lipgloss.NewLayer(m.textarea.View()).
 				X(editRect.Min.X).Y(editRect.Min.Y),
 			lipgloss.NewLayer(m.help.View(helpKeyMap)).
 				X(helpRect.Min.X).Y(helpRect.Min.Y),
@@ -189,11 +243,82 @@ func (m *UI) View() tea.View {
 	return v
 }
 
-func (m *UI) focusedKeyMap() help.KeyMap {
-	if m.state == uiChat {
-		return m.chat
+// ShortHelp implements [help.KeyMap].
+func (m *UI) ShortHelp() []key.Binding {
+	var binds []key.Binding
+	k := &m.keyMap
+
+	if m.sess == nil {
+		// no session selected
+		binds = append(binds,
+			k.Commands,
+			k.Models,
+			k.Editor.Newline,
+			k.Quit,
+			k.Help,
+		)
+	} else {
+		// we have a session
 	}
-	return m.editor
+
+	// switch m.state {
+	// case uiChat:
+	// case uiEdit:
+	// 	binds = append(binds,
+	// 		k.Editor.AddFile,
+	// 		k.Editor.SendMessage,
+	// 		k.Editor.OpenEditor,
+	// 		k.Editor.Newline,
+	// 	)
+	//
+	// 	if len(m.attachments) > 0 {
+	// 		binds = append(binds,
+	// 			k.Editor.AttachmentDeleteMode,
+	// 			k.Editor.DeleteAllAttachments,
+	// 			k.Editor.Escape,
+	// 		)
+	// 	}
+	// }
+
+	return binds
+}
+
+// FullHelp implements [help.KeyMap].
+func (m *UI) FullHelp() [][]key.Binding {
+	var binds [][]key.Binding
+	k := &m.keyMap
+	help := k.Help
+	help.SetHelp("ctrl+g", "less")
+
+	if m.sess == nil {
+		// no session selected
+		binds = append(binds,
+			[]key.Binding{
+				k.Commands,
+				k.Models,
+				k.Sessions,
+			},
+			[]key.Binding{
+				k.Editor.Newline,
+				k.Editor.AddImage,
+				k.Editor.MentionFile,
+				k.Editor.OpenEditor,
+			},
+			[]key.Binding{
+				help,
+			},
+		)
+	} else {
+		// we have a session
+	}
+
+	// switch m.state {
+	// case uiChat:
+	// case uiEdit:
+	// 	binds = append(binds, m.ShortHelp())
+	// }
+
+	return binds
 }
 
 // updateDialogs updates the dialog overlay with the given message and appends
@@ -213,7 +338,16 @@ func (m *UI) updateFocused(msg tea.KeyPressMsg, cmds *[]tea.Cmd) {
 	case uiChat:
 		m.updateChat(msg, cmds)
 	case uiEdit:
-		m.updateEditor(msg, cmds)
+		switch {
+		case key.Matches(msg, m.keyMap.Editor.Newline):
+			m.textarea.InsertRune('\n')
+		}
+
+		ta, cmd := m.textarea.Update(msg)
+		m.textarea = ta
+		if cmd != nil {
+			*cmds = append(*cmds, cmd)
+		}
 	}
 }
 
@@ -227,26 +361,13 @@ func (m *UI) updateChat(msg tea.KeyPressMsg, cmds *[]tea.Cmd) {
 	}
 }
 
-// updateEditor updates the editor model with the given message and appends any
-// resulting commands to the cmds slice.
-func (m *UI) updateEditor(msg tea.KeyPressMsg, cmds *[]tea.Cmd) {
-	updatedEditor, cmd := m.editor.Update(msg)
-	m.editor = updatedEditor
-	if cmd != nil {
-		*cmds = append(*cmds, cmd)
-	}
-}
-
 // updateLayoutAndSize updates the layout and sub-models sizes based on the
 // given terminal width and height given in cells.
 func (m *UI) updateLayoutAndSize(w, h int) {
 	// The screen area we're working with
 	area := image.Rect(0, 0, w, h)
-	helpKeyMap := m.focusedKeyMap()
+	var helpKeyMap help.KeyMap = m
 	helpHeight := 1
-	if m.dialog.HasDialogs() && len(m.dialog.FullHelp()) > 0 && len(m.dialog.ShortHelp()) > 0 {
-		helpKeyMap = m.dialog
-	}
 	if m.help.ShowAll {
 		for _, row := range helpKeyMap.FullHelp() {
 			helpHeight = max(helpHeight, len(row))
@@ -280,8 +401,9 @@ func (m *UI) updateLayoutAndSize(w, h int) {
 
 	// Update sub-model sizes
 	m.side.SetWidth(m.layout.sidebar.Dx())
-	m.editor.SetSize(m.layout.editor.Dx(), m.layout.editor.Dy())
-	m.help.Width = m.layout.help.Dx()
+	m.textarea.SetWidth(m.layout.editor.Dx())
+	m.textarea.SetHeight(m.layout.editor.Dy())
+	m.help.SetWidth(m.layout.help.Dx())
 }
 
 // layout defines the positioning of UI elements.
@@ -303,4 +425,59 @@ type layout struct {
 
 	// help is the area for the help view.
 	help uv.Rectangle
+}
+
+func (m *UI) setEditorPrompt() {
+	if m.com.App.Permissions.SkipRequests() {
+		m.textarea.SetPromptFunc(4, m.yoloPromptFunc)
+		return
+	}
+	m.textarea.SetPromptFunc(4, m.normalPromptFunc)
+}
+
+func (m *UI) normalPromptFunc(info textarea.PromptInfo) string {
+	t := m.com.Styles
+	if info.LineNumber == 0 {
+		return "  > "
+	}
+	if info.Focused {
+		return t.EditorPromptNormalFocused.Render()
+	}
+	return t.EditorPromptNormalBlurred.Render()
+}
+
+func (m *UI) yoloPromptFunc(info textarea.PromptInfo) string {
+	t := m.com.Styles
+	if info.LineNumber == 0 {
+		if info.Focused {
+			return t.EditorPromptYoloIconFocused.Render()
+		} else {
+			return t.EditorPromptYoloIconBlurred.Render()
+		}
+	}
+	if info.Focused {
+		return t.EditorPromptYoloDotsFocused.Render()
+	}
+	return t.EditorPromptYoloDotsBlurred.Render()
+}
+
+var readyPlaceholders = [...]string{
+	"Ready!",
+	"Ready...",
+	"Ready?",
+	"Ready for instructions",
+}
+
+var workingPlaceholders = [...]string{
+	"Working!",
+	"Working...",
+	"Brrrrr...",
+	"Prrrrrrrr...",
+	"Processing...",
+	"Thinking...",
+}
+
+func (m *UI) randomizePlaceholders() {
+	m.workingPlaceholder = workingPlaceholders[rand.Intn(len(workingPlaceholders))]
+	m.readyPlaceholder = readyPlaceholders[rand.Intn(len(readyPlaceholders))]
 }
