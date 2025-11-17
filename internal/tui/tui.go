@@ -127,6 +127,10 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case tea.KeyboardEnhancementsMsg:
+		// A non-zero value means we have key disambiguation support.
+		if msg.Flags > 0 {
+			a.keyMap.Models.SetHelp("ctrl+m", "models")
+		}
 		for id, page := range a.pages {
 			m, pageCmd := page.Update(msg)
 			a.pages[id] = m
@@ -263,7 +267,10 @@ func (a *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, util.ReportWarn("Agent is busy, please wait...")
 		}
 
-		config.Get().UpdatePreferredModel(msg.ModelType, msg.Model)
+		cfg := config.Get()
+		if err := cfg.UpdatePreferredModel(msg.ModelType, msg.Model); err != nil {
+			return a, util.ReportError(err)
+		}
 
 		go a.app.UpdateAgentModel(context.TODO())
 
@@ -477,6 +484,20 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		return util.CmdHandler(dialogs.OpenDialogMsg{
 			Model: commands.NewCommandDialog(a.selectedSessionID),
 		})
+	case key.Matches(msg, a.keyMap.Models):
+		// if the app is not configured show no models
+		if !a.isConfigured {
+			return nil
+		}
+		if a.dialog.ActiveDialogID() == models.ModelsDialogID {
+			return util.CmdHandler(dialogs.CloseDialogMsg{})
+		}
+		if a.dialog.HasDialogs() {
+			return nil
+		}
+		return util.CmdHandler(dialogs.OpenDialogMsg{
+			Model: models.NewModelDialogCmp(),
+		})
 	case key.Matches(msg, a.keyMap.Sessions):
 		// if the app is not configured show no sessions
 		if !a.isConfigured {
@@ -489,10 +510,6 @@ func (a *appModel) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		var cmds []tea.Cmd
-		if a.dialog.ActiveDialogID() == commands.CommandsDialogID {
-			// If the commands dialog is open, close it first
-			cmds = append(cmds, util.CmdHandler(dialogs.CloseDialogMsg{}))
-		}
 		cmds = append(cmds,
 			func() tea.Msg {
 				allSessions, _ := a.app.Sessions.List(context.Background())
@@ -545,22 +562,25 @@ func (a *appModel) moveToPage(pageID page.PageID) tea.Cmd {
 // View renders the complete application interface including pages, dialogs, and overlays.
 func (a *appModel) View() tea.View {
 	var view tea.View
-	view.AltScreen = true
 	t := styles.CurrentTheme()
+	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
 	view.BackgroundColor = t.BgBase
 	if a.wWidth < 25 || a.wHeight < 15 {
-		view.Layer = lipgloss.NewCanvas(
-			lipgloss.NewLayer(
-				t.S().Base.Width(a.wWidth).Height(a.wHeight).
-					Align(lipgloss.Center, lipgloss.Center).
-					Render(
-						t.S().Base.
-							Padding(1, 4).
-							Foreground(t.White).
-							BorderStyle(lipgloss.RoundedBorder()).
-							BorderForeground(t.Primary).
-							Render("Window too small!"),
-					),
+		view.SetContent(
+			lipgloss.NewCanvas(
+				lipgloss.NewLayer(
+					t.S().Base.Width(a.wWidth).Height(a.wHeight).
+						Align(lipgloss.Center, lipgloss.Center).
+						Render(
+							t.S().Base.
+								Padding(1, 4).
+								Foreground(t.White).
+								BorderStyle(lipgloss.RoundedBorder()).
+								BorderForeground(t.Primary).
+								Render("Window too small!"),
+						),
+				),
 			),
 		)
 		return view
@@ -617,9 +637,8 @@ func (a *appModel) View() tea.View {
 		layers...,
 	)
 
-	view.Layer = canvas
+	view.Content = canvas
 	view.Cursor = cursor
-	view.MouseMode = tea.MouseModeCellMotion
 
 	if a.sendProgressBar && a.app != nil && a.app.AgentCoordinator != nil && a.app.AgentCoordinator.IsBusy() {
 		// HACK: use a random percentage to prevent ghostty from hiding it
