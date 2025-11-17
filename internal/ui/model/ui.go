@@ -10,7 +10,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/dialog"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -27,7 +26,6 @@ const (
 
 // UI represents the main user interface model.
 type UI struct {
-	app *app.App
 	com *common.Common
 
 	state uiState
@@ -52,13 +50,12 @@ type UI struct {
 }
 
 // New creates a new instance of the [UI] model.
-func New(com *common.Common, app *app.App) *UI {
+func New(com *common.Common) *UI {
 	return &UI{
-		app:    app,
 		com:    com,
 		dialog: dialog.NewOverlay(),
 		keyMap: DefaultKeyMap(),
-		editor: NewEditorModel(com, app),
+		editor: NewEditorModel(com),
 		side:   NewSidebarModel(com),
 		help:   help.New(),
 	}
@@ -183,7 +180,7 @@ func (m *UI) View() tea.View {
 	layers = append(layers, mainLayer)
 
 	v.Content = lipgloss.NewCanvas(layers...)
-	if m.sendProgressBar && m.app != nil && m.app.AgentCoordinator != nil && m.app.AgentCoordinator.IsBusy() {
+	if m.sendProgressBar && m.com.App != nil && m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
 		// HACK: use a random percentage to prevent ghostty from hiding it
 		// after a timeout.
 		v.ProgressBar = tea.NewProgressBar(tea.ProgressBarIndeterminate, rand.Intn(100))

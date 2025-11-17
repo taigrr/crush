@@ -3,6 +3,7 @@ package common
 import (
 	"image"
 
+	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -10,15 +11,20 @@ import (
 
 // Common defines common UI options and configurations.
 type Common struct {
-	Config *config.Config
+	App    *app.App
 	Styles *styles.Styles
 }
 
+// Config returns the configuration associated with this [Common] instance.
+func (c *Common) Config() *config.Config {
+	return c.App.Config()
+}
+
 // DefaultCommon returns the default common UI configurations.
-func DefaultCommon(cfg *config.Config) *Common {
+func DefaultCommon(app *app.App) *Common {
 	s := styles.DefaultStyles()
 	return &Common{
-		Config: cfg,
+		App:    app,
 		Styles: &s,
 	}
 }

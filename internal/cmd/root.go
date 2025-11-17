@@ -87,8 +87,8 @@ crush -y
 
 		// Set up the TUI.
 		var env uv.Environ = os.Environ()
-		com := common.DefaultCommon(app.Config())
-		ui := ui.New(com, app)
+		com := common.DefaultCommon(app)
+		ui := ui.New(com)
 		ui.QueryVersion = shouldQueryTerminalVersion(env)
 		program := tea.NewProgram(
 			ui,

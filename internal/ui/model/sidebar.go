@@ -32,7 +32,7 @@ func NewSidebarModel(com *common.Common) *SidebarModel {
 	return &SidebarModel{
 		com:     com,
 		compact: true,
-		cwd:     com.Config.WorkingDir(),
+		cwd:     com.Config().WorkingDir(),
 	}
 }
 

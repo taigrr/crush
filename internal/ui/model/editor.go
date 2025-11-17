@@ -6,7 +6,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/ui/common"
 )
 
@@ -61,7 +60,6 @@ func DefaultEditorKeyMap() EditorKeyMap {
 // EditorModel represents the editor UI model.
 type EditorModel struct {
 	com *common.Common
-	app *app.App
 
 	keyMap   EditorKeyMap
 	textarea *textarea.Model
@@ -73,7 +71,7 @@ type EditorModel struct {
 }
 
 // NewEditorModel creates a new instance of EditorModel.
-func NewEditorModel(com *common.Common, app *app.App) *EditorModel {
+func NewEditorModel(com *common.Common) *EditorModel {
 	ta := textarea.New()
 	ta.SetStyles(com.Styles.TextArea)
 	ta.ShowLineNumbers = false
@@ -82,7 +80,6 @@ func NewEditorModel(com *common.Common, app *app.App) *EditorModel {
 	ta.Focus()
 	e := &EditorModel{
 		com:      com,
-		app:      app,
 		keyMap:   DefaultEditorKeyMap(),
 		textarea: ta,
 	}
@@ -108,12 +105,12 @@ func (m *EditorModel) Update(msg tea.Msg) (*EditorModel, tea.Cmd) {
 	cmds = append(cmds, cmd)
 
 	// Textarea placeholder logic
-	if m.app.AgentCoordinator != nil && m.app.AgentCoordinator.IsBusy() {
+	if m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
 		m.textarea.Placeholder = m.workingPlaceholder
 	} else {
 		m.textarea.Placeholder = m.readyPlaceholder
 	}
-	if m.app.Permissions.SkipRequests() {
+	if m.com.App.Permissions.SkipRequests() {
 		m.textarea.Placeholder = "Yolo mode!"
 	}
 
@@ -183,7 +180,7 @@ func (m *EditorModel) SetSize(width, height int) {
 }
 
 func (m *EditorModel) setEditorPrompt() {
-	if m.app.Permissions.SkipRequests() {
+	if m.com.App.Permissions.SkipRequests() {
 		m.textarea.SetPromptFunc(4, m.yoloPromptFunc)
 		return
 	}
