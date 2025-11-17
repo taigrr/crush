@@ -182,7 +182,7 @@ func (m *UI) View() tea.View {
 
 	layers = append(layers, mainLayer)
 
-	v.Layer = lipgloss.NewCanvas(layers...)
+	v.Content = lipgloss.NewCanvas(layers...)
 	if m.sendProgressBar && m.app != nil && m.app.AgentCoordinator != nil && m.app.AgentCoordinator.IsBusy() {
 		// HACK: use a random percentage to prevent ghostty from hiding it
 		// after a timeout.
