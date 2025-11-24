@@ -23,6 +23,7 @@ import (
 	"github.com/charmbracelet/crush/internal/version"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/ultraviolet/screen"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // uiFocusState represents the current focus state of the UI.
@@ -224,7 +225,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // Draw implements [tea.Layer] and draws the UI model.
-func (m *UI) Draw(scr tea.Screen, area tea.Rectangle) {
+func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 	layout := generateLayout(m, area.Dx(), area.Dy())
 
 	// Clear the screen first
@@ -334,7 +335,21 @@ func (m *UI) View() tea.View {
 		v.Cursor = cur
 	}
 
-	v.Content = m
+	// TODO: Switch to lipgloss.Canvas when available
+	canvas := uv.NewScreenBuffer(m.width, m.height)
+	canvas.Method = ansi.GraphemeWidth
+
+	m.Draw(canvas, canvas.Bounds())
+
+	content := strings.ReplaceAll(canvas.Render(), "\r\n", "\n") // normalize newlines
+	contentLines := strings.Split(content, "\n")
+	for i, line := range contentLines {
+		// Trim trailing spaces for concise rendering
+		contentLines[i] = strings.TrimRight(line, " ")
+	}
+
+	content = strings.Join(contentLines, "\n")
+	v.Content = content
 	if m.sendProgressBar && m.com.App != nil && m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
 		// HACK: use a random percentage to prevent ghostty from hiding it
 		// after a timeout.
