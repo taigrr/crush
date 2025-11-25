@@ -1,7 +1,6 @@
 package model
 
 import (
-	"fmt"
 	"image"
 	"math/rand"
 	"os"
@@ -13,8 +12,10 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
+	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/config"
-	"github.com/charmbracelet/crush/internal/home"
+	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/dialog"
@@ -87,8 +88,16 @@ type UI struct {
 	readyPlaceholder   string
 	workingPlaceholder string
 
-	// Initialize state
-	yesInitializeSelected bool
+	// onboarding state
+	onboarding struct {
+		yesInitializeSelected bool
+	}
+
+	// lsp
+	lspStates map[string]app.LSPClientInfo
+
+	// mcp
+	mcpStates map[string]mcp.ClientInfo
 }
 
 // New creates a new instance of the [UI] model.
@@ -110,10 +119,11 @@ func New(com *common.Common) *UI {
 		focus:    uiFocusNone,
 		state:    uiConfigure,
 		textarea: ta,
-
-		// initialize
-		yesInitializeSelected: true,
 	}
+
+	// set onboarding state defaults
+	ui.onboarding.yesInitializeSelected = true
+
 	// If no provider is configured show the user the provider list
 	if !com.Config().IsConfigured() {
 		ui.state = uiConfigure
@@ -129,6 +139,7 @@ func New(com *common.Common) *UI {
 	ui.setEditorPrompt()
 	ui.randomizePlaceholders()
 	ui.textarea.Placeholder = ui.readyPlaceholder
+	ui.help.Styles = com.Styles.Help
 
 	return ui
 }
@@ -144,13 +155,16 @@ func (m *UI) Init() tea.Cmd {
 // Update handles updates to the UI model.
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
-	hasDialogs := m.dialog.HasDialogs()
 	switch msg := msg.(type) {
 	case tea.EnvMsg:
 		// Is this Windows Terminal?
 		if !m.sendProgressBar {
 			m.sendProgressBar = slices.Contains(msg, "WT_SESSION")
 		}
+	case pubsub.Event[app.LSPEvent]:
+		m.lspStates = app.GetLSPStates()
+	case pubsub.Event[mcp.Event]:
+		m.mcpStates = mcp.GetStates()
 	case tea.TerminalVersionMsg:
 		termVersion := strings.ToLower(msg.Name)
 		// Only enable progress bar for the following terminals.
@@ -168,60 +182,67 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.keyMap.Editor.Newline.SetHelp("shift+enter", "newline")
 		}
 	case tea.KeyPressMsg:
-		if hasDialogs {
-			m.updateDialogs(msg, &cmds)
-		}
+		cmds = append(cmds, m.handleKeyPressMsg(msg)...)
 	}
 
-	if !hasDialogs {
-		// This branch only handles UI elements when there's no dialog shown.
-		switch msg := msg.(type) {
-		case tea.KeyPressMsg:
-			switch {
-			case key.Matches(msg, m.keyMap.Tab):
-				if m.focus == uiFocusMain {
-					m.focus = uiFocusEditor
-					cmds = append(cmds, m.textarea.Focus())
-				} else {
-					m.focus = uiFocusMain
-					m.textarea.Blur()
-				}
-			case key.Matches(msg, m.keyMap.Help):
-				m.help.ShowAll = !m.help.ShowAll
-				m.updateLayoutAndSize()
-			case key.Matches(msg, m.keyMap.Quit):
-				if !m.dialog.ContainsDialog(dialog.QuitDialogID) {
-					m.dialog.AddDialog(dialog.NewQuit(m.com))
-					return m, nil
-				}
-			case key.Matches(msg, m.keyMap.Commands):
-				// TODO: Implement me
-			case key.Matches(msg, m.keyMap.Models):
-				// TODO: Implement me
-			case key.Matches(msg, m.keyMap.Sessions):
-				// TODO: Implement me
-			default:
-				m.updateFocused(msg, &cmds)
-			}
+	// This logic gets triggered on any message type, but should it?
+	switch m.focus {
+	case uiFocusMain:
+	case uiFocusEditor:
+		// Textarea placeholder logic
+		if m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
+			m.textarea.Placeholder = m.workingPlaceholder
+		} else {
+			m.textarea.Placeholder = m.readyPlaceholder
 		}
-
-		// This logic gets triggered on any message type, but should it?
-		switch m.focus {
-		case uiFocusMain:
-		case uiFocusEditor:
-			// Textarea placeholder logic
-			if m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
-				m.textarea.Placeholder = m.workingPlaceholder
-			} else {
-				m.textarea.Placeholder = m.readyPlaceholder
-			}
-			if m.com.App.Permissions.SkipRequests() {
-				m.textarea.Placeholder = "Yolo mode!"
-			}
+		if m.com.App.Permissions.SkipRequests() {
+			m.textarea.Placeholder = "Yolo mode!"
 		}
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
+	if m.dialog.HasDialogs() {
+		return m.updateDialogs(msg)
+	}
+
+	switch {
+	case key.Matches(msg, m.keyMap.Tab):
+		switch m.state {
+		case uiChat:
+			if m.focus == uiFocusMain {
+				m.focus = uiFocusEditor
+				cmds = append(cmds, m.textarea.Focus())
+			} else {
+				m.focus = uiFocusMain
+				m.textarea.Blur()
+			}
+		}
+	case key.Matches(msg, m.keyMap.Help):
+		m.help.ShowAll = !m.help.ShowAll
+		m.updateLayoutAndSize()
+		return cmds
+	case key.Matches(msg, m.keyMap.Quit):
+		if !m.dialog.ContainsDialog(dialog.QuitDialogID) {
+			m.dialog.AddDialog(dialog.NewQuit(m.com))
+			return
+		}
+		return cmds
+	case key.Matches(msg, m.keyMap.Commands):
+		// TODO: Implement me
+		return cmds
+	case key.Matches(msg, m.keyMap.Models):
+		// TODO: Implement me
+		return cmds
+	case key.Matches(msg, m.keyMap.Sessions):
+		// TODO: Implement me
+		return cmds
+	}
+
+	cmds = append(cmds, m.updateFocused(msg)...)
+	return cmds
 }
 
 // Draw implements [tea.Layer] and draws the UI model.
@@ -253,12 +274,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 	case uiLanding:
 		header := uv.NewStyledString(m.header)
 		header.Draw(scr, layout.header)
-
-		mainView := lipgloss.NewStyle().Width(layout.main.Dx()).
-			Height(layout.main.Dy()).
-			Background(lipgloss.ANSIColor(rand.Intn(256))).
-			Render(" Landing Page ")
-		main := uv.NewStyledString(mainView)
+		main := uv.NewStyledString(m.landingView())
 		main.Draw(scr, layout.main)
 
 		editor := uv.NewStyledString(m.textarea.View())
@@ -378,9 +394,10 @@ func (m *UI) ShortHelp() []key.Binding {
 				k.Quit,
 				k.Help,
 			)
-		} else {
-			// we have a session
 		}
+		// else {
+		// we have a session
+		// }
 
 		// switch m.state {
 		// case uiChat:
@@ -400,7 +417,6 @@ func (m *UI) ShortHelp() []key.Binding {
 		// 		)
 		// 	}
 		// }
-
 	}
 
 	return binds
@@ -438,9 +454,10 @@ func (m *UI) FullHelp() [][]key.Binding {
 					help,
 				},
 			)
-		} else {
-			// we have a session
 		}
+		// else {
+		// we have a session
+		// }
 	}
 
 	// switch m.state {
@@ -452,44 +469,48 @@ func (m *UI) FullHelp() [][]key.Binding {
 	return binds
 }
 
-// updateDialogs updates the dialog overlay with the given message and appends
-// any resulting commands to the cmds slice.
-func (m *UI) updateDialogs(msg tea.KeyPressMsg, cmds *[]tea.Cmd) {
+// updateDialogs updates the dialog overlay with the given message and returns cmds
+func (m *UI) updateDialogs(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 	updatedDialog, cmd := m.dialog.Update(msg)
 	m.dialog = updatedDialog
-	if cmd != nil {
-		*cmds = append(*cmds, cmd)
-	}
+	cmds = append(cmds, cmd)
+	return cmds
 }
 
 // updateFocused updates the focused model (chat or editor) with the given message
 // and appends any resulting commands to the cmds slice.
-func (m *UI) updateFocused(msg tea.KeyPressMsg, cmds *[]tea.Cmd) {
-	switch m.focus {
-	case uiFocusMain:
-		m.updateChat(msg, cmds)
-	case uiFocusEditor:
-		switch {
-		case key.Matches(msg, m.keyMap.Editor.Newline):
-			m.textarea.InsertRune('\n')
-		}
+func (m *UI) updateFocused(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
+	switch m.state {
+	case uiConfigure:
+		return cmds
+	case uiInitialize:
+		return append(cmds, m.updateInitializeView(msg)...)
+	case uiChat, uiLanding, uiChatCompact:
+		switch m.focus {
+		case uiFocusMain:
+			cmds = append(cmds, m.updateChat(msg)...)
+		case uiFocusEditor:
+			switch {
+			case key.Matches(msg, m.keyMap.Editor.Newline):
+				m.textarea.InsertRune('\n')
+			}
 
-		ta, cmd := m.textarea.Update(msg)
-		m.textarea = ta
-		if cmd != nil {
-			*cmds = append(*cmds, cmd)
+			ta, cmd := m.textarea.Update(msg)
+			m.textarea = ta
+			cmds = append(cmds, cmd)
+			return cmds
 		}
 	}
+	return cmds
 }
 
 // updateChat updates the chat model with the given message and appends any
 // resulting commands to the cmds slice.
-func (m *UI) updateChat(msg tea.KeyPressMsg, cmds *[]tea.Cmd) {
+func (m *UI) updateChat(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 	updatedChat, cmd := m.chat.Update(msg)
 	m.chat = updatedChat
-	if cmd != nil {
-		*cmds = append(*cmds, cmd)
-	}
+	cmds = append(cmds, cmd)
+	return cmds
 }
 
 // updateLayoutAndSize updates the layout and sizes of UI components.
@@ -509,7 +530,6 @@ func (m *UI) updateSize() {
 		m.renderHeader(false, m.layout.header.Dx())
 
 	case uiLanding:
-		// TODO: set the width and heigh of the chat component
 		m.renderHeader(false, m.layout.header.Dx())
 		m.textarea.SetWidth(m.layout.editor.Dx())
 		m.textarea.SetHeight(m.layout.editor.Dy())
@@ -557,7 +577,7 @@ func generateLayout(m *UI, w, h int) layout {
 	appRect.Max.X -= 1
 	appRect.Max.Y -= 1
 
-	if slices.Contains([]uiState{uiConfigure, uiInitialize}, m.state) {
+	if slices.Contains([]uiState{uiConfigure, uiInitialize, uiLanding}, m.state) {
 		// extra padding on left and right for these states
 		appRect.Min.X += 1
 		appRect.Max.X -= 1
@@ -597,6 +617,9 @@ func generateLayout(m *UI, w, h int) layout {
 		// help
 		headerRect, mainRect := uv.SplitVertical(appRect, uv.Fixed(headerHeight))
 		mainRect, editorRect := uv.SplitVertical(mainRect, uv.Fixed(mainRect.Dy()-editorHeight))
+		// Remove extra padding from editor (but keep it for header and main)
+		editorRect.Min.X -= 1
+		editorRect.Max.X += 1
 		layout.header = headerRect
 		layout.main = mainRect
 		layout.editor = editorRect
@@ -720,44 +743,6 @@ var workingPlaceholders = [...]string{
 func (m *UI) randomizePlaceholders() {
 	m.workingPlaceholder = workingPlaceholders[rand.Intn(len(workingPlaceholders))]
 	m.readyPlaceholder = readyPlaceholders[rand.Intn(len(readyPlaceholders))]
-}
-
-func (m *UI) initializeView() string {
-	cfg := m.com.Config()
-	s := m.com.Styles.Initialize
-	cwd := home.Short(cfg.WorkingDir())
-	initFile := cfg.Options.InitializeAs
-
-	header := s.Header.Render("Would you like to initialize this project?")
-	path := s.Accent.PaddingLeft(2).Render(cwd)
-	desc := s.Content.Render(fmt.Sprintf("When I initialize your codebase I examine the project and put the result into an %s file which serves as general context.", initFile))
-	hint := s.Content.Render("You can also initialize anytime via ") + s.Accent.Render("ctrl+p") + s.Content.Render(".")
-	prompt := s.Content.Render("Would you like to initialize now?")
-
-	buttons := common.ButtonGroup(m.com.Styles, []common.ButtonOpts{
-		{Text: "Yep!", Selected: m.yesInitializeSelected},
-		{Text: "Nope", Selected: !m.yesInitializeSelected},
-	}, " ")
-
-	// max width 60 so the text is compact
-	width := min(m.layout.main.Dx(), 60)
-
-	return lipgloss.NewStyle().
-		Width(width).
-		Height(m.layout.main.Dy()).
-		PaddingBottom(1).
-		AlignVertical(lipgloss.Bottom).
-		Render(strings.Join(
-			[]string{
-				header,
-				path,
-				desc,
-				hint,
-				prompt,
-				buttons,
-			},
-			"\n\n",
-		))
 }
 
 func (m *UI) renderHeader(compact bool, width int) {
