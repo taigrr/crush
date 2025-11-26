@@ -96,6 +96,10 @@ func getDynamicHeightLimits(availableHeight int) (maxFiles, maxLSPs, maxMCPs int
 // sidebar renders the chat sidebar containing session title, working
 // directory, model info, file list, LSP status, and MCP status.
 func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
+	if m.session == nil {
+		return
+	}
+
 	const logoHeightBreakpoint = 30
 
 	t := m.com.Styles
