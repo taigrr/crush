@@ -10,27 +10,29 @@ import (
 	"github.com/charmbracelet/crush/internal/ui/styles"
 )
 
-type MCPInfo struct {
-	mcp.ClientInfo
-}
-
-func (m *UI) mcpInfo(t *styles.Styles, width, height int) string {
-	var mcps []MCPInfo
+// mcpInfo renders the MCP status section showing active MCP clients and their
+// tool/prompt counts.
+func (m *UI) mcpInfo(width, maxItems int, isSection bool) string {
+	var mcps []mcp.ClientInfo
+	t := m.com.Styles
 
 	for _, state := range m.mcpStates {
-		mcps = append(mcps, MCPInfo{ClientInfo: state})
+		mcps = append(mcps, state)
 	}
 
 	title := t.Subtle.Render("MCPs")
+	if isSection {
+		title = common.Section(t, title, width)
+	}
 	list := t.Subtle.Render("None")
 	if len(mcps) > 0 {
-		height = max(0, height-2) // remove title and space
-		list = mcpList(t, mcps, width, height)
+		list = mcpList(t, mcps, width, maxItems)
 	}
 
 	return lipgloss.NewStyle().Width(width).Render(fmt.Sprintf("%s\n\n%s", title, list))
 }
 
+// mcpCounts formats tool and prompt counts for display.
 func mcpCounts(t *styles.Styles, counts mcp.Counts) string {
 	parts := []string{}
 	if counts.Tools > 0 {
@@ -42,8 +44,11 @@ func mcpCounts(t *styles.Styles, counts mcp.Counts) string {
 	return strings.Join(parts, " ")
 }
 
-func mcpList(t *styles.Styles, mcps []MCPInfo, width, height int) string {
+// mcpList renders a list of MCP clients with their status and counts,
+// truncating to maxItems if needed.
+func mcpList(t *styles.Styles, mcps []mcp.ClientInfo, width, maxItems int) string {
 	var renderedMcps []string
+
 	for _, m := range mcps {
 		var icon string
 		title := m.Name
@@ -78,9 +83,9 @@ func mcpList(t *styles.Styles, mcps []MCPInfo, width, height int) string {
 		}, width))
 	}
 
-	if len(renderedMcps) > height {
-		visibleItems := renderedMcps[:height-1]
-		remaining := len(renderedMcps) - (height - 1)
+	if len(renderedMcps) > maxItems {
+		visibleItems := renderedMcps[:maxItems-1]
+		remaining := len(renderedMcps) - maxItems
 		visibleItems = append(visibleItems, t.Subtle.Render(fmt.Sprintf("…and %d more", remaining)))
 		return lipgloss.JoinVertical(lipgloss.Left, visibleItems...)
 	}

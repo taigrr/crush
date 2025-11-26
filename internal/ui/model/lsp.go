@@ -12,13 +12,17 @@ import (
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 )
 
+// LSPInfo wraps LSP client information with diagnostic counts by severity.
 type LSPInfo struct {
 	app.LSPClientInfo
 	Diagnostics map[protocol.DiagnosticSeverity]int
 }
 
-func (m *UI) lspInfo(t *styles.Styles, width, height int) string {
+// lspInfo renders the LSP status section showing active LSP clients and their
+// diagnostic counts.
+func (m *UI) lspInfo(width, maxItems int, isSection bool) string {
 	var lsps []LSPInfo
+	t := m.com.Styles
 
 	for _, state := range m.lspStates {
 		client, ok := m.com.App.LSPClients.Get(state.Name)
@@ -43,15 +47,18 @@ func (m *UI) lspInfo(t *styles.Styles, width, height int) string {
 		lsps = append(lsps, LSPInfo{LSPClientInfo: state, Diagnostics: lspErrs})
 	}
 	title := t.Subtle.Render("LSPs")
+	if isSection {
+		title = common.Section(t, title, width)
+	}
 	list := t.Subtle.Render("None")
 	if len(lsps) > 0 {
-		height = max(0, height-2) // remove title and space
-		list = lspList(t, lsps, width, height)
+		list = lspList(t, lsps, width, maxItems)
 	}
 
 	return lipgloss.NewStyle().Width(width).Render(fmt.Sprintf("%s\n\n%s", title, list))
 }
 
+// lspDiagnostics formats diagnostic counts with appropriate icons and colors.
 func lspDiagnostics(t *styles.Styles, diagnostics map[protocol.DiagnosticSeverity]int) string {
 	errs := []string{}
 	if diagnostics[protocol.SeverityError] > 0 {
@@ -69,7 +76,9 @@ func lspDiagnostics(t *styles.Styles, diagnostics map[protocol.DiagnosticSeverit
 	return strings.Join(errs, " ")
 }
 
-func lspList(t *styles.Styles, lsps []LSPInfo, width, height int) string {
+// lspList renders a list of LSP clients with their status and diagnostics,
+// truncating to maxItems if needed.
+func lspList(t *styles.Styles, lsps []LSPInfo, width, maxItems int) string {
 	var renderedLsps []string
 	for _, l := range lsps {
 		var icon string
@@ -103,9 +112,9 @@ func lspList(t *styles.Styles, lsps []LSPInfo, width, height int) string {
 		}, width))
 	}
 
-	if len(renderedLsps) > height {
-		visibleItems := renderedLsps[:height-1]
-		remaining := len(renderedLsps) - (height - 1)
+	if len(renderedLsps) > maxItems {
+		visibleItems := renderedLsps[:maxItems-1]
+		remaining := len(renderedLsps) - maxItems
 		visibleItems = append(visibleItems, t.Subtle.Render(fmt.Sprintf("…and %d more", remaining)))
 		return lipgloss.JoinVertical(lipgloss.Left, visibleItems...)
 	}

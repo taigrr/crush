@@ -1,67 +1,150 @@
 package model
 
 import (
-	tea "charm.land/bubbletea/v2"
+	"cmp"
+	"fmt"
+
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/ui/common"
+	"github.com/charmbracelet/crush/internal/ui/logo"
+	uv "github.com/charmbracelet/ultraviolet"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
-// SidebarModel is the model for the sidebar UI component.
-type SidebarModel struct {
-	com *common.Common
-
-	// width of the sidebar.
-	width int
-
-	// Cached rendered logo string.
-	logo string
-	// Cached cwd string.
-	cwd string
-
-	// TODO: lsp, files, session
-
-	// Whether to render the sidebar in compact mode.
-	compact bool
-}
-
-// NewSidebarModel creates a new SidebarModel instance.
-func NewSidebarModel(com *common.Common) *SidebarModel {
-	return &SidebarModel{
-		com:     com,
-		compact: true,
-		cwd:     com.Config().WorkingDir(),
+// modelInfo renders the current model information including reasoning
+// settings and context usage/cost for the sidebar.
+func (m *UI) modelInfo(width int) string {
+	model := m.selectedLargeModel()
+	reasoningInfo := ""
+	if model != nil && model.CatwalkCfg.CanReason {
+		providerConfig, ok := m.com.Config().Providers.Get(model.ModelCfg.Provider)
+		if ok {
+			switch providerConfig.Type {
+			case catwalk.TypeAnthropic:
+				if model.ModelCfg.Think {
+					reasoningInfo = "Thinking On"
+				} else {
+					reasoningInfo = "Thinking Off"
+				}
+			default:
+				formatter := cases.Title(language.English, cases.NoLower)
+				reasoningEffort := cmp.Or(model.ModelCfg.ReasoningEffort, model.CatwalkCfg.DefaultReasoningEffort)
+				reasoningInfo = formatter.String(fmt.Sprintf("Reasoning %s", reasoningEffort))
+			}
+		}
 	}
+	var modelContext *common.ModelContextInfo
+	if m.session != nil {
+		modelContext = &common.ModelContextInfo{
+			ContextUsed:  m.session.CompletionTokens + m.session.PromptTokens,
+			Cost:         m.session.Cost,
+			ModelContext: model.CatwalkCfg.ContextWindow,
+		}
+	}
+	return common.ModelInfo(m.com.Styles, model.CatwalkCfg.Name, reasoningInfo, modelContext, width)
 }
 
-// Init initializes the sidebar model.
-func (m *SidebarModel) Init() tea.Cmd {
-	return nil
-}
+// getDynamicHeightLimits will give us the num of items to show in each section based on the hight
+// some items are more important than others.
+func getDynamicHeightLimits(availableHeight int) (maxFiles, maxLSPs, maxMCPs int) {
+	const (
+		minItemsPerSection      = 2
+		defaultMaxFilesShown    = 10
+		defaultMaxLSPsShown     = 8
+		defaultMaxMCPsShown     = 8
+		minAvailableHeightLimit = 10
+	)
 
-// Update updates the sidebar model based on incoming messages.
-func (m *SidebarModel) Update(msg tea.Msg) (*SidebarModel, tea.Cmd) {
-	return m, nil
-}
-
-// View renders the sidebar model as a string.
-func (m *SidebarModel) View() string {
-	s := m.com.Styles.SidebarFull
-	if m.compact {
-		s = m.com.Styles.SidebarCompact
+	// If we have very little space, use minimum values
+	if availableHeight < minAvailableHeightLimit {
+		return minItemsPerSection, minItemsPerSection, minItemsPerSection
 	}
 
+	// Distribute available height among the three sections
+	// Give priority to files, then LSPs, then MCPs
+	totalSections := 3
+	heightPerSection := availableHeight / totalSections
+
+	// Calculate limits for each section, ensuring minimums
+	maxFiles = max(minItemsPerSection, min(defaultMaxFilesShown, heightPerSection))
+	maxLSPs = max(minItemsPerSection, min(defaultMaxLSPsShown, heightPerSection))
+	maxMCPs = max(minItemsPerSection, min(defaultMaxMCPsShown, heightPerSection))
+
+	// If we have extra space, give it to files first
+	remainingHeight := availableHeight - (maxFiles + maxLSPs + maxMCPs)
+	if remainingHeight > 0 {
+		extraForFiles := min(remainingHeight, defaultMaxFilesShown-maxFiles)
+		maxFiles += extraForFiles
+		remainingHeight -= extraForFiles
+
+		if remainingHeight > 0 {
+			extraForLSPs := min(remainingHeight, defaultMaxLSPsShown-maxLSPs)
+			maxLSPs += extraForLSPs
+			remainingHeight -= extraForLSPs
+
+			if remainingHeight > 0 {
+				maxMCPs += min(remainingHeight, defaultMaxMCPsShown-maxMCPs)
+			}
+		}
+	}
+
+	return maxFiles, maxLSPs, maxMCPs
+}
+
+// sidebar renders the chat sidebar containing session title, working
+// directory, model info, file list, LSP status, and MCP status.
+func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
+	const logoHeightBreakpoint = 30
+
+	t := m.com.Styles
+	width := area.Dx()
+	height := area.Dy()
+
+	title := t.Muted.Width(width).MaxHeight(2).Render(m.session.Title)
+	cwd := common.PrettyPath(t, m.com.Config().WorkingDir(), width)
+	sidebarLogo := m.sidebarLogo
+	if height < logoHeightBreakpoint {
+		sidebarLogo = logo.SmallRender(width)
+	}
 	blocks := []string{
-		m.logo,
+		sidebarLogo,
+		title,
+		"",
+		cwd,
+		"",
+		m.modelInfo(width),
+		"",
 	}
 
-	return s.Render(lipgloss.JoinVertical(
-		lipgloss.Top,
+	sidebarHeader := lipgloss.JoinVertical(
+		lipgloss.Left,
 		blocks...,
-	))
-}
+	)
 
-// SetWidth sets the width of the sidebar and updates the logo accordingly.
-func (m *SidebarModel) SetWidth(width int) {
-	m.logo = renderLogo(m.com.Styles, true, width)
-	m.width = width
+	_, remainingHeightArea := uv.SplitVertical(m.layout.sidebar, uv.Fixed(lipgloss.Height(sidebarHeader)))
+	remainingHeight := remainingHeightArea.Dy() - 10
+	maxFiles, maxLSPs, maxMCPs := getDynamicHeightLimits(remainingHeight)
+
+	lspSection := m.lspInfo(width, maxLSPs, true)
+	mcpSection := m.mcpInfo(width, maxMCPs, true)
+	filesSection := m.filesInfo(m.com.Config().WorkingDir(), width, maxFiles)
+
+	uv.NewStyledString(
+		lipgloss.NewStyle().
+			MaxWidth(width).
+			MaxHeight(height).
+			Render(
+				lipgloss.JoinVertical(
+					lipgloss.Left,
+					sidebarHeader,
+					filesSection,
+					"",
+					lspSection,
+					"",
+					mcpSection,
+				),
+			),
+	).Draw(scr, area)
 }
