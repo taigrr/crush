@@ -162,15 +162,16 @@ func New(com *common.Common) *UI {
 }
 
 // Init initializes the UI model.
-func (m UI) Init() tea.Cmd {
+func (m *UI) Init() tea.Cmd {
+	var cmds []tea.Cmd
 	if m.QueryVersion {
-		return tea.RequestTerminalVersion
+		cmds = append(cmds, tea.RequestTerminalVersion)
 	}
-	return nil
+	return tea.Batch(cmds...)
 }
 
 // Update handles updates to the UI model.
-func (m UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.EnvMsg:
@@ -395,7 +396,7 @@ func (m *UI) Cursor() *tea.Cursor {
 }
 
 // View renders the UI model's view.
-func (m UI) View() tea.View {
+func (m *UI) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
 	v.BackgroundColor = m.com.Styles.Background
@@ -426,7 +427,7 @@ func (m UI) View() tea.View {
 }
 
 // ShortHelp implements [help.KeyMap].
-func (m UI) ShortHelp() []key.Binding {
+func (m *UI) ShortHelp() []key.Binding {
 	var binds []key.Binding
 	k := &m.keyMap
 
@@ -473,7 +474,7 @@ func (m UI) ShortHelp() []key.Binding {
 }
 
 // FullHelp implements [help.KeyMap].
-func (m UI) FullHelp() [][]key.Binding {
+func (m *UI) FullHelp() [][]key.Binding {
 	var binds [][]key.Binding
 	k := &m.keyMap
 	help := k.Help
