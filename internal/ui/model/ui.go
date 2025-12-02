@@ -162,7 +162,7 @@ func New(com *common.Common) *UI {
 }
 
 // Init initializes the UI model.
-func (m *UI) Init() tea.Cmd {
+func (m UI) Init() tea.Cmd {
 	if m.QueryVersion {
 		return tea.RequestTerminalVersion
 	}
@@ -170,7 +170,7 @@ func (m *UI) Init() tea.Cmd {
 }
 
 // Update handles updates to the UI model.
-func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch msg := msg.(type) {
 	case tea.EnvMsg:
@@ -297,73 +297,65 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 
 // Draw implements [tea.Layer] and draws the UI model.
 func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
-	layout := generateLayout(m, area.Dx(), area.Dy())
-
-	// Update cached layout and component sizes if needed.
-	if m.layout != layout {
-		m.layout = layout
-		m.updateSize()
-	}
-
 	// Clear the screen first
 	screen.Clear(scr)
 
 	switch m.state {
 	case uiConfigure:
 		header := uv.NewStyledString(m.header)
-		header.Draw(scr, layout.header)
+		header.Draw(scr, m.layout.header)
 
-		mainView := lipgloss.NewStyle().Width(layout.main.Dx()).
-			Height(layout.main.Dy()).
+		mainView := lipgloss.NewStyle().Width(m.layout.main.Dx()).
+			Height(m.layout.main.Dy()).
 			Background(lipgloss.ANSIColor(rand.Intn(256))).
 			Render(" Configure ")
 		main := uv.NewStyledString(mainView)
-		main.Draw(scr, layout.main)
+		main.Draw(scr, m.layout.main)
 
 	case uiInitialize:
 		header := uv.NewStyledString(m.header)
-		header.Draw(scr, layout.header)
+		header.Draw(scr, m.layout.header)
 
 		main := uv.NewStyledString(m.initializeView())
-		main.Draw(scr, layout.main)
+		main.Draw(scr, m.layout.main)
 
 	case uiLanding:
 		header := uv.NewStyledString(m.header)
-		header.Draw(scr, layout.header)
+		header.Draw(scr, m.layout.header)
 		main := uv.NewStyledString(m.landingView())
-		main.Draw(scr, layout.main)
+		main.Draw(scr, m.layout.main)
 
 		editor := uv.NewStyledString(m.textarea.View())
-		editor.Draw(scr, layout.editor)
+		editor.Draw(scr, m.layout.editor)
 
 	case uiChat:
 		header := uv.NewStyledString(m.header)
-		header.Draw(scr, layout.header)
-		m.drawSidebar(scr, layout.sidebar)
+		header.Draw(scr, m.layout.header)
+		m.drawSidebar(scr, m.layout.sidebar)
 
-		m.chat.Draw(scr, layout.main)
+		m.chat.Draw(scr, m.layout.main)
 
 		editor := uv.NewStyledString(m.textarea.View())
-		editor.Draw(scr, layout.editor)
+		editor.Draw(scr, m.layout.editor)
 
 	case uiChatCompact:
 		header := uv.NewStyledString(m.header)
-		header.Draw(scr, layout.header)
+		header.Draw(scr, m.layout.header)
 
-		mainView := lipgloss.NewStyle().Width(layout.main.Dx()).
-			Height(layout.main.Dy()).
+		mainView := lipgloss.NewStyle().Width(m.layout.main.Dx()).
+			Height(m.layout.main.Dy()).
 			Background(lipgloss.ANSIColor(rand.Intn(256))).
 			Render(" Compact Chat Messages ")
 		main := uv.NewStyledString(mainView)
-		main.Draw(scr, layout.main)
+		main.Draw(scr, m.layout.main)
 
 		editor := uv.NewStyledString(m.textarea.View())
-		editor.Draw(scr, layout.editor)
+		editor.Draw(scr, m.layout.editor)
 	}
 
 	// Add help layer
 	help := uv.NewStyledString(m.help.View(m))
-	help.Draw(scr, layout.help)
+	help.Draw(scr, m.layout.help)
 
 	// Debugging rendering (visually see when the tui rerenders)
 	if os.Getenv("CRUSH_UI_DEBUG") == "true" {
@@ -403,7 +395,7 @@ func (m *UI) Cursor() *tea.Cursor {
 }
 
 // View renders the UI model's view.
-func (m *UI) View() tea.View {
+func (m UI) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
 	v.BackgroundColor = m.com.Styles.Background
@@ -434,7 +426,7 @@ func (m *UI) View() tea.View {
 }
 
 // ShortHelp implements [help.KeyMap].
-func (m *UI) ShortHelp() []key.Binding {
+func (m UI) ShortHelp() []key.Binding {
 	var binds []key.Binding
 	k := &m.keyMap
 
@@ -481,7 +473,7 @@ func (m *UI) ShortHelp() []key.Binding {
 }
 
 // FullHelp implements [help.KeyMap].
-func (m *UI) FullHelp() [][]key.Binding {
+func (m UI) FullHelp() [][]key.Binding {
 	var binds [][]key.Binding
 	k := &m.keyMap
 	help := k.Help
