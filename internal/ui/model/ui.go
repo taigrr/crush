@@ -386,19 +386,28 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 	}
 }
 
+// Cursor returns the cursor position and properties for the UI model. It
+// returns nil if the cursor should not be shown.
+func (m *UI) Cursor() *tea.Cursor {
+	if m.layout.editor.Dy() <= 0 {
+		// Don't show cursor if editor is not visible
+		return nil
+	}
+	if m.focus == uiFocusEditor && m.textarea.Focused() {
+		cur := m.textarea.Cursor()
+		cur.X++ // Adjust for app margins
+		cur.Y += m.layout.editor.Min.Y
+		return cur
+	}
+	return nil
+}
+
 // View renders the UI model's view.
 func (m *UI) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
 	v.BackgroundColor = m.com.Styles.Background
-
-	layout := generateLayout(m, m.width, m.height)
-	if m.focus == uiFocusEditor && m.textarea.Focused() {
-		cur := m.textarea.Cursor()
-		cur.X++ // Adjust for app margins
-		cur.Y += layout.editor.Min.Y
-		v.Cursor = cur
-	}
+	v.Cursor = m.Cursor()
 
 	// TODO: Switch to lipgloss.Canvas when available
 	canvas := uv.NewScreenBuffer(m.width, m.height)
