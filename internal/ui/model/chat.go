@@ -65,7 +65,7 @@ type ChatNoContentItem struct {
 func NewChatNoContentItem(t *styles.Styles) *ChatNoContentItem {
 	c := new(ChatNoContentItem)
 	c.StringItem = list.NewStringItem("No message content").
-		WithFocusStyles(&t.Chat.NoContentMessage, &t.Chat.NoContentMessage)
+		WithFocusStyles(&t.Chat.Message.NoContent, &t.Chat.Message.NoContent)
 	return c
 }
 
@@ -88,7 +88,7 @@ func NewChatMessageItem(t *styles.Styles, msg message.Message) *ChatMessageItem 
 	switch msg.Role {
 	case message.User:
 		item := list.NewMarkdownItem(msg.Content().String()).
-			WithFocusStyles(&t.Chat.UserMessageFocused, &t.Chat.UserMessageBlurred)
+			WithFocusStyles(&t.Chat.Message.UserFocused, &t.Chat.Message.UserBlurred)
 		item.SetHighlightStyle(list.LipglossStyleToCellStyler(t.TextSelection))
 		// TODO: Add attachments
 		c.item = item
@@ -102,13 +102,13 @@ func NewChatMessageItem(t *styles.Styles, msg message.Message) *ChatMessageItem 
 		reasoningThinking := strings.TrimSpace(reasoningContent.Thinking)
 
 		if finished && content == "" && finishedData.Reason == message.FinishReasonError {
-			tag := t.Chat.ErrorTag.Render("ERROR")
-			title := t.Chat.ErrorTitle.Render(finishedData.Message)
-			details := t.Chat.ErrorDetails.Render(finishedData.Details)
+			tag := t.Chat.Message.ErrorTag.Render("ERROR")
+			title := t.Chat.Message.ErrorTitle.Render(finishedData.Message)
+			details := t.Chat.Message.ErrorDetails.Render(finishedData.Details)
 			errContent := fmt.Sprintf("%s %s\n\n%s", tag, title, details)
 
 			item := list.NewStringItem(errContent).
-				WithFocusStyles(&t.Chat.AssistantMessageFocused, &t.Chat.AssistantMessageBlurred)
+				WithFocusStyles(&t.Chat.Message.AssistantFocused, &t.Chat.Message.AssistantBlurred)
 
 			c.item = item
 
@@ -136,7 +136,7 @@ func NewChatMessageItem(t *styles.Styles, msg message.Message) *ChatMessageItem 
 		}
 
 		item := list.NewMarkdownItem(strings.Join(parts, "\n")).
-			WithFocusStyles(&t.Chat.AssistantMessageFocused, &t.Chat.AssistantMessageBlurred)
+			WithFocusStyles(&t.Chat.Message.AssistantFocused, &t.Chat.Message.AssistantBlurred)
 		item.SetHighlightStyle(list.LipglossStyleToCellStyler(t.TextSelection))
 
 		c.item = item
@@ -234,12 +234,10 @@ func (m *Chat) PrependItem(item list.Item) {
 	m.list.PrependItem(item)
 }
 
-// AppendMessage appends a new message item to the chat list.
-func (m *Chat) AppendMessage(msg message.Message) {
-	if msg.ID == "" {
-		m.AppendItem(NewChatNoContentItem(m.com.Styles))
-	} else {
-		m.AppendItem(NewChatMessageItem(m.com.Styles, msg))
+// AppendMessages appends a new message item to the chat list.
+func (m *Chat) AppendMessages(msgs ...MessageItem) {
+	for _, msg := range msgs {
+		m.AppendItem(msg)
 	}
 }
 

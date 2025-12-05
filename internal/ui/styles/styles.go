@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/crush/internal/tui/exp/diffview"
 	"github.com/charmbracelet/glamour/v2/ansi"
 	"github.com/charmbracelet/x/exp/charmtone"
@@ -117,12 +118,38 @@ type Styles struct {
 
 	// Background
 	Background color.Color
+
 	// Logo
 	LogoFieldColor   color.Color
 	LogoTitleColorA  color.Color
 	LogoTitleColorB  color.Color
 	LogoCharmColor   color.Color
 	LogoVersionColor color.Color
+
+	// Colors - semantic colors for tool rendering.
+	Primary       color.Color
+	Secondary     color.Color
+	Tertiary      color.Color
+	BgBase        color.Color
+	BgBaseLighter color.Color
+	BgSubtle      color.Color
+	BgOverlay     color.Color
+	FgBase        color.Color
+	FgMuted       color.Color
+	FgHalfMuted   color.Color
+	FgSubtle      color.Color
+	Border        color.Color
+	BorderColor   color.Color // Border focus color
+	Warning       color.Color
+	Info          color.Color
+	White         color.Color
+	BlueLight     color.Color
+	Blue          color.Color
+	Green         color.Color
+	GreenDark     color.Color
+	Red           color.Color
+	RedDark       color.Color
+	Yellow        color.Color
 
 	// Section Title
 	Section struct {
@@ -154,16 +181,120 @@ type Styles struct {
 
 	// Chat
 	Chat struct {
-		UserMessageBlurred      lipgloss.Style
-		UserMessageFocused      lipgloss.Style
-		AssistantMessageBlurred lipgloss.Style
-		AssistantMessageFocused lipgloss.Style
-		NoContentMessage        lipgloss.Style
-		ThinkingMessage         lipgloss.Style
+		// Message item styles
+		Message struct {
+			UserBlurred      lipgloss.Style
+			UserFocused      lipgloss.Style
+			AssistantBlurred lipgloss.Style
+			AssistantFocused lipgloss.Style
+			NoContent        lipgloss.Style
+			Thinking         lipgloss.Style
+			ErrorTag         lipgloss.Style
+			ErrorTitle       lipgloss.Style
+			ErrorDetails     lipgloss.Style
+			Attachment       lipgloss.Style
+			ToolCallFocused  lipgloss.Style
+			ToolCallBlurred  lipgloss.Style
+			ThinkingFooter   lipgloss.Style
+			SectionHeader    lipgloss.Style
+		}
+	}
 
-		ErrorTag     lipgloss.Style
-		ErrorTitle   lipgloss.Style
-		ErrorDetails lipgloss.Style
+	// Tool - styles for tool call rendering
+	Tool struct {
+		// Icon styles with tool status
+		IconPending   lipgloss.Style // Pending operation icon
+		IconSuccess   lipgloss.Style // Successful operation icon
+		IconError     lipgloss.Style // Error operation icon
+		IconCancelled lipgloss.Style // Cancelled operation icon
+
+		// Tool name styles
+		NameNormal lipgloss.Style // Normal tool name
+		NameNested lipgloss.Style // Nested tool name
+
+		// Parameter list styles
+		ParamMain lipgloss.Style // Main parameter
+		ParamKey  lipgloss.Style // Parameter keys
+
+		// Content rendering styles
+		ContentLine       lipgloss.Style // Individual content line with background and width
+		ContentTruncation lipgloss.Style // Truncation message "… (N lines)"
+		ContentCodeLine   lipgloss.Style // Code line with background and width
+		ContentCodeBg     color.Color    // Background color for syntax highlighting
+		BodyPadding       lipgloss.Style // Body content padding (PaddingLeft(2))
+
+		// Deprecated - kept for backward compatibility
+		ContentBg         lipgloss.Style // Content background
+		ContentText       lipgloss.Style // Content text
+		ContentLineNumber lipgloss.Style // Line numbers in code
+
+		// State message styles
+		StateWaiting   lipgloss.Style // "Waiting for tool response..."
+		StateCancelled lipgloss.Style // "Canceled."
+
+		// Error styles
+		ErrorTag     lipgloss.Style // ERROR tag
+		ErrorMessage lipgloss.Style // Error message text
+
+		// Diff styles
+		DiffTruncation lipgloss.Style // Diff truncation message with padding
+
+		// Multi-edit note styles
+		NoteTag     lipgloss.Style // NOTE tag (yellow background)
+		NoteMessage lipgloss.Style // Note message text
+
+		// Job header styles (for bash jobs)
+		JobIconPending lipgloss.Style // Pending job icon (green dark)
+		JobIconError   lipgloss.Style // Error job icon (red dark)
+		JobIconSuccess lipgloss.Style // Success job icon (green)
+		JobToolName    lipgloss.Style // Job tool name "Bash" (blue)
+		JobAction      lipgloss.Style // Action text (Start, Output, Kill)
+		JobPID         lipgloss.Style // PID text
+		JobDescription lipgloss.Style // Description text
+
+		// Agent task styles
+		AgentTaskTag lipgloss.Style // Agent task tag (blue background, bold)
+		AgentPrompt  lipgloss.Style // Agent prompt text
+	}
+}
+
+// ChromaTheme converts the current markdown chroma styles to a chroma
+// StyleEntries map.
+func (s *Styles) ChromaTheme() chroma.StyleEntries {
+	rules := s.Markdown.CodeBlock
+
+	return chroma.StyleEntries{
+		chroma.Text:                chromaStyle(rules.Chroma.Text),
+		chroma.Error:               chromaStyle(rules.Chroma.Error),
+		chroma.Comment:             chromaStyle(rules.Chroma.Comment),
+		chroma.CommentPreproc:      chromaStyle(rules.Chroma.CommentPreproc),
+		chroma.Keyword:             chromaStyle(rules.Chroma.Keyword),
+		chroma.KeywordReserved:     chromaStyle(rules.Chroma.KeywordReserved),
+		chroma.KeywordNamespace:    chromaStyle(rules.Chroma.KeywordNamespace),
+		chroma.KeywordType:         chromaStyle(rules.Chroma.KeywordType),
+		chroma.Operator:            chromaStyle(rules.Chroma.Operator),
+		chroma.Punctuation:         chromaStyle(rules.Chroma.Punctuation),
+		chroma.Name:                chromaStyle(rules.Chroma.Name),
+		chroma.NameBuiltin:         chromaStyle(rules.Chroma.NameBuiltin),
+		chroma.NameTag:             chromaStyle(rules.Chroma.NameTag),
+		chroma.NameAttribute:       chromaStyle(rules.Chroma.NameAttribute),
+		chroma.NameClass:           chromaStyle(rules.Chroma.NameClass),
+		chroma.NameConstant:        chromaStyle(rules.Chroma.NameConstant),
+		chroma.NameDecorator:       chromaStyle(rules.Chroma.NameDecorator),
+		chroma.NameException:       chromaStyle(rules.Chroma.NameException),
+		chroma.NameFunction:        chromaStyle(rules.Chroma.NameFunction),
+		chroma.NameOther:           chromaStyle(rules.Chroma.NameOther),
+		chroma.Literal:             chromaStyle(rules.Chroma.Literal),
+		chroma.LiteralNumber:       chromaStyle(rules.Chroma.LiteralNumber),
+		chroma.LiteralDate:         chromaStyle(rules.Chroma.LiteralDate),
+		chroma.LiteralString:       chromaStyle(rules.Chroma.LiteralString),
+		chroma.LiteralStringEscape: chromaStyle(rules.Chroma.LiteralStringEscape),
+		chroma.GenericDeleted:      chromaStyle(rules.Chroma.GenericDeleted),
+		chroma.GenericEmph:         chromaStyle(rules.Chroma.GenericEmph),
+		chroma.GenericInserted:     chromaStyle(rules.Chroma.GenericInserted),
+		chroma.GenericStrong:       chromaStyle(rules.Chroma.GenericStrong),
+		chroma.GenericSubheading:   chromaStyle(rules.Chroma.GenericSubheading),
+		chroma.Background:          chromaStyle(rules.Chroma.Background),
 	}
 }
 
@@ -202,6 +333,7 @@ func DefaultStyles() Styles {
 		blue      = charmtone.Malibu
 
 		// yellow = charmtone.Mustard
+		yellow = charmtone.Mustard
 		// citron = charmtone.Citron
 
 		green     = charmtone.Julep
@@ -221,6 +353,31 @@ func DefaultStyles() Styles {
 	s := Styles{}
 
 	s.Background = bgBase
+
+	// Populate color fields
+	s.Primary = primary
+	s.Secondary = secondary
+	s.Tertiary = tertiary
+	s.BgBase = bgBase
+	s.BgBaseLighter = bgBaseLighter
+	s.BgSubtle = bgSubtle
+	s.BgOverlay = bgOverlay
+	s.FgBase = fgBase
+	s.FgMuted = fgMuted
+	s.FgHalfMuted = fgHalfMuted
+	s.FgSubtle = fgSubtle
+	s.Border = border
+	s.BorderColor = borderFocus
+	s.Warning = warning
+	s.Info = info
+	s.White = white
+	s.BlueLight = blueLight
+	s.Blue = blue
+	s.Green = green
+	s.GreenDark = greenDark
+	s.Red = red
+	s.RedDark = redDark
+	s.Yellow = yellow
 
 	s.TextInput = textinput.Styles{
 		Focused: textinput.StyleState{
@@ -580,6 +737,54 @@ func DefaultStyles() Styles {
 	s.ToolCallCancelled = s.Muted.SetString(ToolPending)
 	s.EarlyStateMessage = s.Subtle.PaddingLeft(2)
 
+	// Tool rendering styles
+	s.Tool.IconPending = base.Foreground(greenDark).SetString(ToolPending)
+	s.Tool.IconSuccess = base.Foreground(green).SetString(ToolSuccess)
+	s.Tool.IconError = base.Foreground(redDark).SetString(ToolError)
+	s.Tool.IconCancelled = s.Muted.SetString(ToolPending)
+
+	s.Tool.NameNormal = base.Foreground(blue)
+	s.Tool.NameNested = base.Foreground(fgHalfMuted)
+
+	s.Tool.ParamMain = s.Subtle
+	s.Tool.ParamKey = s.Subtle
+
+	// Content rendering - prepared styles that accept width parameter
+	s.Tool.ContentLine = s.Muted.Background(bgBaseLighter)
+	s.Tool.ContentTruncation = s.Muted.Background(bgBaseLighter)
+	s.Tool.ContentCodeLine = s.Base.Background(bgBaseLighter)
+	s.Tool.ContentCodeBg = bgBase
+	s.Tool.BodyPadding = base.PaddingLeft(2)
+
+	// Deprecated - kept for backward compatibility
+	s.Tool.ContentBg = s.Muted.Background(bgBaseLighter)
+	s.Tool.ContentText = s.Muted
+	s.Tool.ContentLineNumber = s.Subtle
+
+	s.Tool.StateWaiting = base.Foreground(fgSubtle)
+	s.Tool.StateCancelled = base.Foreground(fgSubtle)
+
+	s.Tool.ErrorTag = base.Padding(0, 1).Background(red).Foreground(white)
+	s.Tool.ErrorMessage = base.Foreground(fgHalfMuted)
+
+	// Diff and multi-edit styles
+	s.Tool.DiffTruncation = s.Muted.Background(bgBaseLighter).PaddingLeft(2)
+	s.Tool.NoteTag = base.Padding(0, 1).Background(yellow).Foreground(white)
+	s.Tool.NoteMessage = base.Foreground(fgHalfMuted)
+
+	// Job header styles
+	s.Tool.JobIconPending = base.Foreground(greenDark)
+	s.Tool.JobIconError = base.Foreground(redDark)
+	s.Tool.JobIconSuccess = base.Foreground(green)
+	s.Tool.JobToolName = base.Foreground(blue)
+	s.Tool.JobAction = base.Foreground(fgHalfMuted)
+	s.Tool.JobPID = s.Subtle
+	s.Tool.JobDescription = s.Subtle
+
+	// Agent task styles
+	s.Tool.AgentTaskTag = base.Bold(true).Padding(0, 1).MarginLeft(2).Background(blueLight).Foreground(white)
+	s.Tool.AgentPrompt = s.Muted
+
 	// Buttons
 	s.ButtonFocus = lipgloss.NewStyle().Foreground(white).Background(secondary)
 	s.ButtonBlur = s.Base.Background(bgSubtle)
@@ -633,19 +838,29 @@ func DefaultStyles() Styles {
 		Left: "▌",
 	}
 
-	s.Chat.NoContentMessage = lipgloss.NewStyle().Foreground(fgBase)
-	s.Chat.UserMessageBlurred = s.Chat.NoContentMessage.PaddingLeft(1).BorderLeft(true).
+	s.Chat.Message.NoContent = lipgloss.NewStyle().Foreground(fgBase)
+	s.Chat.Message.UserBlurred = s.Chat.Message.NoContent.PaddingLeft(1).BorderLeft(true).
 		BorderForeground(primary).BorderStyle(normalBorder)
-	s.Chat.UserMessageFocused = s.Chat.NoContentMessage.PaddingLeft(1).BorderLeft(true).
+	s.Chat.Message.UserFocused = s.Chat.Message.NoContent.PaddingLeft(1).BorderLeft(true).
 		BorderForeground(primary).BorderStyle(messageFocussedBorder)
-	s.Chat.AssistantMessageBlurred = s.Chat.NoContentMessage.PaddingLeft(2)
-	s.Chat.AssistantMessageFocused = s.Chat.NoContentMessage.PaddingLeft(1).BorderLeft(true).
+	s.Chat.Message.AssistantBlurred = s.Chat.Message.NoContent.PaddingLeft(2)
+	s.Chat.Message.AssistantFocused = s.Chat.Message.NoContent.PaddingLeft(1).BorderLeft(true).
 		BorderForeground(greenDark).BorderStyle(messageFocussedBorder)
-	s.Chat.ThinkingMessage = lipgloss.NewStyle().MaxHeight(10)
-	s.Chat.ErrorTag = lipgloss.NewStyle().Padding(0, 1).
+	s.Chat.Message.Thinking = lipgloss.NewStyle().MaxHeight(10)
+	s.Chat.Message.ErrorTag = lipgloss.NewStyle().Padding(0, 1).
 		Background(red).Foreground(white)
-	s.Chat.ErrorTitle = lipgloss.NewStyle().Foreground(fgHalfMuted)
-	s.Chat.ErrorDetails = lipgloss.NewStyle().Foreground(fgSubtle)
+	s.Chat.Message.ErrorTitle = lipgloss.NewStyle().Foreground(fgHalfMuted)
+	s.Chat.Message.ErrorDetails = lipgloss.NewStyle().Foreground(fgSubtle)
+
+	// Message item styles
+	s.Chat.Message.Attachment = lipgloss.NewStyle().MarginLeft(1).Background(bgSubtle)
+	s.Chat.Message.ToolCallFocused = s.Muted.PaddingLeft(1).
+		BorderStyle(messageFocussedBorder).
+		BorderLeft(true).
+		BorderForeground(greenDark)
+	s.Chat.Message.ToolCallBlurred = s.Muted.PaddingLeft(2)
+	s.Chat.Message.ThinkingFooter = s.Base
+	s.Chat.Message.SectionHeader = s.Base.PaddingLeft(2)
 
 	// Text selection.
 	s.TextSelection = lipgloss.NewStyle().Foreground(charmtone.Salt).Background(charmtone.Charple)
@@ -657,3 +872,36 @@ func DefaultStyles() Styles {
 func boolPtr(b bool) *bool       { return &b }
 func stringPtr(s string) *string { return &s }
 func uintPtr(u uint) *uint       { return &u }
+func chromaStyle(style ansi.StylePrimitive) string {
+	var s string
+
+	if style.Color != nil {
+		s = *style.Color
+	}
+	if style.BackgroundColor != nil {
+		if s != "" {
+			s += " "
+		}
+		s += "bg:" + *style.BackgroundColor
+	}
+	if style.Italic != nil && *style.Italic {
+		if s != "" {
+			s += " "
+		}
+		s += "italic"
+	}
+	if style.Bold != nil && *style.Bold {
+		if s != "" {
+			s += " "
+		}
+		s += "bold"
+	}
+	if style.Underline != nil && *style.Underline {
+		if s != "" {
+			s += " "
+		}
+		s += "underline"
+	}
+
+	return s
+}

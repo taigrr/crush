@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/history"
+	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/common"
@@ -195,9 +196,21 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.session = &msg.sess
 		// Load the last 20 messages from this session.
 		msgs, _ := m.com.App.Messages.List(context.Background(), m.session.ID)
-		for _, message := range msgs {
-			m.chat.AppendMessage(message)
+
+		// Build tool result map to link tool calls with their results
+		msgPtrs := make([]*message.Message, len(msgs))
+		for i := range msgs {
+			msgPtrs[i] = &msgs[i]
 		}
+		toolResultMap := BuildToolResultMap(msgPtrs)
+
+		// Add messages to chat with linked tool results
+		items := make([]MessageItem, 0, len(msgs)*2)
+		for _, msg := range msgPtrs {
+			items = append(items, GetMessageItems(msg, toolResultMap)...)
+		}
+		m.chat.AppendMessages(items...)
+
 		// Notify that session loading is done to scroll to bottom. This is
 		// needed because we need to draw the chat list first before we can
 		// scroll to bottom.
