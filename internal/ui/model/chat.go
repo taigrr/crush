@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/tui/components/anim"
 	"github.com/charmbracelet/crush/internal/ui/common"
+	"github.com/charmbracelet/crush/internal/ui/lazylist"
 	"github.com/charmbracelet/crush/internal/ui/list"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -196,13 +197,14 @@ func (c *ChatMessageItem) SetHighlight(startLine int, startCol int, endLine int,
 // messages.
 type Chat struct {
 	com  *common.Common
-	list *list.List
+	list *lazylist.List
 }
 
 // NewChat creates a new instance of [Chat] that handles chat interactions and
 // messages.
 func NewChat(com *common.Common) *Chat {
-	l := list.New()
+	l := lazylist.NewList()
+	l.SetGap(1)
 	return &Chat{
 		com:  com,
 		list: l,
@@ -216,7 +218,7 @@ func (m *Chat) Height() int {
 
 // Draw renders the chat UI component to the screen and the given area.
 func (m *Chat) Draw(scr uv.Screen, area uv.Rectangle) {
-	m.list.Draw(scr, area)
+	uv.NewStyledString(m.list.Render()).Draw(scr, area)
 }
 
 // SetSize sets the size of the chat view port.
@@ -229,25 +231,23 @@ func (m *Chat) Len() int {
 	return m.list.Len()
 }
 
-// PrependItem prepends a new item to the chat list.
-func (m *Chat) PrependItem(item list.Item) {
-	m.list.PrependItem(item)
+// PrependItems prepends new items to the chat list.
+func (m *Chat) PrependItems(items ...lazylist.Item) {
+	m.list.PrependItems(items...)
+	m.list.ScrollToIndex(0)
 }
 
 // AppendMessages appends a new message item to the chat list.
 func (m *Chat) AppendMessages(msgs ...MessageItem) {
 	for _, msg := range msgs {
-		m.AppendItem(msg)
+		m.AppendItems(msg)
 	}
 }
 
-// AppendItem appends a new item to the chat list.
-func (m *Chat) AppendItem(item list.Item) {
-	if m.Len() > 0 {
-		// Always add a spacer between messages
-		m.list.AppendItem(list.NewSpacerItem(1))
-	}
-	m.list.AppendItem(item)
+// AppendItems appends new items to the chat list.
+func (m *Chat) AppendItems(items ...lazylist.Item) {
+	m.list.AppendItems(items...)
+	m.list.ScrollToIndex(m.list.Len() - 1)
 }
 
 // Focus sets the focus state of the chat component.

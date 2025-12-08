@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/common"
+	"github.com/charmbracelet/crush/internal/ui/lazylist"
 	"github.com/charmbracelet/crush/internal/ui/list"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/crush/internal/ui/toolrender"
@@ -29,6 +30,7 @@ type MessageItem interface {
 	list.Item
 	list.Focusable
 	list.Highlightable
+	lazylist.Item
 	Identifiable
 }
 
@@ -112,6 +114,11 @@ func (m *MessageContentItem) Draw(scr uv.Screen, area uv.Rectangle) {
 
 	// Copy temp buffer to actual screen at the target area
 	tempBuf.Draw(scr, area)
+}
+
+// Render implements lazylist.Item.
+func (m *MessageContentItem) Render(width int) string {
+	return m.render(width)
 }
 
 // render renders the content at the given width, using cache if available.
@@ -228,6 +235,12 @@ func (t *ToolCallItem) Height(width int) int {
 	return height
 }
 
+// Render implements lazylist.Item.
+func (t *ToolCallItem) Render(width int) string {
+	cached := t.renderCached(width)
+	return cached.content
+}
+
 // Draw implements list.Item.
 func (t *ToolCallItem) Draw(scr uv.Screen, area uv.Rectangle) {
 	width := area.Dx()
@@ -334,6 +347,16 @@ func (a *AttachmentItem) Height(width int) int {
 	return 1
 }
 
+// Render implements lazylist.Item.
+func (a *AttachmentItem) Render(width int) string {
+	const maxFilenameWidth = 10
+	return a.sty.Chat.Message.Attachment.Render(fmt.Sprintf(
+		" %s %s ",
+		styles.DocumentIcon,
+		ansi.Truncate(a.filename, maxFilenameWidth, "..."),
+	))
+}
+
 // Draw implements list.Item.
 func (a *AttachmentItem) Draw(scr uv.Screen, area uv.Rectangle) {
 	width := area.Dx()
@@ -408,6 +431,11 @@ func (t *ThinkingItem) Height(width int) int {
 
 	rendered := t.render(contentWidth)
 	return strings.Count(rendered, "\n") + 1
+}
+
+// Render implements lazylist.Item.
+func (t *ThinkingItem) Render(width int) string {
+	return t.render(width)
 }
 
 // Draw implements list.Item.
@@ -520,6 +548,15 @@ func (s *SectionHeaderItem) IsSectionHeader() bool {
 // Height implements list.Item.
 func (s *SectionHeaderItem) Height(width int) int {
 	return 1
+}
+
+// Render implements lazylist.Item.
+func (s *SectionHeaderItem) Render(width int) string {
+	return s.sty.Chat.Message.SectionHeader.Render(fmt.Sprintf("%s %s %s",
+		s.sty.Subtle.Render(styles.ModelIcon),
+		s.sty.Muted.Render(s.modelName),
+		s.sty.Subtle.Render(s.duration.String()),
+	))
 }
 
 // Draw implements list.Item.

@@ -172,7 +172,7 @@ func (m *UI) Init() tea.Cmd {
 	if len(allSessions) > 0 {
 		cmds = append(cmds, func() tea.Msg {
 			time.Sleep(2 * time.Second)
-			return m.loadSession(allSessions[0].ID)()
+			return m.loadSession(allSessions[1].ID)()
 		})
 	}
 	return tea.Batch(cmds...)
@@ -441,11 +441,11 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 		editor.Draw(scr, layout.editor)
 
 	case uiChat:
+		m.chat.Draw(scr, layout.main)
+
 		header := uv.NewStyledString(m.header)
 		header.Draw(scr, layout.header)
 		m.drawSidebar(scr, layout.sidebar)
-
-		m.chat.Draw(scr, layout.main)
 
 		editor := uv.NewStyledString(m.textarea.View())
 		editor.Draw(scr, layout.editor)
