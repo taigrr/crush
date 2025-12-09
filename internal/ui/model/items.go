@@ -2,6 +2,8 @@ package model
 
 import (
 	"fmt"
+	"image"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,7 +16,6 @@ import (
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/lazylist"
-	"github.com/charmbracelet/crush/internal/ui/list"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/crush/internal/ui/toolrender"
 )
@@ -25,38 +26,33 @@ type Identifiable interface {
 }
 
 // MessageItem represents a [message.Message] item that can be displayed in the
-// UI and be part of a [list.List] identifiable by a unique ID.
+// UI and be part of a [lazylist.List] identifiable by a unique ID.
 type MessageItem interface {
-	list.Item
-	list.Focusable
-	list.Highlightable
+	lazylist.Item
 	lazylist.Item
 	Identifiable
 }
 
 // MessageContentItem represents rendered message content (text, markdown, errors, etc).
 type MessageContentItem struct {
-	list.BaseFocusable
-	list.BaseHighlightable
 	id         string
 	content    string
+	role       message.MessageRole
 	isMarkdown bool
 	maxWidth   int
-	cache      map[int]string // Cache for rendered content at different widths
 	sty        *styles.Styles
 }
 
 // NewMessageContentItem creates a new message content item.
-func NewMessageContentItem(id, content string, isMarkdown bool, sty *styles.Styles) *MessageContentItem {
+func NewMessageContentItem(id, content string, role message.MessageRole, isMarkdown bool, sty *styles.Styles) *MessageContentItem {
 	m := &MessageContentItem{
 		id:         id,
 		content:    content,
 		isMarkdown: isMarkdown,
+		role:       role,
 		maxWidth:   120,
-		cache:      make(map[int]string),
 		sty:        sty,
 	}
-	m.InitHighlight()
 	return m
 }
 
@@ -65,76 +61,38 @@ func (m *MessageContentItem) ID() string {
 	return m.id
 }
 
-// Height implements list.Item.
-func (m *MessageContentItem) Height(width int) int {
-	// Calculate content width accounting for frame size
-	contentWidth := width
-	if style := m.CurrentStyle(); style != nil {
-		contentWidth -= style.GetHorizontalFrameSize()
+// FocusStyle returns the focus style.
+func (m *MessageContentItem) FocusStyle() lipgloss.Style {
+	if m.role == message.User {
+		return m.sty.Chat.Message.UserFocused
 	}
-
-	rendered := m.render(contentWidth)
-
-	// Apply focus/blur styling if configured to get accurate height
-	if style := m.CurrentStyle(); style != nil {
-		rendered = style.Render(rendered)
-	}
-
-	return strings.Count(rendered, "\n") + 1
+	return m.sty.Chat.Message.AssistantFocused
 }
 
-// Draw implements list.Item.
-func (m *MessageContentItem) Draw(scr uv.Screen, area uv.Rectangle) {
-	width := area.Dx()
-	height := area.Dy()
-
-	// Calculate content width accounting for frame size
-	contentWidth := width
-	style := m.CurrentStyle()
-	if style != nil {
-		contentWidth -= style.GetHorizontalFrameSize()
+// BlurStyle returns the blur style.
+func (m *MessageContentItem) BlurStyle() lipgloss.Style {
+	if m.role == message.User {
+		return m.sty.Chat.Message.UserBlurred
 	}
-
-	rendered := m.render(contentWidth)
-
-	// Apply focus/blur styling if configured
-	if style != nil {
-		rendered = style.Render(rendered)
-	}
-
-	// Create temp buffer to draw content with highlighting
-	tempBuf := uv.NewScreenBuffer(width, height)
-
-	// Draw the rendered content to temp buffer
-	styled := uv.NewStyledString(rendered)
-	styled.Draw(&tempBuf, uv.Rect(0, 0, width, height))
-
-	// Apply highlighting if active
-	m.ApplyHighlight(&tempBuf, width, height, style)
-
-	// Copy temp buffer to actual screen at the target area
-	tempBuf.Draw(scr, area)
+	return m.sty.Chat.Message.AssistantBlurred
 }
 
-// Render implements lazylist.Item.
+// HighlightStyle returns the highlight style.
+func (m *MessageContentItem) HighlightStyle() lipgloss.Style {
+	return m.sty.TextSelection
+}
+
+// Render renders the content at the given width, using cache if available.
+//
+// It implements [lazylist.Item].
 func (m *MessageContentItem) Render(width int) string {
-	return m.render(width)
-}
-
-// render renders the content at the given width, using cache if available.
-func (m *MessageContentItem) render(width int) string {
+	contentWidth := width
 	// Cap width to maxWidth for markdown
-	cappedWidth := width
+	cappedWidth := contentWidth
 	if m.isMarkdown {
-		cappedWidth = min(width, m.maxWidth)
+		cappedWidth = min(contentWidth, m.maxWidth)
 	}
 
-	// Check cache first
-	if cached, ok := m.cache[cappedWidth]; ok {
-		return cached
-	}
-
-	// Not cached - render now
 	var rendered string
 	if m.isMarkdown {
 		renderer := common.MarkdownRenderer(m.sty, cappedWidth)
@@ -148,30 +106,19 @@ func (m *MessageContentItem) render(width int) string {
 		rendered = m.content
 	}
 
-	// Cache the result
-	m.cache[cappedWidth] = rendered
 	return rendered
-}
-
-// SetHighlight implements list.Highlightable and extends BaseHighlightable.
-func (m *MessageContentItem) SetHighlight(startLine, startCol, endLine, endCol int) {
-	m.BaseHighlightable.SetHighlight(startLine, startCol, endLine, endCol)
-	// Clear cache when highlight changes
-	m.cache = make(map[int]string)
 }
 
 // ToolCallItem represents a rendered tool call with its header and content.
 type ToolCallItem struct {
-	list.BaseFocusable
-	list.BaseHighlightable
+	BaseFocusable
+	BaseHighlightable
 	id         string
 	toolCall   message.ToolCall
 	toolResult message.ToolResult
 	cancelled  bool
 	isNested   bool
 	maxWidth   int
-	cache      map[int]cachedToolRender // Cache for rendered content at different widths
-	cacheKey   string                   // Key to invalidate cache when content changes
 	sty        *styles.Styles
 }
 
@@ -190,8 +137,6 @@ func NewToolCallItem(id string, toolCall message.ToolCall, toolResult message.To
 		cancelled:  cancelled,
 		isNested:   isNested,
 		maxWidth:   120,
-		cache:      make(map[int]cachedToolRender),
-		cacheKey:   generateCacheKey(toolCall, toolResult, cancelled),
 		sty:        sty,
 	}
 	t.InitHighlight()
@@ -209,116 +154,59 @@ func (t *ToolCallItem) ID() string {
 	return t.id
 }
 
-// Height implements list.Item.
-func (t *ToolCallItem) Height(width int) int {
-	// Calculate content width accounting for frame size
-	contentWidth := width
-	frameSize := 0
-	if style := t.CurrentStyle(); style != nil {
-		frameSize = style.GetHorizontalFrameSize()
-		contentWidth -= frameSize
+// FocusStyle returns the focus style.
+func (t *ToolCallItem) FocusStyle() lipgloss.Style {
+	if t.focusStyle != nil {
+		return *t.focusStyle
 	}
+	return lipgloss.Style{}
+}
 
-	cached := t.renderCached(contentWidth)
-
-	// Add frame size to height if needed
-	height := cached.height
-	if frameSize > 0 {
-		// Frame can add to height (borders, padding)
-		if style := t.CurrentStyle(); style != nil {
-			// Quick render to get accurate height with frame
-			rendered := style.Render(cached.content)
-			height = strings.Count(rendered, "\n") + 1
-		}
+// BlurStyle returns the blur style.
+func (t *ToolCallItem) BlurStyle() lipgloss.Style {
+	if t.blurStyle != nil {
+		return *t.blurStyle
 	}
+	return lipgloss.Style{}
+}
 
-	return height
+// HighlightStyle returns the highlight style.
+func (t *ToolCallItem) HighlightStyle() lipgloss.Style {
+	return t.sty.TextSelection
 }
 
 // Render implements lazylist.Item.
 func (t *ToolCallItem) Render(width int) string {
-	cached := t.renderCached(width)
-	return cached.content
-}
-
-// Draw implements list.Item.
-func (t *ToolCallItem) Draw(scr uv.Screen, area uv.Rectangle) {
-	width := area.Dx()
-	height := area.Dy()
-
-	// Calculate content width accounting for frame size
-	contentWidth := width
-	style := t.CurrentStyle()
-	if style != nil {
-		contentWidth -= style.GetHorizontalFrameSize()
-	}
-
-	cached := t.renderCached(contentWidth)
-	rendered := cached.content
-
-	if style != nil {
-		rendered = style.Render(rendered)
-	}
-
-	tempBuf := uv.NewScreenBuffer(width, height)
-	styled := uv.NewStyledString(rendered)
-	styled.Draw(&tempBuf, uv.Rect(0, 0, width, height))
-
-	t.ApplyHighlight(&tempBuf, width, height, style)
-	tempBuf.Draw(scr, area)
-}
-
-// renderCached renders the tool call at the given width with caching.
-func (t *ToolCallItem) renderCached(width int) cachedToolRender {
-	cappedWidth := min(width, t.maxWidth)
-
-	// Check if we have a valid cache entry
-	if cached, ok := t.cache[cappedWidth]; ok {
-		return cached
-	}
-
 	// Render the tool call
 	ctx := &toolrender.RenderContext{
 		Call:      t.toolCall,
 		Result:    t.toolResult,
 		Cancelled: t.cancelled,
 		IsNested:  t.isNested,
-		Width:     cappedWidth,
+		Width:     width,
 		Styles:    t.sty,
 	}
 
 	rendered := toolrender.Render(ctx)
-	height := strings.Count(rendered, "\n") + 1
+	return rendered
 
-	cached := cachedToolRender{
-		content: rendered,
-		height:  height,
-	}
-	t.cache[cappedWidth] = cached
-	return cached
+	// return t.RenderWithHighlight(rendered, width, style)
 }
 
 // SetHighlight implements list.Highlightable.
 func (t *ToolCallItem) SetHighlight(startLine, startCol, endLine, endCol int) {
 	t.BaseHighlightable.SetHighlight(startLine, startCol, endLine, endCol)
-	// Clear cache when highlight changes
-	t.cache = make(map[int]cachedToolRender)
 }
 
 // UpdateResult updates the tool result and invalidates the cache if needed.
 func (t *ToolCallItem) UpdateResult(result message.ToolResult) {
-	newKey := generateCacheKey(t.toolCall, result, t.cancelled)
-	if newKey != t.cacheKey {
-		t.toolResult = result
-		t.cacheKey = newKey
-		t.cache = make(map[int]cachedToolRender)
-	}
+	t.toolResult = result
 }
 
 // AttachmentItem represents a file attachment in a user message.
 type AttachmentItem struct {
-	list.BaseFocusable
-	list.BaseHighlightable
+	BaseFocusable
+	BaseHighlightable
 	id       string
 	filename string
 	path     string
@@ -342,33 +230,29 @@ func (a *AttachmentItem) ID() string {
 	return a.id
 }
 
-// Height implements list.Item.
-func (a *AttachmentItem) Height(width int) int {
-	return 1
+// FocusStyle returns the focus style.
+func (a *AttachmentItem) FocusStyle() lipgloss.Style {
+	if a.focusStyle != nil {
+		return *a.focusStyle
+	}
+	return lipgloss.Style{}
+}
+
+// BlurStyle returns the blur style.
+func (a *AttachmentItem) BlurStyle() lipgloss.Style {
+	if a.blurStyle != nil {
+		return *a.blurStyle
+	}
+	return lipgloss.Style{}
+}
+
+// HighlightStyle returns the highlight style.
+func (a *AttachmentItem) HighlightStyle() lipgloss.Style {
+	return a.sty.TextSelection
 }
 
 // Render implements lazylist.Item.
 func (a *AttachmentItem) Render(width int) string {
-	const maxFilenameWidth = 10
-	return a.sty.Chat.Message.Attachment.Render(fmt.Sprintf(
-		" %s %s ",
-		styles.DocumentIcon,
-		ansi.Truncate(a.filename, maxFilenameWidth, "..."),
-	))
-}
-
-// Draw implements list.Item.
-func (a *AttachmentItem) Draw(scr uv.Screen, area uv.Rectangle) {
-	width := area.Dx()
-	height := area.Dy()
-
-	// Calculate content width accounting for frame size
-	contentWidth := width
-	style := a.CurrentStyle()
-	if style != nil {
-		contentWidth -= style.GetHorizontalFrameSize()
-	}
-
 	const maxFilenameWidth = 10
 	content := a.sty.Chat.Message.Attachment.Render(fmt.Sprintf(
 		" %s %s ",
@@ -376,28 +260,18 @@ func (a *AttachmentItem) Draw(scr uv.Screen, area uv.Rectangle) {
 		ansi.Truncate(a.filename, maxFilenameWidth, "..."),
 	))
 
-	if style != nil {
-		content = style.Render(content)
-	}
+	return content
 
-	tempBuf := uv.NewScreenBuffer(width, height)
-	styled := uv.NewStyledString(content)
-	styled.Draw(&tempBuf, uv.Rect(0, 0, width, height))
-
-	a.ApplyHighlight(&tempBuf, width, height, style)
-	tempBuf.Draw(scr, area)
+	// return a.RenderWithHighlight(content, width, a.CurrentStyle())
 }
 
 // ThinkingItem represents thinking/reasoning content in assistant messages.
 type ThinkingItem struct {
-	list.BaseFocusable
-	list.BaseHighlightable
 	id       string
 	thinking string
 	duration time.Duration
 	finished bool
 	maxWidth int
-	cache    map[int]string
 	sty      *styles.Styles
 }
 
@@ -409,10 +283,8 @@ func NewThinkingItem(id, thinking string, duration time.Duration, finished bool,
 		duration: duration,
 		finished: finished,
 		maxWidth: 120,
-		cache:    make(map[int]string),
 		sty:      sty,
 	}
-	t.InitHighlight()
 	return t
 }
 
@@ -421,56 +293,24 @@ func (t *ThinkingItem) ID() string {
 	return t.id
 }
 
-// Height implements list.Item.
-func (t *ThinkingItem) Height(width int) int {
-	// Calculate content width accounting for frame size
-	contentWidth := width
-	if style := t.CurrentStyle(); style != nil {
-		contentWidth -= style.GetHorizontalFrameSize()
-	}
+// FocusStyle returns the focus style.
+func (t *ThinkingItem) FocusStyle() lipgloss.Style {
+	return t.sty.Chat.Message.AssistantFocused
+}
 
-	rendered := t.render(contentWidth)
-	return strings.Count(rendered, "\n") + 1
+// BlurStyle returns the blur style.
+func (t *ThinkingItem) BlurStyle() lipgloss.Style {
+	return t.sty.Chat.Message.AssistantBlurred
+}
+
+// HighlightStyle returns the highlight style.
+func (t *ThinkingItem) HighlightStyle() lipgloss.Style {
+	return t.sty.TextSelection
 }
 
 // Render implements lazylist.Item.
 func (t *ThinkingItem) Render(width int) string {
-	return t.render(width)
-}
-
-// Draw implements list.Item.
-func (t *ThinkingItem) Draw(scr uv.Screen, area uv.Rectangle) {
-	width := area.Dx()
-	height := area.Dy()
-
-	// Calculate content width accounting for frame size
-	contentWidth := width
-	style := t.CurrentStyle()
-	if style != nil {
-		contentWidth -= style.GetHorizontalFrameSize()
-	}
-
-	rendered := t.render(contentWidth)
-
-	if style != nil {
-		rendered = style.Render(rendered)
-	}
-
-	tempBuf := uv.NewScreenBuffer(width, height)
-	styled := uv.NewStyledString(rendered)
-	styled.Draw(&tempBuf, uv.Rect(0, 0, width, height))
-
-	t.ApplyHighlight(&tempBuf, width, height, style)
-	tempBuf.Draw(scr, area)
-}
-
-// render renders the thinking content.
-func (t *ThinkingItem) render(width int) string {
 	cappedWidth := min(width, t.maxWidth)
-
-	if cached, ok := t.cache[cappedWidth]; ok {
-		return cached
-	}
 
 	renderer := common.PlainMarkdownRenderer(cappedWidth - 1)
 	rendered, err := renderer.Render(t.thinking)
@@ -501,20 +341,11 @@ func (t *ThinkingItem) render(width int) string {
 
 	result := t.sty.PanelMuted.Width(cappedWidth).Padding(0, 1).Render(fullContent)
 
-	t.cache[cappedWidth] = result
 	return result
-}
-
-// SetHighlight implements list.Highlightable.
-func (t *ThinkingItem) SetHighlight(startLine, startCol, endLine, endCol int) {
-	t.BaseHighlightable.SetHighlight(startLine, startCol, endLine, endCol)
-	t.cache = make(map[int]string)
 }
 
 // SectionHeaderItem represents a section header (e.g., assistant info).
 type SectionHeaderItem struct {
-	list.BaseFocusable
-	list.BaseHighlightable
 	id              string
 	modelName       string
 	duration        time.Duration
@@ -531,7 +362,6 @@ func NewSectionHeaderItem(id, modelName string, duration time.Duration, sty *sty
 		isSectionHeader: true,
 		sty:             sty,
 	}
-	s.InitHighlight()
 	return s
 }
 
@@ -545,49 +375,25 @@ func (s *SectionHeaderItem) IsSectionHeader() bool {
 	return s.isSectionHeader
 }
 
-// Height implements list.Item.
-func (s *SectionHeaderItem) Height(width int) int {
-	return 1
+// FocusStyle returns the focus style.
+func (s *SectionHeaderItem) FocusStyle() lipgloss.Style {
+	return s.sty.Chat.Message.AssistantFocused
+}
+
+// BlurStyle returns the blur style.
+func (s *SectionHeaderItem) BlurStyle() lipgloss.Style {
+	return s.sty.Chat.Message.AssistantBlurred
 }
 
 // Render implements lazylist.Item.
 func (s *SectionHeaderItem) Render(width int) string {
-	return s.sty.Chat.Message.SectionHeader.Render(fmt.Sprintf("%s %s %s",
+	content := s.sty.Chat.Message.SectionHeader.Render(fmt.Sprintf("%s %s %s",
 		s.sty.Subtle.Render(styles.ModelIcon),
 		s.sty.Muted.Render(s.modelName),
 		s.sty.Subtle.Render(s.duration.String()),
 	))
-}
 
-// Draw implements list.Item.
-func (s *SectionHeaderItem) Draw(scr uv.Screen, area uv.Rectangle) {
-	width := area.Dx()
-	height := area.Dy()
-
-	// Calculate content width accounting for frame size
-	contentWidth := width
-	style := s.CurrentStyle()
-	if style != nil {
-		contentWidth -= style.GetHorizontalFrameSize()
-	}
-
-	infoMsg := s.sty.Subtle.Render(s.duration.String())
-	icon := s.sty.Subtle.Render(styles.ModelIcon)
-	modelFormatted := s.sty.Muted.Render(s.modelName)
-	content := fmt.Sprintf("%s %s %s", icon, modelFormatted, infoMsg)
-
-	content = s.sty.Chat.Message.SectionHeader.Render(content)
-
-	if style != nil {
-		content = style.Render(content)
-	}
-
-	tempBuf := uv.NewScreenBuffer(width, height)
-	styled := uv.NewStyledString(content)
-	styled.Draw(&tempBuf, uv.Rect(0, 0, width, height))
-
-	s.ApplyHighlight(&tempBuf, width, height, style)
-	tempBuf.Draw(scr, area)
+	return content
 }
 
 // GetMessageItems extracts [MessageItem]s from a [message.Message]. It returns
@@ -595,8 +401,7 @@ func (s *SectionHeaderItem) Draw(scr uv.Screen, area uv.Rectangle) {
 //
 // For assistant messages with tool calls, pass a toolResults map to link results.
 // Use BuildToolResultMap to create this map from all messages in a session.
-func GetMessageItems(msg *message.Message, toolResults map[string]message.ToolResult) []MessageItem {
-	sty := styles.DefaultStyles()
+func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[string]message.ToolResult) []MessageItem {
 	var items []MessageItem
 
 	// Skip tool result messages - they're displayed inline with tool calls
@@ -622,10 +427,10 @@ func GetMessageItems(msg *message.Message, toolResults map[string]message.ToolRe
 			item := NewMessageContentItem(
 				fmt.Sprintf("%s-content", msg.ID),
 				content,
+				msg.Role,
 				true, // User messages are markdown
-				&sty,
+				sty,
 			)
-			item.SetFocusStyles(&focusStyle, &blurStyle)
 			items = append(items, item)
 		}
 
@@ -636,8 +441,9 @@ func GetMessageItems(msg *message.Message, toolResults map[string]message.ToolRe
 				fmt.Sprintf("%s-attachment-%d", msg.ID, i),
 				filename,
 				attachment.Path,
-				&sty,
+				sty,
 			)
+			item.SetHighlightStyle(ToStyler(sty.TextSelection))
 			item.SetFocusStyles(&focusStyle, &blurStyle)
 			items = append(items, item)
 		}
@@ -666,7 +472,7 @@ func GetMessageItems(msg *message.Message, toolResults map[string]message.ToolRe
 				fmt.Sprintf("%s-header", msg.ID),
 				modelName,
 				duration,
-				&sty,
+				sty,
 			)
 			items = append(items, header)
 		}
@@ -684,9 +490,8 @@ func GetMessageItems(msg *message.Message, toolResults map[string]message.ToolRe
 				reasoning.Thinking,
 				duration,
 				reasoning.FinishedAt > 0,
-				&sty,
+				sty,
 			)
-			item.SetFocusStyles(&focusStyle, &blurStyle)
 			items = append(items, item)
 		}
 
@@ -703,10 +508,10 @@ func GetMessageItems(msg *message.Message, toolResults map[string]message.ToolRe
 				item := NewMessageContentItem(
 					fmt.Sprintf("%s-content", msg.ID),
 					"*Canceled*",
+					msg.Role,
 					true,
-					&sty,
+					sty,
 				)
-				item.SetFocusStyles(&focusStyle, &blurStyle)
 				items = append(items, item)
 			case message.FinishReasonError:
 				// Render error
@@ -719,20 +524,20 @@ func GetMessageItems(msg *message.Message, toolResults map[string]message.ToolRe
 				item := NewMessageContentItem(
 					fmt.Sprintf("%s-error", msg.ID),
 					errorContent,
+					msg.Role,
 					false,
-					&sty,
+					sty,
 				)
-				item.SetFocusStyles(&focusStyle, &blurStyle)
 				items = append(items, item)
 			}
 		} else if content != "" {
 			item := NewMessageContentItem(
 				fmt.Sprintf("%s-content", msg.ID),
 				content,
+				msg.Role,
 				true, // Assistant messages are markdown
-				&sty,
+				sty,
 			)
-			item.SetFocusStyles(&focusStyle, &blurStyle)
 			items = append(items, item)
 		}
 
@@ -757,8 +562,10 @@ func GetMessageItems(msg *message.Message, toolResults map[string]message.ToolRe
 				result,
 				false, // cancelled state would need to be tracked separately
 				false, // nested state would be detected from tool results
-				&sty,
+				sty,
 			)
+
+			item.SetHighlightStyle(ToStyler(sty.TextSelection))
 
 			// Tool calls use muted style with optional focus border
 			item.SetFocusStyles(&sty.Chat.Message.ToolCallFocused, &sty.Chat.Message.ToolCallBlurred)
@@ -787,4 +594,300 @@ func BuildToolResultMap(messages []*message.Message) map[string]message.ToolResu
 		}
 	}
 	return resultMap
+}
+
+// BaseFocusable provides common focus state and styling for items.
+// Embed this type to add focus behavior to any item.
+type BaseFocusable struct {
+	focused    bool
+	focusStyle *lipgloss.Style
+	blurStyle  *lipgloss.Style
+}
+
+// Focus implements Focusable interface.
+func (b *BaseFocusable) Focus(width int, content string) string {
+	if b.focusStyle != nil {
+		return b.focusStyle.Render(content)
+	}
+	return content
+}
+
+// Blur implements Focusable interface.
+func (b *BaseFocusable) Blur(width int, content string) string {
+	if b.blurStyle != nil {
+		return b.blurStyle.Render(content)
+	}
+	return content
+}
+
+// Focus implements Focusable interface.
+// func (b *BaseFocusable) Focus() {
+// 	b.focused = true
+// }
+
+// Blur implements Focusable interface.
+// func (b *BaseFocusable) Blur() {
+// 	b.focused = false
+// }
+
+// Focused implements Focusable interface.
+func (b *BaseFocusable) Focused() bool {
+	return b.focused
+}
+
+// HasFocusStyles returns true if both focus and blur styles are configured.
+func (b *BaseFocusable) HasFocusStyles() bool {
+	return b.focusStyle != nil && b.blurStyle != nil
+}
+
+// CurrentStyle returns the current style based on focus state.
+// Returns nil if no styles are configured, or if the current state's style is nil.
+func (b *BaseFocusable) CurrentStyle() *lipgloss.Style {
+	if b.focused {
+		return b.focusStyle
+	}
+	return b.blurStyle
+}
+
+// SetFocusStyles sets the focus and blur styles.
+func (b *BaseFocusable) SetFocusStyles(focusStyle, blurStyle *lipgloss.Style) {
+	b.focusStyle = focusStyle
+	b.blurStyle = blurStyle
+}
+
+// CellStyler defines a function that styles a [uv.Style].
+type CellStyler func(uv.Style) uv.Style
+
+// BaseHighlightable provides common highlight state for items.
+// Embed this type to add highlight behavior to any item.
+type BaseHighlightable struct {
+	highlightStartLine int
+	highlightStartCol  int
+	highlightEndLine   int
+	highlightEndCol    int
+	highlightStyle     CellStyler
+}
+
+// SetHighlight implements Highlightable interface.
+func (b *BaseHighlightable) SetHighlight(startLine, startCol, endLine, endCol int) {
+	b.highlightStartLine = startLine
+	b.highlightStartCol = startCol
+	b.highlightEndLine = endLine
+	b.highlightEndCol = endCol
+}
+
+// GetHighlight implements Highlightable interface.
+func (b *BaseHighlightable) GetHighlight() (startLine, startCol, endLine, endCol int) {
+	return b.highlightStartLine, b.highlightStartCol, b.highlightEndLine, b.highlightEndCol
+}
+
+// HasHighlight returns true if a highlight region is set.
+func (b *BaseHighlightable) HasHighlight() bool {
+	return b.highlightStartLine >= 0 || b.highlightStartCol >= 0 ||
+		b.highlightEndLine >= 0 || b.highlightEndCol >= 0
+}
+
+// SetHighlightStyle sets the style function used for highlighting.
+func (b *BaseHighlightable) SetHighlightStyle(style CellStyler) {
+	b.highlightStyle = style
+}
+
+// GetHighlightStyle returns the current highlight style function.
+func (b *BaseHighlightable) GetHighlightStyle() CellStyler {
+	return b.highlightStyle
+}
+
+// InitHighlight initializes the highlight fields with default values.
+func (b *BaseHighlightable) InitHighlight() {
+	b.highlightStartLine = -1
+	b.highlightStartCol = -1
+	b.highlightEndLine = -1
+	b.highlightEndCol = -1
+	b.highlightStyle = ToStyler(lipgloss.NewStyle().Reverse(true))
+}
+
+// Highlight implements Highlightable interface.
+func (b *BaseHighlightable) Highlight(width int, content string, startLine, startCol, endLine, endCol int) string {
+	b.SetHighlight(startLine, startCol, endLine, endCol)
+	return b.RenderWithHighlight(content, width, nil)
+}
+
+// RenderWithHighlight renders content with optional focus styling and highlighting.
+// This is a helper that combines common rendering logic for all items.
+// The content parameter should be the raw rendered content before focus styling.
+// The style parameter should come from CurrentStyle() and may be nil.
+func (b *BaseHighlightable) RenderWithHighlight(content string, width int, style *lipgloss.Style) string {
+	// Apply focus/blur styling if configured
+	rendered := content
+	if style != nil {
+		rendered = style.Render(rendered)
+	}
+
+	if !b.HasHighlight() {
+		return rendered
+	}
+
+	height := lipgloss.Height(rendered)
+
+	// Create temp buffer to draw content with highlighting
+	tempBuf := uv.NewScreenBuffer(width, height)
+
+	// Draw the rendered content to temp buffer
+	styled := uv.NewStyledString(rendered)
+	styled.Draw(&tempBuf, uv.Rect(0, 0, width, height))
+
+	// Apply highlighting if active
+	b.ApplyHighlight(&tempBuf, width, height, style)
+
+	return tempBuf.Render()
+}
+
+// ApplyHighlight applies highlighting to a screen buffer.
+// This should be called after drawing content to the buffer.
+func (b *BaseHighlightable) ApplyHighlight(buf *uv.ScreenBuffer, width, height int, style *lipgloss.Style) {
+	if b.highlightStartLine < 0 {
+		return
+	}
+
+	var (
+		topMargin, topBorder, topPadding          int
+		rightMargin, rightBorder, rightPadding    int
+		bottomMargin, bottomBorder, bottomPadding int
+		leftMargin, leftBorder, leftPadding       int
+	)
+	if style != nil {
+		topMargin, rightMargin, bottomMargin, leftMargin = style.GetMargin()
+		topBorder, rightBorder, bottomBorder, leftBorder = style.GetBorderTopSize(),
+			style.GetBorderRightSize(),
+			style.GetBorderBottomSize(),
+			style.GetBorderLeftSize()
+		topPadding, rightPadding, bottomPadding, leftPadding = style.GetPadding()
+	}
+
+	slog.Info("Applying highlight",
+		"highlightStartLine", b.highlightStartLine,
+		"highlightStartCol", b.highlightStartCol,
+		"highlightEndLine", b.highlightEndLine,
+		"highlightEndCol", b.highlightEndCol,
+		"width", width,
+		"height", height,
+		"margins", fmt.Sprintf("%d,%d,%d,%d", topMargin, rightMargin, bottomMargin, leftMargin),
+		"borders", fmt.Sprintf("%d,%d,%d,%d", topBorder, rightBorder, bottomBorder, leftBorder),
+		"paddings", fmt.Sprintf("%d,%d,%d,%d", topPadding, rightPadding, bottomPadding, leftPadding),
+	)
+
+	// Calculate content area offsets
+	contentArea := image.Rectangle{
+		Min: image.Point{
+			X: leftMargin + leftBorder + leftPadding,
+			Y: topMargin + topBorder + topPadding,
+		},
+		Max: image.Point{
+			X: width - (rightMargin + rightBorder + rightPadding),
+			Y: height - (bottomMargin + bottomBorder + bottomPadding),
+		},
+	}
+
+	for y := b.highlightStartLine; y <= b.highlightEndLine && y < height; y++ {
+		if y >= buf.Height() {
+			break
+		}
+
+		line := buf.Line(y)
+
+		// Determine column range for this line
+		startCol := 0
+		if y == b.highlightStartLine {
+			startCol = min(b.highlightStartCol, len(line))
+		}
+
+		endCol := len(line)
+		if y == b.highlightEndLine {
+			endCol = min(b.highlightEndCol, len(line))
+		}
+
+		// Track last non-empty position as we go
+		lastContentX := -1
+
+		// Single pass: check content and track last non-empty position
+		for x := startCol; x < endCol; x++ {
+			cell := line.At(x)
+			if cell == nil {
+				continue
+			}
+
+			// Update last content position if non-empty
+			if cell.Content != "" && cell.Content != " " {
+				lastContentX = x
+			}
+		}
+
+		// Only apply highlight up to last content position
+		highlightEnd := endCol
+		if lastContentX >= 0 {
+			highlightEnd = lastContentX + 1
+		} else if lastContentX == -1 {
+			highlightEnd = startCol // No content on this line
+		}
+
+		// Apply highlight style only to cells with content
+		for x := startCol; x < highlightEnd; x++ {
+			if !image.Pt(x, y).In(contentArea) {
+				continue
+			}
+			cell := line.At(x)
+			cell.Style = b.highlightStyle(cell.Style)
+		}
+	}
+}
+
+// ToStyler converts a [lipgloss.Style] to a [CellStyler].
+func ToStyler(lgStyle lipgloss.Style) CellStyler {
+	return func(uv.Style) uv.Style {
+		return ToStyle(lgStyle)
+	}
+}
+
+// ToStyle converts an inline [lipgloss.Style] to a [uv.Style].
+func ToStyle(lgStyle lipgloss.Style) uv.Style {
+	var uvStyle uv.Style
+
+	// Colors are already color.Color
+	uvStyle.Fg = lgStyle.GetForeground()
+	uvStyle.Bg = lgStyle.GetBackground()
+
+	// Build attributes using bitwise OR
+	var attrs uint8
+
+	if lgStyle.GetBold() {
+		attrs |= uv.AttrBold
+	}
+
+	if lgStyle.GetItalic() {
+		attrs |= uv.AttrItalic
+	}
+
+	if lgStyle.GetUnderline() {
+		uvStyle.Underline = uv.UnderlineSingle
+	}
+
+	if lgStyle.GetStrikethrough() {
+		attrs |= uv.AttrStrikethrough
+	}
+
+	if lgStyle.GetFaint() {
+		attrs |= uv.AttrFaint
+	}
+
+	if lgStyle.GetBlink() {
+		attrs |= uv.AttrBlink
+	}
+
+	if lgStyle.GetReverse() {
+		attrs |= uv.AttrReverse
+	}
+
+	uvStyle.Attrs = attrs
+
+	return uvStyle
 }

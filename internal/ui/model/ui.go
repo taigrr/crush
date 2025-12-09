@@ -7,7 +7,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -171,8 +170,8 @@ func (m *UI) Init() tea.Cmd {
 	allSessions, _ := m.com.App.Sessions.List(context.Background())
 	if len(allSessions) > 0 {
 		cmds = append(cmds, func() tea.Msg {
-			time.Sleep(2 * time.Second)
-			return m.loadSession(allSessions[1].ID)()
+			// time.Sleep(2 * time.Second)
+			return m.loadSession(allSessions[0].ID)()
 		})
 	}
 	return tea.Batch(cmds...)
@@ -207,7 +206,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Add messages to chat with linked tool results
 		items := make([]MessageItem, 0, len(msgs)*2)
 		for _, msg := range msgPtrs {
-			items = append(items, GetMessageItems(msg, toolResultMap)...)
+			items = append(items, GetMessageItems(m.com.Styles, msg, toolResultMap)...)
 		}
 		m.chat.AppendMessages(items...)
 
@@ -247,7 +246,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseClickMsg:
 		switch m.state {
 		case uiChat:
-			m.chat.HandleMouseDown(msg.X, msg.Y)
+			x, y := msg.X, msg.Y
+			// Adjust for chat area position
+			x -= m.layout.main.Min.X
+			y -= m.layout.main.Min.Y
+			m.chat.HandleMouseDown(x, y)
 		}
 
 	case tea.MouseMotionMsg:
@@ -258,13 +261,22 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if msg.Y >= m.chat.Height()-1 {
 				m.chat.ScrollBy(1)
 			}
-			m.chat.HandleMouseDrag(msg.X, msg.Y)
+
+			x, y := msg.X, msg.Y
+			// Adjust for chat area position
+			x -= m.layout.main.Min.X
+			y -= m.layout.main.Min.Y
+			m.chat.HandleMouseDrag(x, y)
 		}
 
 	case tea.MouseReleaseMsg:
 		switch m.state {
 		case uiChat:
-			m.chat.HandleMouseUp(msg.X, msg.Y)
+			x, y := msg.X, msg.Y
+			// Adjust for chat area position
+			x -= m.layout.main.Min.X
+			y -= m.layout.main.Min.Y
+			m.chat.HandleMouseUp(x, y)
 		}
 	case tea.MouseWheelMsg:
 		switch m.state {

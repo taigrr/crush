@@ -1,5 +1,7 @@
 package lazylist
 
+import "charm.land/lipgloss/v2"
+
 // Item represents a single item in the lazy-loaded list.
 type Item interface {
 	// Render returns the string representation of the item for the given
@@ -7,24 +9,16 @@ type Item interface {
 	Render(width int) string
 }
 
-// Focusable represents an item that can gain or lose focus.
-type Focusable interface {
-	// Focus sets the focus state of the item.
-	Focus()
-
-	// Blur removes the focus state of the item.
-	Blur()
-
-	// Focused returns whether the item is focused.
-	Focused() bool
+// FocusStylable represents an item that can be styled based on focus state.
+type FocusStylable interface {
+	// FocusStyle returns the style to apply when the item is focused.
+	FocusStyle() lipgloss.Style
+	// BlurStyle returns the style to apply when the item is unfocused.
+	BlurStyle() lipgloss.Style
 }
 
-// Highlightable represents an item that can have a highlighted region.
-type Highlightable interface {
-	// SetHighlight sets the highlight region (startLine, startCol) to (endLine, endCol).
-	// Use -1 for all values to clear highlighting.
-	SetHighlight(startLine, startCol, endLine, endCol int)
-
-	// GetHighlight returns the current highlight region.
-	GetHighlight() (startLine, startCol, endLine, endCol int)
+// HighlightStylable represents an item that can be styled for highlighted regions.
+type HighlightStylable interface {
+	// HighlightStyle returns the style to apply for highlighted regions.
+	HighlightStyle() lipgloss.Style
 }
