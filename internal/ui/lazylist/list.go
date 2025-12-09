@@ -31,9 +31,6 @@ type List struct {
 	// scrolled out of view (above the viewport).
 	// It must always be >= 0.
 	offsetLine int
-
-	// Dirty tracking
-	dirtyItems map[int]struct{}
 }
 
 // renderedItem holds the rendered content and height of an item.
@@ -47,7 +44,6 @@ func NewList(items ...Item) *List {
 	l := new(List)
 	l.items = items
 	l.renderedItems = make(map[int]renderedItem)
-	l.dirtyItems = make(map[int]struct{})
 	return l
 }
 
@@ -88,9 +84,7 @@ func (l *List) getItem(idx int) renderedItem {
 	}
 
 	if item, ok := l.renderedItems[idx]; ok {
-		if _, dirty := l.dirtyItems[idx]; !dirty {
-			return item
-		}
+		return item
 	}
 
 	item := l.items[idx]
@@ -104,7 +98,6 @@ func (l *List) getItem(idx int) renderedItem {
 	}
 
 	l.renderedItems[idx] = ri
-	delete(l.dirtyItems, idx)
 
 	return ri
 }
@@ -301,13 +294,6 @@ func (l *List) PrependItems(items ...Item) {
 	}
 	l.renderedItems = newCache
 
-	// Shift dirty items
-	newDirty := make(map[int]struct{})
-	for idx := range l.dirtyItems {
-		newDirty[idx+len(items)] = struct{}{}
-	}
-	l.dirtyItems = newDirty
-
 	// Keep view position relative to the content that was visible
 	l.offsetIdx += len(items)
 
@@ -325,6 +311,9 @@ func (l *List) AppendItems(items ...Item) {
 // Focus sets the focus state of the list.
 func (l *List) Focus() {
 	l.focused = true
+	if l.selectedIdx < 0 || l.selectedIdx > len(l.items)-1 {
+		return
+	}
 }
 
 // Blur removes the focus state from the list.
