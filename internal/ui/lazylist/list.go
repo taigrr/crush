@@ -138,7 +138,7 @@ func (l *List) ScrollBy(lines int) {
 			if l.gap > 0 && i < len(l.items)-1 {
 				totalLines += l.gap
 			}
-			if totalLines >= l.height {
+			if totalLines > l.height-1 {
 				lastItemIdx = i
 				break
 			}
@@ -165,7 +165,7 @@ func (l *List) ScrollBy(lines int) {
 		}
 
 		if l.offsetLine >= item.height {
-			l.offsetLine = item.height - 1
+			l.offsetLine = item.height
 		}
 	} else if lines < 0 {
 		// Scroll up
@@ -376,7 +376,36 @@ func (l *List) ScrollToBottom() {
 
 // ScrollToSelected scrolls the list to the selected item.
 func (l *List) ScrollToSelected() {
-	// TODO: Implement me
+	if l.selectedIdx < 0 || l.selectedIdx >= len(l.items) {
+		return
+	}
+
+	startIdx, endIdx := l.findVisibleItems()
+	if l.selectedIdx < startIdx {
+		// Selected item is above the visible range
+		l.offsetIdx = l.selectedIdx
+		l.offsetLine = 0
+	} else if l.selectedIdx > endIdx {
+		// Selected item is below the visible range
+		// Scroll so that the selected item is at the bottom
+		var totalHeight int
+		for i := l.selectedIdx; i >= 0; i-- {
+			item := l.getItem(i)
+			totalHeight += item.height
+			if l.gap > 0 && i < l.selectedIdx {
+				totalHeight += l.gap
+			}
+			if totalHeight >= l.height {
+				l.offsetIdx = i
+				l.offsetLine = totalHeight - l.height
+				break
+			}
+		}
+		if totalHeight < l.height {
+			// All items fit in the viewport
+			l.ScrollToTop()
+		}
+	}
 }
 
 // SelectedItemInView returns whether the selected item is currently in view.
