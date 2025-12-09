@@ -102,6 +102,12 @@ func (l *List) getItem(idx int) renderedItem {
 	return ri
 }
 
+// invalidateItem invalidates the cached rendered content of the item at the
+// given index.
+func (l *List) invalidateItem(idx int) {
+	delete(l.renderedItems, idx)
+}
+
 // ScrollToIndex scrolls the list to the given item index.
 func (l *List) ScrollToIndex(index int) {
 	if index < 0 {
@@ -314,11 +320,26 @@ func (l *List) Focus() {
 	if l.selectedIdx < 0 || l.selectedIdx > len(l.items)-1 {
 		return
 	}
+
+	item := l.items[l.selectedIdx]
+	if focusable, ok := item.(Focusable); ok {
+		focusable.Focus()
+		l.invalidateItem(l.selectedIdx)
+	}
 }
 
 // Blur removes the focus state from the list.
 func (l *List) Blur() {
 	l.focused = false
+	if l.selectedIdx < 0 || l.selectedIdx > len(l.items)-1 {
+		return
+	}
+
+	item := l.items[l.selectedIdx]
+	if focusable, ok := item.(Focusable); ok {
+		focusable.Blur()
+		l.invalidateItem(l.selectedIdx)
+	}
 }
 
 // ScrollToTop scrolls the list to the top.
