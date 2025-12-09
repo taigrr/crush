@@ -336,8 +336,7 @@ func (l *List) ScrollToBottom() {
 
 	// Scroll to the last item
 	var totalHeight int
-	var i int
-	for i = len(l.items) - 1; i >= 0; i-- {
+	for i := len(l.items) - 1; i >= 0; i-- {
 		item := l.getItem(i)
 		totalHeight += item.height
 		if l.gap > 0 && i < len(l.items)-1 {
@@ -349,10 +348,9 @@ func (l *List) ScrollToBottom() {
 			break
 		}
 	}
-	if i < 0 {
+	if totalHeight < l.height {
 		// All items fit in the viewport
-		l.offsetIdx = 0
-		l.offsetLine = 0
+		l.ScrollToTop()
 	}
 }
 
