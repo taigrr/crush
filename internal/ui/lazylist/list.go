@@ -170,27 +170,37 @@ func (l *List) ScrollBy(lines int) {
 		}
 	} else if lines < 0 {
 		// Scroll up
-		l.offsetLine += lines
-		for l.offsetLine < 0 {
-			if l.offsetIdx == 0 {
-				// Reached the top of the list
-				l.offsetLine = 0
+		// Calculate from offset how many items needed to fill the viewport
+		// This is needed to know when to stop scrolling up
+		var totalLines int
+		var firstItemIdx int
+		for i := l.offsetIdx; i >= 0; i-- {
+			item := l.getItem(i)
+			totalLines += item.height
+			if l.gap > 0 && i < l.offsetIdx {
+				totalLines += l.gap
+			}
+			if totalLines >= l.height {
+				firstItemIdx = i
 				break
 			}
+		}
 
+		// Now scroll up by lines
+		l.offsetLine += lines // lines is negative
+		for l.offsetIdx > firstItemIdx && l.offsetLine < 0 {
 			// Move to previous item
 			l.offsetIdx--
-			item := l.getItem(l.offsetIdx)
-			totalHeight := item.height
+			prevItem := l.getItem(l.offsetIdx)
+			totalHeight := prevItem.height
 			if l.gap > 0 {
 				totalHeight += l.gap
 			}
 			l.offsetLine += totalHeight
 		}
 
-		item := l.getItem(l.offsetIdx)
-		if l.offsetLine >= item.height {
-			l.offsetLine = item.height - 1
+		if l.offsetLine < 0 {
+			l.offsetLine = 0
 		}
 	}
 }
