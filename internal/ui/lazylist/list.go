@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // List represents a list of items that can be lazily rendered. A list is
@@ -549,6 +550,12 @@ func (l *List) HandleMouseDown(x, y int) bool {
 
 	// Select the clicked item
 	l.SetSelected(itemIdx)
+
+	if clickable, ok := l.items[itemIdx].(MouseClickable); ok {
+		clickable.HandleMouseClick(ansi.MouseButton1, x, itemY)
+		l.items[itemIdx] = clickable.(Item)
+		l.invalidateItem(itemIdx)
+	}
 
 	return true
 }

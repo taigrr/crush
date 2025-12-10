@@ -1,6 +1,9 @@
 package lazylist
 
-import "charm.land/lipgloss/v2"
+import (
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+)
 
 // Item represents a single item in the lazy-loaded list.
 type Item interface {
@@ -21,4 +24,11 @@ type FocusStylable interface {
 type HighlightStylable interface {
 	// HighlightStyle returns the style to apply for highlighted regions.
 	HighlightStyle() lipgloss.Style
+}
+
+// MouseClickable represents an item that can handle mouse click events.
+type MouseClickable interface {
+	// HandleMouseClick processes a mouse click event at the given coordinates.
+	// It returns true if the event was handled, false otherwise.
+	HandleMouseClick(btn ansi.MouseButton, x, y int) bool
 }

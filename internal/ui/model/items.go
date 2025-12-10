@@ -351,6 +351,7 @@ type SectionHeaderItem struct {
 	duration        time.Duration
 	isSectionHeader bool
 	sty             *styles.Styles
+	content         string
 }
 
 // NewSectionHeaderItem creates a new section header item.
@@ -387,13 +388,13 @@ func (s *SectionHeaderItem) BlurStyle() lipgloss.Style {
 
 // Render implements lazylist.Item.
 func (s *SectionHeaderItem) Render(width int) string {
-	content := s.sty.Chat.Message.SectionHeader.Render(fmt.Sprintf("%s %s %s",
+	content := fmt.Sprintf("%s %s %s",
 		s.sty.Subtle.Render(styles.ModelIcon),
 		s.sty.Muted.Render(s.modelName),
 		s.sty.Subtle.Render(s.duration.String()),
-	))
+	)
 
-	return content
+	return s.sty.Chat.Message.SectionHeader.Render(content)
 }
 
 // GetMessageItems extracts [MessageItem]s from a [message.Message]. It returns
