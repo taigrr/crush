@@ -2,14 +2,11 @@ package model
 
 import (
 	"fmt"
-	"image"
-	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"charm.land/lipgloss/v2"
-	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/charmbracelet/crush/internal/config"
@@ -111,8 +108,6 @@ func (m *MessageContentItem) Render(width int) string {
 
 // ToolCallItem represents a rendered tool call with its header and content.
 type ToolCallItem struct {
-	BaseFocusable
-	BaseHighlightable
 	id         string
 	toolCall   message.ToolCall
 	toolResult message.ToolResult
@@ -139,7 +134,6 @@ func NewToolCallItem(id string, toolCall message.ToolCall, toolResult message.To
 		maxWidth:   120,
 		sty:        sty,
 	}
-	t.InitHighlight()
 	return t
 }
 
@@ -156,18 +150,12 @@ func (t *ToolCallItem) ID() string {
 
 // FocusStyle returns the focus style.
 func (t *ToolCallItem) FocusStyle() lipgloss.Style {
-	if t.focusStyle != nil {
-		return *t.focusStyle
-	}
-	return lipgloss.Style{}
+	return t.sty.Chat.Message.ToolCallFocused
 }
 
 // BlurStyle returns the blur style.
 func (t *ToolCallItem) BlurStyle() lipgloss.Style {
-	if t.blurStyle != nil {
-		return *t.blurStyle
-	}
-	return lipgloss.Style{}
+	return t.sty.Chat.Message.ToolCallBlurred
 }
 
 // HighlightStyle returns the highlight style.
@@ -189,24 +177,10 @@ func (t *ToolCallItem) Render(width int) string {
 
 	rendered := toolrender.Render(ctx)
 	return rendered
-
-	// return t.RenderWithHighlight(rendered, width, style)
-}
-
-// SetHighlight implements list.Highlightable.
-func (t *ToolCallItem) SetHighlight(startLine, startCol, endLine, endCol int) {
-	t.BaseHighlightable.SetHighlight(startLine, startCol, endLine, endCol)
-}
-
-// UpdateResult updates the tool result and invalidates the cache if needed.
-func (t *ToolCallItem) UpdateResult(result message.ToolResult) {
-	t.toolResult = result
 }
 
 // AttachmentItem represents a file attachment in a user message.
 type AttachmentItem struct {
-	BaseFocusable
-	BaseHighlightable
 	id       string
 	filename string
 	path     string
@@ -221,7 +195,6 @@ func NewAttachmentItem(id, filename, path string, sty *styles.Styles) *Attachmen
 		path:     path,
 		sty:      sty,
 	}
-	a.InitHighlight()
 	return a
 }
 
@@ -232,18 +205,12 @@ func (a *AttachmentItem) ID() string {
 
 // FocusStyle returns the focus style.
 func (a *AttachmentItem) FocusStyle() lipgloss.Style {
-	if a.focusStyle != nil {
-		return *a.focusStyle
-	}
-	return lipgloss.Style{}
+	return a.sty.Chat.Message.AssistantFocused
 }
 
 // BlurStyle returns the blur style.
 func (a *AttachmentItem) BlurStyle() lipgloss.Style {
-	if a.blurStyle != nil {
-		return *a.blurStyle
-	}
-	return lipgloss.Style{}
+	return a.sty.Chat.Message.AssistantBlurred
 }
 
 // HighlightStyle returns the highlight style.
@@ -410,16 +377,6 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 		return items
 	}
 
-	// Create base styles for the message
-	var focusStyle, blurStyle lipgloss.Style
-	if msg.Role == message.User {
-		focusStyle = sty.Chat.Message.UserFocused
-		blurStyle = sty.Chat.Message.UserBlurred
-	} else {
-		focusStyle = sty.Chat.Message.AssistantFocused
-		blurStyle = sty.Chat.Message.AssistantBlurred
-	}
-
 	// Process user messages
 	if msg.Role == message.User {
 		// Add main text content
@@ -444,8 +401,6 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 				attachment.Path,
 				sty,
 			)
-			item.SetHighlightStyle(ToStyler(sty.TextSelection))
-			item.SetFocusStyles(&focusStyle, &blurStyle)
 			items = append(items, item)
 		}
 
@@ -566,11 +521,6 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 				sty,
 			)
 
-			item.SetHighlightStyle(ToStyler(sty.TextSelection))
-
-			// Tool calls use muted style with optional focus border
-			item.SetFocusStyles(&sty.Chat.Message.ToolCallFocused, &sty.Chat.Message.ToolCallBlurred)
-
 			items = append(items, item)
 		}
 
@@ -595,300 +545,4 @@ func BuildToolResultMap(messages []*message.Message) map[string]message.ToolResu
 		}
 	}
 	return resultMap
-}
-
-// BaseFocusable provides common focus state and styling for items.
-// Embed this type to add focus behavior to any item.
-type BaseFocusable struct {
-	focused    bool
-	focusStyle *lipgloss.Style
-	blurStyle  *lipgloss.Style
-}
-
-// Focus implements Focusable interface.
-func (b *BaseFocusable) Focus(width int, content string) string {
-	if b.focusStyle != nil {
-		return b.focusStyle.Render(content)
-	}
-	return content
-}
-
-// Blur implements Focusable interface.
-func (b *BaseFocusable) Blur(width int, content string) string {
-	if b.blurStyle != nil {
-		return b.blurStyle.Render(content)
-	}
-	return content
-}
-
-// Focus implements Focusable interface.
-// func (b *BaseFocusable) Focus() {
-// 	b.focused = true
-// }
-
-// Blur implements Focusable interface.
-// func (b *BaseFocusable) Blur() {
-// 	b.focused = false
-// }
-
-// Focused implements Focusable interface.
-func (b *BaseFocusable) Focused() bool {
-	return b.focused
-}
-
-// HasFocusStyles returns true if both focus and blur styles are configured.
-func (b *BaseFocusable) HasFocusStyles() bool {
-	return b.focusStyle != nil && b.blurStyle != nil
-}
-
-// CurrentStyle returns the current style based on focus state.
-// Returns nil if no styles are configured, or if the current state's style is nil.
-func (b *BaseFocusable) CurrentStyle() *lipgloss.Style {
-	if b.focused {
-		return b.focusStyle
-	}
-	return b.blurStyle
-}
-
-// SetFocusStyles sets the focus and blur styles.
-func (b *BaseFocusable) SetFocusStyles(focusStyle, blurStyle *lipgloss.Style) {
-	b.focusStyle = focusStyle
-	b.blurStyle = blurStyle
-}
-
-// CellStyler defines a function that styles a [uv.Style].
-type CellStyler func(uv.Style) uv.Style
-
-// BaseHighlightable provides common highlight state for items.
-// Embed this type to add highlight behavior to any item.
-type BaseHighlightable struct {
-	highlightStartLine int
-	highlightStartCol  int
-	highlightEndLine   int
-	highlightEndCol    int
-	highlightStyle     CellStyler
-}
-
-// SetHighlight implements Highlightable interface.
-func (b *BaseHighlightable) SetHighlight(startLine, startCol, endLine, endCol int) {
-	b.highlightStartLine = startLine
-	b.highlightStartCol = startCol
-	b.highlightEndLine = endLine
-	b.highlightEndCol = endCol
-}
-
-// GetHighlight implements Highlightable interface.
-func (b *BaseHighlightable) GetHighlight() (startLine, startCol, endLine, endCol int) {
-	return b.highlightStartLine, b.highlightStartCol, b.highlightEndLine, b.highlightEndCol
-}
-
-// HasHighlight returns true if a highlight region is set.
-func (b *BaseHighlightable) HasHighlight() bool {
-	return b.highlightStartLine >= 0 || b.highlightStartCol >= 0 ||
-		b.highlightEndLine >= 0 || b.highlightEndCol >= 0
-}
-
-// SetHighlightStyle sets the style function used for highlighting.
-func (b *BaseHighlightable) SetHighlightStyle(style CellStyler) {
-	b.highlightStyle = style
-}
-
-// GetHighlightStyle returns the current highlight style function.
-func (b *BaseHighlightable) GetHighlightStyle() CellStyler {
-	return b.highlightStyle
-}
-
-// InitHighlight initializes the highlight fields with default values.
-func (b *BaseHighlightable) InitHighlight() {
-	b.highlightStartLine = -1
-	b.highlightStartCol = -1
-	b.highlightEndLine = -1
-	b.highlightEndCol = -1
-	b.highlightStyle = ToStyler(lipgloss.NewStyle().Reverse(true))
-}
-
-// Highlight implements Highlightable interface.
-func (b *BaseHighlightable) Highlight(width int, content string, startLine, startCol, endLine, endCol int) string {
-	b.SetHighlight(startLine, startCol, endLine, endCol)
-	return b.RenderWithHighlight(content, width, nil)
-}
-
-// RenderWithHighlight renders content with optional focus styling and highlighting.
-// This is a helper that combines common rendering logic for all items.
-// The content parameter should be the raw rendered content before focus styling.
-// The style parameter should come from CurrentStyle() and may be nil.
-func (b *BaseHighlightable) RenderWithHighlight(content string, width int, style *lipgloss.Style) string {
-	// Apply focus/blur styling if configured
-	rendered := content
-	if style != nil {
-		rendered = style.Render(rendered)
-	}
-
-	if !b.HasHighlight() {
-		return rendered
-	}
-
-	height := lipgloss.Height(rendered)
-
-	// Create temp buffer to draw content with highlighting
-	tempBuf := uv.NewScreenBuffer(width, height)
-
-	// Draw the rendered content to temp buffer
-	styled := uv.NewStyledString(rendered)
-	styled.Draw(&tempBuf, uv.Rect(0, 0, width, height))
-
-	// Apply highlighting if active
-	b.ApplyHighlight(&tempBuf, width, height, style)
-
-	return tempBuf.Render()
-}
-
-// ApplyHighlight applies highlighting to a screen buffer.
-// This should be called after drawing content to the buffer.
-func (b *BaseHighlightable) ApplyHighlight(buf *uv.ScreenBuffer, width, height int, style *lipgloss.Style) {
-	if b.highlightStartLine < 0 {
-		return
-	}
-
-	var (
-		topMargin, topBorder, topPadding          int
-		rightMargin, rightBorder, rightPadding    int
-		bottomMargin, bottomBorder, bottomPadding int
-		leftMargin, leftBorder, leftPadding       int
-	)
-	if style != nil {
-		topMargin, rightMargin, bottomMargin, leftMargin = style.GetMargin()
-		topBorder, rightBorder, bottomBorder, leftBorder = style.GetBorderTopSize(),
-			style.GetBorderRightSize(),
-			style.GetBorderBottomSize(),
-			style.GetBorderLeftSize()
-		topPadding, rightPadding, bottomPadding, leftPadding = style.GetPadding()
-	}
-
-	slog.Info("Applying highlight",
-		"highlightStartLine", b.highlightStartLine,
-		"highlightStartCol", b.highlightStartCol,
-		"highlightEndLine", b.highlightEndLine,
-		"highlightEndCol", b.highlightEndCol,
-		"width", width,
-		"height", height,
-		"margins", fmt.Sprintf("%d,%d,%d,%d", topMargin, rightMargin, bottomMargin, leftMargin),
-		"borders", fmt.Sprintf("%d,%d,%d,%d", topBorder, rightBorder, bottomBorder, leftBorder),
-		"paddings", fmt.Sprintf("%d,%d,%d,%d", topPadding, rightPadding, bottomPadding, leftPadding),
-	)
-
-	// Calculate content area offsets
-	contentArea := image.Rectangle{
-		Min: image.Point{
-			X: leftMargin + leftBorder + leftPadding,
-			Y: topMargin + topBorder + topPadding,
-		},
-		Max: image.Point{
-			X: width - (rightMargin + rightBorder + rightPadding),
-			Y: height - (bottomMargin + bottomBorder + bottomPadding),
-		},
-	}
-
-	for y := b.highlightStartLine; y <= b.highlightEndLine && y < height; y++ {
-		if y >= buf.Height() {
-			break
-		}
-
-		line := buf.Line(y)
-
-		// Determine column range for this line
-		startCol := 0
-		if y == b.highlightStartLine {
-			startCol = min(b.highlightStartCol, len(line))
-		}
-
-		endCol := len(line)
-		if y == b.highlightEndLine {
-			endCol = min(b.highlightEndCol, len(line))
-		}
-
-		// Track last non-empty position as we go
-		lastContentX := -1
-
-		// Single pass: check content and track last non-empty position
-		for x := startCol; x < endCol; x++ {
-			cell := line.At(x)
-			if cell == nil {
-				continue
-			}
-
-			// Update last content position if non-empty
-			if cell.Content != "" && cell.Content != " " {
-				lastContentX = x
-			}
-		}
-
-		// Only apply highlight up to last content position
-		highlightEnd := endCol
-		if lastContentX >= 0 {
-			highlightEnd = lastContentX + 1
-		} else if lastContentX == -1 {
-			highlightEnd = startCol // No content on this line
-		}
-
-		// Apply highlight style only to cells with content
-		for x := startCol; x < highlightEnd; x++ {
-			if !image.Pt(x, y).In(contentArea) {
-				continue
-			}
-			cell := line.At(x)
-			cell.Style = b.highlightStyle(cell.Style)
-		}
-	}
-}
-
-// ToStyler converts a [lipgloss.Style] to a [CellStyler].
-func ToStyler(lgStyle lipgloss.Style) CellStyler {
-	return func(uv.Style) uv.Style {
-		return ToStyle(lgStyle)
-	}
-}
-
-// ToStyle converts an inline [lipgloss.Style] to a [uv.Style].
-func ToStyle(lgStyle lipgloss.Style) uv.Style {
-	var uvStyle uv.Style
-
-	// Colors are already color.Color
-	uvStyle.Fg = lgStyle.GetForeground()
-	uvStyle.Bg = lgStyle.GetBackground()
-
-	// Build attributes using bitwise OR
-	var attrs uint8
-
-	if lgStyle.GetBold() {
-		attrs |= uv.AttrBold
-	}
-
-	if lgStyle.GetItalic() {
-		attrs |= uv.AttrItalic
-	}
-
-	if lgStyle.GetUnderline() {
-		uvStyle.Underline = uv.UnderlineSingle
-	}
-
-	if lgStyle.GetStrikethrough() {
-		attrs |= uv.AttrStrikethrough
-	}
-
-	if lgStyle.GetFaint() {
-		attrs |= uv.AttrFaint
-	}
-
-	if lgStyle.GetBlink() {
-		attrs |= uv.AttrBlink
-	}
-
-	if lgStyle.GetReverse() {
-		attrs |= uv.AttrReverse
-	}
-
-	uvStyle.Attrs = attrs
-
-	return uvStyle
 }
