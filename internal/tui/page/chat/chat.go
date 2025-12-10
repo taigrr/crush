@@ -525,9 +525,7 @@ func (p *chatPage) View() string {
 		)
 		layers = append(layers, lipgloss.NewLayer(details).X(1).Y(1))
 	}
-	canvas := lipgloss.NewCanvas(
-		layers...,
-	)
+	canvas := lipgloss.NewCompositor(layers...)
 	return canvas.Render()
 }
 
@@ -1024,6 +1022,9 @@ func (p *chatPage) Help() help.KeyMap {
 			key.WithKeys("ctrl+p"),
 			key.WithHelp("ctrl+p", "commands"),
 		)
+		if p.focusedPane == PanelTypeEditor && p.editor.IsEmpty() {
+			commandsBinding.SetHelp("/ or ctrl+p", "commands")
+		}
 		modelsBinding := key.NewBinding(
 			key.WithKeys("ctrl+m", "ctrl+l"),
 			key.WithHelp("ctrl+l", "models"),
