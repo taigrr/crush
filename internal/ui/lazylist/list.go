@@ -2,7 +2,6 @@ package lazylist
 
 import (
 	"image"
-	"log/slog"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -99,6 +98,49 @@ func (l *List) getItem(idx int) renderedItem {
 	return l.renderItem(idx, false)
 }
 
+// applyHighlight applies highlighting to the given rendered item.
+func (l *List) applyHighlight(idx int, ri *renderedItem) {
+	// Apply highlight if item supports it
+	if highlightable, ok := l.items[idx].(HighlightStylable); ok {
+		startItemIdx, startLine, startCol, endItemIdx, endLine, endCol := l.getHighlightRange()
+		if idx >= startItemIdx && idx <= endItemIdx {
+			var sLine, sCol, eLine, eCol int
+			if idx == startItemIdx && idx == endItemIdx {
+				// Single item selection
+				sLine = startLine
+				sCol = startCol
+				eLine = endLine
+				eCol = endCol
+			} else if idx == startItemIdx {
+				// First item - from start position to end of item
+				sLine = startLine
+				sCol = startCol
+				eLine = ri.height - 1
+				eCol = 9999 // 9999 = end of line
+			} else if idx == endItemIdx {
+				// Last item - from start of item to end position
+				sLine = 0
+				sCol = 0
+				eLine = endLine
+				eCol = endCol
+			} else {
+				// Middle item - fully highlighted
+				sLine = 0
+				sCol = 0
+				eLine = ri.height - 1
+				eCol = 9999
+			}
+
+			// Apply offset for styling frame
+			contentArea := image.Rect(0, 0, l.width, ri.height)
+
+			hiStyle := highlightable.HighlightStyle()
+			rendered := Highlight(ri.content, contentArea, sLine, sCol, eLine, eCol, ToHighlighter(hiStyle))
+			ri.content = rendered
+		}
+	}
+}
+
 // renderItem renders (if needed) and returns the item at the given index. If
 // process is true, it applies focus and highlight styling.
 func (l *List) renderItem(idx int, process bool) renderedItem {
@@ -130,55 +172,17 @@ func (l *List) renderItem(idx int, process bool) renderedItem {
 	}
 
 	if !process {
+		// Simply return cached rendered item with frame size applied
+		if vfs := style.GetVerticalFrameSize(); vfs > 0 {
+			ri.height += vfs
+		}
 		return ri
 	}
 
 	// We apply highlighting before focus styling so that focus styling
 	// overrides highlight styles.
-	// Apply highlight if item supports it
 	if l.mouseDownItem >= 0 {
-		if highlightable, ok := l.items[idx].(HighlightStylable); ok {
-			startItemIdx, startLine, startCol, endItemIdx, endLine, endCol := l.getHighlightRange()
-			if idx >= startItemIdx && idx <= endItemIdx {
-				var sLine, sCol, eLine, eCol int
-				if idx == startItemIdx && idx == endItemIdx {
-					// Single item selection
-					sLine = startLine
-					sCol = startCol
-					eLine = endLine
-					eCol = endCol
-				} else if idx == startItemIdx {
-					// First item - from start position to end of item
-					sLine = startLine
-					sCol = startCol
-					eLine = ri.height - 1
-					eCol = 9999 // 9999 = end of line
-				} else if idx == endItemIdx {
-					// Last item - from start of item to end position
-					sLine = 0
-					sCol = 0
-					eLine = endLine
-					eCol = endCol
-				} else {
-					// Middle item - fully highlighted
-					sLine = 0
-					sCol = 0
-					eLine = ri.height - 1
-					eCol = 9999
-				}
-
-				// Apply offset for styling frame
-				contentArea := image.Rect(0, 0, l.width, ri.height)
-
-				hiStyle := highlightable.HighlightStyle()
-				slog.Info("Highlighting item", "idx", idx,
-					"sLine", sLine, "sCol", sCol,
-					"eLine", eLine, "eCol", eCol,
-				)
-				rendered := Highlight(ri.content, contentArea, sLine, sCol, eLine, eCol, ToHighlighter(hiStyle))
-				ri.content = rendered
-			}
-		}
+		l.applyHighlight(idx, &ri)
 	}
 
 	if isFocusable {
@@ -344,7 +348,7 @@ func (l *List) Render() string {
 			gapOffset := currentOffset - itemHeight
 			gapRemaining := l.gap - gapOffset
 			if gapRemaining > 0 {
-				for i := 0; i < gapRemaining; i++ {
+				for range gapRemaining {
 					lines = append(lines, "")
 				}
 			}
@@ -390,31 +394,11 @@ func (l *List) AppendItems(items ...Item) {
 // Focus sets the focus state of the list.
 func (l *List) Focus() {
 	l.focused = true
-	if l.selectedIdx < 0 || l.selectedIdx > len(l.items)-1 {
-		return
-	}
-
-	// item := l.items[l.selectedIdx]
-	// if focusable, ok := item.(Focusable); ok {
-	// 	focusable.Focus()
-	// 	l.items[l.selectedIdx] = focusable.(Item)
-	// 	l.invalidateItem(l.selectedIdx)
-	// }
 }
 
 // Blur removes the focus state from the list.
 func (l *List) Blur() {
 	l.focused = false
-	if l.selectedIdx < 0 || l.selectedIdx > len(l.items)-1 {
-		return
-	}
-
-	// item := l.items[l.selectedIdx]
-	// if focusable, ok := item.(Focusable); ok {
-	// 	focusable.Blur()
-	// 	l.items[l.selectedIdx] = focusable.(Item)
-	// 	l.invalidateItem(l.selectedIdx)
-	// }
 }
 
 // ScrollToTop scrolls the list to the top.
@@ -603,60 +587,11 @@ func (l *List) HandleMouseDrag(x, y int) bool {
 	l.mouseDragX = x
 	l.mouseDragY = itemY
 
-	startItemIdx, startLine, startCol, endItemIdx, endLine, endCol := l.getHighlightRange()
-
-	slog.Info("HandleMouseDrag", "mouseDownItem", l.mouseDownItem,
-		"mouseDragItem", l.mouseDragItem,
-		"startItemIdx", startItemIdx,
-		"endItemIdx", endItemIdx,
-		"startLine", startLine,
-		"startCol", startCol,
-		"endLine", endLine,
-		"endCol", endCol,
-	)
-
-	// for i := startItemIdx; i <= endItemIdx; i++ {
-	// 	item := l.getItem(i)
-	// 	itemHi, ok := l.items[i].(Highlightable)
-	// 	if ok {
-	// 		if i == startItemIdx && i == endItemIdx {
-	// 			// Single item selection
-	// 			itemHi.SetHighlight(startLine, startCol, endLine, endCol)
-	// 		} else if i == startItemIdx {
-	// 			// First item - from start position to end of item
-	// 			itemHi.SetHighlight(startLine, startCol, item.height-1, 9999) // 9999 = end of line
-	// 		} else if i == endItemIdx {
-	// 			// Last item - from start of item to end position
-	// 			itemHi.SetHighlight(0, 0, endLine, endCol)
-	// 		} else {
-	// 			// Middle item - fully highlighted
-	// 			itemHi.SetHighlight(0, 0, item.height-1, 9999)
-	// 		}
-	//
-	// 		// Invalidate item to re-render
-	// 		l.items[i] = itemHi.(Item)
-	// 		l.invalidateItem(i)
-	// 	}
-	// }
-
-	// Update highlight if item supports it
-	// l.updateHighlight()
-
 	return true
 }
 
 // ClearHighlight clears any active text highlighting.
 func (l *List) ClearHighlight() {
-	// for i, item := range l.renderedItems {
-	// 	if !item.highlighted {
-	// 		continue
-	// 	}
-	// 	if h, ok := l.items[i].(Highlightable); ok {
-	// 		h.SetHighlight(-1, -1, -1, -1)
-	// 		l.items[i] = h.(Item)
-	// 		l.invalidateItem(i)
-	// 	}
-	// }
 	l.mouseDownItem = -1
 	l.mouseDragItem = -1
 	l.lastHighlighted = make(map[int]bool)
@@ -728,106 +663,7 @@ func (l *List) getHighlightRange() (startItemIdx, startLine, startCol, endItemId
 		endCol = l.mouseDownX
 	}
 
-	slog.Info("Apply highlight",
-		"startItemIdx", startItemIdx,
-		"endItemIdx", endItemIdx,
-		"startLine", startLine,
-		"startCol", startCol,
-		"endLine", endLine,
-		"endCol", endCol,
-	)
-
 	return startItemIdx, startLine, startCol, endItemIdx, endLine, endCol
-}
-
-// updateHighlight updates the highlight range for highlightable items.
-// Supports highlighting across multiple items and respects drag direction.
-func (l *List) updateHighlight() {
-	if l.mouseDownItem < 0 {
-		return
-	}
-
-	// Get start and end item indices
-	downItemIdx := l.mouseDownItem
-	dragItemIdx := l.mouseDragItem
-
-	// Determine selection direction
-	draggingDown := dragItemIdx > downItemIdx ||
-		(dragItemIdx == downItemIdx && l.mouseDragY > l.mouseDownY) ||
-		(dragItemIdx == downItemIdx && l.mouseDragY == l.mouseDownY && l.mouseDragX >= l.mouseDownX)
-
-	// Determine actual start and end based on direction
-	var startItemIdx, endItemIdx int
-	var startLine, startCol, endLine, endCol int
-
-	if draggingDown {
-		// Normal forward selection
-		startItemIdx = downItemIdx
-		endItemIdx = dragItemIdx
-		startLine = l.mouseDownY
-		startCol = l.mouseDownX
-		endLine = l.mouseDragY
-		endCol = l.mouseDragX
-	} else {
-		// Backward selection (dragging up)
-		startItemIdx = dragItemIdx
-		endItemIdx = downItemIdx
-		startLine = l.mouseDragY
-		startCol = l.mouseDragX
-		endLine = l.mouseDownY
-		endCol = l.mouseDownX
-	}
-
-	slog.Info("Update highlight", "startItemIdx", startItemIdx, "endItemIdx", endItemIdx,
-		"startLine", startLine, "startCol", startCol,
-		"endLine", endLine, "endCol", endCol,
-		"draggingDown", draggingDown,
-	)
-
-	// Track newly highlighted items
-	// newHighlighted := make(map[int]bool)
-
-	// Clear highlights on items that are no longer in range
-	// for i := range l.lastHighlighted {
-	// 	if i < startItemIdx || i > endItemIdx {
-	// 		if h, ok := l.items[i].(Highlightable); ok {
-	// 			h.SetHighlight(-1, -1, -1, -1)
-	// 			l.items[i] = h.(Item)
-	// 			l.invalidateItem(i)
-	// 		}
-	// 	}
-	// }
-
-	// Highlight all items in range
-	// for idx := startItemIdx; idx <= endItemIdx; idx++ {
-	// 	item, ok := l.items[idx].(Highlightable)
-	// 	if !ok {
-	// 		continue
-	// 	}
-	//
-	// 	renderedItem := l.getItem(idx)
-	//
-	// 	if idx == startItemIdx && idx == endItemIdx {
-	// 		// Single item selection
-	// 		item.SetHighlight(startLine, startCol, endLine, endCol)
-	// 	} else if idx == startItemIdx {
-	// 		// First item - from start position to end of item
-	// 		item.SetHighlight(startLine, startCol, renderedItem.height-1, 9999) // 9999 = end of line
-	// 	} else if idx == endItemIdx {
-	// 		// Last item - from start of item to end position
-	// 		item.SetHighlight(0, 0, endLine, endCol)
-	// 	} else {
-	// 		// Middle item - fully highlighted
-	// 		item.SetHighlight(0, 0, renderedItem.height-1, 9999)
-	// 	}
-	//
-	// 	l.items[idx] = item.(Item)
-	//
-	// 	l.invalidateItem(idx)
-	// 	newHighlighted[idx] = true
-	// }
-	//
-	// l.lastHighlighted = newHighlighted
 }
 
 // countLines counts the number of lines in a string.

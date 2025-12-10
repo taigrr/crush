@@ -258,8 +258,16 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case uiChat:
 			if msg.Y <= 0 {
 				m.chat.ScrollBy(-1)
+				if !m.chat.SelectedItemInView() {
+					m.chat.SelectPrev()
+					m.chat.ScrollToSelected()
+				}
 			} else if msg.Y >= m.chat.Height()-1 {
 				m.chat.ScrollBy(1)
+				if !m.chat.SelectedItemInView() {
+					m.chat.SelectNext()
+					m.chat.ScrollToSelected()
+				}
 			}
 
 			x, y := msg.X, msg.Y
