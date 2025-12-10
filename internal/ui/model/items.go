@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/common"
-	"github.com/charmbracelet/crush/internal/ui/lazylist"
+	"github.com/charmbracelet/crush/internal/ui/list"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/crush/internal/ui/toolrender"
 )
@@ -23,10 +23,10 @@ type Identifiable interface {
 }
 
 // MessageItem represents a [message.Message] item that can be displayed in the
-// UI and be part of a [lazylist.List] identifiable by a unique ID.
+// UI and be part of a [list.List] identifiable by a unique ID.
 type MessageItem interface {
-	lazylist.Item
-	lazylist.Item
+	list.Item
+	list.Item
 	Identifiable
 }
 
@@ -81,7 +81,7 @@ func (m *MessageContentItem) HighlightStyle() lipgloss.Style {
 
 // Render renders the content at the given width, using cache if available.
 //
-// It implements [lazylist.Item].
+// It implements [list.Item].
 func (m *MessageContentItem) Render(width int) string {
 	contentWidth := width
 	// Cap width to maxWidth for markdown
@@ -163,7 +163,7 @@ func (t *ToolCallItem) HighlightStyle() lipgloss.Style {
 	return t.sty.TextSelection
 }
 
-// Render implements lazylist.Item.
+// Render implements list.Item.
 func (t *ToolCallItem) Render(width int) string {
 	// Render the tool call
 	ctx := &toolrender.RenderContext{
@@ -218,7 +218,7 @@ func (a *AttachmentItem) HighlightStyle() lipgloss.Style {
 	return a.sty.TextSelection
 }
 
-// Render implements lazylist.Item.
+// Render implements list.Item.
 func (a *AttachmentItem) Render(width int) string {
 	const maxFilenameWidth = 10
 	content := a.sty.Chat.Message.Attachment.Render(fmt.Sprintf(
@@ -275,7 +275,7 @@ func (t *ThinkingItem) HighlightStyle() lipgloss.Style {
 	return t.sty.TextSelection
 }
 
-// Render implements lazylist.Item.
+// Render implements list.Item.
 func (t *ThinkingItem) Render(width int) string {
 	cappedWidth := min(width, t.maxWidth)
 
@@ -353,7 +353,7 @@ func (s *SectionHeaderItem) BlurStyle() lipgloss.Style {
 	return s.sty.Chat.Message.AssistantBlurred
 }
 
-// Render implements lazylist.Item.
+// Render implements list.Item.
 func (s *SectionHeaderItem) Render(width int) string {
 	content := fmt.Sprintf("%s %s %s",
 		s.sty.Subtle.Render(styles.ModelIcon),

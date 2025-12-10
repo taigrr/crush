@@ -1,4 +1,4 @@
-package lazylist
+package list
 
 import (
 	"charm.land/lipgloss/v2"

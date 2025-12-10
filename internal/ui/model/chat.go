@@ -2,7 +2,7 @@ package model
 
 import (
 	"github.com/charmbracelet/crush/internal/ui/common"
-	"github.com/charmbracelet/crush/internal/ui/lazylist"
+	"github.com/charmbracelet/crush/internal/ui/list"
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
@@ -10,13 +10,13 @@ import (
 // messages.
 type Chat struct {
 	com  *common.Common
-	list *lazylist.List
+	list *list.List
 }
 
 // NewChat creates a new instance of [Chat] that handles chat interactions and
 // messages.
 func NewChat(com *common.Common) *Chat {
-	l := lazylist.NewList()
+	l := list.NewList()
 	l.SetGap(1)
 	return &Chat{
 		com:  com,
@@ -45,14 +45,14 @@ func (m *Chat) Len() int {
 }
 
 // PrependItems prepends new items to the chat list.
-func (m *Chat) PrependItems(items ...lazylist.Item) {
+func (m *Chat) PrependItems(items ...list.Item) {
 	m.list.PrependItems(items...)
 	m.list.ScrollToIndex(0)
 }
 
 // AppendMessages appends a new message item to the chat list.
 func (m *Chat) AppendMessages(msgs ...MessageItem) {
-	items := make([]lazylist.Item, len(msgs))
+	items := make([]list.Item, len(msgs))
 	for i, msg := range msgs {
 		items[i] = msg
 	}
@@ -60,7 +60,7 @@ func (m *Chat) AppendMessages(msgs ...MessageItem) {
 }
 
 // AppendItems appends new items to the chat list.
-func (m *Chat) AppendItems(items ...lazylist.Item) {
+func (m *Chat) AppendItems(items ...list.Item) {
 	m.list.AppendItems(items...)
 	m.list.ScrollToIndex(m.list.Len() - 1)
 }
