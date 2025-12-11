@@ -333,7 +333,7 @@ func (l *List) Render() string {
 		itemLines := strings.Split(item.content, "\n")
 		itemHeight := len(itemLines)
 
-		if currentOffset < itemHeight {
+		if currentOffset >= 0 && currentOffset < itemHeight {
 			// Add visible content lines
 			lines = append(lines, itemLines[currentOffset:]...)
 
