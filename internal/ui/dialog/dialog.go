@@ -110,13 +110,13 @@ func (d *Overlay) View() string {
 	}
 
 	// Compose all the dialogs into a single view
-	canvas := lipgloss.NewCanvas()
-	for _, dialog := range d.dialogs {
-		layer := lipgloss.NewLayer(dialog.View())
-		canvas.AddLayers(layer)
+	dialogs := make([]*lipgloss.Layer, len(d.dialogs))
+	for i, dialog := range d.dialogs {
+		dialogs[i] = lipgloss.NewLayer(dialog.View())
 	}
 
-	return canvas.Render()
+	comp := lipgloss.NewCompositor(dialogs...)
+	return comp.Render()
 }
 
 // ShortHelp implements [help.KeyMap].
