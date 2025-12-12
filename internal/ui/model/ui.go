@@ -50,6 +50,11 @@ const (
 	uiChatCompact
 )
 
+// sessionsLoadedMsg is a message indicating that sessions have been loaded.
+type sessionsLoadedMsg struct {
+	sessions []session.Session
+}
+
 type sessionLoadedMsg struct {
 	sess session.Session
 }
@@ -167,13 +172,6 @@ func (m *UI) Init() tea.Cmd {
 	if m.QueryVersion {
 		cmds = append(cmds, tea.RequestTerminalVersion)
 	}
-	allSessions, _ := m.com.App.Sessions.List(context.Background())
-	if len(allSessions) > 0 {
-		cmds = append(cmds, func() tea.Msg {
-			// time.Sleep(2 * time.Second)
-			return m.loadSession(allSessions[0].ID)()
-		})
-	}
 	return tea.Batch(cmds...)
 }
 
@@ -190,6 +188,16 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.sendProgressBar {
 			m.sendProgressBar = slices.Contains(msg, "WT_SESSION")
 		}
+	case sessionsLoadedMsg:
+		sessions := dialog.NewSessions(m.com, msg.sessions...)
+		sessions.SetSize(min(120, m.width-8), 30)
+		m.dialog.AddDialog(sessions)
+	case dialog.SessionSelectedMsg:
+		m.dialog.RemoveDialog(dialog.SessionDialogID)
+		cmds = append(cmds,
+			m.loadSession(msg.Session.ID),
+			m.loadSessionFiles(msg.Session.ID),
+		)
 	case sessionLoadedMsg:
 		m.state = uiChat
 		m.session = &msg.sess
@@ -208,7 +216,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, msg := range msgPtrs {
 			items = append(items, GetMessageItems(m.com.Styles, msg, toolResultMap)...)
 		}
-		m.chat.AppendMessages(items...)
+
+		m.chat.SetMessages(items...)
 
 		// Notify that session loading is done to scroll to bottom. This is
 		// needed because we need to draw the chat list first before we can
@@ -361,7 +370,12 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 		case key.Matches(msg, m.keyMap.Models):
 			// TODO: Implement me
 		case key.Matches(msg, m.keyMap.Sessions):
-			// TODO: Implement me
+			if m.dialog.ContainsDialog(dialog.SessionDialogID) {
+				// Bring to front
+				m.dialog.BringToFront(dialog.SessionDialogID)
+			} else {
+				cmds = append(cmds, m.loadSessionsCmd)
+			}
 			return true
 		}
 		return false
@@ -953,6 +967,13 @@ func (m *UI) renderHeader(compact bool, width int) {
 // width.
 func (m *UI) renderSidebarLogo(width int) {
 	m.sidebarLogo = renderLogo(m.com.Styles, true, width)
+}
+
+// loadSessionsCmd loads the list of sessions and returns a command that sends
+// a sessionFilesLoadedMsg when done.
+func (m *UI) loadSessionsCmd() tea.Msg {
+	allSessions, _ := m.com.App.Sessions.List(context.TODO())
+	return sessionsLoadedMsg{sessions: allSessions}
 }
 
 // renderLogo renders the Crush logo with the given styles and dimensions.

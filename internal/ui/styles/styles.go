@@ -256,6 +256,27 @@ type Styles struct {
 		AgentTaskTag lipgloss.Style // Agent task tag (blue background, bold)
 		AgentPrompt  lipgloss.Style // Agent prompt text
 	}
+
+	// Dialog styles
+	Dialog struct {
+		Title lipgloss.Style
+		// View is the main content area style.
+		View lipgloss.Style
+		// HelpView is the line that contains the help.
+		HelpView lipgloss.Style
+		Help     struct {
+			Ellipsis       lipgloss.Style
+			ShortKey       lipgloss.Style
+			ShortDesc      lipgloss.Style
+			ShortSeparator lipgloss.Style
+			FullKey        lipgloss.Style
+			FullDesc       lipgloss.Style
+			FullSeparator  lipgloss.Style
+		}
+		NormalItem   lipgloss.Style
+		SelectedItem lipgloss.Style
+		InputPrompt  lipgloss.Style
+	}
 }
 
 // ChromaTheme converts the current markdown chroma styles to a chroma
@@ -298,6 +319,12 @@ func (s *Styles) ChromaTheme() chroma.StyleEntries {
 	}
 }
 
+// DialogHelpStyles returns the styles for dialog help.
+func (s *Styles) DialogHelpStyles() help.Styles {
+	return help.Styles(s.Dialog.Help)
+}
+
+// DefaultStyles returns the default styles for the UI.
 func DefaultStyles() Styles {
 	var (
 		primary   = charmtone.Charple
@@ -394,7 +421,7 @@ func DefaultStyles() Styles {
 		},
 		Cursor: textinput.CursorStyle{
 			Color: secondary,
-			Shape: tea.CursorBar,
+			Shape: tea.CursorBlock,
 			Blink: true,
 		},
 	}
@@ -420,7 +447,7 @@ func DefaultStyles() Styles {
 		},
 		Cursor: textarea.CursorStyle{
 			Color: secondary,
-			Shape: tea.CursorBar,
+			Shape: tea.CursorBlock,
 			Blink: true,
 		},
 	}
@@ -864,6 +891,21 @@ func DefaultStyles() Styles {
 
 	// Text selection.
 	s.TextSelection = lipgloss.NewStyle().Foreground(charmtone.Salt).Background(charmtone.Charple)
+
+	// Dialog styles
+	s.Dialog.Title = base.Padding(0, 1).Foreground(primary)
+	s.Dialog.View = base.Border(lipgloss.RoundedBorder()).BorderForeground(borderFocus)
+	s.Dialog.HelpView = base.Padding(0, 1).AlignHorizontal(lipgloss.Left)
+	s.Dialog.Help.ShortKey = base.Foreground(fgMuted)
+	s.Dialog.Help.ShortDesc = base.Foreground(fgSubtle)
+	s.Dialog.Help.ShortSeparator = base.Foreground(border)
+	s.Dialog.Help.Ellipsis = base.Foreground(border)
+	s.Dialog.Help.FullKey = base.Foreground(fgMuted)
+	s.Dialog.Help.FullDesc = base.Foreground(fgSubtle)
+	s.Dialog.Help.FullSeparator = base.Foreground(border)
+	s.Dialog.NormalItem = base.Padding(0, 1).Foreground(fgBase)
+	s.Dialog.SelectedItem = base.Padding(0, 1).Background(primary).Foreground(fgBase)
+	s.Dialog.InputPrompt = base.Padding(0, 1)
 
 	return s
 }

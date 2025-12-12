@@ -144,3 +144,17 @@ func Section(t *styles.Styles, text string, width int) string {
 	}
 	return text
 }
+
+// DialogTitle renders a dialog title with a decorative line filling the
+// remaining width.
+func DialogTitle(t *styles.Styles, title string, width int) string {
+	char := "╱"
+	length := lipgloss.Width(title) + 1
+	remainingWidth := width - length
+	if remainingWidth > 0 {
+		lines := strings.Repeat(char, remainingWidth)
+		lines = styles.ApplyForegroundGrad(t, lines, t.Primary, t.Secondary)
+		title = title + " " + lines
+	}
+	return title
+}

@@ -25,6 +25,8 @@ const (
 	ActionNone ActionType = iota
 	// ActionClose indicates that the dialog should be closed.
 	ActionClose
+	// ActionSelect indicates that an item has been selected.
+	ActionSelect
 )
 
 // Action represents an action taken by a dialog.
@@ -81,6 +83,16 @@ func (d *Overlay) AddDialog(dialog Dialog) {
 	d.dialogs = append(d.dialogs, dialog)
 }
 
+// RemoveDialog removes the dialog with the specified ID from the stack.
+func (d *Overlay) RemoveDialog(dialogID string) {
+	for i, dialog := range d.dialogs {
+		if dialog.ID() == dialogID {
+			d.removeDialog(i)
+			return
+		}
+	}
+}
+
 // BringToFront brings the dialog with the specified ID to the front.
 func (d *Overlay) BringToFront(dialogID string) {
 	for i, dialog := range d.dialogs {
@@ -115,6 +127,9 @@ func (d *Overlay) Update(msg tea.Msg) (*Overlay, tea.Cmd) {
 	case ActionClose:
 		// Close the current dialog
 		d.removeDialog(idx)
+		return d, cmd
+	case ActionSelect:
+		// Pass the action up (without modifying the dialog stack)
 		return d, cmd
 	}
 

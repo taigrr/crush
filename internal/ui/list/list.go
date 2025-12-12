@@ -162,6 +162,7 @@ func (l *List) renderItem(idx int, process bool) renderedItem {
 	if !ok {
 		item := l.items[idx]
 		rendered := item.Render(l.width - style.GetHorizontalFrameSize())
+		rendered = strings.TrimRight(rendered, "\n")
 		height := countLines(rendered)
 
 		ri = renderedItem{
@@ -387,6 +388,23 @@ func (l *List) PrependItems(items ...Item) {
 	}
 }
 
+// SetItems sets the items in the list.
+func (l *List) SetItems(items ...Item) {
+	l.setItems(true, items...)
+}
+
+// setItems sets the items in the list. If evict is true, it clears the
+// rendered item cache.
+func (l *List) setItems(evict bool, items ...Item) {
+	l.items = items
+	if evict {
+		l.renderedItems = make(map[int]renderedItem)
+	}
+	l.selectedIdx = min(l.selectedIdx, len(l.items)-1)
+	l.offsetIdx = min(l.offsetIdx, len(l.items)-1)
+	l.offsetLine = 0
+}
+
 // AppendItems appends items to the list.
 func (l *List) AppendItems(items ...Item) {
 	l.items = append(l.items, items...)
@@ -512,6 +530,15 @@ func (l *List) SelectLast() {
 	if len(l.items) > 0 {
 		l.selectedIdx = len(l.items) - 1
 	}
+}
+
+// SelectedItem returns the currently selected item. It may be nil if no item
+// is selected.
+func (l *List) SelectedItem() Item {
+	if l.selectedIdx < 0 || l.selectedIdx >= len(l.items) {
+		return nil
+	}
+	return l.items[l.selectedIdx]
 }
 
 // SelectFirstInView selects the first item currently in view.

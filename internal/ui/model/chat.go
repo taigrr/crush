@@ -50,6 +50,16 @@ func (m *Chat) PrependItems(items ...list.Item) {
 	m.list.ScrollToIndex(0)
 }
 
+// SetMessages sets the chat messages to the provided list of message items.
+func (m *Chat) SetMessages(msgs ...MessageItem) {
+	items := make([]list.Item, len(msgs))
+	for i, msg := range msgs {
+		items[i] = msg
+	}
+	m.list.SetItems(items...)
+	m.list.ScrollToBottom()
+}
+
 // AppendMessages appends a new message item to the chat list.
 func (m *Chat) AppendMessages(msgs ...MessageItem) {
 	items := make([]list.Item, len(msgs))
