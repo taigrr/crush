@@ -335,28 +335,48 @@ func (m *UI) loadSession(sessionID string) tea.Cmd {
 }
 
 func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
-	if m.dialog.HasDialogs() {
-		return m.updateDialogs(msg)
+	handleQuitKeys := func(msg tea.KeyPressMsg) bool {
+		switch {
+		case key.Matches(msg, m.keyMap.Quit):
+			if !m.dialog.ContainsDialog(dialog.QuitDialogID) {
+				m.dialog.AddDialog(dialog.NewQuit(m.com))
+				return true
+			}
+		}
+		return false
 	}
 
-	handleGlobalKeys := func(msg tea.KeyPressMsg) {
+	handleGlobalKeys := func(msg tea.KeyPressMsg) bool {
+		if handleQuitKeys(msg) {
+			return true
+		}
 		switch {
 		case key.Matches(msg, m.keyMap.Tab):
 		case key.Matches(msg, m.keyMap.Help):
 			m.help.ShowAll = !m.help.ShowAll
 			m.updateLayoutAndSize()
-		case key.Matches(msg, m.keyMap.Quit):
-			if !m.dialog.ContainsDialog(dialog.QuitDialogID) {
-				m.dialog.AddDialog(dialog.NewQuit(m.com))
-				return
-			}
+			return true
 		case key.Matches(msg, m.keyMap.Commands):
 			// TODO: Implement me
 		case key.Matches(msg, m.keyMap.Models):
 			// TODO: Implement me
 		case key.Matches(msg, m.keyMap.Sessions):
 			// TODO: Implement me
+			return true
 		}
+		return false
+	}
+
+	if m.dialog.HasDialogs() {
+		// Always handle quit keys first
+		if handleQuitKeys(msg) {
+			return cmds
+		}
+
+		updatedDialog, cmd := m.dialog.Update(msg)
+		m.dialog = updatedDialog
+		cmds = append(cmds, cmd)
+		return cmds
 	}
 
 	switch m.state {
@@ -501,12 +521,19 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 
 	// This needs to come last to overlay on top of everything
 	if m.dialog.HasDialogs() {
-		if dialogView := m.dialog.View(); dialogView != "" {
-			dialogWidth, dialogHeight := lipgloss.Width(dialogView), lipgloss.Height(dialogView)
-			dialogArea := common.CenterRect(area, dialogWidth, dialogHeight)
-			dialog := uv.NewStyledString(dialogView)
-			dialog.Draw(scr, dialogArea)
+		dialogLayers := m.dialog.Layers()
+		layers := make([]*lipgloss.Layer, 0)
+		for _, layer := range dialogLayers {
+			if layer == nil {
+				continue
+			}
+			layerW, layerH := layer.Width(), layer.Height()
+			layerArea := common.CenterRect(area, layerW, layerH)
+			layers = append(layers, layer.X(layerArea.Min.X).Y(layerArea.Min.Y))
 		}
+
+		comp := lipgloss.NewCompositor(layers...)
+		comp.Draw(scr, area)
 	}
 }
 
@@ -648,14 +675,6 @@ func (m *UI) FullHelp() [][]key.Binding {
 	// }
 
 	return binds
-}
-
-// updateDialogs updates the dialog overlay with the given message and returns cmds
-func (m *UI) updateDialogs(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
-	updatedDialog, cmd := m.dialog.Update(msg)
-	m.dialog = updatedDialog
-	cmds = append(cmds, cmd)
-	return cmds
 }
 
 // updateFocused updates the focused model (chat or editor) with the given message
