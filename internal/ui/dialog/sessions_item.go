@@ -53,50 +53,57 @@ func (s *SessionItem) SetMatch(m fuzzy.Match) {
 
 // Render returns the string representation of the session item.
 func (s *SessionItem) Render(width int) string {
-	if s.cache == nil {
-		s.cache = make(map[int]string)
+	return renderItem(s.t, s.Session.Title, s.Session.UpdatedAt, s.focused, width, s.cache, &s.m)
+}
+
+func renderItem(t *styles.Styles, title string, updatedAt int64, focused bool, width int, cache map[int]string, m *fuzzy.Match) string {
+	if cache == nil {
+		cache = make(map[int]string)
 	}
 
-	cached, ok := s.cache[width]
+	cached, ok := cache[width]
 	if ok {
 		return cached
 	}
 
-	style := s.t.Dialog.NormalItem
-	if s.focused {
-		style = s.t.Dialog.SelectedItem
+	style := t.Dialog.NormalItem
+	if focused {
+		style = t.Dialog.SelectedItem
 	}
 
 	width -= style.GetHorizontalFrameSize()
-	age := humanize.Time(time.Unix(s.Session.UpdatedAt, 0))
-	if s.focused {
-		age = s.t.Base.Render(age)
-	} else {
-		age = s.t.Subtle.Render(age)
-	}
 
-	age = " " + age
+	var age string
+	if updatedAt > 0 {
+		age = humanize.Time(time.Unix(updatedAt, 0))
+		if focused {
+			age = t.Base.Render(age)
+		} else {
+			age = t.Subtle.Render(age)
+		}
+
+		age = " " + age
+	}
 	ageLen := lipgloss.Width(age)
-	title := s.Session.Title
 	titleLen := lipgloss.Width(title)
 	title = ansi.Truncate(title, max(0, width-ageLen), "…")
 	right := lipgloss.NewStyle().AlignHorizontal(lipgloss.Right).Width(width - titleLen).Render(age)
 
 	content := title
-	if matches := len(s.m.MatchedIndexes); matches > 0 {
+	if matches := len(m.MatchedIndexes); matches > 0 {
 		var lastPos int
 		parts := make([]string, 0)
-		ranges := matchedRanges(s.m.MatchedIndexes)
+		ranges := matchedRanges(m.MatchedIndexes)
 		for _, rng := range ranges {
 			start, stop := bytePosToVisibleCharPos(title, rng)
 			if start > lastPos {
 				parts = append(parts, title[lastPos:start])
 			}
-			// NOTE: We're using [ansi.Style] here instead of [lipgloss.Style]
+			// NOTE: We're using [ansi.Style] here instead of [lipglosStyle]
 			// because we can control the underline start and stop more
 			// precisely via [ansi.AttrUnderline] and [ansi.AttrNoUnderline]
 			// which only affect the underline attribute without interfering
-			// with other styles.
+			// with other style
 			parts = append(parts,
 				ansi.NewStyle().Underline(true).String(),
 				title[start:stop+1],
@@ -112,7 +119,7 @@ func (s *SessionItem) Render(width int) string {
 	}
 
 	content = style.Render(content + right)
-	s.cache[width] = content
+	cache[width] = content
 	return content
 }
 

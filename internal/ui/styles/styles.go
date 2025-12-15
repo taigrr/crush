@@ -276,6 +276,10 @@ type Styles struct {
 		NormalItem   lipgloss.Style
 		SelectedItem lipgloss.Style
 		InputPrompt  lipgloss.Style
+
+		Commands struct {
+			CommandTypeSelector lipgloss.Style
+		}
 	}
 }
 
@@ -906,6 +910,8 @@ func DefaultStyles() Styles {
 	s.Dialog.NormalItem = base.Padding(0, 1).Foreground(fgBase)
 	s.Dialog.SelectedItem = base.Padding(0, 1).Background(primary).Foreground(fgBase)
 	s.Dialog.InputPrompt = base.Padding(0, 1)
+
+	s.Dialog.Commands.CommandTypeSelector = base.Foreground(fgHalfMuted)
 
 	return s
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/tui/util"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/dialog"
 	"github.com/charmbracelet/crush/internal/ui/logo"
@@ -190,6 +191,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case sessionsLoadedMsg:
 		sessions := dialog.NewSessions(m.com, msg.sessions...)
+		// TODO: Get. Rid. Of. Magic numbers!
 		sessions.SetSize(min(120, m.width-8), 30)
 		m.dialog.AddDialog(sessions)
 	case dialog.SessionSelectedMsg:
@@ -236,6 +238,19 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lspStates = app.GetLSPStates()
 	case pubsub.Event[mcp.Event]:
 		m.mcpStates = mcp.GetStates()
+		if msg.Type == pubsub.UpdatedEvent && m.dialog.ContainsDialog(dialog.CommandsID) {
+			dia := m.dialog.Dialog(dialog.CommandsID)
+			if dia == nil {
+				break
+			}
+
+			commands, ok := dia.(*dialog.Commands)
+			if ok {
+				if cmd := commands.ReloadMCPPrompts(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
 	case tea.TerminalVersionMsg:
 		termVersion := strings.ToLower(msg.Name)
 		// Only enable progress bar for the following terminals.
@@ -366,7 +381,23 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 			m.updateLayoutAndSize()
 			return true
 		case key.Matches(msg, m.keyMap.Commands):
-			// TODO: Implement me
+			if m.dialog.ContainsDialog(dialog.CommandsID) {
+				// Bring to front
+				m.dialog.BringToFront(dialog.CommandsID)
+			} else {
+				sessionID := ""
+				if m.session != nil {
+					sessionID = m.session.ID
+				}
+				commands, err := dialog.NewCommands(m.com, sessionID)
+				if err != nil {
+					cmds = append(cmds, util.ReportError(err))
+				} else {
+					// TODO: Get. Rid. Of. Magic numbers!
+					commands.SetSize(min(120, m.width-8), 30)
+					m.dialog.AddDialog(commands)
+				}
+			}
 		case key.Matches(msg, m.keyMap.Models):
 			// TODO: Implement me
 		case key.Matches(msg, m.keyMap.Sessions):
@@ -389,7 +420,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 
 		updatedDialog, cmd := m.dialog.Update(msg)
 		m.dialog = updatedDialog
-		cmds = append(cmds, cmd)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		return cmds
 	}
 

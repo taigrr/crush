@@ -71,6 +71,16 @@ func (d *Overlay) RemoveDialog(dialogID string) {
 	}
 }
 
+// Dialog returns the dialog with the specified ID, or nil if not found.
+func (d *Overlay) Dialog(dialogID string) Dialog {
+	for _, dialog := range d.dialogs {
+		if dialog.ID() == dialogID {
+			return dialog
+		}
+	}
+	return nil
+}
+
 // BringToFront brings the dialog with the specified ID to the front.
 func (d *Overlay) BringToFront(dialogID string) {
 	for i, dialog := range d.dialogs {

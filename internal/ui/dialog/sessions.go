@@ -88,12 +88,6 @@ func (s *Session) SetSize(width, height int) {
 	s.help.SetWidth(width)
 }
 
-// SelectedItem returns the currently selected item. It may be nil if no item
-// is selected.
-func (s *Session) SelectedItem() list.Item {
-	return s.list.SelectedItem()
-}
-
 // ID implements Dialog.
 func (s *Session) ID() string {
 	return SessionsID
