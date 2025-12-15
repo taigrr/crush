@@ -10,60 +10,47 @@ import (
 // QuitDialogID is the identifier for the quit dialog.
 const QuitDialogID = "quit"
 
-// QuitDialogKeyMap represents key bindings for the quit dialog.
-type QuitDialogKeyMap struct {
-	LeftRight,
-	EnterSpace,
-	Yes,
-	No,
-	Tab,
-	Close key.Binding
-}
-
-// DefaultQuitKeyMap returns the default key bindings for the quit dialog.
-func DefaultQuitKeyMap() QuitDialogKeyMap {
-	return QuitDialogKeyMap{
-		LeftRight: key.NewBinding(
-			key.WithKeys("left", "right"),
-			key.WithHelp("←/→", "switch options"),
-		),
-		EnterSpace: key.NewBinding(
-			key.WithKeys("enter", " "),
-			key.WithHelp("enter/space", "confirm"),
-		),
-		Yes: key.NewBinding(
-			key.WithKeys("y", "Y", "ctrl+c"),
-			key.WithHelp("y/Y/ctrl+c", "yes"),
-		),
-		No: key.NewBinding(
-			key.WithKeys("n", "N"),
-			key.WithHelp("n/N", "no"),
-		),
-		Tab: key.NewBinding(
-			key.WithKeys("tab"),
-			key.WithHelp("tab", "switch options"),
-		),
-		Close: key.NewBinding(
-			key.WithKeys("esc", "alt+esc"),
-			key.WithHelp("esc", "cancel"),
-		),
-	}
-}
-
 // Quit represents a confirmation dialog for quitting the application.
 type Quit struct {
 	com        *common.Common
-	keyMap     QuitDialogKeyMap
 	selectedNo bool // true if "No" button is selected
+	keyMap     struct {
+		LeftRight,
+		EnterSpace,
+		Yes,
+		No,
+		Tab,
+		Close key.Binding
+	}
 }
 
 // NewQuit creates a new quit confirmation dialog.
 func NewQuit(com *common.Common) *Quit {
 	q := &Quit{
 		com:        com,
-		keyMap:     DefaultQuitKeyMap(),
 		selectedNo: true,
 	}
+	q.keyMap.LeftRight = key.NewBinding(
+		key.WithKeys("left", "right"),
+		key.WithHelp("←/→", "switch options"),
+	)
+	q.keyMap.EnterSpace = key.NewBinding(
+		key.WithKeys("enter", " "),
+		key.WithHelp("enter/space", "confirm"),
+	)
+	q.keyMap.Yes = key.NewBinding(
+		key.WithKeys("y", "Y", "ctrl+c"),
+		key.WithHelp("y/Y/ctrl+c", "yes"),
+	)
+	q.keyMap.No = key.NewBinding(
+		key.WithKeys("n", "N"),
+		key.WithHelp("n/N", "no"),
+	)
+	q.keyMap.Tab = key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "switch options"),
+	)
+	q.keyMap.Close = CloseKey
 	return q
 }
 
