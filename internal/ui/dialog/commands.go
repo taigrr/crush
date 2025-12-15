@@ -15,15 +15,22 @@ import (
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/tui/components/chat"
-	"github.com/charmbracelet/crush/internal/tui/util"
+	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/list"
 	"github.com/charmbracelet/crush/internal/uicmd"
+	"github.com/charmbracelet/crush/internal/uiutil"
 )
 
 // CommandsID is the identifier for the commands dialog.
 const CommandsID = "commands"
+
+// SendMsg represents a message to send a chat message.
+// TODO: Move to chat package?
+type SendMsg struct {
+	Text        string
+	Attachments []message.Attachment
+}
 
 // Messages for commands
 type (
@@ -323,7 +330,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Description: "start a new session",
 			Shortcut:    "ctrl+n",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return util.CmdHandler(NewSessionsMsg{})
+				return uiutil.CmdHandler(NewSessionsMsg{})
 			},
 		},
 		{
@@ -332,7 +339,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Description: "Switch to a different session",
 			Shortcut:    "ctrl+s",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return util.CmdHandler(SwitchSessionsMsg{})
+				return uiutil.CmdHandler(SwitchSessionsMsg{})
 			},
 		},
 		{
@@ -341,7 +348,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Description: "Switch to a different model",
 			Shortcut:    "ctrl+l",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return util.CmdHandler(SwitchModelMsg{})
+				return uiutil.CmdHandler(SwitchModelMsg{})
 			},
 		},
 	}
@@ -353,7 +360,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Title:       "Summarize Session",
 			Description: "Summarize the current session and create a new one with the summary",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return util.CmdHandler(CompactMsg{
+				return uiutil.CmdHandler(CompactMsg{
 					SessionID: c.sessionID,
 				})
 			},
@@ -379,7 +386,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 					Title:       status + " Thinking Mode",
 					Description: "Toggle model thinking for reasoning-capable models",
 					Handler: func(cmd uicmd.Command) tea.Cmd {
-						return util.CmdHandler(ToggleThinkingMsg{})
+						return uiutil.CmdHandler(ToggleThinkingMsg{})
 					},
 				})
 			}
@@ -391,7 +398,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 					Title:       "Select Reasoning Effort",
 					Description: "Choose reasoning effort level (low/medium/high)",
 					Handler: func(cmd uicmd.Command) tea.Cmd {
-						return util.CmdHandler(OpenReasoningDialogMsg{})
+						return uiutil.CmdHandler(OpenReasoningDialogMsg{})
 					},
 				})
 			}
@@ -405,7 +412,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Title:       "Toggle Sidebar",
 			Description: "Toggle between compact and normal layout",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return util.CmdHandler(ToggleCompactModeMsg{})
+				return uiutil.CmdHandler(ToggleCompactModeMsg{})
 			},
 		})
 	}
@@ -420,7 +427,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 				Shortcut:    "ctrl+f",
 				Description: "Open file picker",
 				Handler: func(cmd uicmd.Command) tea.Cmd {
-					return util.CmdHandler(OpenFilePickerMsg{})
+					return uiutil.CmdHandler(OpenFilePickerMsg{})
 				},
 			})
 		}
@@ -435,7 +442,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Shortcut:    "ctrl+o",
 			Description: "Open external editor to compose message",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return util.CmdHandler(OpenExternalEditorMsg{})
+				return uiutil.CmdHandler(OpenExternalEditorMsg{})
 			},
 		})
 	}
@@ -446,7 +453,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Title:       "Toggle Yolo Mode",
 			Description: "Toggle yolo mode",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return util.CmdHandler(ToggleYoloModeMsg{})
+				return uiutil.CmdHandler(ToggleYoloModeMsg{})
 			},
 		},
 		{
@@ -455,7 +462,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Shortcut:    "ctrl+g",
 			Description: "Toggle help",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return util.CmdHandler(ToggleHelpMsg{})
+				return uiutil.CmdHandler(ToggleHelpMsg{})
 			},
 		},
 		{
@@ -465,9 +472,9 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Handler: func(cmd uicmd.Command) tea.Cmd {
 				initPrompt, err := agent.InitializePrompt(*c.com.Config())
 				if err != nil {
-					return util.ReportError(err)
+					return uiutil.ReportError(err)
 				}
-				return util.CmdHandler(chat.SendMsg{
+				return uiutil.CmdHandler(SendMsg{
 					Text: initPrompt,
 				})
 			},
@@ -478,7 +485,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Description: "Quit",
 			Shortcut:    "ctrl+c",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return util.CmdHandler(QuitMsg{})
+				return uiutil.CmdHandler(QuitMsg{})
 			},
 		},
 	}...)

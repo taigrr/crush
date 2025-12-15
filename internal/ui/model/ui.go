@@ -330,6 +330,15 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyPressMsg:
 		cmds = append(cmds, m.handleKeyPressMsg(msg)...)
+
+	// Command dialog messages
+	// TODO: Properly structure and handle these messages
+	case dialog.ToggleYoloModeMsg:
+		m.com.App.Permissions.SetSkipRequests(!m.com.App.Permissions.SkipRequests())
+		m.dialog.RemoveDialog(dialog.CommandsID)
+	case dialog.SwitchSessionsMsg:
+		cmds = append(cmds, m.loadSessionsCmd)
+		m.dialog.RemoveDialog(dialog.CommandsID)
 	}
 
 	// This logic gets triggered on any message type, but should it?
