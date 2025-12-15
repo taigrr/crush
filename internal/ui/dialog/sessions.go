@@ -100,7 +100,7 @@ func (s *Session) ID() string {
 }
 
 // Update implements Dialog.
-func (s *Session) Update(msg tea.Msg) (Action, tea.Cmd) {
+func (s *Session) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
@@ -115,20 +115,20 @@ func (s *Session) Update(msg tea.Msg) (Action, tea.Cmd) {
 		case key.Matches(msg, s.keyMap.Select):
 			if item := s.list.SelectedItem(); item != nil {
 				sessionItem := item.(*SessionItem)
-				return Action{Type: ActionSelect, Payload: sessionItem.Session}, SessionSelectCmd(sessionItem.Session)
+				return SessionSelectCmd(sessionItem.Session)
 			}
 		default:
 			var cmd tea.Cmd
 			s.input, cmd = s.input.Update(msg)
 			s.list.SetFilter(s.input.Value())
-			return Action{}, cmd
+			return cmd
 		}
 	}
-	return Action{}, nil
+	return nil
 }
 
-// Layer implements Dialog.
-func (s *Session) Layer() *lipgloss.Layer {
+// View implements [Dialog].
+func (s *Session) View() string {
 	titleStyle := s.com.Styles.Dialog.Title
 	helpStyle := s.com.Styles.Dialog.HelpView
 	dialogStyle := s.com.Styles.Dialog.View.Width(s.width)
@@ -156,7 +156,7 @@ func (s *Session) Layer() *lipgloss.Layer {
 		helpStyle.Render(s.help.View(s)),
 	}, "\n")
 
-	return lipgloss.NewLayer(dialogStyle.Render(content))
+	return dialogStyle.Render(content)
 }
 
 // ShortHelp implements [help.KeyMap].

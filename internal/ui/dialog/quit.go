@@ -73,30 +73,30 @@ func (*Quit) ID() string {
 }
 
 // Update implements [Model].
-func (q *Quit) Update(msg tea.Msg) (Action, tea.Cmd) {
+func (q *Quit) Update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, q.keyMap.LeftRight, q.keyMap.Tab):
 			q.selectedNo = !q.selectedNo
-			return Action{}, nil
+			return nil
 		case key.Matches(msg, q.keyMap.EnterSpace):
 			if !q.selectedNo {
-				return Action{}, tea.Quit
+				return tea.Quit
 			}
-			return Action{}, nil
+			return nil
 		case key.Matches(msg, q.keyMap.Yes):
-			return Action{}, tea.Quit
+			return tea.Quit
 		case key.Matches(msg, q.keyMap.No, q.keyMap.Close):
-			return Action{}, nil
+			return nil
 		}
 	}
 
-	return Action{}, nil
+	return nil
 }
 
-// Layer implements [Model].
-func (q *Quit) Layer() *lipgloss.Layer {
+// View implements [Dialog].
+func (q *Quit) View() string {
 	const question = "Are you sure you want to quit?"
 	baseStyle := q.com.Styles.Base
 	buttonOpts := []common.ButtonOpts{
@@ -113,7 +113,7 @@ func (q *Quit) Layer() *lipgloss.Layer {
 		),
 	)
 
-	return lipgloss.NewLayer(q.com.Styles.BorderFocus.Render(content))
+	return q.com.Styles.BorderFocus.Render(content)
 }
 
 // ShortHelp implements [help.KeyMap].

@@ -535,19 +535,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 
 	// This needs to come last to overlay on top of everything
 	if m.dialog.HasDialogs() {
-		dialogLayers := m.dialog.Layers()
-		layers := make([]*lipgloss.Layer, 0)
-		for _, layer := range dialogLayers {
-			if layer == nil {
-				continue
-			}
-			layerW, layerH := layer.Width(), layer.Height()
-			layerArea := common.CenterRect(area, layerW, layerH)
-			layers = append(layers, layer.X(layerArea.Min.X).Y(layerArea.Min.Y))
-		}
-
-		comp := lipgloss.NewCompositor(layers...)
-		comp.Draw(scr, area)
+		m.dialog.Draw(scr, area)
 	}
 }
 

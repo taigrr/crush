@@ -4,6 +4,8 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/crush/internal/ui/common"
+	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // CloseKey is the default key binding to close dialogs.
@@ -12,35 +14,11 @@ var CloseKey = key.NewBinding(
 	key.WithHelp("esc", "exit"),
 )
 
-// OverlayKeyMap defines key bindings for dialogs.
-type OverlayKeyMap struct {
-	Close key.Binding
-}
-
-// ActionType represents the type of action taken by a dialog.
-type ActionType int
-
-const (
-	// ActionNone indicates no action.
-	ActionNone ActionType = iota
-	// ActionClose indicates that the dialog should be closed.
-	ActionClose
-	// ActionSelect indicates that an item has been selected.
-	ActionSelect
-)
-
-// Action represents an action taken by a dialog.
-// It can be used to signal closing or other operations.
-type Action struct {
-	Type    ActionType
-	Payload any
-}
-
 // Dialog is a component that can be displayed on top of the UI.
 type Dialog interface {
 	ID() string
-	Update(msg tea.Msg) (Action, tea.Cmd)
-	Layer() *lipgloss.Layer
+	Update(msg tea.Msg) tea.Cmd
+	View() string
 }
 
 // Overlay manages multiple dialogs as an overlay.
@@ -122,27 +100,26 @@ func (d *Overlay) Update(msg tea.Msg) (*Overlay, tea.Cmd) {
 		}
 	}
 
-	action, cmd := dialog.Update(msg)
-	switch action.Type {
-	case ActionClose:
+	if cmd := dialog.Update(msg); cmd != nil {
 		// Close the current dialog
 		d.removeDialog(idx)
 		return d, cmd
-	case ActionSelect:
-		// Pass the action up (without modifying the dialog stack)
-		return d, cmd
 	}
 
-	return d, cmd
+	return d, nil
 }
 
-// Layers returns the current stack of dialogs as lipgloss layers.
-func (d *Overlay) Layers() []*lipgloss.Layer {
-	layers := make([]*lipgloss.Layer, len(d.dialogs))
-	for i, dialog := range d.dialogs {
-		layers[i] = dialog.Layer()
+// Draw renders the overlay and its dialogs.
+func (d *Overlay) Draw(scr uv.Screen, area uv.Rectangle) {
+	for _, dialog := range d.dialogs {
+		view := dialog.View()
+		viewWidth := lipgloss.Width(view)
+		viewHeight := lipgloss.Height(view)
+		center := common.CenterRect(area, viewWidth, viewHeight)
+		if area.Overlaps(center) {
+			uv.NewStyledString(view).Draw(scr, center)
+		}
 	}
-	return layers
 }
 
 // removeDialog removes a dialog from the stack.

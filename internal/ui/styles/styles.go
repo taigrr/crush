@@ -8,10 +8,10 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/glamour/v2/ansi"
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/charmbracelet/crush/internal/tui/exp/diffview"
-	"github.com/charmbracelet/glamour/v2/ansi"
 	"github.com/charmbracelet/x/exp/charmtone"
 )
 
