@@ -2,8 +2,6 @@ package list
 
 import (
 	"strings"
-
-	"github.com/charmbracelet/x/ansi"
 )
 
 // List represents a list of items that can be lazily rendered. A list is
@@ -23,22 +21,15 @@ type List struct {
 	focused     bool
 	selectedIdx int // The current selected index -1 means no selection
 
-	// Mouse state
-	mouseDown       bool
-	mouseDownItem   int          // Item index where mouse was pressed
-	mouseDownX      int          // X position in item content (character offset)
-	mouseDownY      int          // Y position in item (line offset)
-	mouseDragItem   int          // Current item index being dragged over
-	mouseDragX      int          // Current X in item content
-	mouseDragY      int          // Current Y in item
-	lastHighlighted map[int]bool // Track which items were highlighted in last update
-
 	// offsetIdx is the index of the first visible item in the viewport.
 	offsetIdx int
 	// offsetLine is the number of lines of the item at offsetIdx that are
 	// scrolled out of view (above the viewport).
 	// It must always be >= 0.
 	offsetLine int
+
+	// renderCallbacks is a list of callbacks to apply when rendering items.
+	renderCallbacks []func(idx, selectedIdx int, item Item) Item
 }
 
 // renderedItem holds the rendered content and height of an item.
@@ -52,17 +43,19 @@ func NewList(items ...Item) *List {
 	l := new(List)
 	l.items = items
 	l.selectedIdx = -1
-	l.mouseDownItem = -1
-	l.mouseDragItem = -1
-	l.lastHighlighted = make(map[int]bool)
 	return l
+}
+
+// RegisterRenderCallback registers a callback to be called when rendering
+// items. This can be used to modify items before they are rendered.
+func (l *List) RegisterRenderCallback(cb func(idx, selectedIdx int, item Item) Item) {
+	l.renderCallbacks = append(l.renderCallbacks, cb)
 }
 
 // SetSize sets the size of the list viewport.
 func (l *List) SetSize(width, height int) {
 	l.width = width
 	l.height = height
-	// l.normalizeOffsets()
 }
 
 // SetGap sets the gap between items.
@@ -92,39 +85,12 @@ func (l *List) getItem(idx int) renderedItem {
 	}
 
 	item := l.items[idx]
-	if hi, ok := item.(Highlightable); ok {
-		// Apply highlight
-		startItemIdx, startLine, startCol, endItemIdx, endLine, endCol := l.getHighlightRange()
-		sLine, sCol, eLine, eCol := -1, -1, -1, -1
-		if idx >= startItemIdx && idx <= endItemIdx {
-			if idx == startItemIdx && idx == endItemIdx {
-				// Single item selection
-				sLine = startLine
-				sCol = startCol
-				eLine = endLine
-				eCol = endCol
-			} else if idx == startItemIdx {
-				// First item - from start position to end of item
-				sLine = startLine
-				sCol = startCol
-				eLine = -1
-				eCol = -1
-			} else if idx == endItemIdx {
-				// Last item - from start of item to end position
-				sLine = 0
-				sCol = 0
-				eLine = endLine
-				eCol = endCol
-			} else {
-				// Middle item - fully highlighted
-				sLine = 0
-				sCol = 0
-				eLine = -1
-				eCol = -1
+	if len(l.renderCallbacks) > 0 {
+		for _, cb := range l.renderCallbacks {
+			if it := cb(idx, l.selectedIdx, item); it != nil {
+				item = it
 			}
 		}
-
-		hi.Highlight(sLine, sCol, eLine, eCol)
 	}
 
 	if focusable, isFocusable := item.(Focusable); isFocusable {
@@ -481,80 +447,19 @@ func (l *List) SelectLastInView() {
 	l.selectedIdx = endIdx
 }
 
-// HandleMouseDown handles mouse down events at the given line in the viewport.
-// x and y are viewport-relative coordinates (0,0 = top-left of visible area).
-// Returns true if the event was handled.
-func (l *List) HandleMouseDown(x, y int) bool {
-	if len(l.items) == 0 {
-		return false
+// ItemAt returns the item at the given index.
+func (l *List) ItemAt(index int) Item {
+	if index < 0 || index >= len(l.items) {
+		return nil
 	}
-
-	// Find which item was clicked
-	itemIdx, itemY := l.findItemAtY(x, y)
-	if itemIdx < 0 {
-		return false
-	}
-
-	l.mouseDown = true
-	l.mouseDownItem = itemIdx
-	l.mouseDownX = x
-	l.mouseDownY = itemY
-	l.mouseDragItem = itemIdx
-	l.mouseDragX = x
-	l.mouseDragY = itemY
-
-	// Select the clicked item
-	l.SetSelected(itemIdx)
-
-	if clickable, ok := l.items[itemIdx].(MouseClickable); ok {
-		clickable.HandleMouseClick(ansi.MouseButton1, x, itemY)
-	}
-
-	return true
+	return l.items[index]
 }
 
-// HandleMouseUp handles mouse up events at the given line in the viewport.
-// Returns true if the event was handled.
-func (l *List) HandleMouseUp(x, y int) bool {
-	if !l.mouseDown {
-		return false
-	}
-
-	l.mouseDown = false
-
-	return true
-}
-
-// HandleMouseDrag handles mouse drag events at the given line in the viewport.
-// x and y are viewport-relative coordinates.
-// Returns true if the event was handled.
-func (l *List) HandleMouseDrag(x, y int) bool {
-	if !l.mouseDown {
-		return false
-	}
-
-	if len(l.items) == 0 {
-		return false
-	}
-
-	// Find which item we're dragging over
-	itemIdx, itemY := l.findItemAtY(x, y)
-	if itemIdx < 0 {
-		return false
-	}
-
-	l.mouseDragItem = itemIdx
-	l.mouseDragX = x
-	l.mouseDragY = itemY
-
-	return true
-}
-
-// ClearHighlight clears any active text highlighting.
-func (l *List) ClearHighlight() {
-	l.mouseDownItem = -1
-	l.mouseDragItem = -1
-	l.lastHighlighted = make(map[int]bool)
+// ItemIndexAtPosition returns the item at the given viewport-relative y
+// coordinate. Returns the item index and the y offset within that item. It
+// returns -1, -1 if no item is found.
+func (l *List) ItemIndexAtPosition(x, y int) (itemIdx int, itemY int) {
+	return l.findItemAtY(x, y)
 }
 
 // findItemAtY finds the item at the given viewport y coordinate.
@@ -589,41 +494,6 @@ func (l *List) findItemAtY(_, y int) (itemIdx int, itemY int) {
 	}
 
 	return -1, -1
-}
-
-// getHighlightRange returns the current highlight range.
-func (l *List) getHighlightRange() (startItemIdx, startLine, startCol, endItemIdx, endLine, endCol int) {
-	if l.mouseDownItem < 0 {
-		return -1, -1, -1, -1, -1, -1
-	}
-
-	downItemIdx := l.mouseDownItem
-	dragItemIdx := l.mouseDragItem
-
-	// Determine selection direction
-	draggingDown := dragItemIdx > downItemIdx ||
-		(dragItemIdx == downItemIdx && l.mouseDragY > l.mouseDownY) ||
-		(dragItemIdx == downItemIdx && l.mouseDragY == l.mouseDownY && l.mouseDragX >= l.mouseDownX)
-
-	if draggingDown {
-		// Normal forward selection
-		startItemIdx = downItemIdx
-		startLine = l.mouseDownY
-		startCol = l.mouseDownX
-		endItemIdx = dragItemIdx
-		endLine = l.mouseDragY
-		endCol = l.mouseDragX
-	} else {
-		// Backward selection (dragging up)
-		startItemIdx = dragItemIdx
-		startLine = l.mouseDragY
-		startCol = l.mouseDragX
-		endItemIdx = downItemIdx
-		endLine = l.mouseDownY
-		endCol = l.mouseDownX
-	}
-
-	return startItemIdx, startLine, startCol, endItemIdx, endLine, endCol
 }
 
 // countLines counts the number of lines in a string.

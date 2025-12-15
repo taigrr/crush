@@ -4,6 +4,7 @@ import (
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/list"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Chat represents the chat UI model that handles chat interactions and
@@ -11,17 +12,28 @@ import (
 type Chat struct {
 	com  *common.Common
 	list *list.List
+
+	// Mouse state
+	mouseDown     bool
+	mouseDownItem int // Item index where mouse was pressed
+	mouseDownX    int // X position in item content (character offset)
+	mouseDownY    int // Y position in item (line offset)
+	mouseDragItem int // Current item index being dragged over
+	mouseDragX    int // Current X in item content
+	mouseDragY    int // Current Y in item
 }
 
 // NewChat creates a new instance of [Chat] that handles chat interactions and
 // messages.
 func NewChat(com *common.Common) *Chat {
+	c := &Chat{com: com}
 	l := list.NewList()
 	l.SetGap(1)
-	return &Chat{
-		com:  com,
-		list: l,
-	}
+	l.RegisterRenderCallback(c.applyHighlightRange)
+	c.list = l
+	c.mouseDownItem = -1
+	c.mouseDragItem = -1
+	return c
 }
 
 // Height returns the height of the chat view port.
@@ -146,16 +158,148 @@ func (m *Chat) SelectLastInView() {
 }
 
 // HandleMouseDown handles mouse down events for the chat component.
-func (m *Chat) HandleMouseDown(x, y int) {
-	m.list.HandleMouseDown(x, y)
+func (m *Chat) HandleMouseDown(x, y int) bool {
+	if m.list.Len() == 0 {
+		return false
+	}
+
+	itemIdx, itemY := m.list.ItemIndexAtPosition(x, y)
+	if itemIdx < 0 {
+		return false
+	}
+
+	m.mouseDown = true
+	m.mouseDownItem = itemIdx
+	m.mouseDownX = x
+	m.mouseDownY = itemY
+	m.mouseDragItem = itemIdx
+	m.mouseDragX = x
+	m.mouseDragY = itemY
+
+	// Select the item that was clicked
+	m.list.SetSelected(itemIdx)
+
+	if clickable, ok := m.list.SelectedItem().(list.MouseClickable); ok {
+		return clickable.HandleMouseClick(ansi.MouseButton1, x, itemY)
+	}
+
+	return true
 }
 
 // HandleMouseUp handles mouse up events for the chat component.
-func (m *Chat) HandleMouseUp(x, y int) {
-	m.list.HandleMouseUp(x, y)
+func (m *Chat) HandleMouseUp(x, y int) bool {
+	if !m.mouseDown {
+		return false
+	}
+
+	// TODO: Handle the behavior when mouse is released after a drag selection
+	// (e.g., copy selected text to clipboard)
+
+	m.mouseDown = false
+	return true
 }
 
 // HandleMouseDrag handles mouse drag events for the chat component.
-func (m *Chat) HandleMouseDrag(x, y int) {
-	m.list.HandleMouseDrag(x, y)
+func (m *Chat) HandleMouseDrag(x, y int) bool {
+	if !m.mouseDown {
+		return false
+	}
+
+	if m.list.Len() == 0 {
+		return false
+	}
+
+	itemIdx, itemY := m.list.ItemIndexAtPosition(x, y)
+	if itemIdx < 0 {
+		return false
+	}
+
+	m.mouseDragItem = itemIdx
+	m.mouseDragX = x
+	m.mouseDragY = itemY
+
+	return true
+}
+
+// ClearMouse clears the current mouse interaction state.
+func (m *Chat) ClearMouse() {
+	m.mouseDown = false
+	m.mouseDownItem = -1
+	m.mouseDragItem = -1
+}
+
+// applyHighlightRange applies the current highlight range to the chat items.
+func (m *Chat) applyHighlightRange(idx, selectedIdx int, item list.Item) list.Item {
+	if hi, ok := item.(list.Highlightable); ok {
+		// Apply highlight
+		startItemIdx, startLine, startCol, endItemIdx, endLine, endCol := m.getHighlightRange()
+		sLine, sCol, eLine, eCol := -1, -1, -1, -1
+		if idx >= startItemIdx && idx <= endItemIdx {
+			if idx == startItemIdx && idx == endItemIdx {
+				// Single item selection
+				sLine = startLine
+				sCol = startCol
+				eLine = endLine
+				eCol = endCol
+			} else if idx == startItemIdx {
+				// First item - from start position to end of item
+				sLine = startLine
+				sCol = startCol
+				eLine = -1
+				eCol = -1
+			} else if idx == endItemIdx {
+				// Last item - from start of item to end position
+				sLine = 0
+				sCol = 0
+				eLine = endLine
+				eCol = endCol
+			} else {
+				// Middle item - fully highlighted
+				sLine = 0
+				sCol = 0
+				eLine = -1
+				eCol = -1
+			}
+		}
+
+		hi.Highlight(sLine, sCol, eLine, eCol)
+		return hi.(list.Item)
+	}
+
+	return item
+}
+
+// getHighlightRange returns the current highlight range.
+func (m *Chat) getHighlightRange() (startItemIdx, startLine, startCol, endItemIdx, endLine, endCol int) {
+	if m.mouseDownItem < 0 {
+		return -1, -1, -1, -1, -1, -1
+	}
+
+	downItemIdx := m.mouseDownItem
+	dragItemIdx := m.mouseDragItem
+
+	// Determine selection direction
+	draggingDown := dragItemIdx > downItemIdx ||
+		(dragItemIdx == downItemIdx && m.mouseDragY > m.mouseDownY) ||
+		(dragItemIdx == downItemIdx && m.mouseDragY == m.mouseDownY && m.mouseDragX >= m.mouseDownX)
+
+	if draggingDown {
+		// Normal forward selection
+		startItemIdx = downItemIdx
+		startLine = m.mouseDownY
+		startCol = m.mouseDownX
+		endItemIdx = dragItemIdx
+		endLine = m.mouseDragY
+		endCol = m.mouseDragX
+	} else {
+		// Backward selection (dragging up)
+		startItemIdx = dragItemIdx
+		startLine = m.mouseDragY
+		startCol = m.mouseDragX
+		endItemIdx = downItemIdx
+		endLine = m.mouseDownY
+		endCol = m.mouseDownX
+	}
+
+	return startItemIdx, startLine, startCol, endItemIdx, endLine, endCol
 }
