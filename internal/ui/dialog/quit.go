@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/crush/internal/ui/common"
 )
 
-// QuitDialogID is the identifier for the quit dialog.
-const QuitDialogID = "quit"
+// QuitID is the identifier for the quit dialog.
+const QuitID = "quit"
 
 // Quit represents a confirmation dialog for quitting the application.
 type Quit struct {
@@ -56,7 +56,7 @@ func NewQuit(com *common.Common) *Quit {
 
 // ID implements [Model].
 func (*Quit) ID() string {
-	return QuitDialogID
+	return QuitID
 }
 
 // Update implements [Model].

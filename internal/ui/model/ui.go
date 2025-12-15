@@ -193,7 +193,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sessions.SetSize(min(120, m.width-8), 30)
 		m.dialog.AddDialog(sessions)
 	case dialog.SessionSelectedMsg:
-		m.dialog.RemoveDialog(dialog.SessionDialogID)
+		m.dialog.RemoveDialog(dialog.SessionsID)
 		cmds = append(cmds,
 			m.loadSession(msg.Session.ID),
 			m.loadSessionFiles(msg.Session.ID),
@@ -347,7 +347,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 	handleQuitKeys := func(msg tea.KeyPressMsg) bool {
 		switch {
 		case key.Matches(msg, m.keyMap.Quit):
-			if !m.dialog.ContainsDialog(dialog.QuitDialogID) {
+			if !m.dialog.ContainsDialog(dialog.QuitID) {
 				m.dialog.AddDialog(dialog.NewQuit(m.com))
 				return true
 			}
@@ -370,9 +370,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 		case key.Matches(msg, m.keyMap.Models):
 			// TODO: Implement me
 		case key.Matches(msg, m.keyMap.Sessions):
-			if m.dialog.ContainsDialog(dialog.SessionDialogID) {
+			if m.dialog.ContainsDialog(dialog.SessionsID) {
 				// Bring to front
-				m.dialog.BringToFront(dialog.SessionDialogID)
+				m.dialog.BringToFront(dialog.SessionsID)
 			} else {
 				cmds = append(cmds, m.loadSessionsCmd)
 			}

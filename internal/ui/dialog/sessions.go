@@ -13,8 +13,8 @@ import (
 	"github.com/charmbracelet/crush/internal/ui/list"
 )
 
-// SessionDialogID is the identifier for the session selector dialog.
-const SessionDialogID = "session"
+// SessionsID is the identifier for the session selector dialog.
+const SessionsID = "session"
 
 // Session is a session selector dialog.
 type Session struct {
@@ -96,7 +96,7 @@ func (s *Session) SelectedItem() list.Item {
 
 // ID implements Dialog.
 func (s *Session) ID() string {
-	return SessionDialogID
+	return SessionsID
 }
 
 // Update implements Dialog.
