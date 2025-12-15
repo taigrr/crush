@@ -17,7 +17,7 @@ import (
 // ListItem represents a selectable and searchable item in a dialog list.
 type ListItem interface {
 	list.FilterableItem
-	list.FocusStylable
+	list.Focusable
 	list.MatchSettable
 
 	// ID returns the unique identifier of the item.
@@ -27,8 +27,10 @@ type ListItem interface {
 // SessionItem wraps a [session.Session] to implement the [ListItem] interface.
 type SessionItem struct {
 	session.Session
-	t *styles.Styles
-	m fuzzy.Match
+	t       *styles.Styles
+	m       fuzzy.Match
+	cache   map[int]string
+	focused bool
 }
 
 var _ ListItem = &SessionItem{}
@@ -45,13 +47,34 @@ func (s *SessionItem) ID() string {
 
 // SetMatch sets the fuzzy match for the session item.
 func (s *SessionItem) SetMatch(m fuzzy.Match) {
+	s.cache = nil
 	s.m = m
 }
 
 // Render returns the string representation of the session item.
 func (s *SessionItem) Render(width int) string {
+	if s.cache == nil {
+		s.cache = make(map[int]string)
+	}
+
+	cached, ok := s.cache[width]
+	if ok {
+		return cached
+	}
+
+	style := s.t.Dialog.NormalItem
+	if s.focused {
+		style = s.t.Dialog.SelectedItem
+	}
+
+	width -= style.GetHorizontalFrameSize()
 	age := humanize.Time(time.Unix(s.Session.UpdatedAt, 0))
-	age = s.t.Subtle.Render(age)
+	if s.focused {
+		age = s.t.Base.Render(age)
+	} else {
+		age = s.t.Subtle.Render(age)
+	}
+
 	age = " " + age
 	ageLen := lipgloss.Width(age)
 	title := s.Session.Title
@@ -59,12 +82,10 @@ func (s *SessionItem) Render(width int) string {
 	title = ansi.Truncate(title, max(0, width-ageLen), "…")
 	right := lipgloss.NewStyle().AlignHorizontal(lipgloss.Right).Width(width - titleLen).Render(age)
 
+	content := title
 	if matches := len(s.m.MatchedIndexes); matches > 0 {
 		var lastPos int
 		parts := make([]string, 0)
-		// TODO: Use [ansi.Style].Underline true/false to underline only the
-		// matched parts instead of using [lipgloss.StyleRanges] since it can
-		// be cheaper with less allocations.
 		ranges := matchedRanges(s.m.MatchedIndexes)
 		for _, rng := range ranges {
 			start, stop := bytePosToVisibleCharPos(title, rng)
@@ -86,19 +107,21 @@ func (s *SessionItem) Render(width int) string {
 		if lastPos < len(title) {
 			parts = append(parts, title[lastPos:])
 		}
-		return strings.Join(parts, "") + right
+
+		content = strings.Join(parts, "")
 	}
-	return title + right
+
+	content = style.Render(content + right)
+	s.cache[width] = content
+	return content
 }
 
-// FocusStyle returns the style to be applied when the item is focused.
-func (s *SessionItem) FocusStyle() lipgloss.Style {
-	return s.t.Dialog.SelectedItem
-}
-
-// BlurStyle returns the style to be applied when the item is blurred.
-func (s *SessionItem) BlurStyle() lipgloss.Style {
-	return s.t.Dialog.NormalItem
+// SetFocused sets the focus state of the session item.
+func (s *SessionItem) SetFocused(focused bool) {
+	if s.focused != focused {
+		s.cache = nil
+	}
+	s.focused = focused
 }
 
 // sessionItems takes a slice of [session.Session]s and convert them to a slice

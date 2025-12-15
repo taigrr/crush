@@ -1,7 +1,6 @@
 package list
 
 import (
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -12,18 +11,17 @@ type Item interface {
 	Render(width int) string
 }
 
-// FocusStylable represents an item that can be styled based on focus state.
-type FocusStylable interface {
-	// FocusStyle returns the style to apply when the item is focused.
-	FocusStyle() lipgloss.Style
-	// BlurStyle returns the style to apply when the item is unfocused.
-	BlurStyle() lipgloss.Style
+// Focusable represents an item that can be aware of focus state changes.
+type Focusable interface {
+	// SetFocused sets the focus state of the item.
+	SetFocused(focused bool)
 }
 
-// HighlightStylable represents an item that can be styled for highlighted regions.
-type HighlightStylable interface {
-	// HighlightStyle returns the style to apply for highlighted regions.
-	HighlightStyle() lipgloss.Style
+// Highlightable represents an item that can highlight a portion of its content.
+type Highlightable interface {
+	// Highlight highlights the content from the given start to end positions.
+	// Use -1 for no highlight.
+	Highlight(startLine, startCol, endLine, endCol int)
 }
 
 // MouseClickable represents an item that can handle mouse click events.

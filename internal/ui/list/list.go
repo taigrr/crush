@@ -1,10 +1,8 @@
 package list
 
 import (
-	"image"
 	"strings"
 
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -35,9 +33,6 @@ type List struct {
 	mouseDragY      int          // Current Y in item
 	lastHighlighted map[int]bool // Track which items were highlighted in last update
 
-	// Rendered content and cache
-	renderedItems map[int]renderedItem
-
 	// offsetIdx is the index of the first visible item in the viewport.
 	offsetIdx int
 	// offsetLine is the number of lines of the item at offsetIdx that are
@@ -56,7 +51,6 @@ type renderedItem struct {
 func NewList(items ...Item) *List {
 	l := new(List)
 	l.items = items
-	l.renderedItems = make(map[int]renderedItem)
 	l.selectedIdx = -1
 	l.mouseDownItem = -1
 	l.mouseDragItem = -1
@@ -66,9 +60,6 @@ func NewList(items ...Item) *List {
 
 // SetSize sets the size of the list viewport.
 func (l *List) SetSize(width, height int) {
-	if width != l.width {
-		l.renderedItems = make(map[int]renderedItem)
-	}
 	l.width = width
 	l.height = height
 	// l.normalizeOffsets()
@@ -96,16 +87,16 @@ func (l *List) Len() int {
 
 // getItem renders (if needed) and returns the item at the given index.
 func (l *List) getItem(idx int) renderedItem {
-	return l.renderItem(idx, false)
-}
+	if idx < 0 || idx >= len(l.items) {
+		return renderedItem{}
+	}
 
-// applyHighlight applies highlighting to the given rendered item.
-func (l *List) applyHighlight(idx int, ri *renderedItem) {
-	// Apply highlight if item supports it
-	if highlightable, ok := l.items[idx].(HighlightStylable); ok {
+	item := l.items[idx]
+	if hi, ok := item.(Highlightable); ok {
+		// Apply highlight
 		startItemIdx, startLine, startCol, endItemIdx, endLine, endCol := l.getHighlightRange()
+		sLine, sCol, eLine, eCol := -1, -1, -1, -1
 		if idx >= startItemIdx && idx <= endItemIdx {
-			var sLine, sCol, eLine, eCol int
 			if idx == startItemIdx && idx == endItemIdx {
 				// Single item selection
 				sLine = startLine
@@ -116,8 +107,8 @@ func (l *List) applyHighlight(idx int, ri *renderedItem) {
 				// First item - from start position to end of item
 				sLine = startLine
 				sCol = startCol
-				eLine = ri.height - 1
-				eCol = 9999 // 9999 = end of line
+				eLine = -1
+				eCol = -1
 			} else if idx == endItemIdx {
 				// Last item - from start of item to end position
 				sLine = 0
@@ -128,80 +119,27 @@ func (l *List) applyHighlight(idx int, ri *renderedItem) {
 				// Middle item - fully highlighted
 				sLine = 0
 				sCol = 0
-				eLine = ri.height - 1
-				eCol = 9999
+				eLine = -1
+				eCol = -1
 			}
-
-			// Apply offset for styling frame
-			contentArea := image.Rect(0, 0, l.width, ri.height)
-
-			hiStyle := highlightable.HighlightStyle()
-			rendered := Highlight(ri.content, contentArea, sLine, sCol, eLine, eCol, ToHighlighter(hiStyle))
-			ri.content = rendered
-		}
-	}
-}
-
-// renderItem renders (if needed) and returns the item at the given index. If
-// process is true, it applies focus and highlight styling.
-func (l *List) renderItem(idx int, process bool) renderedItem {
-	if idx < 0 || idx >= len(l.items) {
-		return renderedItem{}
-	}
-
-	var style lipgloss.Style
-	focusable, isFocusable := l.items[idx].(FocusStylable)
-	if isFocusable {
-		style = focusable.BlurStyle()
-		if l.focused && idx == l.selectedIdx {
-			style = focusable.FocusStyle()
-		}
-	}
-
-	ri, ok := l.renderedItems[idx]
-	if !ok {
-		item := l.items[idx]
-		rendered := item.Render(l.width - style.GetHorizontalFrameSize())
-		rendered = strings.TrimRight(rendered, "\n")
-		height := countLines(rendered)
-
-		ri = renderedItem{
-			content: rendered,
-			height:  height,
 		}
 
-		l.renderedItems[idx] = ri
+		hi.Highlight(sLine, sCol, eLine, eCol)
 	}
 
-	if !process {
-		// Simply return cached rendered item with frame size applied
-		if vfs := style.GetVerticalFrameSize(); vfs > 0 {
-			ri.height += vfs
-		}
-		return ri
+	if focusable, isFocusable := item.(Focusable); isFocusable {
+		focusable.SetFocused(l.focused && idx == l.selectedIdx)
 	}
 
-	// We apply highlighting before focus styling so that focus styling
-	// overrides highlight styles.
-	if l.mouseDownItem >= 0 {
-		l.applyHighlight(idx, &ri)
-	}
-
-	if isFocusable {
-		// Apply focus/blur styling if needed
-		rendered := style.Render(ri.content)
-		height := countLines(rendered)
-		ri.content = rendered
-		ri.height = height
+	rendered := item.Render(l.width)
+	rendered = strings.TrimRight(rendered, "\n")
+	height := countLines(rendered)
+	ri := renderedItem{
+		content: rendered,
+		height:  height,
 	}
 
 	return ri
-}
-
-// invalidateItem invalidates the cached rendered content of the item at the
-// given index.
-func (l *List) invalidateItem(idx int) {
-	delete(l.renderedItems, idx)
 }
 
 // ScrollToIndex scrolls the list to the given item index.
@@ -330,7 +268,7 @@ func (l *List) Render() string {
 	linesNeeded := l.height
 
 	for linesNeeded > 0 && currentIdx < len(l.items) {
-		item := l.renderItem(currentIdx, true)
+		item := l.getItem(currentIdx)
 		itemLines := strings.Split(item.content, "\n")
 		itemHeight := len(itemLines)
 
@@ -372,13 +310,6 @@ func (l *List) Render() string {
 func (l *List) PrependItems(items ...Item) {
 	l.items = append(items, l.items...)
 
-	// Shift cache
-	newCache := make(map[int]renderedItem)
-	for idx, val := range l.renderedItems {
-		newCache[idx+len(items)] = val
-	}
-	l.renderedItems = newCache
-
 	// Keep view position relative to the content that was visible
 	l.offsetIdx += len(items)
 
@@ -397,9 +328,6 @@ func (l *List) SetItems(items ...Item) {
 // rendered item cache.
 func (l *List) setItems(evict bool, items ...Item) {
 	l.items = items
-	if evict {
-		l.renderedItems = make(map[int]renderedItem)
-	}
 	l.selectedIdx = min(l.selectedIdx, len(l.items)-1)
 	l.offsetIdx = min(l.offsetIdx, len(l.items)-1)
 	l.offsetLine = 0
@@ -580,8 +508,6 @@ func (l *List) HandleMouseDown(x, y int) bool {
 
 	if clickable, ok := l.items[itemIdx].(MouseClickable); ok {
 		clickable.HandleMouseClick(ansi.MouseButton1, x, itemY)
-		l.items[itemIdx] = clickable.(Item)
-		l.invalidateItem(itemIdx)
 	}
 
 	return true
