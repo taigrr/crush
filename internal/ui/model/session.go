@@ -12,10 +12,19 @@ import (
 	"github.com/charmbracelet/crush/internal/diff"
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/history"
+	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/charmbracelet/crush/internal/uiutil"
 	"github.com/charmbracelet/x/ansi"
 )
+
+// loadSessionMsg is a message indicating that a session and its files have
+// been loaded.
+type loadSessionMsg struct {
+	session *session.Session
+	files   []SessionFile
+}
 
 // SessionFile tracks the first and latest versions of a file in a session,
 // along with the total additions and deletions.
@@ -26,14 +35,24 @@ type SessionFile struct {
 	Deletions     int
 }
 
-// loadSessionFiles loads all files modified during a session and calculates
-// their diff statistics.
-func (m *UI) loadSessionFiles(sessionID string) tea.Cmd {
+// loadSession loads the session along with its associated files and computes
+// the diff statistics (additions and deletions) for each file in the session.
+// It returns a tea.Cmd that, when executed, fetches the session data and
+// returns a sessionFilesLoadedMsg containing the processed session files.
+func (m *UI) loadSession(sessionID string) tea.Cmd {
 	return func() tea.Msg {
+		session, err := m.com.App.Sessions.Get(context.Background(), sessionID)
+		if err != nil {
+			// TODO: better error handling
+			return uiutil.ReportError(err)()
+		}
+
 		files, err := m.com.App.History.ListBySession(context.Background(), sessionID)
 		if err != nil {
-			return err
+			// TODO: better error handling
+			return uiutil.ReportError(err)()
 		}
+
 		filesByPath := make(map[string][]history.File)
 		for _, f := range files {
 			filesByPath[f.Path] = append(filesByPath[f.Path], f)
@@ -76,8 +95,9 @@ func (m *UI) loadSessionFiles(sessionID string) tea.Cmd {
 			return 0
 		})
 
-		return sessionFilesLoadedMsg{
-			files: sessionFiles,
+		return loadSessionMsg{
+			session: &session,
+			files:   sessionFiles,
 		}
 	}
 }
@@ -108,7 +128,10 @@ func (m *UI) handleFileEvent(file history.File) tea.Cmd {
 			})
 			newFiles = append(newFiles, m.sessionFiles...)
 
-			return sessionFilesLoadedMsg{files: newFiles}
+			return loadSessionMsg{
+				session: m.session,
+				files:   newFiles,
+			}
 		}
 
 		updated := m.sessionFiles[existingIdx]
@@ -137,7 +160,10 @@ func (m *UI) handleFileEvent(file history.File) tea.Cmd {
 			}
 		}
 
-		return sessionFilesLoadedMsg{files: newFiles}
+		return loadSessionMsg{
+			session: m.session,
+			files:   newFiles,
+		}
 	}
 }
 

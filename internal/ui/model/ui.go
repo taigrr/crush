@@ -51,17 +51,9 @@ const (
 	uiChatCompact
 )
 
-// sessionsLoadedMsg is a message indicating that sessions have been loaded.
-type sessionsLoadedMsg struct {
+// listSessionsMsg is a message to list available sessions.
+type listSessionsMsg struct {
 	sessions []session.Session
-}
-
-type sessionLoadedMsg struct {
-	sess session.Session
-}
-
-type sessionFilesLoadedMsg struct {
-	files []SessionFile
 }
 
 // UI represents the main user interface model.
@@ -176,10 +168,6 @@ func (m *UI) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// sessionLoadedDoneMsg indicates that session loading and message appending is
-// done.
-type sessionLoadedDoneMsg struct{}
-
 // Update handles updates to the UI model.
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -189,16 +177,19 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.sendProgressBar {
 			m.sendProgressBar = slices.Contains(msg, "WT_SESSION")
 		}
-	case sessionsLoadedMsg:
-		sessions := dialog.NewSessions(m.com, msg.sessions...)
-		// TODO: Get. Rid. Of. Magic numbers!
-		sessions.SetSize(min(120, m.width-8), 30)
-		m.dialog.OpenDialog(sessions)
-	case sessionLoadedMsg:
+	case listSessionsMsg:
+		if cmd := m.openSessionsDialog(msg.sessions); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case loadSessionMsg:
 		m.state = uiChat
-		m.session = &msg.sess
-		// Load the last 20 messages from this session.
-		msgs, _ := m.com.App.Messages.List(context.Background(), m.session.ID)
+		m.session = msg.session
+		m.sessionFiles = msg.files
+		msgs, err := m.com.App.Messages.List(context.Background(), m.session.ID)
+		if err != nil {
+			cmds = append(cmds, uiutil.ReportError(err))
+			break
+		}
 
 		// Build tool result map to link tool calls with their results
 		msgPtrs := make([]*message.Message, len(msgs))
@@ -215,17 +206,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.chat.SetMessages(items...)
 
-		// Notify that session loading is done to scroll to bottom. This is
-		// needed because we need to draw the chat list first before we can
-		// scroll to bottom.
-		cmds = append(cmds, func() tea.Msg {
-			return sessionLoadedDoneMsg{}
-		})
-	case sessionLoadedDoneMsg:
 		m.chat.ScrollToBottom()
 		m.chat.SelectLast()
-	case sessionFilesLoadedMsg:
-		m.sessionFiles = msg.files
 	case pubsub.Event[history.File]:
 		cmds = append(cmds, m.handleFileEvent(msg.Payload))
 	case pubsub.Event[app.LSPEvent]:
@@ -344,14 +326,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *UI) loadSession(sessionID string) tea.Cmd {
-	return func() tea.Msg {
-		// TODO: handle error
-		session, _ := m.com.App.Sessions.Get(context.Background(), sessionID)
-		return sessionLoadedMsg{session}
-	}
-}
-
 func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 	handleQuitKeys := func(msg tea.KeyPressMsg) bool {
 		switch {
@@ -374,23 +348,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 			m.updateLayoutAndSize()
 			return true
 		case key.Matches(msg, m.keyMap.Commands):
-			if m.dialog.ContainsDialog(dialog.CommandsID) {
-				// Bring to front
-				m.dialog.BringToFront(dialog.CommandsID)
-			} else {
-				sessionID := ""
-				if m.session != nil {
-					sessionID = m.session.ID
-				}
-				commands, err := dialog.NewCommands(m.com, sessionID)
-				if err != nil {
-					cmds = append(cmds, uiutil.ReportError(err))
-				} else {
-					// TODO: Get. Rid. Of. Magic numbers!
-					commands.SetSize(min(120, m.width-8), 30)
-					m.dialog.OpenDialog(commands)
-				}
+			if cmd := m.openCommandsDialog(); cmd != nil {
+				cmds = append(cmds, cmd)
 			}
+			return true
 		case key.Matches(msg, m.keyMap.Models):
 			// TODO: Implement me
 		case key.Matches(msg, m.keyMap.Sessions):
@@ -398,13 +359,14 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 				// Bring to front
 				m.dialog.BringToFront(dialog.SessionsID)
 			} else {
-				cmds = append(cmds, m.loadSessionsCmd)
+				cmds = append(cmds, m.listSessions)
 			}
 			return true
 		}
 		return false
 	}
 
+	// Route all messages to dialog if one is open.
 	if m.dialog.HasDialogs() {
 		// Always handle quit keys first
 		if handleQuitKeys(msg) {
@@ -420,19 +382,18 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 		// Generic dialog messages
 		case dialog.CloseMsg:
 			m.dialog.CloseFrontDialog()
+
 		// Session dialog messages
 		case dialog.SessionSelectedMsg:
 			m.dialog.CloseDialog(dialog.SessionsID)
-			cmds = append(cmds,
-				m.loadSession(msg.Session.ID),
-				m.loadSessionFiles(msg.Session.ID),
-			)
+			cmds = append(cmds, m.loadSession(msg.Session.ID))
+
 		// Command dialog messages
 		case dialog.ToggleYoloModeMsg:
 			m.com.App.Permissions.SetSkipRequests(!m.com.App.Permissions.SkipRequests())
 			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.SwitchSessionsMsg:
-			cmds = append(cmds, m.loadSessionsCmd)
+			cmds = append(cmds, m.listSessions)
 			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.CompactMsg:
 			err := m.com.App.AgentCoordinator.Summarize(context.Background(), msg.SessionID)
@@ -1039,11 +1000,52 @@ func (m *UI) renderSidebarLogo(width int) {
 	m.sidebarLogo = renderLogo(m.com.Styles, true, width)
 }
 
-// loadSessionsCmd loads the list of sessions and returns a command that sends
-// a sessionFilesLoadedMsg when done.
-func (m *UI) loadSessionsCmd() tea.Msg {
+// openCommandsDialog opens the commands dialog.
+func (m *UI) openCommandsDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.CommandsID) {
+		// Bring to front
+		m.dialog.BringToFront(dialog.CommandsID)
+		return nil
+	}
+
+	sessionID := ""
+	if m.session != nil {
+		sessionID = m.session.ID
+	}
+
+	commands, err := dialog.NewCommands(m.com, sessionID)
+	if err != nil {
+		return uiutil.ReportError(err)
+	}
+
+	// TODO: Get. Rid. Of. Magic numbers!
+	commands.SetSize(min(120, m.width-8), 30)
+	m.dialog.OpenDialog(commands)
+
+	return nil
+}
+
+// openSessionsDialog opens the sessions dialog with the given sessions.
+func (m *UI) openSessionsDialog(sessions []session.Session) tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.SessionsID) {
+		// Bring to front
+		m.dialog.BringToFront(dialog.SessionsID)
+		return nil
+	}
+
+	dialog := dialog.NewSessions(m.com, sessions...)
+	// TODO: Get. Rid. Of. Magic numbers!
+	dialog.SetSize(min(120, m.width-8), 30)
+	m.dialog.OpenDialog(dialog)
+
+	return nil
+}
+
+// listSessions is a [tea.Cmd] that lists all sessions and returns them in a
+// [listSessionsMsg].
+func (m *UI) listSessions() tea.Msg {
 	allSessions, _ := m.com.App.Sessions.List(context.TODO())
-	return sessionsLoadedMsg{sessions: allSessions}
+	return listSessionsMsg{sessions: allSessions}
 }
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
