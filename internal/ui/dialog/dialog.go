@@ -33,14 +33,6 @@ func NewOverlay(dialogs ...Dialog) *Overlay {
 	}
 }
 
-// IsFrontDialog checks if the dialog with the specified ID is at the front.
-func (d *Overlay) IsFrontDialog(dialogID string) bool {
-	if len(d.dialogs) == 0 {
-		return false
-	}
-	return d.dialogs[len(d.dialogs)-1].ID() == dialogID
-}
-
 // HasDialogs checks if there are any active dialogs.
 func (d *Overlay) HasDialogs() bool {
 	return len(d.dialogs) > 0
@@ -56,13 +48,13 @@ func (d *Overlay) ContainsDialog(dialogID string) bool {
 	return false
 }
 
-// AddDialog adds a new dialog to the stack.
-func (d *Overlay) AddDialog(dialog Dialog) {
+// OpenDialog opens a new dialog to the stack.
+func (d *Overlay) OpenDialog(dialog Dialog) {
 	d.dialogs = append(d.dialogs, dialog)
 }
 
-// RemoveDialog removes the dialog with the specified ID from the stack.
-func (d *Overlay) RemoveDialog(dialogID string) {
+// CloseDialog closes the dialog with the specified ID from the stack.
+func (d *Overlay) CloseDialog(dialogID string) {
 	for i, dialog := range d.dialogs {
 		if dialog.ID() == dialogID {
 			d.removeDialog(i)
@@ -71,8 +63,8 @@ func (d *Overlay) RemoveDialog(dialogID string) {
 	}
 }
 
-// RemoveFrontDialog removes the front dialog from the stack.
-func (d *Overlay) RemoveFrontDialog() {
+// CloseFrontDialog closes the front dialog in the stack.
+func (d *Overlay) CloseFrontDialog() {
 	if len(d.dialogs) == 0 {
 		return
 	}

@@ -193,7 +193,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sessions := dialog.NewSessions(m.com, msg.sessions...)
 		// TODO: Get. Rid. Of. Magic numbers!
 		sessions.SetSize(min(120, m.width-8), 30)
-		m.dialog.AddDialog(sessions)
+		m.dialog.OpenDialog(sessions)
 	case sessionLoadedMsg:
 		m.state = uiChat
 		m.session = &msg.sess
@@ -357,7 +357,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 		switch {
 		case key.Matches(msg, m.keyMap.Quit):
 			if !m.dialog.ContainsDialog(dialog.QuitID) {
-				m.dialog.AddDialog(dialog.NewQuit(m.com))
+				m.dialog.OpenDialog(dialog.NewQuit(m.com))
 				return true
 			}
 		}
@@ -388,7 +388,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 				} else {
 					// TODO: Get. Rid. Of. Magic numbers!
 					commands.SetSize(min(120, m.width-8), 30)
-					m.dialog.AddDialog(commands)
+					m.dialog.OpenDialog(commands)
 				}
 			}
 		case key.Matches(msg, m.keyMap.Models):
@@ -419,10 +419,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 		switch msg := msg.(type) {
 		// Generic dialog messages
 		case dialog.CloseMsg:
-			m.dialog.RemoveFrontDialog()
+			m.dialog.CloseFrontDialog()
 		// Session dialog messages
 		case dialog.SessionSelectedMsg:
-			m.dialog.RemoveDialog(dialog.SessionsID)
+			m.dialog.CloseDialog(dialog.SessionsID)
 			cmds = append(cmds,
 				m.loadSession(msg.Session.ID),
 				m.loadSessionFiles(msg.Session.ID),
@@ -430,10 +430,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 		// Command dialog messages
 		case dialog.ToggleYoloModeMsg:
 			m.com.App.Permissions.SetSkipRequests(!m.com.App.Permissions.SkipRequests())
-			m.dialog.RemoveDialog(dialog.CommandsID)
+			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.SwitchSessionsMsg:
 			cmds = append(cmds, m.loadSessionsCmd)
-			m.dialog.RemoveDialog(dialog.CommandsID)
+			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.CompactMsg:
 			err := m.com.App.AgentCoordinator.Summarize(context.Background(), msg.SessionID)
 			if err != nil {
@@ -441,7 +441,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 			}
 		case dialog.ToggleHelpMsg:
 			m.help.ShowAll = !m.help.ShowAll
-			m.dialog.RemoveDialog(dialog.CommandsID)
+			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.QuitMsg:
 			cmds = append(cmds, tea.Quit)
 		}
