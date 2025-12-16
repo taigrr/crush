@@ -111,11 +111,16 @@ func NewCommands(com *common.Common, sessionID string) (*Commands, error) {
 
 // SetSize sets the size of the dialog.
 func (c *Commands) SetSize(width, height int) {
+	t := c.com.Styles
 	c.width = width
 	c.height = height
 	innerWidth := width - c.com.Styles.Dialog.View.GetHorizontalFrameSize()
-	c.input.SetWidth(innerWidth - c.com.Styles.Dialog.InputPrompt.GetHorizontalFrameSize() - 1)
-	c.list.SetSize(innerWidth, height-6) // (1) title + (3) input + (1) padding + (1) help
+	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + 1 + // (1) title content
+		t.Dialog.InputPrompt.GetVerticalFrameSize() + 1 + // (1) input content
+		t.Dialog.HelpView.GetVerticalFrameSize() +
+		t.Dialog.View.GetVerticalFrameSize()
+	c.input.SetWidth(innerWidth - t.Dialog.InputPrompt.GetHorizontalFrameSize() - 1) // (1) cursor padding
+	c.list.SetSize(innerWidth, height-heightOffset)
 	c.help.SetWidth(width)
 }
 

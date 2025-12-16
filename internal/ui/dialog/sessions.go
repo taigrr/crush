@@ -67,11 +67,16 @@ func NewSessions(com *common.Common, sessions ...session.Session) *Session {
 
 // SetSize sets the size of the dialog.
 func (s *Session) SetSize(width, height int) {
+	t := s.com.Styles
 	s.width = width
 	s.height = height
-	innerWidth := width - s.com.Styles.Dialog.View.GetHorizontalFrameSize()
-	s.input.SetWidth(innerWidth - s.com.Styles.Dialog.InputPrompt.GetHorizontalFrameSize() - 1)
-	s.list.SetSize(innerWidth, height-6) // (1) title + (3) input + (1) padding + (1) help
+	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize()
+	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + 1 + // (1) title content
+		t.Dialog.InputPrompt.GetVerticalFrameSize() + 1 + // (1) input content
+		t.Dialog.HelpView.GetVerticalFrameSize() +
+		t.Dialog.View.GetVerticalFrameSize()
+	s.input.SetWidth(innerWidth - t.Dialog.InputPrompt.GetHorizontalFrameSize() - 1) // (1) cursor padding
+	s.list.SetSize(innerWidth, height-heightOffset)
 	s.help.SetWidth(width)
 }
 
