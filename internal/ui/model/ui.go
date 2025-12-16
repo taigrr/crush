@@ -2,6 +2,8 @@ package model
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"image"
 	"math/rand"
 	"net/http"
@@ -21,9 +23,12 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/history"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/tui/components/chat"
 	"github.com/charmbracelet/crush/internal/tui/components/dialogs/filepicker"
+	"github.com/charmbracelet/crush/internal/tui/util"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/dialog"
 	"github.com/charmbracelet/crush/internal/ui/logo"
@@ -98,7 +103,7 @@ type UI struct {
 	// Editor components
 	textarea textarea.Model
 
-	attachments []any // TODO: Implement attachments
+	attachments []message.Attachment // TODO: Implement attachments
 
 	readyPlaceholder   string
 	workingPlaceholder string
@@ -199,23 +204,12 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 
-		// Build tool result map to link tool calls with their results
-		msgPtrs := make([]*message.Message, len(msgs))
-		for i := range msgs {
-			msgPtrs[i] = &msgs[i]
+		if cmd := m.handleMessageEvents(msgs...); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
-		toolResultMap := BuildToolResultMap(msgPtrs)
-
-		// Add messages to chat with linked tool results
-		items := make([]MessageItem, 0, len(msgs)*2)
-		for _, msg := range msgPtrs {
-			items = append(items, GetMessageItems(m.com.Styles, msg, toolResultMap)...)
-		}
-
-		m.chat.SetMessages(items...)
-
-		m.chat.ScrollToBottom()
-		m.chat.SelectLast()
+	case pubsub.Event[message.Message]:
+		// TODO: Finish implementing me
+		cmds = append(cmds, m.handleMessageEvents(msg.Payload))
 	case pubsub.Event[history.File]:
 		cmds = append(cmds, m.handleFileEvent(msg.Payload))
 	case pubsub.Event[app.LSPEvent]:
@@ -343,24 +337,35 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func (m *UI) handleMessageEvents(msgs ...message.Message) tea.Cmd {
+	// Build tool result map to link tool calls with their results
+	msgPtrs := make([]*message.Message, len(msgs))
+	for i := range msgs {
+		msgPtrs[i] = &msgs[i]
+	}
+	toolResultMap := BuildToolResultMap(msgPtrs)
+
+	// Add messages to chat with linked tool results
+	items := make([]MessageItem, 0, len(msgs)*2)
+	for _, msg := range msgPtrs {
+		items = append(items, GetMessageItems(m.com.Styles, msg, toolResultMap)...)
+	}
+
+	if m.session == nil || m.session.ID == "" {
+		m.chat.SetMessages(items...)
+	} else {
+		m.chat.AppendMessages(items...)
+	}
+	m.chat.ScrollToBottom()
+	m.chat.SelectLast()
+
+	return nil
+}
+
 func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 	var cmds []tea.Cmd
 
-	handleQuitKeys := func(msg tea.KeyPressMsg) bool {
-		switch {
-		case key.Matches(msg, m.keyMap.Quit):
-			if !m.dialog.ContainsDialog(dialog.QuitID) {
-				m.dialog.OpenDialog(dialog.NewQuit(m.com))
-				return true
-			}
-		}
-		return false
-	}
-
 	handleGlobalKeys := func(msg tea.KeyPressMsg) bool {
-		if handleQuitKeys(msg) {
-			return true
-		}
 		switch {
 		case key.Matches(msg, m.keyMap.Help):
 			m.help.ShowAll = !m.help.ShowAll
@@ -386,13 +391,17 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		return false
 	}
 
-	// Route all messages to dialog if one is open.
-	if m.dialog.HasDialogs() {
+	if key.Matches(msg, m.keyMap.Quit) && !m.dialog.ContainsDialog(dialog.QuitID) {
 		// Always handle quit keys first
-		if handleQuitKeys(msg) {
-			return tea.Batch(cmds...)
+		if cmd := m.openQuitDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 
+		return tea.Batch(cmds...)
+	}
+
+	// Route all messages to dialog if one is open.
+	if m.dialog.HasDialogs() {
 		msg := m.dialog.Update(msg)
 		if msg == nil {
 			return tea.Batch(cmds...)
@@ -443,7 +452,30 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		case uiFocusEditor:
 			switch {
 			case key.Matches(msg, m.keyMap.Editor.SendMessage):
-				// TODO: Implement me
+				value := m.textarea.Value()
+				if strings.HasSuffix(value, "\\") {
+					// If the last character is a backslash, remove it and add a newline.
+					m.textarea.SetValue(strings.TrimSuffix(value, "\\"))
+					break
+				}
+
+				// Otherwise, send the message
+				m.textarea.Reset()
+
+				value = strings.TrimSpace(value)
+				if value == "exit" || value == "quit" {
+					return m.openQuitDialog()
+				}
+
+				attachments := m.attachments
+				m.attachments = nil
+				if len(value) == 0 {
+					return nil
+				}
+
+				m.randomizePlaceholders()
+
+				return m.sendMessage(value, attachments)
 			case key.Matches(msg, m.keyMap.Tab):
 				m.focus = uiFocusMain
 				m.textarea.Blur()
@@ -1132,6 +1164,56 @@ func (m *UI) renderHeader(compact bool, width int) {
 // width.
 func (m *UI) renderSidebarLogo(width int) {
 	m.sidebarLogo = renderLogo(m.com.Styles, true, width)
+}
+
+// sendMessage sends a message with the given content and attachments.
+func (m *UI) sendMessage(content string, attachments []message.Attachment) tea.Cmd {
+	if m.session == nil {
+		return uiutil.ReportError(fmt.Errorf("no session selected"))
+	}
+	session := *m.session
+	var cmds []tea.Cmd
+	if m.session.ID == "" {
+		newSession, err := m.com.App.Sessions.Create(context.Background(), "New Session")
+		if err != nil {
+			return uiutil.ReportError(err)
+		}
+		session = newSession
+		cmds = append(cmds, util.CmdHandler(chat.SessionSelectedMsg(session)))
+	}
+	if m.com.App.AgentCoordinator == nil {
+		return util.ReportError(fmt.Errorf("coder agent is not initialized"))
+	}
+	m.chat.ScrollToBottom()
+	cmds = append(cmds, func() tea.Msg {
+		_, err := m.com.App.AgentCoordinator.Run(context.Background(), session.ID, content, attachments...)
+		if err != nil {
+			isCancelErr := errors.Is(err, context.Canceled)
+			isPermissionErr := errors.Is(err, permission.ErrorPermissionDenied)
+			if isCancelErr || isPermissionErr {
+				return nil
+			}
+			return util.InfoMsg{
+				Type: util.InfoTypeError,
+				Msg:  err.Error(),
+			}
+		}
+		return nil
+	})
+	return tea.Batch(cmds...)
+}
+
+// openQuitDialog opens the quit confirmation dialog.
+func (m *UI) openQuitDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.QuitID) {
+		// Bring to front
+		m.dialog.BringToFront(dialog.QuitID)
+		return nil
+	}
+
+	quitDialog := dialog.NewQuit(m.com)
+	m.dialog.OpenDialog(quitDialog)
+	return nil
 }
 
 // openCommandsDialog opens the commands dialog.

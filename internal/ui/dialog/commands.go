@@ -15,7 +15,7 @@ import (
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
-	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/ui/chat"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/list"
 	"github.com/charmbracelet/crush/internal/ui/styles"
@@ -25,13 +25,6 @@ import (
 
 // CommandsID is the identifier for the commands dialog.
 const CommandsID = "commands"
-
-// SendMsg represents a message to send a chat message.
-// TODO: Move to chat package?
-type SendMsg struct {
-	Text        string
-	Attachments []message.Attachment
-}
 
 // Commands represents a dialog that shows available commands.
 type Commands struct {
@@ -451,7 +444,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 				if err != nil {
 					return uiutil.ReportError(err)
 				}
-				return uiutil.CmdHandler(SendMsg{
+				return uiutil.CmdHandler(chat.SendMsg{
 					Text: initPrompt,
 				})
 			},

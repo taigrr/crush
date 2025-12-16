@@ -20,7 +20,8 @@ type Quit struct {
 		Yes,
 		No,
 		Tab,
-		Close key.Binding
+		Close,
+		Quit key.Binding
 	}
 }
 
@@ -51,6 +52,10 @@ func NewQuit(com *common.Common) *Quit {
 		key.WithHelp("tab", "switch options"),
 	)
 	q.keyMap.Close = CloseKey
+	q.keyMap.Quit = key.NewBinding(
+		key.WithKeys("ctrl+c"),
+		key.WithHelp("ctrl+c", "quit"),
+	)
 	return q
 }
 
@@ -64,11 +69,12 @@ func (q *Quit) Update(msg tea.Msg) tea.Msg {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
+		case key.Matches(msg, q.keyMap.Quit):
+			return QuitMsg{}
 		case key.Matches(msg, q.keyMap.Close):
 			return CloseMsg{}
 		case key.Matches(msg, q.keyMap.LeftRight, q.keyMap.Tab):
 			q.selectedNo = !q.selectedNo
-			return CloseMsg{}
 		case key.Matches(msg, q.keyMap.EnterSpace):
 			if !q.selectedNo {
 				return QuitMsg{}
