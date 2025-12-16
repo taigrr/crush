@@ -151,7 +151,7 @@ func New(com *common.Common) *UI {
 		ui.focus = uiFocusEditor
 	}
 
-	ui.setEditorPrompt()
+	ui.setEditorPrompt(false)
 	ui.randomizePlaceholders()
 	ui.textarea.Placeholder = ui.readyPlaceholder
 	ui.help.Styles = com.Styles.Help
@@ -390,7 +390,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 
 		// Command dialog messages
 		case dialog.ToggleYoloModeMsg:
-			m.com.App.Permissions.SetSkipRequests(!m.com.App.Permissions.SkipRequests())
+			yolo := !m.com.App.Permissions.SkipRequests()
+			m.com.App.Permissions.SetSkipRequests(yolo)
+			m.setEditorPrompt(yolo)
 			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.SwitchSessionsMsg:
 			cmds = append(cmds, m.listSessions)
@@ -927,8 +929,8 @@ type layout struct {
 
 // setEditorPrompt configures the textarea prompt function based on whether
 // yolo mode is enabled.
-func (m *UI) setEditorPrompt() {
-	if m.com.App.Permissions.SkipRequests() {
+func (m *UI) setEditorPrompt(yolo bool) {
+	if yolo {
 		m.textarea.SetPromptFunc(4, m.yoloPromptFunc)
 		return
 	}
@@ -940,7 +942,10 @@ func (m *UI) setEditorPrompt() {
 func (m *UI) normalPromptFunc(info textarea.PromptInfo) string {
 	t := m.com.Styles
 	if info.LineNumber == 0 {
-		return "  > "
+		if info.Focused {
+			return "  > "
+		}
+		return "::: "
 	}
 	if info.Focused {
 		return t.EditorPromptNormalFocused.Render()
