@@ -190,9 +190,9 @@ func radioView(t *styles.Styles, selected uicmd.CommandType, hasUserCmds bool, h
 
 	selectedFn := func(t uicmd.CommandType) string {
 		if t == selected {
-			return "◉ " + t.String()
+			return " ◉ " + t.String()
 		}
-		return "○ " + t.String()
+		return " ○ " + t.String()
 	}
 
 	parts := []string{
