@@ -313,7 +313,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case tea.KeyPressMsg:
-		cmds = append(cmds, m.handleKeyPressMsg(msg)...)
+		if cmd := m.handleKeyPressMsg(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case tea.PasteMsg:
 		if cmd := m.handlePasteMsg(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -341,7 +343,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
+func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
+	var cmds []tea.Cmd
+
 	handleQuitKeys := func(msg tea.KeyPressMsg) bool {
 		switch {
 		case key.Matches(msg, m.keyMap.Quit):
@@ -369,6 +373,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 			return true
 		case key.Matches(msg, m.keyMap.Models):
 			// TODO: Implement me
+			return true
 		case key.Matches(msg, m.keyMap.Sessions):
 			if m.dialog.ContainsDialog(dialog.SessionsID) {
 				// Bring to front
@@ -385,12 +390,12 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 	if m.dialog.HasDialogs() {
 		// Always handle quit keys first
 		if handleQuitKeys(msg) {
-			return cmds
+			return tea.Batch(cmds...)
 		}
 
 		msg := m.dialog.Update(msg)
 		if msg == nil {
-			return cmds
+			return tea.Batch(cmds...)
 		}
 
 		switch msg := msg.(type) {
@@ -424,18 +429,21 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 			cmds = append(cmds, tea.Quit)
 		}
 
-		return cmds
+		return tea.Batch(cmds...)
 	}
 
 	switch m.state {
 	case uiConfigure:
-		return cmds
+		return tea.Batch(cmds...)
 	case uiInitialize:
-		return append(cmds, m.updateInitializeView(msg)...)
+		cmds = append(cmds, m.updateInitializeView(msg)...)
+		return tea.Batch(cmds...)
 	case uiChat, uiLanding, uiChatCompact:
 		switch m.focus {
 		case uiFocusEditor:
 			switch {
+			case key.Matches(msg, m.keyMap.Editor.SendMessage):
+				// TODO: Implement me
 			case key.Matches(msg, m.keyMap.Tab):
 				m.focus = uiFocusMain
 				m.textarea.Blur()
@@ -447,6 +455,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 					break
 				}
 				cmds = append(cmds, m.openEditor(m.textarea.Value()))
+			case key.Matches(msg, m.keyMap.Editor.Newline):
+				m.textarea.InsertRune('\n')
 			default:
 				if handleGlobalKeys(msg) {
 					// Handle global keys first before passing to textarea.
@@ -509,12 +519,12 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 		handleGlobalKeys(msg)
 	}
 
-	return cmds
+	return tea.Batch(cmds...)
 }
 
 // Draw implements [tea.Layer] and draws the UI model.
 func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
-	layout := generateLayout(m, area.Dx(), area.Dy())
+	layout := m.generateLayout(area.Dx(), area.Dy())
 
 	if m.layout != layout {
 		m.layout = layout
@@ -665,45 +675,57 @@ func (m *UI) View() tea.View {
 func (m *UI) ShortHelp() []key.Binding {
 	var binds []key.Binding
 	k := &m.keyMap
+	tab := k.Tab
+	commands := k.Commands
+	if m.focus == uiFocusEditor && m.textarea.LineCount() == 0 {
+		commands.SetHelp("/ or ctrl+p", "commands")
+	}
 
 	switch m.state {
 	case uiInitialize:
 		binds = append(binds, k.Quit)
+	case uiChat:
+		if m.focus == uiFocusEditor {
+			tab.SetHelp("tab", "focus chat")
+		} else {
+			tab.SetHelp("tab", "focus editor")
+		}
+
+		binds = append(binds,
+			tab,
+			commands,
+			k.Models,
+		)
+
+		switch m.focus {
+		case uiFocusEditor:
+			binds = append(binds,
+				k.Editor.Newline,
+			)
+		case uiFocusMain:
+			binds = append(binds,
+				k.Chat.UpDown,
+				k.Chat.UpDownOneItem,
+				k.Chat.PageUp,
+				k.Chat.PageDown,
+				k.Chat.Copy,
+			)
+		}
 	default:
 		// TODO: other states
 		// if m.session == nil {
 		// no session selected
 		binds = append(binds,
-			k.Commands,
+			commands,
 			k.Models,
 			k.Editor.Newline,
-			k.Quit,
-			k.Help,
 		)
-		// }
-		// else {
-		// we have a session
-		// }
-
-		// switch m.state {
-		// case uiChat:
-		// case uiEdit:
-		// 	binds = append(binds,
-		// 		k.Editor.AddFile,
-		// 		k.Editor.SendMessage,
-		// 		k.Editor.OpenEditor,
-		// 		k.Editor.Newline,
-		// 	)
-		//
-		// 	if len(m.attachments) > 0 {
-		// 		binds = append(binds,
-		// 			k.Editor.AttachmentDeleteMode,
-		// 			k.Editor.DeleteAllAttachments,
-		// 			k.Editor.Escape,
-		// 		)
-		// 	}
-		// }
 	}
+
+	binds = append(binds,
+		k.Quit,
+		k.Help,
+	)
 
 	return binds
 }
@@ -714,6 +736,12 @@ func (m *UI) FullHelp() [][]key.Binding {
 	k := &m.keyMap
 	help := k.Help
 	help.SetHelp("ctrl+g", "less")
+	hasAttachments := false // TODO: implement attachments
+	hasSession := m.session != nil && m.session.ID != ""
+	commands := k.Commands
+	if m.focus == uiFocusEditor && m.textarea.LineCount() == 0 {
+		commands.SetHelp("/ or ctrl+p", "commands")
+	}
 
 	switch m.state {
 	case uiInitialize:
@@ -721,12 +749,72 @@ func (m *UI) FullHelp() [][]key.Binding {
 			[]key.Binding{
 				k.Quit,
 			})
+	case uiChat:
+		mainBinds := []key.Binding{}
+		tab := k.Tab
+		if m.focus == uiFocusEditor {
+			tab.SetHelp("tab", "focus chat")
+		} else {
+			tab.SetHelp("tab", "focus editor")
+		}
+
+		mainBinds = append(mainBinds,
+			tab,
+			commands,
+			k.Models,
+			k.Sessions,
+		)
+		if hasSession {
+			mainBinds = append(mainBinds, k.Chat.NewSession)
+		}
+
+		binds = append(binds, mainBinds)
+
+		switch m.focus {
+		case uiFocusEditor:
+			binds = append(binds,
+				[]key.Binding{
+					k.Editor.Newline,
+					k.Editor.AddImage,
+					k.Editor.MentionFile,
+					k.Editor.OpenEditor,
+				},
+			)
+			if hasAttachments {
+				binds = append(binds,
+					[]key.Binding{
+						k.Editor.AttachmentDeleteMode,
+						k.Editor.DeleteAllAttachments,
+						k.Editor.Escape,
+					},
+				)
+			}
+		case uiFocusMain:
+			binds = append(binds,
+				[]key.Binding{
+					k.Chat.UpDown,
+					k.Chat.UpDownOneItem,
+					k.Chat.PageUp,
+					k.Chat.PageDown,
+				},
+				[]key.Binding{
+					k.Chat.HalfPageUp,
+					k.Chat.HalfPageDown,
+					k.Chat.Home,
+					k.Chat.End,
+				},
+				[]key.Binding{
+					k.Chat.Copy,
+					k.Chat.ClearHighlight,
+				},
+			)
+		}
 	default:
 		if m.session == nil {
 			// no session selected
 			binds = append(binds,
 				[]key.Binding{
-					k.Commands,
+					commands,
 					k.Models,
 					k.Sessions,
 				},
@@ -741,23 +829,21 @@ func (m *UI) FullHelp() [][]key.Binding {
 				},
 			)
 		}
-		// else {
-		// we have a session
-		// }
 	}
 
-	// switch m.state {
-	// case uiChat:
-	// case uiEdit:
-	// 	binds = append(binds, m.ShortHelp())
-	// }
+	binds = append(binds,
+		[]key.Binding{
+			help,
+			k.Quit,
+		},
+	)
 
 	return binds
 }
 
 // updateLayoutAndSize updates the layout and sizes of UI components.
 func (m *UI) updateLayoutAndSize() {
-	m.layout = generateLayout(m, m.width, m.height)
+	m.layout = m.generateLayout(m.width, m.height)
 	m.updateSize()
 }
 
@@ -786,7 +872,7 @@ func (m *UI) updateSize() {
 
 // generateLayout calculates the layout rectangles for all UI components based
 // on the current UI state and terminal dimensions.
-func generateLayout(m *UI, w, h int) layout {
+func (m *UI) generateLayout(w, h int) layout {
 	// The screen area we're working with
 	area := image.Rect(0, 0, w, h)
 

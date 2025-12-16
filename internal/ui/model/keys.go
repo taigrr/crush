@@ -18,21 +18,25 @@ type KeyMap struct {
 	}
 
 	Chat struct {
-		NewSession    key.Binding
-		AddAttachment key.Binding
-		Cancel        key.Binding
-		Tab           key.Binding
-		Details       key.Binding
-		Down          key.Binding
-		Up            key.Binding
-		DownOneItem   key.Binding
-		UpOneItem     key.Binding
-		PageDown      key.Binding
-		PageUp        key.Binding
-		HalfPageDown  key.Binding
-		HalfPageUp    key.Binding
-		Home          key.Binding
-		End           key.Binding
+		NewSession     key.Binding
+		AddAttachment  key.Binding
+		Cancel         key.Binding
+		Tab            key.Binding
+		Details        key.Binding
+		Down           key.Binding
+		Up             key.Binding
+		UpDown         key.Binding
+		DownOneItem    key.Binding
+		UpOneItem      key.Binding
+		UpDownOneItem  key.Binding
+		PageDown       key.Binding
+		PageUp         key.Binding
+		HalfPageDown   key.Binding
+		HalfPageUp     key.Binding
+		Home           key.Binding
+		End            key.Binding
+		Copy           key.Binding
+		ClearHighlight key.Binding
 	}
 
 	Initialize struct {
@@ -153,6 +157,10 @@ func DefaultKeyMap() KeyMap {
 		key.WithKeys("up", "ctrl+k", "ctrl+p", "k"),
 		key.WithHelp("↑", "up"),
 	)
+	km.Chat.UpDown = key.NewBinding(
+		key.WithKeys("up", "down"),
+		key.WithHelp("↑↓", "scroll"),
+	)
 	km.Chat.UpOneItem = key.NewBinding(
 		key.WithKeys("shift+up", "K"),
 		key.WithHelp("shift+↑", "up one item"),
@@ -160,6 +168,10 @@ func DefaultKeyMap() KeyMap {
 	km.Chat.DownOneItem = key.NewBinding(
 		key.WithKeys("shift+down", "J"),
 		key.WithHelp("shift+↓", "down one item"),
+	)
+	km.Chat.UpDownOneItem = key.NewBinding(
+		key.WithKeys("shift+up", "shift+down"),
+		key.WithHelp("shift+↑↓", "scroll one item"),
 	)
 	km.Chat.HalfPageDown = key.NewBinding(
 		key.WithKeys("d"),
@@ -184,6 +196,14 @@ func DefaultKeyMap() KeyMap {
 	km.Chat.End = key.NewBinding(
 		key.WithKeys("G", "end"),
 		key.WithHelp("G", "end"),
+	)
+	km.Chat.Copy = key.NewBinding(
+		key.WithKeys("c", "y", "C", "Y"),
+		key.WithHelp("c/y", "copy"),
+	)
+	km.Chat.ClearHighlight = key.NewBinding(
+		key.WithKeys("esc", "alt+esc"),
+		key.WithHelp("esc", "clear selection"),
 	)
 
 	km.Initialize.Yes = key.NewBinding(
