@@ -1,13 +1,10 @@
 package dialog
 
 import (
-	"strings"
-
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/list"
@@ -33,11 +30,6 @@ type Session struct {
 }
 
 var _ Dialog = (*Session)(nil)
-
-// SessionSelectedMsg is a message sent when a session is selected.
-type SessionSelectedMsg struct {
-	Session session.Session
-}
 
 // NewSessions creates a new Session dialog.
 func NewSessions(com *common.Common, sessions ...session.Session) *Session {
@@ -73,11 +65,6 @@ func NewSessions(com *common.Common, sessions ...session.Session) *Session {
 	return s
 }
 
-// Cursor returns the cursor position relative to the dialog.
-func (s *Session) Cursor() *tea.Cursor {
-	return s.input.Cursor()
-}
-
 // SetSize sets the size of the dialog.
 func (s *Session) SetSize(width, height int) {
 	s.width = width
@@ -94,10 +81,12 @@ func (s *Session) ID() string {
 }
 
 // Update implements Dialog.
-func (s *Session) Update(msg tea.Msg) tea.Cmd {
+func (s *Session) Update(msg tea.Msg) tea.Msg {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
+		case key.Matches(msg, s.keyMap.Close):
+			return CloseMsg{}
 		case key.Matches(msg, s.keyMap.Previous):
 			s.list.Focus()
 			s.list.SelectPrev()
@@ -109,48 +98,36 @@ func (s *Session) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, s.keyMap.Select):
 			if item := s.list.SelectedItem(); item != nil {
 				sessionItem := item.(*SessionItem)
-				return SessionSelectCmd(sessionItem.Session)
+				return SessionSelectedMsg{sessionItem.Session}
 			}
 		default:
 			var cmd tea.Cmd
 			s.input, cmd = s.input.Update(msg)
-			s.list.SetFilter(s.input.Value())
+			value := s.input.Value()
+			s.list.SetFilter(value)
+			s.list.ScrollToTop()
+			s.list.SetSelected(0)
 			return cmd
 		}
 	}
 	return nil
 }
 
+// Cursor returns the cursor position relative to the dialog.
+func (s *Session) Cursor() *tea.Cursor {
+	return InputCursor(s.com.Styles, s.input.Cursor())
+}
+
 // View implements [Dialog].
 func (s *Session) View() string {
 	titleStyle := s.com.Styles.Dialog.Title
-	helpStyle := s.com.Styles.Dialog.HelpView
 	dialogStyle := s.com.Styles.Dialog.View.Width(s.width)
-	inputStyle := s.com.Styles.Dialog.InputPrompt
-	helpStyle = helpStyle.Width(s.width - dialogStyle.GetHorizontalFrameSize())
-	listContent := s.list.Render()
-	if nlines := lipgloss.Height(listContent); nlines < s.list.Height() {
-		// pad the list content to avoid jumping when navigating
-		listContent += strings.Repeat("\n", max(0, s.list.Height()-nlines))
-	}
+	header := common.DialogTitle(s.com.Styles, "Switch Session",
+		max(0, s.width-dialogStyle.GetHorizontalFrameSize()-
+			titleStyle.GetHorizontalFrameSize()))
 
-	content := strings.Join([]string{
-		titleStyle.Render(
-			common.DialogTitle(
-				s.com.Styles,
-				"Switch Session",
-				max(0, s.width-
-					dialogStyle.GetHorizontalFrameSize()-
-					titleStyle.GetHorizontalFrameSize()))),
-		"",
-		inputStyle.Render(s.input.View()),
-		"",
-		listContent,
-		"",
-		helpStyle.Render(s.help.View(s)),
-	}, "\n")
-
-	return dialogStyle.Render(content)
+	return HeaderInputListHelpView(s.com.Styles, s.width, s.list.Height(), header,
+		s.input.View(), s.list.Render(), s.help.View(s))
 }
 
 // ShortHelp implements [help.KeyMap].
@@ -180,11 +157,4 @@ func (s *Session) FullHelp() [][]key.Binding {
 		m = append(m, slice[i:end])
 	}
 	return m
-}
-
-// SessionSelectCmd creates a command that sends a SessionSelectMsg.
-func SessionSelectCmd(s session.Session) tea.Cmd {
-	return func() tea.Msg {
-		return SessionSelectedMsg{Session: s}
-	}
 }

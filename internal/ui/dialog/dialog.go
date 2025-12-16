@@ -17,7 +17,7 @@ var CloseKey = key.NewBinding(
 // Dialog is a component that can be displayed on top of the UI.
 type Dialog interface {
 	ID() string
-	Update(msg tea.Msg) tea.Cmd
+	Update(msg tea.Msg) tea.Msg
 	View() string
 }
 
@@ -71,6 +71,14 @@ func (d *Overlay) RemoveDialog(dialogID string) {
 	}
 }
 
+// RemoveFrontDialog removes the front dialog from the stack.
+func (d *Overlay) RemoveFrontDialog() {
+	if len(d.dialogs) == 0 {
+		return
+	}
+	d.removeDialog(len(d.dialogs) - 1)
+}
+
 // Dialog returns the dialog with the specified ID, or nil if not found.
 func (d *Overlay) Dialog(dialogID string) Dialog {
 	for _, dialog := range d.dialogs {
@@ -79,6 +87,14 @@ func (d *Overlay) Dialog(dialogID string) Dialog {
 		}
 	}
 	return nil
+}
+
+// DialogLast returns the front dialog, or nil if there are no dialogs.
+func (d *Overlay) DialogLast() Dialog {
+	if len(d.dialogs) == 0 {
+		return nil
+	}
+	return d.dialogs[len(d.dialogs)-1]
 }
 
 // BringToFront brings the dialog with the specified ID to the front.
@@ -94,38 +110,40 @@ func (d *Overlay) BringToFront(dialogID string) {
 }
 
 // Update handles dialog updates.
-func (d *Overlay) Update(msg tea.Msg) (*Overlay, tea.Cmd) {
+func (d *Overlay) Update(msg tea.Msg) tea.Msg {
 	if len(d.dialogs) == 0 {
-		return d, nil
+		return nil
 	}
 
 	idx := len(d.dialogs) - 1 // active dialog is the last one
 	dialog := d.dialogs[idx]
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		if key.Matches(msg, CloseKey) {
-			// Close the current dialog
-			d.removeDialog(idx)
-			return d, nil
-		}
+	if dialog == nil {
+		return nil
 	}
 
-	if cmd := dialog.Update(msg); cmd != nil {
-		// Close the current dialog
-		d.removeDialog(idx)
-		return d, cmd
-	}
+	return dialog.Update(msg)
+}
 
-	return d, nil
+// CenterPosition calculates the centered position for the dialog.
+func (d *Overlay) CenterPosition(area uv.Rectangle, dialogID string) uv.Rectangle {
+	dialog := d.Dialog(dialogID)
+	if dialog == nil {
+		return uv.Rectangle{}
+	}
+	return d.centerPositionView(area, dialog.View())
+}
+
+func (d *Overlay) centerPositionView(area uv.Rectangle, view string) uv.Rectangle {
+	viewWidth := lipgloss.Width(view)
+	viewHeight := lipgloss.Height(view)
+	return common.CenterRect(area, viewWidth, viewHeight)
 }
 
 // Draw renders the overlay and its dialogs.
 func (d *Overlay) Draw(scr uv.Screen, area uv.Rectangle) {
 	for _, dialog := range d.dialogs {
 		view := dialog.View()
-		viewWidth := lipgloss.Width(view)
-		viewHeight := lipgloss.Height(view)
-		center := common.CenterRect(area, viewWidth, viewHeight)
+		center := d.centerPositionView(area, view)
 		if area.Overlaps(center) {
 			uv.NewStyledString(view).Draw(scr, center)
 		}

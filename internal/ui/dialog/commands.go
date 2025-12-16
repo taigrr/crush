@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/list"
+	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/crush/internal/uicmd"
 	"github.com/charmbracelet/crush/internal/uiutil"
 )
@@ -31,24 +32,6 @@ type SendMsg struct {
 	Text        string
 	Attachments []message.Attachment
 }
-
-// Messages for commands
-type (
-	SwitchSessionsMsg      struct{}
-	NewSessionsMsg         struct{}
-	SwitchModelMsg         struct{}
-	QuitMsg                struct{}
-	OpenFilePickerMsg      struct{}
-	ToggleHelpMsg          struct{}
-	ToggleCompactModeMsg   struct{}
-	ToggleThinkingMsg      struct{}
-	OpenReasoningDialogMsg struct{}
-	OpenExternalEditorMsg  struct{}
-	ToggleYoloModeMsg      struct{}
-	CompactMsg             struct {
-		SessionID string
-	}
-)
 
 // Commands represents a dialog that shows available commands.
 type Commands struct {
@@ -149,10 +132,12 @@ func (c *Commands) ID() string {
 }
 
 // Update implements Dialog.
-func (c *Commands) Update(msg tea.Msg) tea.Cmd {
+func (c *Commands) Update(msg tea.Msg) tea.Msg {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
+		case key.Matches(msg, c.keyMap.Close):
+			return CloseMsg{}
 		case key.Matches(msg, c.keyMap.Previous):
 			c.list.Focus()
 			c.list.SelectPrev()
@@ -175,8 +160,10 @@ func (c *Commands) Update(msg tea.Msg) tea.Cmd {
 		default:
 			var cmd tea.Cmd
 			c.input, cmd = c.input.Update(msg)
-			// Update the list filter
-			c.list.SetFilter(c.input.Value())
+			value := c.input.Value()
+			c.list.SetFilter(value)
+			c.list.ScrollToTop()
+			c.list.SetSelected(0)
 			return cmd
 		}
 	}
@@ -195,14 +182,17 @@ func (c *Commands) ReloadMCPPrompts() tea.Cmd {
 
 // Cursor returns the cursor position relative to the dialog.
 func (c *Commands) Cursor() *tea.Cursor {
-	return c.input.Cursor()
+	return InputCursor(c.com.Styles, c.input.Cursor())
 }
 
-// View implements [Dialog].
-func (c *Commands) View() string {
-	t := c.com.Styles
+// radioView generates the command type selector radio buttons.
+func radioView(t *styles.Styles, selected uicmd.CommandType, hasUserCmds bool, hasMCPPrompts bool) string {
+	if !hasUserCmds && !hasMCPPrompts {
+		return ""
+	}
+
 	selectedFn := func(t uicmd.CommandType) string {
-		if t == c.selected {
+		if t == selected {
 			return "◉ " + t.String()
 		}
 		return "○ " + t.String()
@@ -211,46 +201,27 @@ func (c *Commands) View() string {
 	parts := []string{
 		selectedFn(uicmd.SystemCommands),
 	}
-	if len(c.userCmds) > 0 {
+	if hasUserCmds {
 		parts = append(parts, selectedFn(uicmd.UserCommands))
 	}
-	if c.mcpPrompts.Len() > 0 {
+	if hasMCPPrompts {
 		parts = append(parts, selectedFn(uicmd.MCPPrompts))
 	}
 
 	radio := strings.Join(parts, " ")
-	radio = t.Dialog.Commands.CommandTypeSelector.Render(radio)
-	if len(c.userCmds) > 0 || c.mcpPrompts.Len() > 0 {
-		radio = " " + radio
-	}
+	return t.Dialog.Commands.CommandTypeSelector.Render(radio)
+}
 
+// View implements [Dialog].
+func (c *Commands) View() string {
+	t := c.com.Styles
+	radio := radioView(t, c.selected, len(c.userCmds) > 0, c.mcpPrompts.Len() > 0)
 	titleStyle := t.Dialog.Title
-	helpStyle := t.Dialog.HelpView
 	dialogStyle := t.Dialog.View.Width(c.width)
-	inputStyle := t.Dialog.InputPrompt
-	helpStyle = helpStyle.Width(c.width - dialogStyle.GetHorizontalFrameSize())
-
 	headerOffset := lipgloss.Width(radio) + titleStyle.GetHorizontalFrameSize() + dialogStyle.GetHorizontalFrameSize()
 	header := common.DialogTitle(t, "Commands", c.width-headerOffset) + radio
-	title := titleStyle.Render(header)
-	help := helpStyle.Render(c.help.View(c))
-	listContent := c.list.Render()
-	if nlines := lipgloss.Height(listContent); nlines < c.list.Height() {
-		// pad the list content to avoid jumping when navigating
-		listContent += strings.Repeat("\n", max(0, c.list.Height()-nlines))
-	}
-
-	content := strings.Join([]string{
-		title,
-		"",
-		inputStyle.Render(c.input.View()),
-		"",
-		c.list.Render(),
-		"",
-		help,
-	}, "\n")
-
-	return dialogStyle.Render(content)
+	return HeaderInputListHelpView(t, c.width, c.list.Height(), header,
+		c.input.View(), c.list.Render(), c.help.View(c))
 }
 
 // ShortHelp implements [help.KeyMap].
@@ -316,7 +287,9 @@ func (c *Commands) setCommandType(commandType uicmd.CommandType) {
 	}
 
 	c.list.SetItems(commandItems...)
-	// Reset selection and filter
+	c.list.SetSelected(0)
+	c.list.SetFilter("")
+	c.list.ScrollToTop()
 	c.list.SetSelected(0)
 	c.input.SetValue("")
 }
@@ -485,7 +458,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Description: "Quit",
 			Shortcut:    "ctrl+c",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return uiutil.CmdHandler(QuitMsg{})
+				return uiutil.CmdHandler(tea.QuitMsg{})
 			},
 		},
 	}...)

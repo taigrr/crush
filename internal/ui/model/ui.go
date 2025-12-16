@@ -20,11 +20,11 @@ import (
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/tui/util"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/dialog"
 	"github.com/charmbracelet/crush/internal/ui/logo"
 	"github.com/charmbracelet/crush/internal/ui/styles"
+	"github.com/charmbracelet/crush/internal/uiutil"
 	"github.com/charmbracelet/crush/internal/version"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/ultraviolet/screen"
@@ -194,12 +194,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// TODO: Get. Rid. Of. Magic numbers!
 		sessions.SetSize(min(120, m.width-8), 30)
 		m.dialog.AddDialog(sessions)
-	case dialog.SessionSelectedMsg:
-		m.dialog.RemoveDialog(dialog.SessionsID)
-		cmds = append(cmds,
-			m.loadSession(msg.Session.ID),
-			m.loadSessionFiles(msg.Session.ID),
-		)
 	case sessionLoadedMsg:
 		m.state = uiChat
 		m.session = &msg.sess
@@ -330,15 +324,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyPressMsg:
 		cmds = append(cmds, m.handleKeyPressMsg(msg)...)
-
-	// Command dialog messages
-	// TODO: Properly structure and handle these messages
-	case dialog.ToggleYoloModeMsg:
-		m.com.App.Permissions.SetSkipRequests(!m.com.App.Permissions.SkipRequests())
-		m.dialog.RemoveDialog(dialog.CommandsID)
-	case dialog.SwitchSessionsMsg:
-		cmds = append(cmds, m.loadSessionsCmd)
-		m.dialog.RemoveDialog(dialog.CommandsID)
 	}
 
 	// This logic gets triggered on any message type, but should it?
@@ -384,7 +369,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 			return true
 		}
 		switch {
-		case key.Matches(msg, m.keyMap.Tab):
 		case key.Matches(msg, m.keyMap.Help):
 			m.help.ShowAll = !m.help.ShowAll
 			m.updateLayoutAndSize()
@@ -400,7 +384,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 				}
 				commands, err := dialog.NewCommands(m.com, sessionID)
 				if err != nil {
-					cmds = append(cmds, util.ReportError(err))
+					cmds = append(cmds, uiutil.ReportError(err))
 				} else {
 					// TODO: Get. Rid. Of. Magic numbers!
 					commands.SetSize(min(120, m.width-8), 30)
@@ -427,64 +411,101 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 			return cmds
 		}
 
-		updatedDialog, cmd := m.dialog.Update(msg)
-		m.dialog = updatedDialog
-		if cmd != nil {
-			cmds = append(cmds, cmd)
+		msg := m.dialog.Update(msg)
+		if msg == nil {
+			return cmds
 		}
+
+		switch msg := msg.(type) {
+		// Generic dialog messages
+		case dialog.CloseMsg:
+			m.dialog.RemoveFrontDialog()
+		// Session dialog messages
+		case dialog.SessionSelectedMsg:
+			m.dialog.RemoveDialog(dialog.SessionsID)
+			cmds = append(cmds,
+				m.loadSession(msg.Session.ID),
+				m.loadSessionFiles(msg.Session.ID),
+			)
+		// Command dialog messages
+		case dialog.ToggleYoloModeMsg:
+			m.com.App.Permissions.SetSkipRequests(!m.com.App.Permissions.SkipRequests())
+			m.dialog.RemoveDialog(dialog.CommandsID)
+		case dialog.SwitchSessionsMsg:
+			cmds = append(cmds, m.loadSessionsCmd)
+			m.dialog.RemoveDialog(dialog.CommandsID)
+		case dialog.CompactMsg:
+			err := m.com.App.AgentCoordinator.Summarize(context.Background(), msg.SessionID)
+			if err != nil {
+				cmds = append(cmds, uiutil.ReportError(err))
+			}
+		case dialog.ToggleHelpMsg:
+			m.help.ShowAll = !m.help.ShowAll
+		case dialog.QuitMsg:
+			cmds = append(cmds, tea.Quit)
+		}
+
 		return cmds
 	}
 
 	switch m.state {
 	case uiChat:
-		switch {
-		case key.Matches(msg, m.keyMap.Tab):
-			if m.focus == uiFocusMain {
-				m.focus = uiFocusEditor
-				cmds = append(cmds, m.textarea.Focus())
-				m.chat.Blur()
-			} else {
+		switch m.focus {
+		case uiFocusEditor:
+			switch {
+			case key.Matches(msg, m.keyMap.Tab):
 				m.focus = uiFocusMain
 				m.textarea.Blur()
 				m.chat.Focus()
 				m.chat.SetSelected(m.chat.Len() - 1)
+			default:
+				handleGlobalKeys(msg)
 			}
-		case key.Matches(msg, m.keyMap.Chat.Up):
-			m.chat.ScrollBy(-1)
-			if !m.chat.SelectedItemInView() {
+		case uiFocusMain:
+			switch {
+			case key.Matches(msg, m.keyMap.Tab):
+				m.focus = uiFocusEditor
+				cmds = append(cmds, m.textarea.Focus())
+				m.chat.Blur()
+			case key.Matches(msg, m.keyMap.Chat.Up):
+				m.chat.ScrollBy(-1)
+				if !m.chat.SelectedItemInView() {
+					m.chat.SelectPrev()
+					m.chat.ScrollToSelected()
+				}
+			case key.Matches(msg, m.keyMap.Chat.Down):
+				m.chat.ScrollBy(1)
+				if !m.chat.SelectedItemInView() {
+					m.chat.SelectNext()
+					m.chat.ScrollToSelected()
+				}
+			case key.Matches(msg, m.keyMap.Chat.UpOneItem):
 				m.chat.SelectPrev()
 				m.chat.ScrollToSelected()
-			}
-		case key.Matches(msg, m.keyMap.Chat.Down):
-			m.chat.ScrollBy(1)
-			if !m.chat.SelectedItemInView() {
+			case key.Matches(msg, m.keyMap.Chat.DownOneItem):
 				m.chat.SelectNext()
 				m.chat.ScrollToSelected()
+			case key.Matches(msg, m.keyMap.Chat.HalfPageUp):
+				m.chat.ScrollBy(-m.chat.Height() / 2)
+				m.chat.SelectFirstInView()
+			case key.Matches(msg, m.keyMap.Chat.HalfPageDown):
+				m.chat.ScrollBy(m.chat.Height() / 2)
+				m.chat.SelectLastInView()
+			case key.Matches(msg, m.keyMap.Chat.PageUp):
+				m.chat.ScrollBy(-m.chat.Height())
+				m.chat.SelectFirstInView()
+			case key.Matches(msg, m.keyMap.Chat.PageDown):
+				m.chat.ScrollBy(m.chat.Height())
+				m.chat.SelectLastInView()
+			case key.Matches(msg, m.keyMap.Chat.Home):
+				m.chat.ScrollToTop()
+				m.chat.SelectFirst()
+			case key.Matches(msg, m.keyMap.Chat.End):
+				m.chat.ScrollToBottom()
+				m.chat.SelectLast()
+			default:
+				handleGlobalKeys(msg)
 			}
-		case key.Matches(msg, m.keyMap.Chat.UpOneItem):
-			m.chat.SelectPrev()
-			m.chat.ScrollToSelected()
-		case key.Matches(msg, m.keyMap.Chat.DownOneItem):
-			m.chat.SelectNext()
-			m.chat.ScrollToSelected()
-		case key.Matches(msg, m.keyMap.Chat.HalfPageUp):
-			m.chat.ScrollBy(-m.chat.Height() / 2)
-			m.chat.SelectFirstInView()
-		case key.Matches(msg, m.keyMap.Chat.HalfPageDown):
-			m.chat.ScrollBy(m.chat.Height() / 2)
-			m.chat.SelectLastInView()
-		case key.Matches(msg, m.keyMap.Chat.PageUp):
-			m.chat.ScrollBy(-m.chat.Height())
-			m.chat.SelectFirstInView()
-		case key.Matches(msg, m.keyMap.Chat.PageDown):
-			m.chat.ScrollBy(m.chat.Height())
-			m.chat.SelectLastInView()
-		case key.Matches(msg, m.keyMap.Chat.Home):
-			m.chat.ScrollToTop()
-			m.chat.SelectFirst()
-		case key.Matches(msg, m.keyMap.Chat.End):
-			m.chat.ScrollToBottom()
-			m.chat.SelectLast()
 		default:
 			handleGlobalKeys(msg)
 		}
@@ -588,11 +609,29 @@ func (m *UI) Cursor() *tea.Cursor {
 		// Don't show cursor if editor is not visible
 		return nil
 	}
-	if m.focus == uiFocusEditor && m.textarea.Focused() {
-		cur := m.textarea.Cursor()
-		cur.X++ // Adjust for app margins
-		cur.Y += m.layout.editor.Min.Y
-		return cur
+	if m.dialog.HasDialogs() {
+		if front := m.dialog.DialogLast(); front != nil {
+			c, ok := front.(uiutil.Cursor)
+			if ok {
+				cur := c.Cursor()
+				if cur != nil {
+					pos := m.dialog.CenterPosition(m.layout.area, front.ID())
+					cur.X += pos.Min.X
+					cur.Y += pos.Min.Y
+					return cur
+				}
+			}
+		}
+		return nil
+	}
+	switch m.focus {
+	case uiFocusEditor:
+		if m.textarea.Focused() {
+			cur := m.textarea.Cursor()
+			cur.X++ // Adjust for app margins
+			cur.Y += m.layout.editor.Min.Y
+			return cur
+		}
 	}
 	return nil
 }

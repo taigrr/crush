@@ -1,0 +1,34 @@
+package dialog
+
+import (
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/crush/internal/session"
+)
+
+// CloseMsg is a message to close the current dialog.
+type CloseMsg struct{}
+
+// QuitMsg is a message to quit the application.
+type QuitMsg = tea.QuitMsg
+
+// SessionSelectedMsg is a message indicating a session has been selected.
+type SessionSelectedMsg struct {
+	Session session.Session
+}
+
+// Messages for commands
+type (
+	SwitchSessionsMsg      struct{}
+	NewSessionsMsg         struct{}
+	SwitchModelMsg         struct{}
+	OpenFilePickerMsg      struct{}
+	ToggleHelpMsg          struct{}
+	ToggleCompactModeMsg   struct{}
+	ToggleThinkingMsg      struct{}
+	OpenReasoningDialogMsg struct{}
+	OpenExternalEditorMsg  struct{}
+	ToggleYoloModeMsg      struct{}
+	CompactMsg             struct {
+		SessionID string
+	}
+)

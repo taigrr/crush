@@ -60,22 +60,24 @@ func (*Quit) ID() string {
 }
 
 // Update implements [Model].
-func (q *Quit) Update(msg tea.Msg) tea.Cmd {
+func (q *Quit) Update(msg tea.Msg) tea.Msg {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch {
+		case key.Matches(msg, q.keyMap.Close):
+			return CloseMsg{}
 		case key.Matches(msg, q.keyMap.LeftRight, q.keyMap.Tab):
 			q.selectedNo = !q.selectedNo
-			return nil
+			return CloseMsg{}
 		case key.Matches(msg, q.keyMap.EnterSpace):
 			if !q.selectedNo {
-				return tea.Quit
+				return QuitMsg{}
 			}
-			return nil
+			return CloseMsg{}
 		case key.Matches(msg, q.keyMap.Yes):
-			return tea.Quit
+			return QuitMsg{}
 		case key.Matches(msg, q.keyMap.No, q.keyMap.Close):
-			return nil
+			return CloseMsg{}
 		}
 	}
 

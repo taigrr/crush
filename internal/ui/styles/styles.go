@@ -277,6 +277,8 @@ type Styles struct {
 		SelectedItem lipgloss.Style
 		InputPrompt  lipgloss.Style
 
+		List lipgloss.Style
+
 		Commands struct {
 			CommandTypeSelector lipgloss.Style
 		}
@@ -909,7 +911,9 @@ func DefaultStyles() Styles {
 	s.Dialog.Help.FullSeparator = base.Foreground(border)
 	s.Dialog.NormalItem = base.Padding(0, 1).Foreground(fgBase)
 	s.Dialog.SelectedItem = base.Padding(0, 1).Background(primary).Foreground(fgBase)
-	s.Dialog.InputPrompt = base.Padding(0, 1)
+	s.Dialog.InputPrompt = base.Margin(1, 1)
+
+	s.Dialog.List = base.Margin(0, 0, 1, 0)
 
 	s.Dialog.Commands.CommandTypeSelector = base.Foreground(fgHalfMuted)
 
