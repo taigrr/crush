@@ -398,6 +398,22 @@ func (l *List) SetSelected(index int) {
 	}
 }
 
+// Selected returns the index of the currently selected item. It returns -1 if
+// no item is selected.
+func (l *List) Selected() int {
+	return l.selectedIdx
+}
+
+// IsSelectedFirst returns whether the first item is selected.
+func (l *List) IsSelectedFirst() bool {
+	return l.selectedIdx == 0
+}
+
+// IsSelectedLast returns whether the last item is selected.
+func (l *List) IsSelectedLast() bool {
+	return l.selectedIdx == len(l.items)-1
+}
+
 // SelectPrev selects the previous item in the list.
 func (l *List) SelectPrev() {
 	if l.selectedIdx > 0 {

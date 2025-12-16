@@ -89,10 +89,20 @@ func (s *Session) Update(msg tea.Msg) tea.Msg {
 			return CloseMsg{}
 		case key.Matches(msg, s.keyMap.Previous):
 			s.list.Focus()
+			if s.list.IsSelectedFirst() {
+				s.list.SelectLast()
+				s.list.ScrollToBottom()
+				break
+			}
 			s.list.SelectPrev()
 			s.list.ScrollToSelected()
 		case key.Matches(msg, s.keyMap.Next):
 			s.list.Focus()
+			if s.list.IsSelectedLast() {
+				s.list.SelectFirst()
+				s.list.ScrollToTop()
+				break
+			}
 			s.list.SelectNext()
 			s.list.ScrollToSelected()
 		case key.Matches(msg, s.keyMap.Select):

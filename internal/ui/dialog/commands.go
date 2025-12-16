@@ -133,10 +133,20 @@ func (c *Commands) Update(msg tea.Msg) tea.Msg {
 			return CloseMsg{}
 		case key.Matches(msg, c.keyMap.Previous):
 			c.list.Focus()
+			if c.list.IsSelectedFirst() {
+				c.list.SelectLast()
+				c.list.ScrollToBottom()
+				break
+			}
 			c.list.SelectPrev()
 			c.list.ScrollToSelected()
 		case key.Matches(msg, c.keyMap.Next):
 			c.list.Focus()
+			if c.list.IsSelectedLast() {
+				c.list.SelectFirst()
+				c.list.ScrollToTop()
+				break
+			}
 			c.list.SelectNext()
 			c.list.ScrollToSelected()
 		case key.Matches(msg, c.keyMap.Select):
