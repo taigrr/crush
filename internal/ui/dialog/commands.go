@@ -149,7 +149,11 @@ func (c *Commands) Update(msg tea.Msg) tea.Msg {
 		case key.Matches(msg, c.keyMap.Select):
 			if selectedItem := c.list.SelectedItem(); selectedItem != nil {
 				if item, ok := selectedItem.(*CommandItem); ok && item != nil {
-					return item.Cmd.Handler(item.Cmd) // Huh??
+					// TODO: Please unravel this mess later and the Command
+					// Handler design.
+					if cmd := item.Cmd.Handler(item.Cmd); cmd != nil { // Huh??
+						return cmd()
+					}
 				}
 			}
 		case key.Matches(msg, c.keyMap.Tab):

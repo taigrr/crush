@@ -441,6 +441,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 			}
 		case dialog.ToggleHelpMsg:
 			m.help.ShowAll = !m.help.ShowAll
+			m.dialog.RemoveDialog(dialog.CommandsID)
 		case dialog.QuitMsg:
 			cmds = append(cmds, tea.Quit)
 		}
