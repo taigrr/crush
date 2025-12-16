@@ -4,7 +4,10 @@ import (
 	"context"
 	"image"
 	"math/rand"
+	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -20,6 +23,7 @@ import (
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/tui/components/dialogs/filepicker"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/dialog"
 	"github.com/charmbracelet/crush/internal/ui/logo"
@@ -50,6 +54,10 @@ const (
 	uiChat
 	uiChatCompact
 )
+
+type openEditorMsg struct {
+	Text string
+}
 
 // listSessionsMsg is a message to list available sessions.
 type listSessionsMsg struct {
@@ -306,6 +314,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyPressMsg:
 		cmds = append(cmds, m.handleKeyPressMsg(msg)...)
+	case tea.PasteMsg:
+		if cmd := m.handlePasteMsg(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case openEditorMsg:
+		m.textarea.SetValue(msg.Text)
+		m.textarea.MoveToEnd()
 	}
 
 	// This logic gets triggered on any message type, but should it?
@@ -413,7 +428,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 	}
 
 	switch m.state {
-	case uiChat:
+	case uiConfigure:
+		return cmds
+	case uiInitialize:
+		return append(cmds, m.updateInitializeView(msg)...)
+	case uiChat, uiLanding, uiChatCompact:
 		switch m.focus {
 		case uiFocusEditor:
 			switch {
@@ -422,8 +441,21 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 				m.textarea.Blur()
 				m.chat.Focus()
 				m.chat.SetSelected(m.chat.Len() - 1)
+			case key.Matches(msg, m.keyMap.Editor.OpenEditor):
+				if m.session != nil && m.com.App.AgentCoordinator.IsSessionBusy(m.session.ID) {
+					cmds = append(cmds, uiutil.ReportWarn("Agent is working, please wait..."))
+					break
+				}
+				cmds = append(cmds, m.openEditor(m.textarea.Value()))
 			default:
-				handleGlobalKeys(msg)
+				if handleGlobalKeys(msg) {
+					// Handle global keys first before passing to textarea.
+					break
+				}
+
+				ta, cmd := m.textarea.Update(msg)
+				m.textarea = ta
+				cmds = append(cmds, cmd)
 			}
 		case uiFocusMain:
 			switch {
@@ -477,7 +509,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
 		handleGlobalKeys(msg)
 	}
 
-	cmds = append(cmds, m.updateFocused(msg)...)
 	return cmds
 }
 
@@ -724,32 +755,6 @@ func (m *UI) FullHelp() [][]key.Binding {
 	return binds
 }
 
-// updateFocused updates the focused model (chat or editor) with the given message
-// and appends any resulting commands to the cmds slice.
-func (m *UI) updateFocused(msg tea.KeyPressMsg) (cmds []tea.Cmd) {
-	switch m.state {
-	case uiConfigure:
-		return cmds
-	case uiInitialize:
-		return append(cmds, m.updateInitializeView(msg)...)
-	case uiChat, uiLanding, uiChatCompact:
-		switch m.focus {
-		case uiFocusMain:
-		case uiFocusEditor:
-			switch {
-			case key.Matches(msg, m.keyMap.Editor.Newline):
-				m.textarea.InsertRune('\n')
-			}
-
-			ta, cmd := m.textarea.Update(msg)
-			m.textarea = ta
-			cmds = append(cmds, cmd)
-			return cmds
-		}
-	}
-	return cmds
-}
-
 // updateLayoutAndSize updates the layout and sizes of UI components.
 func (m *UI) updateLayoutAndSize() {
 	m.layout = generateLayout(m, m.width, m.height)
@@ -927,6 +932,44 @@ type layout struct {
 	help uv.Rectangle
 }
 
+func (m *UI) openEditor(value string) tea.Cmd {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		// Use platform-appropriate default editor
+		if runtime.GOOS == "windows" {
+			editor = "notepad"
+		} else {
+			editor = "nvim"
+		}
+	}
+
+	tmpfile, err := os.CreateTemp("", "msg_*.md")
+	if err != nil {
+		return uiutil.ReportError(err)
+	}
+	defer tmpfile.Close() //nolint:errcheck
+	if _, err := tmpfile.WriteString(value); err != nil {
+		return uiutil.ReportError(err)
+	}
+	cmdStr := editor + " " + tmpfile.Name()
+	return uiutil.ExecShell(context.TODO(), cmdStr, func(err error) tea.Msg {
+		if err != nil {
+			return uiutil.ReportError(err)
+		}
+		content, err := os.ReadFile(tmpfile.Name())
+		if err != nil {
+			return uiutil.ReportError(err)
+		}
+		if len(content) == 0 {
+			return uiutil.ReportWarn("Message is empty")
+		}
+		os.Remove(tmpfile.Name())
+		return openEditorMsg{
+			Text: strings.TrimSpace(string(content)),
+		}
+	})
+}
+
 // setEditorPrompt configures the textarea prompt function based on whether
 // yolo mode is enabled.
 func (m *UI) setEditorPrompt(yolo bool) {
@@ -1051,6 +1094,51 @@ func (m *UI) openSessionsDialog(sessions []session.Session) tea.Cmd {
 func (m *UI) listSessions() tea.Msg {
 	allSessions, _ := m.com.App.Sessions.List(context.TODO())
 	return listSessionsMsg{sessions: allSessions}
+}
+
+// handlePasteMsg handles a paste message.
+func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
+	if m.focus != uiFocusEditor {
+		return nil
+	}
+
+	var cmd tea.Cmd
+	path := strings.ReplaceAll(msg.Content, "\\ ", " ")
+	// try to get an image
+	path, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		m.textarea, cmd = m.textarea.Update(msg)
+		return cmd
+	}
+	isAllowedType := false
+	for _, ext := range filepicker.AllowedTypes {
+		if strings.HasSuffix(path, ext) {
+			isAllowedType = true
+			break
+		}
+	}
+	if !isAllowedType {
+		m.textarea, cmd = m.textarea.Update(msg)
+		return cmd
+	}
+	tooBig, _ := filepicker.IsFileTooBig(path, filepicker.MaxAttachmentSize)
+	if tooBig {
+		m.textarea, cmd = m.textarea.Update(msg)
+		return cmd
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		m.textarea, cmd = m.textarea.Update(msg)
+		return cmd
+	}
+	mimeBufferSize := min(512, len(content))
+	mimeType := http.DetectContentType(content[:mimeBufferSize])
+	fileName := filepath.Base(path)
+	attachment := message.Attachment{FilePath: path, FileName: fileName, MimeType: mimeType, Content: content}
+	return uiutil.CmdHandler(filepicker.FilePickedMsg{
+		Attachment: attachment,
+	})
 }
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
