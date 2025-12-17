@@ -52,6 +52,7 @@ func NewAssistantMessageItem(sty *styles.Styles, message *message.Message) Messa
 	return a
 }
 
+// StartAnimation starts the assistant message animation if it should be spinning.
 func (a *AssistantMessageItem) StartAnimation() tea.Cmd {
 	if !a.isSpinning() {
 		return nil
@@ -59,6 +60,7 @@ func (a *AssistantMessageItem) StartAnimation() tea.Cmd {
 	return a.anim.Start()
 }
 
+// Animate progresses the assistant message animation if it should be spinning.
 func (a *AssistantMessageItem) Animate(msg anim.StepMsg) tea.Cmd {
 	if !a.isSpinning() {
 		return nil
@@ -103,6 +105,7 @@ func (a *AssistantMessageItem) Render(width int) string {
 	return style.Render(highlightedContent)
 }
 
+// renderMessageContent renders the message content including thinking, main content, and finish reason.
 func (a *AssistantMessageItem) renderMessageContent(width int) string {
 	var messageParts []string
 	thinking := strings.TrimSpace(a.message.ReasoningContent().Thinking)
