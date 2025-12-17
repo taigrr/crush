@@ -494,7 +494,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			}
 			return true
 		case key.Matches(msg, m.keyMap.Models):
-			// TODO: Implement me
+			if cmd := m.openModelsDialog(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 			return true
 		case key.Matches(msg, m.keyMap.Sessions):
 			if m.dialog.ContainsDialog(dialog.SessionsID) {
@@ -1372,6 +1374,25 @@ func (m *UI) openQuitDialog() tea.Cmd {
 
 	quitDialog := dialog.NewQuit(m.com)
 	m.dialog.OpenDialog(quitDialog)
+	return nil
+}
+
+// openModelsDialog opens the models dialog.
+func (m *UI) openModelsDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.ModelsID) {
+		// Bring to front
+		m.dialog.BringToFront(dialog.ModelsID)
+		return nil
+	}
+
+	modelsDialog, err := dialog.NewModels(m.com)
+	if err != nil {
+		return uiutil.ReportError(err)
+	}
+
+	modelsDialog.SetSize(min(60, m.width-8), 30)
+	m.dialog.OpenDialog(modelsDialog)
+
 	return nil
 }
 

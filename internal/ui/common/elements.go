@@ -134,13 +134,23 @@ func Status(t *styles.Styles, opts StatusOpts, width int) string {
 
 // Section renders a section header with a title and a horizontal line filling
 // the remaining width.
-func Section(t *styles.Styles, text string, width int) string {
+func Section(t *styles.Styles, text string, width int, info ...string) string {
 	char := styles.SectionSeparator
 	length := lipgloss.Width(text) + 1
 	remainingWidth := width - length
+
+	var infoText string
+	if len(info) > 0 {
+		infoText = strings.Join(info, " ")
+		if len(infoText) > 0 {
+			infoText = " " + infoText
+			remainingWidth -= lipgloss.Width(infoText)
+		}
+	}
+
 	text = t.Section.Title.Render(text)
 	if remainingWidth > 0 {
-		text = text + " " + t.Section.Line.Render(strings.Repeat(char, remainingWidth))
+		text = text + " " + t.Section.Line.Render(strings.Repeat(char, remainingWidth)) + infoText
 	}
 	return text
 }

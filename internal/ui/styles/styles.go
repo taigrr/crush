@@ -32,6 +32,9 @@ const (
 	ToolSuccess string = "✓"
 	ToolError   string = "×"
 
+	RadioOn  string = "◉"
+	RadioOff string = "○"
+
 	BorderThin  string = "│"
 	BorderThick string = "▌"
 
@@ -51,9 +54,10 @@ type Styles struct {
 	WindowTooSmall lipgloss.Style
 
 	// Reusable text styles
-	Base   lipgloss.Style
-	Muted  lipgloss.Style
-	Subtle lipgloss.Style
+	Base      lipgloss.Style
+	Muted     lipgloss.Style
+	HalfMuted lipgloss.Style
+	Subtle    lipgloss.Style
 
 	// Tags
 	TagBase  lipgloss.Style
@@ -122,6 +126,10 @@ type Styles struct {
 	EditorPromptYoloIconBlurred lipgloss.Style
 	EditorPromptYoloDotsFocused lipgloss.Style
 	EditorPromptYoloDotsBlurred lipgloss.Style
+
+	// Radio
+	RadioOn  lipgloss.Style
+	RadioOff lipgloss.Style
 
 	// Background
 	Background color.Color
@@ -291,9 +299,7 @@ type Styles struct {
 
 		List lipgloss.Style
 
-		Commands struct {
-			CommandTypeSelector lipgloss.Style
-		}
+		Commands struct{}
 	}
 }
 
@@ -917,6 +923,7 @@ func DefaultStyles() Styles {
 	// text presets
 	s.Base = lipgloss.NewStyle().Foreground(fgBase)
 	s.Muted = lipgloss.NewStyle().Foreground(fgMuted)
+	s.HalfMuted = lipgloss.NewStyle().Foreground(fgHalfMuted)
 	s.Subtle = lipgloss.NewStyle().Foreground(fgSubtle)
 
 	s.WindowTooSmall = s.Muted
@@ -1008,6 +1015,9 @@ func DefaultStyles() Styles {
 	s.EditorPromptYoloDotsFocused = lipgloss.NewStyle().MarginRight(1).Foreground(charmtone.Zest).SetString(":::")
 	s.EditorPromptYoloDotsBlurred = s.EditorPromptYoloDotsFocused.Foreground(charmtone.Squid)
 
+	s.RadioOn = s.HalfMuted.SetString(RadioOn)
+	s.RadioOff = s.HalfMuted.SetString(RadioOff)
+
 	// Logo colors
 	s.LogoFieldColor = primary
 	s.LogoTitleColorA = secondary
@@ -1094,8 +1104,6 @@ func DefaultStyles() Styles {
 	s.Dialog.InputPrompt = base.Margin(1, 1)
 
 	s.Dialog.List = base.Margin(0, 0, 1, 0)
-
-	s.Dialog.Commands.CommandTypeSelector = base.Foreground(fgHalfMuted)
 
 	return s
 }

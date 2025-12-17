@@ -197,22 +197,23 @@ func (c *Commands) Cursor() *tea.Cursor {
 	return InputCursor(c.com.Styles, c.input.Cursor())
 }
 
-// radioView generates the command type selector radio buttons.
-func radioView(t *styles.Styles, selected uicmd.CommandType, hasUserCmds bool, hasMCPPrompts bool) string {
+// commandsRadioView generates the command type selector radio buttons.
+func commandsRadioView(sty *styles.Styles, selected uicmd.CommandType, hasUserCmds bool, hasMCPPrompts bool) string {
 	if !hasUserCmds && !hasMCPPrompts {
 		return ""
 	}
 
 	selectedFn := func(t uicmd.CommandType) string {
 		if t == selected {
-			return " ◉ " + t.String()
+			return sty.RadioOn.Padding(0, 1).Render() + sty.HalfMuted.Render(t.String())
 		}
-		return " ○ " + t.String()
+		return sty.RadioOff.Padding(0, 1).Render() + sty.HalfMuted.Render(t.String())
 	}
 
 	parts := []string{
 		selectedFn(uicmd.SystemCommands),
 	}
+
 	if hasUserCmds {
 		parts = append(parts, selectedFn(uicmd.UserCommands))
 	}
@@ -220,14 +221,13 @@ func radioView(t *styles.Styles, selected uicmd.CommandType, hasUserCmds bool, h
 		parts = append(parts, selectedFn(uicmd.MCPPrompts))
 	}
 
-	radio := strings.Join(parts, " ")
-	return t.Dialog.Commands.CommandTypeSelector.Render(radio)
+	return strings.Join(parts, " ")
 }
 
 // View implements [Dialog].
 func (c *Commands) View() string {
 	t := c.com.Styles
-	radio := radioView(t, c.selected, len(c.userCmds) > 0, c.mcpPrompts.Len() > 0)
+	radio := commandsRadioView(t, c.selected, len(c.userCmds) > 0, c.mcpPrompts.Len() > 0)
 	titleStyle := t.Dialog.Title
 	dialogStyle := t.Dialog.View.Width(c.width)
 	headerOffset := lipgloss.Width(radio) + titleStyle.GetHorizontalFrameSize() + dialogStyle.GetHorizontalFrameSize()
