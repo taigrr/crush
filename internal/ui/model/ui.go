@@ -27,7 +27,7 @@ import (
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/tui/components/dialogs/filepicker"
-	"github.com/charmbracelet/crush/internal/tui/util"
+	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/chat"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/dialog"
@@ -203,9 +203,20 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, uiutil.ReportError(err))
 			break
 		}
-		m.setSessionMessages(msgs)
+		if cmd := m.setSessionMessages(msgs); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	case pubsub.Event[message.Message]:
+		if m.session == nil || msg.Payload.SessionID != m.session.ID {
+			break
+		}
+		switch msg.Type {
+		case pubsub.CreatedEvent:
+			cmds = append(cmds, m.appendSessionMessage(msg.Payload))
+		case pubsub.UpdatedEvent:
+			cmds = append(cmds, m.updateSessionMessage(msg.Payload))
+		}
 		// TODO: Finish implementing me
 		// cmds = append(cmds, m.setMessageEvents(msg.Payload))
 	case pubsub.Event[history.File]:
@@ -304,6 +315,12 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case anim.StepMsg:
+		if m.state == uiChat {
+			if cmd := m.chat.Animate(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 	case tea.KeyPressMsg:
 		if cmd := m.handleKeyPressMsg(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -336,7 +353,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // setSessionMessages sets the messages for the current session in the chat
-func (m *UI) setSessionMessages(msgs []message.Message) {
+func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
+	var cmds []tea.Cmd
 	// Build tool result map to link tool calls with their results
 	msgPtrs := make([]*message.Message, len(msgs))
 	for i := range msgs {
@@ -350,9 +368,47 @@ func (m *UI) setSessionMessages(msgs []message.Message) {
 		items = append(items, chat.GetMessageItems(m.com.Styles, msg, toolResultMap)...)
 	}
 
+	// If the user switches between sessions while the agent is working we want
+	// to make sure the animations are shown.
+	for _, item := range items {
+		if animatable, ok := item.(chat.Animatable); ok {
+			if cmd := animatable.StartAnimation(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+	}
+
 	m.chat.SetMessages(items...)
 	m.chat.ScrollToBottom()
 	m.chat.SelectLast()
+	return tea.Batch(cmds...)
+}
+
+func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
+	items := chat.GetMessageItems(m.com.Styles, &msg, nil)
+	var cmds []tea.Cmd
+	for _, item := range items {
+		if animatable, ok := item.(chat.Animatable); ok {
+			if cmd := animatable.StartAnimation(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+	}
+	m.chat.AppendMessages(items...)
+	m.chat.ScrollToBottom()
+	return tea.Batch(cmds...)
+}
+
+func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
+	existingItem := m.chat.GetMessageItem(msg.ID)
+	switch msg.Role {
+	case message.Assistant:
+		if assistantItem, ok := existingItem.(*chat.AssistantMessageItem); ok {
+			assistantItem.SetMessage(&msg)
+		}
+	}
+
+	return nil
 }
 
 func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
@@ -1161,33 +1217,31 @@ func (m *UI) renderSidebarLogo(width int) {
 
 // sendMessage sends a message with the given content and attachments.
 func (m *UI) sendMessage(content string, attachments []message.Attachment) tea.Cmd {
-	if m.session == nil {
-		return uiutil.ReportError(fmt.Errorf("no session selected"))
+	if m.com.App.AgentCoordinator == nil {
+		return uiutil.ReportError(fmt.Errorf("coder agent is not initialized"))
 	}
-	session := *m.session
+
 	var cmds []tea.Cmd
-	if m.session.ID == "" {
+	if m.session == nil || m.session.ID == "" {
 		newSession, err := m.com.App.Sessions.Create(context.Background(), "New Session")
 		if err != nil {
 			return uiutil.ReportError(err)
 		}
-		session = newSession
-		cmds = append(cmds, m.loadSession(session.ID))
+		m.state = uiChat
+		m.session = &newSession
+		cmds = append(cmds, m.loadSession(newSession.ID))
 	}
-	if m.com.App.AgentCoordinator == nil {
-		return util.ReportError(fmt.Errorf("coder agent is not initialized"))
-	}
-	m.chat.ScrollToBottom()
+
 	cmds = append(cmds, func() tea.Msg {
-		_, err := m.com.App.AgentCoordinator.Run(context.Background(), session.ID, content, attachments...)
+		_, err := m.com.App.AgentCoordinator.Run(context.Background(), m.session.ID, content, attachments...)
 		if err != nil {
 			isCancelErr := errors.Is(err, context.Canceled)
 			isPermissionErr := errors.Is(err, permission.ErrorPermissionDenied)
 			if isCancelErr || isPermissionErr {
 				return nil
 			}
-			return util.InfoMsg{
-				Type: util.InfoTypeError,
+			return uiutil.InfoMsg{
+				Type: uiutil.InfoTypeError,
 				Msg:  err.Error(),
 			}
 		}

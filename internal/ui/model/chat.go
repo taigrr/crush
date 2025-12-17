@@ -1,6 +1,8 @@
 package model
 
 import (
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/chat"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/list"
@@ -11,8 +13,9 @@ import (
 // Chat represents the chat UI model that handles chat interactions and
 // messages.
 type Chat struct {
-	com  *common.Common
-	list *list.List
+	com      *common.Common
+	list     *list.List
+	idInxMap map[string]int // Map of message IDs to their indices in the list
 
 	// Mouse state
 	mouseDown     bool
@@ -27,7 +30,7 @@ type Chat struct {
 // NewChat creates a new instance of [Chat] that handles chat interactions and
 // messages.
 func NewChat(com *common.Common) *Chat {
-	c := &Chat{com: com}
+	c := &Chat{com: com, idInxMap: make(map[string]int)}
 	l := list.NewList()
 	l.SetGap(1)
 	l.RegisterRenderCallback(c.applyHighlightRange)
@@ -57,16 +60,11 @@ func (m *Chat) Len() int {
 	return m.list.Len()
 }
 
-// PrependItems prepends new items to the chat list.
-func (m *Chat) PrependItems(items ...list.Item) {
-	m.list.PrependItems(items...)
-	m.list.ScrollToIndex(0)
-}
-
 // SetMessages sets the chat messages to the provided list of message items.
 func (m *Chat) SetMessages(msgs ...chat.MessageItem) {
 	items := make([]list.Item, len(msgs))
 	for i, msg := range msgs {
+		m.idInxMap[msg.ID()] = i
 		items[i] = msg
 	}
 	m.list.SetItems(items...)
@@ -76,16 +74,25 @@ func (m *Chat) SetMessages(msgs ...chat.MessageItem) {
 // AppendMessages appends a new message item to the chat list.
 func (m *Chat) AppendMessages(msgs ...chat.MessageItem) {
 	items := make([]list.Item, len(msgs))
+	indexOffset := len(m.idInxMap)
 	for i, msg := range msgs {
+		m.idInxMap[msg.ID()] = indexOffset + i
 		items[i] = msg
 	}
 	m.list.AppendItems(items...)
 }
 
-// AppendItems appends new items to the chat list.
-func (m *Chat) AppendItems(items ...list.Item) {
-	m.list.AppendItems(items...)
-	m.list.ScrollToIndex(m.list.Len() - 1)
+// Animate animated items in the chat list.
+func (m *Chat) Animate(msg anim.StepMsg) tea.Cmd {
+	item, ok := m.idInxMap[msg.ID]
+	// Item with the given ID exists
+	if !ok {
+		return nil
+	}
+	if animatable, ok := m.list.ItemAt(item).(chat.Animatable); ok {
+		return animatable.Animate(msg)
+	}
+	return nil
 }
 
 // Focus sets the focus state of the chat component.
@@ -156,6 +163,19 @@ func (m *Chat) SelectFirstInView() {
 // SelectLastInView selects the last message currently in view.
 func (m *Chat) SelectLastInView() {
 	m.list.SelectLastInView()
+}
+
+// GetMessageItem returns the message item at the given id.
+func (m *Chat) GetMessageItem(id string) chat.MessageItem {
+	idx, ok := m.idInxMap[id]
+	if !ok {
+		return nil
+	}
+	item, ok := m.list.ItemAt(idx).(chat.MessageItem)
+	if !ok {
+		return nil
+	}
+	return item
 }
 
 // HandleMouseDown handles mouse down events for the chat component.

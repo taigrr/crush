@@ -1,9 +1,15 @@
+// Package chat provides UI components for displaying and managing chat messages.
+// It defines message item types that can be rendered in a list view, including
+// support for highlighting, focusing, and caching rendered content.
 package chat
 
 import (
 	"image"
+	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/list"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 )
@@ -18,6 +24,11 @@ const maxTextWidth = 120
 // Identifiable is an interface for items that can provide a unique identifier.
 type Identifiable interface {
 	ID() string
+}
+
+type Animatable interface {
+	StartAnimation() tea.Cmd
+	Animate(msg anim.StepMsg) tea.Cmd
 }
 
 // MessageItem represents a [message.Message] item that can be displayed in the
@@ -84,7 +95,7 @@ func defaultHighlighter(sty *styles.Styles) *highlightableMessageItem {
 
 // cachedMessageItem caches rendered message content to avoid re-rendering.
 //
-// This should be used by any message that can store a cahced version of its render. e.x user,assistant... and so on
+// This should be used by any message that can store a cached version of its render. e.x user,assistant... and so on
 //
 // THOUGHT(kujtim): we should consider if its efficient to store the render for different widths
 // the issue with that could be memory usage
@@ -111,6 +122,23 @@ func (c *cachedMessageItem) setCachedRender(rendered string, width, height int) 
 	c.height = height
 }
 
+// clearCache clears the cached render.
+func (c *cachedMessageItem) clearCache() {
+	c.rendered = ""
+	c.width = 0
+	c.height = 0
+}
+
+// focusableMessageItem is a base struct for message items that can be focused.
+type focusableMessageItem struct {
+	focused bool
+}
+
+// SetFocused implements MessageItem.
+func (f *focusableMessageItem) SetFocused(focused bool) {
+	f.focused = focused
+}
+
 // cappedMessageWidth returns the maximum width for message content for readability.
 func cappedMessageWidth(availableWidth int) int {
 	return min(availableWidth-messageLeftPaddingTotal, maxTextWidth)
@@ -125,8 +153,23 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 	switch msg.Role {
 	case message.User:
 		return []MessageItem{NewUserMessageItem(sty, msg)}
+	case message.Assistant:
+		var items []MessageItem
+		if shouldRenderAssistantMessage(msg) {
+			items = append(items, NewAssistantMessageItem(sty, msg))
+		}
+		return items
 	}
 	return []MessageItem{}
+}
+
+func shouldRenderAssistantMessage(msg *message.Message) bool {
+	content := strings.TrimSpace(msg.Content().Text)
+	thinking := strings.TrimSpace(msg.ReasoningContent().Thinking)
+	isError := msg.FinishReason() == message.FinishReasonError
+	isCancelled := msg.FinishReason() == message.FinishReasonCanceled
+	hasToolCalls := len(msg.ToolCalls()) > 0
+	return !hasToolCalls || content != "" || thinking != "" || msg.IsThinking() || isError || isCancelled
 }
 
 // BuildToolResultMap creates a map of tool call IDs to their results from a list of messages.
