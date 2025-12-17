@@ -71,6 +71,9 @@ func (m *Chat) Len() int {
 
 // SetMessages sets the chat messages to the provided list of message items.
 func (m *Chat) SetMessages(msgs ...chat.MessageItem) {
+	m.idInxMap = make(map[string]int)
+	m.pausedAnimations = make(map[string]struct{})
+
 	items := make([]list.Item, len(msgs))
 	for i, msg := range msgs {
 		m.idInxMap[msg.ID()] = i
@@ -83,7 +86,7 @@ func (m *Chat) SetMessages(msgs ...chat.MessageItem) {
 // AppendMessages appends a new message item to the chat list.
 func (m *Chat) AppendMessages(msgs ...chat.MessageItem) {
 	items := make([]list.Item, len(msgs))
-	indexOffset := len(m.idInxMap)
+	indexOffset := m.list.Len()
 	for i, msg := range msgs {
 		m.idInxMap[msg.ID()] = indexOffset + i
 		items[i] = msg
