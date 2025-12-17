@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
+	"github.com/charmbracelet/crush/internal/agent/hyper"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/env"
 	"github.com/charmbracelet/crush/internal/fsext"
@@ -131,6 +132,8 @@ func PushPopCrushEnv() func() {
 }
 
 func (c *Config) configureProviders(env env.Env, resolver VariableResolver, knownProviders []catwalk.Provider) error {
+	c.importCopilot()
+
 	knownProviderNames := make(map[string]bool)
 	restore := PushPopCrushEnv()
 	defer restore()
@@ -198,8 +201,18 @@ func (c *Config) configureProviders(env env.Env, resolver VariableResolver, know
 			Models:             p.Models,
 		}
 
-		if p.ID == catwalk.InferenceProviderAnthropic && config.OAuthToken != nil {
+		switch {
+		case p.ID == catwalk.InferenceProviderAnthropic && config.OAuthToken != nil:
 			prepared.SetupClaudeCode()
+		case p.ID == catwalk.InferenceProviderCopilot:
+			if config.OAuthToken != nil {
+				if token, ok := c.importCopilot(); ok {
+					prepared.OAuthToken = token
+				}
+			}
+			if config.OAuthToken != nil {
+				prepared.SetupGitHubCopilot()
+			}
 		}
 
 		switch p.ID {
@@ -271,7 +284,7 @@ func (c *Config) configureProviders(env env.Env, resolver VariableResolver, know
 		if providerConfig.Type == "" {
 			providerConfig.Type = catwalk.TypeOpenAICompat
 		}
-		if !slices.Contains(catwalk.KnownProviderTypes(), providerConfig.Type) {
+		if !slices.Contains(catwalk.KnownProviderTypes(), providerConfig.Type) && providerConfig.Type != hyper.Name {
 			slog.Warn("Skipping custom provider due to unsupported provider type", "provider", id)
 			c.Providers.Del(id)
 			continue

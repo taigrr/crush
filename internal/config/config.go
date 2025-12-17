@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,11 +14,15 @@ import (
 	"time"
 
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
+	hyperp "github.com/charmbracelet/crush/internal/agent/hyper"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/env"
 	"github.com/charmbracelet/crush/internal/oauth"
 	"github.com/charmbracelet/crush/internal/oauth/claude"
+	"github.com/charmbracelet/crush/internal/oauth/copilot"
+	"github.com/charmbracelet/crush/internal/oauth/hyper"
 	"github.com/invopop/jsonschema"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -119,8 +124,37 @@ type ProviderConfig struct {
 	Models []catwalk.Model `json:"models,omitempty" jsonschema:"description=List of models available from this provider"`
 }
 
+// ToProvider converts the [ProviderConfig] to a [catwalk.Provider].
+func (pc *ProviderConfig) ToProvider() catwalk.Provider {
+	// Convert config provider to provider.Provider format
+	provider := catwalk.Provider{
+		Name:   pc.Name,
+		ID:     catwalk.InferenceProvider(pc.ID),
+		Models: make([]catwalk.Model, len(pc.Models)),
+	}
+
+	// Convert models
+	for i, model := range pc.Models {
+		provider.Models[i] = catwalk.Model{
+			ID:                     model.ID,
+			Name:                   model.Name,
+			CostPer1MIn:            model.CostPer1MIn,
+			CostPer1MOut:           model.CostPer1MOut,
+			CostPer1MInCached:      model.CostPer1MInCached,
+			CostPer1MOutCached:     model.CostPer1MOutCached,
+			ContextWindow:          model.ContextWindow,
+			DefaultMaxTokens:       model.DefaultMaxTokens,
+			CanReason:              model.CanReason,
+			ReasoningLevels:        model.ReasoningLevels,
+			DefaultReasoningEffort: model.DefaultReasoningEffort,
+			SupportsImages:         model.SupportsImages,
+		}
+	}
+
+	return provider
+}
+
 func (pc *ProviderConfig) SetupClaudeCode() {
-	pc.APIKey = fmt.Sprintf("Bearer %s", pc.OAuthToken.AccessToken)
 	pc.SystemPromptPrefix = "You are Claude Code, Anthropic's official CLI for Claude."
 	pc.ExtraHeaders["anthropic-version"] = "2023-06-01"
 
@@ -133,6 +167,10 @@ func (pc *ProviderConfig) SetupClaudeCode() {
 		value += want
 	}
 	pc.ExtraHeaders["anthropic-beta"] = value
+}
+
+func (pc *ProviderConfig) SetupGitHubCopilot() {
+	maps.Copy(pc.ExtraHeaders, copilot.Headers())
 }
 
 type MCPType string
@@ -451,6 +489,14 @@ func (c *Config) UpdatePreferredModel(modelType SelectedModelType, model Selecte
 	return nil
 }
 
+func (c *Config) HasConfigField(key string) bool {
+	data, err := os.ReadFile(c.dataConfigDir)
+	if err != nil {
+		return false
+	}
+	return gjson.Get(string(data), key).Exists()
+}
+
 func (c *Config) SetConfigField(key string, value any) error {
 	// read the data
 	data, err := os.ReadFile(c.dataConfigDir)
@@ -483,20 +529,33 @@ func (c *Config) RefreshOAuthToken(ctx context.Context, providerID string) error
 		return fmt.Errorf("provider %s does not have an OAuth token", providerID)
 	}
 
-	// Only Anthropic provider uses OAuth for now.
-	if providerID != string(catwalk.InferenceProviderAnthropic) {
+	var newToken *oauth.Token
+	var refreshErr error
+	switch providerID {
+	case string(catwalk.InferenceProviderAnthropic):
+		newToken, refreshErr = claude.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
+	case string(catwalk.InferenceProviderCopilot):
+		newToken, refreshErr = copilot.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
+	case hyperp.Name:
+		newToken, refreshErr = hyper.ExchangeToken(ctx, providerConfig.OAuthToken.RefreshToken)
+	default:
 		return fmt.Errorf("OAuth refresh not supported for provider %s", providerID)
 	}
-
-	newToken, err := claude.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
-	if err != nil {
-		return fmt.Errorf("failed to refresh OAuth token for provider %s: %w", providerID, err)
+	if refreshErr != nil {
+		return fmt.Errorf("failed to refresh OAuth token for provider %s: %w", providerID, refreshErr)
 	}
 
 	slog.Info("Successfully refreshed OAuth token", "provider", providerID)
 	providerConfig.OAuthToken = newToken
-	providerConfig.APIKey = fmt.Sprintf("Bearer %s", newToken.AccessToken)
-	providerConfig.SetupClaudeCode()
+
+	switch providerID {
+	case string(catwalk.InferenceProviderAnthropic):
+		providerConfig.APIKey = fmt.Sprintf("Bearer %s", newToken.AccessToken)
+		providerConfig.SetupClaudeCode()
+	case string(catwalk.InferenceProviderCopilot):
+		providerConfig.APIKey = newToken.AccessToken
+		providerConfig.SetupGitHubCopilot()
+	}
 
 	c.Providers.Set(providerID, providerConfig)
 
@@ -531,7 +590,13 @@ func (c *Config) SetProviderAPIKey(providerID string, apiKey any) error {
 		setKeyOrToken = func() {
 			providerConfig.APIKey = v.AccessToken
 			providerConfig.OAuthToken = v
-			providerConfig.SetupClaudeCode()
+			switch providerID {
+			case string(catwalk.InferenceProviderAnthropic):
+				providerConfig.APIKey = fmt.Sprintf("Bearer %s", v.AccessToken)
+				providerConfig.SetupClaudeCode()
+			case string(catwalk.InferenceProviderCopilot):
+				providerConfig.SetupGitHubCopilot()
+			}
 		}
 	}
 
