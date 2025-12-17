@@ -390,6 +390,7 @@ func (l *List) SelectedItemInView() bool {
 }
 
 // SetSelected sets the selected item index in the list.
+// It returns -1 if the index is out of bounds.
 func (l *List) SetSelected(index int) {
 	if index < 0 || index >= len(l.items) {
 		l.selectedIdx = -1
@@ -415,31 +416,43 @@ func (l *List) IsSelectedLast() bool {
 }
 
 // SelectPrev selects the previous item in the list.
-func (l *List) SelectPrev() {
+// It returns whether the selection changed.
+func (l *List) SelectPrev() bool {
 	if l.selectedIdx > 0 {
 		l.selectedIdx--
+		return true
 	}
+	return false
 }
 
 // SelectNext selects the next item in the list.
-func (l *List) SelectNext() {
+// It returns whether the selection changed.
+func (l *List) SelectNext() bool {
 	if l.selectedIdx < len(l.items)-1 {
 		l.selectedIdx++
+		return true
 	}
+	return false
 }
 
 // SelectFirst selects the first item in the list.
-func (l *List) SelectFirst() {
+// It returns whether the selection changed.
+func (l *List) SelectFirst() bool {
 	if len(l.items) > 0 {
 		l.selectedIdx = 0
+		return true
 	}
+	return false
 }
 
 // SelectLast selects the last item in the list.
-func (l *List) SelectLast() {
+// It returns whether the selection changed.
+func (l *List) SelectLast() bool {
 	if len(l.items) > 0 {
 		l.selectedIdx = len(l.items) - 1
+		return true
 	}
+	return false
 }
 
 // SelectedItem returns the currently selected item. It may be nil if no item

@@ -70,13 +70,17 @@ func (f *FilterableList) SetFilter(q string) {
 	f.query = q
 }
 
-type filterableItems []FilterableItem
+// FilterableItemsSource is a type that implements [fuzzy.Source] for filtering
+// [FilterableItem]s.
+type FilterableItemsSource []FilterableItem
 
-func (f filterableItems) Len() int {
+// Len returns the length of the source.
+func (f FilterableItemsSource) Len() int {
 	return len(f)
 }
 
-func (f filterableItems) String(i int) string {
+// String returns the string representation of the item at index i.
+func (f FilterableItemsSource) String(i int) string {
 	return f[i].Filter()
 }
 
@@ -94,7 +98,7 @@ func (f *FilterableList) VisibleItems() []Item {
 		return items
 	}
 
-	items := filterableItems(f.items)
+	items := FilterableItemsSource(f.items)
 	matches := fuzzy.FindFrom(f.query, items)
 	matchedItems := []Item{}
 	resultSize := len(matches)
