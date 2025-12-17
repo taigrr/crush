@@ -199,11 +199,10 @@ type Styles struct {
 			SectionHeader    lipgloss.Style
 
 			// Thinking section styles
-			ThinkingBox             lipgloss.Style // Background for thinking content
-			ThinkingTruncationHint  lipgloss.Style // "… (N lines hidden)" hint
-			ThinkingFooterTitle     lipgloss.Style // "Thought for" text
-			ThinkingFooterDuration  lipgloss.Style // Duration value
-			ThinkingFooterCancelled lipgloss.Style // "*Canceled*" text
+			ThinkingBox            lipgloss.Style // Background for thinking content
+			ThinkingTruncationHint lipgloss.Style // "… (N lines hidden)" hint
+			ThinkingFooterTitle    lipgloss.Style // "Thought for" text
+			ThinkingFooterDuration lipgloss.Style // Duration value
 		}
 	}
 
@@ -1069,7 +1068,6 @@ func DefaultStyles() Styles {
 	s.Chat.Message.ThinkingTruncationHint = s.Muted
 	s.Chat.Message.ThinkingFooterTitle = s.Muted
 	s.Chat.Message.ThinkingFooterDuration = s.Subtle
-	s.Chat.Message.ThinkingFooterCancelled = s.Subtle
 
 	// Text selection.
 	s.TextSelection = lipgloss.NewStyle().Foreground(charmtone.Salt).Background(charmtone.Charple)
