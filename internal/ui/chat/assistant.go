@@ -215,7 +215,9 @@ func (a *AssistantMessageItem) renderError(width int) string {
 func (a *AssistantMessageItem) isSpinning() bool {
 	isThinking := a.message.IsThinking()
 	isFinished := a.message.IsFinished()
-	return isThinking || !isFinished
+	hasContent := strings.TrimSpace(a.message.Content().Text) != ""
+	hasToolCalls := len(a.message.ToolCalls()) > 0
+	return (isThinking || !isFinished) && !hasContent && !hasToolCalls
 }
 
 // SetMessage is used to update the underlying message.
