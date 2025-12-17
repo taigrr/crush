@@ -163,6 +163,10 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 	return []MessageItem{}
 }
 
+// shouldRenderAssistantMessage determines if an assistant message should be rendered
+//
+// In some cases the assistant message only has tools so we do not want to render an
+// empty message.
 func shouldRenderAssistantMessage(msg *message.Message) bool {
 	content := strings.TrimSpace(msg.Content().Text)
 	thinking := strings.TrimSpace(msg.ReasoningContent().Thinking)

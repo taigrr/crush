@@ -384,6 +384,7 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// appendSessionMessage appends a new message to the current session in the chat
 func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 	items := chat.GetMessageItems(m.com.Styles, &msg, nil)
 	var cmds []tea.Cmd
@@ -399,6 +400,8 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// updateSessionMessage updates an existing message in the current session in the chat
+// INFO: currently only updates the assistant when I add tools this will get a bit more complex
 func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 	existingItem := m.chat.GetMessageItem(msg.ID)
 	switch msg.Role {
