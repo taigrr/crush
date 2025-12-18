@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/list"
@@ -163,6 +164,29 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 		var items []MessageItem
 		if shouldRenderAssistantMessage(msg) {
 			items = append(items, NewAssistantMessageItem(sty, msg))
+		}
+		for _, tc := range msg.ToolCalls() {
+			var result *message.ToolResult
+			if tr, ok := toolResults[tc.ID]; ok {
+				result = &tr
+			}
+			renderFunc := DefaultToolRenderer
+			// we only do full width for diffs (as far as I know)
+			cappedWidth := true
+			switch tc.Name {
+			case tools.BashToolName:
+				renderFunc = BashToolRenderer
+			}
+
+			items = append(items, NewToolMessageItem(
+				sty,
+				renderFunc,
+				tc,
+				result,
+				msg.FinishReason() == message.FinishReasonCanceled,
+				cappedWidth,
+			))
+
 		}
 		return items
 	}
