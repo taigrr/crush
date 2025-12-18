@@ -380,7 +380,7 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 	// Add messages to chat with linked tool results
 	items := make([]chat.MessageItem, 0, len(msgs)*2)
 	for _, msg := range msgPtrs {
-		items = append(items, chat.GetMessageItems(m.com.Styles, msg, toolResultMap)...)
+		items = append(items, chat.ExtractMessageItems(m.com.Styles, msg, toolResultMap)...)
 	}
 
 	// If the user switches between sessions while the agent is working we want
@@ -407,7 +407,7 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 	var cmds []tea.Cmd
 	switch msg.Role {
 	case message.User, message.Assistant:
-		items := chat.GetMessageItems(m.com.Styles, &msg, nil)
+		items := chat.ExtractMessageItems(m.com.Styles, &msg, nil)
 		for _, item := range items {
 			if animatable, ok := item.(chat.Animatable); ok {
 				if cmd := animatable.StartAnimation(); cmd != nil {
@@ -421,7 +421,7 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 		}
 	case message.Tool:
 		for _, tr := range msg.ToolResults() {
-			toolItem := m.chat.GetMessageItem(tr.ToolCallID)
+			toolItem := m.chat.MessageItem(tr.ToolCallID)
 			if toolItem == nil {
 				// we should have an item!
 				continue
@@ -439,7 +439,7 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 // that is why we need to handle creating/updating each tool call message too
 func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 	var cmds []tea.Cmd
-	existingItem := m.chat.GetMessageItem(msg.ID)
+	existingItem := m.chat.MessageItem(msg.ID)
 	if existingItem == nil || msg.Role != message.Assistant {
 		return nil
 	}
@@ -450,7 +450,7 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 
 	var items []chat.MessageItem
 	for _, tc := range msg.ToolCalls() {
-		existingToolItem := m.chat.GetMessageItem(tc.ID)
+		existingToolItem := m.chat.MessageItem(tc.ID)
 		if toolItem, ok := existingToolItem.(*chat.ToolMessageItem); ok {
 			existingToolCall := toolItem.ToolCall()
 			// only update if finished state changed or input changed
@@ -460,7 +460,7 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 			}
 		}
 		if existingToolItem == nil {
-			items = append(items, chat.GetToolMessageItem(m.com.Styles, tc, nil, false))
+			items = append(items, chat.NewToolMessageItem(m.com.Styles, tc, nil, false))
 		}
 	}
 

@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/styles"
@@ -91,18 +92,18 @@ type ToolMessageItem struct {
 // NewToolMessageItem creates a new tool message item with the given renderFunc.
 func NewToolMessageItem(
 	sty *styles.Styles,
-	renderFunc ToolRenderFunc,
 	toolCall message.ToolCall,
 	result *message.ToolResult,
 	canceled bool,
-	hasCappedWidth bool,
 ) *ToolMessageItem {
+	// we only do full width for diffs (as far as I know)
+	hasCappedWidth := toolCall.Name != tools.EditToolName && toolCall.Name != tools.MultiEditToolName
 	t := &ToolMessageItem{
 		highlightableMessageItem: defaultHighlighter(sty),
 		cachedMessageItem:        &cachedMessageItem{},
 		focusableMessageItem:     &focusableMessageItem{},
 		sty:                      sty,
-		renderFunc:               renderFunc,
+		renderFunc:               ToolRenderer(toolCall),
 		toolCall:                 toolCall,
 		result:                   result,
 		canceled:                 canceled,

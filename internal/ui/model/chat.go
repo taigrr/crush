@@ -245,8 +245,8 @@ func (m *Chat) ClearMessages() {
 	m.ClearMouse()
 }
 
-// GetMessageItem returns the message item at the given id.
-func (m *Chat) GetMessageItem(id string) chat.MessageItem {
+// MessageItem returns the message item with the given ID, or nil if not found.
+func (m *Chat) MessageItem(id string) chat.MessageItem {
 	idx, ok := m.idInxMap[id]
 	if !ok {
 		return nil

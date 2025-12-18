@@ -151,12 +151,12 @@ func cappedMessageWidth(availableWidth int) int {
 	return min(availableWidth-messageLeftPaddingTotal, maxTextWidth)
 }
 
-// GetMessageItems extracts [MessageItem]s from a [message.Message]. It returns
-// all parts of the message as [MessageItem]s.
+// ExtractMessageItems extracts [MessageItem]s from a [message.Message]. It
+// returns all parts of the message as [MessageItem]s.
 //
 // For assistant messages with tool calls, pass a toolResults map to link results.
 // Use BuildToolResultMap to create this map from all messages in a session.
-func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[string]message.ToolResult) []MessageItem {
+func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[string]message.ToolResult) []MessageItem {
 	switch msg.Role {
 	case message.User:
 		return []MessageItem{NewUserMessageItem(sty, msg)}
@@ -170,7 +170,7 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 			if tr, ok := toolResults[tc.ID]; ok {
 				result = &tr
 			}
-			items = append(items, GetToolMessageItem(
+			items = append(items, NewToolMessageItem(
 				sty,
 				tc,
 				result,
@@ -182,30 +182,15 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 	return []MessageItem{}
 }
 
-// GetToolRenderer returns the appropriate ToolRenderFunc for a given tool call.
+// ToolRenderer returns the appropriate [ToolRenderFunc] for a given tool call.
 // this should be used for nested tools as well.
-func GetToolRenderer(tc message.ToolCall) ToolRenderFunc {
-	renderFunc := DefaultToolRenderer
+func ToolRenderer(tc message.ToolCall) ToolRenderFunc {
 	switch tc.Name {
 	case tools.BashToolName:
-		renderFunc = BashToolRenderer
+		return BashToolRenderer
+	default:
+		return DefaultToolRenderer
 	}
-	return renderFunc
-}
-
-// GetToolMessageItem creates a MessageItem for a tool call and its result.
-func GetToolMessageItem(sty *styles.Styles, tc message.ToolCall, result *message.ToolResult, canceled bool) MessageItem {
-	// we only do full width for diffs (as far as I know)
-	cappedWidth := tc.Name != tools.EditToolName && tc.Name != tools.MultiEditToolName
-
-	return NewToolMessageItem(
-		sty,
-		GetToolRenderer(tc),
-		tc,
-		result,
-		canceled,
-		cappedWidth,
-	)
 }
 
 // shouldRenderAssistantMessage determines if an assistant message should be rendered
