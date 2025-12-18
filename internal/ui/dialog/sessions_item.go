@@ -54,10 +54,11 @@ func (s *SessionItem) SetMatch(m fuzzy.Match) {
 
 // Render returns the string representation of the session item.
 func (s *SessionItem) Render(width int) string {
-	return renderItem(s.t, s.Title, s.UpdatedAt, s.focused, width, s.cache, &s.m)
+	info := humanize.Time(time.Unix(s.UpdatedAt, 0))
+	return renderItem(s.t, s.Title, info, s.focused, width, s.cache, &s.m)
 }
 
-func renderItem(t *styles.Styles, title string, updatedAt int64, focused bool, width int, cache map[int]string, m *fuzzy.Match) string {
+func renderItem(t *styles.Styles, title string, info string, focused bool, width int, cache map[int]string, m *fuzzy.Match) string {
 	if cache == nil {
 		cache = make(map[int]string)
 	}
@@ -72,23 +73,23 @@ func renderItem(t *styles.Styles, title string, updatedAt int64, focused bool, w
 		style = t.Dialog.SelectedItem
 	}
 
-	var age string
-	var ageLen int
+	var infoText string
+	var infoLen int
 	lineWidth := width
-	if updatedAt > 0 {
-		age = fmt.Sprintf(" %s ", humanize.Time(time.Unix(updatedAt, 0)))
+	if len(info) > 0 {
+		infoText = fmt.Sprintf(" %s ", info)
 		if focused {
-			age = t.Base.Render(age)
+			infoText = t.Base.Render(infoText)
 		} else {
-			age = t.Subtle.Render(age)
+			infoText = t.Subtle.Render(infoText)
 		}
 
-		ageLen = lipgloss.Width(age)
+		infoLen = lipgloss.Width(infoText)
 	}
 
 	title = ansi.Truncate(title, max(0, lineWidth), "")
 	titleLen := lipgloss.Width(title)
-	gap := strings.Repeat(" ", max(0, lineWidth-titleLen-ageLen))
+	gap := strings.Repeat(" ", max(0, lineWidth-titleLen-infoLen))
 	content := title
 	if matches := len(m.MatchedIndexes); matches > 0 {
 		var lastPos int
@@ -118,7 +119,7 @@ func renderItem(t *styles.Styles, title string, updatedAt int64, focused bool, w
 		content = strings.Join(parts, "")
 	}
 
-	content = style.Render(content + gap + age)
+	content = style.Render(content + gap + infoText)
 	cache[width] = content
 	return content
 }

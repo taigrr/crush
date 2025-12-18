@@ -51,5 +51,5 @@ func (c *CommandItem) SetMatch(m fuzzy.Match) {
 
 // Render implements ListItem.
 func (c *CommandItem) Render(width int) string {
-	return renderItem(c.t, c.Cmd.Title, 0, c.focused, width, c.cache, &c.m)
+	return renderItem(c.t, c.Cmd.Title, c.Cmd.Shortcut, c.focused, width, c.cache, &c.m)
 }

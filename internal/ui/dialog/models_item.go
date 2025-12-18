@@ -81,7 +81,7 @@ func (m *ModelItem) ID() string {
 
 // Render implements ListItem.
 func (m *ModelItem) Render(width int) string {
-	return renderItem(m.t, m.model.Name, 0, m.focused, width, m.cache, &m.m)
+	return renderItem(m.t, m.model.Name, "", m.focused, width, m.cache, &m.m)
 }
 
 // SetFocused implements ListItem.
