@@ -167,7 +167,7 @@ func (a *AssistantMessageItem) renderThinking(thinking string, width int) string
 
 	var footer string
 	// if thinking is done add the thought for footer
-	if !a.message.IsThinking() {
+	if !a.message.IsThinking() || len(a.message.ToolCalls()) > 0 {
 		duration := a.message.ThinkingDuration()
 		if duration.String() != "0s" {
 			footer = a.sty.Chat.Message.ThinkingFooterTitle.Render("Thought for ") +

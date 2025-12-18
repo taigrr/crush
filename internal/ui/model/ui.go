@@ -208,6 +208,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case pubsub.Event[message.Message]:
+		// TODO: handle nested messages for agentic tools
 		if m.session == nil || msg.Payload.SessionID != m.session.ID {
 			break
 		}
@@ -217,8 +218,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case pubsub.UpdatedEvent:
 			cmds = append(cmds, m.updateSessionMessage(msg.Payload))
 		}
-		// TODO: Finish implementing me
-		// cmds = append(cmds, m.setMessageEvents(msg.Payload))
 	case pubsub.Event[history.File]:
 		cmds = append(cmds, m.handleFileEvent(msg.Payload))
 	case pubsub.Event[app.LSPEvent]:
@@ -403,9 +402,68 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 }
 
 // appendSessionMessage appends a new message to the current session in the chat
+// if the message is a tool result it will update the corresponding tool call message
 func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
-	items := chat.GetMessageItems(m.com.Styles, &msg, nil)
 	var cmds []tea.Cmd
+	switch msg.Role {
+	case message.User, message.Assistant:
+		items := chat.GetMessageItems(m.com.Styles, &msg, nil)
+		for _, item := range items {
+			if animatable, ok := item.(chat.Animatable); ok {
+				if cmd := animatable.StartAnimation(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
+		m.chat.AppendMessages(items...)
+		if cmd := m.chat.ScrollToBottom(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case message.Tool:
+		for _, tr := range msg.ToolResults() {
+			toolItem := m.chat.GetMessageItem(tr.ToolCallID)
+			if toolItem == nil {
+				// we should have an item!
+				continue
+			}
+			if toolMsgItem, ok := toolItem.(*chat.ToolMessageItem); ok {
+				toolMsgItem.SetResult(&tr)
+			}
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// updateSessionMessage updates an existing message in the current session in the chat
+// when an assistant message is updated it may include updated tool calls as well
+// that is why we need to handle creating/updating each tool call message too
+func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
+	var cmds []tea.Cmd
+	existingItem := m.chat.GetMessageItem(msg.ID)
+	if existingItem == nil || msg.Role != message.Assistant {
+		return nil
+	}
+
+	if assistantItem, ok := existingItem.(*chat.AssistantMessageItem); ok {
+		assistantItem.SetMessage(&msg)
+	}
+
+	var items []chat.MessageItem
+	for _, tc := range msg.ToolCalls() {
+		existingToolItem := m.chat.GetMessageItem(tc.ID)
+		if toolItem, ok := existingToolItem.(*chat.ToolMessageItem); ok {
+			existingToolCall := toolItem.ToolCall()
+			// only update if finished state changed or input changed
+			// to avoid clearing the cache
+			if (tc.Finished && !existingToolCall.Finished) || tc.Input != existingToolCall.Input {
+				toolItem.SetToolCall(tc)
+			}
+		}
+		if existingToolItem == nil {
+			items = append(items, chat.GetToolMessageItem(m.com.Styles, tc, nil, false))
+		}
+	}
+
 	for _, item := range items {
 		if animatable, ok := item.(chat.Animatable); ok {
 			if cmd := animatable.StartAnimation(); cmd != nil {
@@ -417,21 +475,8 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 	if cmd := m.chat.ScrollToBottom(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+
 	return tea.Batch(cmds...)
-}
-
-// updateSessionMessage updates an existing message in the current session in the chat
-// INFO: currently only updates the assistant when I add tools this will get a bit more complex
-func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
-	existingItem := m.chat.GetMessageItem(msg.ID)
-	switch msg.Role {
-	case message.Assistant:
-		if assistantItem, ok := existingItem.(*chat.AssistantMessageItem); ok {
-			assistantItem.SetMessage(&msg)
-		}
-	}
-
-	return nil
 }
 
 func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
@@ -498,6 +543,13 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		case dialog.SwitchSessionsMsg:
 			cmds = append(cmds, m.listSessions)
 			m.dialog.CloseDialog(dialog.CommandsID)
+		case dialog.NewSessionsMsg:
+			if m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
+				cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait before starting a new session..."))
+				break
+			}
+			m.newSession()
+			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.CompactMsg:
 			err := m.com.App.AgentCoordinator.Summarize(context.Background(), msg.SessionID)
 			if err != nil {
@@ -548,6 +600,15 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				m.randomizePlaceholders()
 
 				return m.sendMessage(value, attachments)
+			case key.Matches(msg, m.keyMap.Chat.NewSession):
+				if m.session == nil || m.session.ID == "" {
+					break
+				}
+				if m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
+					cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait before starting a new session..."))
+					break
+				}
+				m.newSession()
 			case key.Matches(msg, m.keyMap.Tab):
 				m.focus = uiFocusMain
 				m.textarea.Blur()
@@ -1360,6 +1421,22 @@ func (m *UI) openSessionsDialog(sessions []session.Session) tea.Cmd {
 func (m *UI) listSessions() tea.Msg {
 	allSessions, _ := m.com.App.Sessions.List(context.TODO())
 	return listSessionsMsg{sessions: allSessions}
+}
+
+// newSession clears the current session state and prepares for a new session.
+// The actual session creation happens when the user sends their first message.
+func (m *UI) newSession() {
+	if m.session == nil || m.session.ID == "" {
+		return
+	}
+
+	m.session = nil
+	m.sessionFiles = nil
+	m.state = uiLanding
+	m.focus = uiFocusEditor
+	m.textarea.Focus()
+	m.chat.Blur()
+	m.chat.ClearMessages()
 }
 
 // handlePasteMsg handles a paste message.

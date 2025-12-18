@@ -27,6 +27,8 @@ func BashToolRenderer(sty *styles.Styles, width int, opts *ToolRenderOpts) strin
 		cmd = strings.ReplaceAll(cmd, "\t", "    ")
 	}
 
+	// TODO: if the tool is being run in the background use the background job renderer
+
 	toolParams := []string{
 		cmd,
 	}
@@ -36,6 +38,11 @@ func BashToolRenderer(sty *styles.Styles, width int, opts *ToolRenderOpts) strin
 	}
 
 	header := toolHeader(sty, opts.Status(), "Bash", cappedWidth, toolParams...)
+
+	if opts.Nested {
+		return header
+	}
+
 	earlyStateContent, ok := toolEarlyStateContent(sty, opts, cappedWidth)
 
 	// If this is OK that means that the tool is not done yet or it was canceled

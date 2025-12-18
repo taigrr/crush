@@ -36,6 +36,7 @@ type ToolRenderOpts struct {
 	Canceled            bool
 	Anim                *anim.Anim
 	Expanded            bool
+	Nested              bool
 	IsSpinning          bool
 	PermissionRequested bool
 	PermissionGranted   bool
@@ -72,10 +73,12 @@ type ToolMessageItem struct {
 	*cachedMessageItem
 	*focusableMessageItem
 
-	renderFunc ToolRenderFunc
-	toolCall   message.ToolCall
-	result     *message.ToolResult
-	canceled   bool
+	renderFunc          ToolRenderFunc
+	toolCall            message.ToolCall
+	result              *message.ToolResult
+	canceled            bool
+	permissionRequested bool
+	permissionGranted   bool
 	// we use this so we can efficiently cache
 	// tools that have a capped width (e.x bash.. and others)
 	hasCappedWidth bool
@@ -152,12 +155,14 @@ func (t *ToolMessageItem) Render(width int) string {
 	// if we are spinning or there is no cache rerender
 	if !ok || t.isSpinning() {
 		content = t.renderFunc(t.sty, toolItemWidth, &ToolRenderOpts{
-			ToolCall:   t.toolCall,
-			Result:     t.result,
-			Canceled:   t.canceled,
-			Anim:       t.anim,
-			Expanded:   t.expanded,
-			IsSpinning: t.isSpinning(),
+			ToolCall:            t.toolCall,
+			Result:              t.result,
+			Canceled:            t.canceled,
+			Anim:                t.anim,
+			Expanded:            t.expanded,
+			PermissionRequested: t.permissionRequested,
+			PermissionGranted:   t.permissionGranted,
+			IsSpinning:          t.isSpinning(),
 		})
 		height = lipgloss.Height(content)
 		// cache the rendered content
@@ -166,6 +171,35 @@ func (t *ToolMessageItem) Render(width int) string {
 
 	highlightedContent := t.renderHighlighted(content, toolItemWidth, height)
 	return style.Render(highlightedContent)
+}
+
+// ToolCall returns the tool call associated with this message item.
+func (t *ToolMessageItem) ToolCall() message.ToolCall {
+	return t.toolCall
+}
+
+// SetToolCall sets the tool call associated with this message item.
+func (t *ToolMessageItem) SetToolCall(tc message.ToolCall) {
+	t.toolCall = tc
+	t.clearCache()
+}
+
+// SetResult sets the tool result associated with this message item.
+func (t *ToolMessageItem) SetResult(res *message.ToolResult) {
+	t.result = res
+	t.clearCache()
+}
+
+// SetPermissionRequested sets whether permission has been requested for this tool call.
+func (t *ToolMessageItem) SetPermissionRequested(requested bool) {
+	t.permissionRequested = requested
+	t.clearCache()
+}
+
+// SetPermissionGranted sets whether permission has been granted for this tool call.
+func (t *ToolMessageItem) SetPermissionGranted(granted bool) {
+	t.permissionGranted = granted
+	t.clearCache()
 }
 
 // isSpinning returns true if the tool should show animation.

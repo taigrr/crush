@@ -170,27 +170,35 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 			if tr, ok := toolResults[tc.ID]; ok {
 				result = &tr
 			}
-			renderFunc := DefaultToolRenderer
-			// we only do full width for diffs (as far as I know)
-			cappedWidth := true
-			switch tc.Name {
-			case tools.BashToolName:
-				renderFunc = BashToolRenderer
-			}
-
-			items = append(items, NewToolMessageItem(
+			items = append(items, GetToolMessageItem(
 				sty,
-				renderFunc,
 				tc,
 				result,
 				msg.FinishReason() == message.FinishReasonCanceled,
-				cappedWidth,
 			))
-
 		}
 		return items
 	}
 	return []MessageItem{}
+}
+
+func GetToolMessageItem(sty *styles.Styles, tc message.ToolCall, result *message.ToolResult, canceled bool) MessageItem {
+	renderFunc := DefaultToolRenderer
+	// we only do full width for diffs (as far as I know)
+	cappedWidth := true
+	switch tc.Name {
+	case tools.BashToolName:
+		renderFunc = BashToolRenderer
+	}
+
+	return NewToolMessageItem(
+		sty,
+		renderFunc,
+		tc,
+		result,
+		canceled,
+		cappedWidth,
+	)
 }
 
 // shouldRenderAssistantMessage determines if an assistant message should be rendered
