@@ -37,6 +37,7 @@ type KeyMap struct {
 		End            key.Binding
 		Copy           key.Binding
 		ClearHighlight key.Binding
+		Expand         key.Binding
 	}
 
 	Initialize struct {
@@ -205,7 +206,10 @@ func DefaultKeyMap() KeyMap {
 		key.WithKeys("esc", "alt+esc"),
 		key.WithHelp("esc", "clear selection"),
 	)
-
+	km.Chat.Expand = key.NewBinding(
+		key.WithKeys("space"),
+		key.WithHelp("space", "expand/collapse"),
+	)
 	km.Initialize.Yes = key.NewBinding(
 		key.WithKeys("y", "Y"),
 		key.WithHelp("y", "yes"),

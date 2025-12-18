@@ -250,6 +250,13 @@ func (m *Chat) GetMessageItem(id string) chat.MessageItem {
 	return item
 }
 
+// ToggleExpandedSelectedItem expands the selected message item if it is expandable.
+func (m *Chat) ToggleExpandedSelectedItem() {
+	if expandable, ok := m.list.SelectedItem().(chat.Expandable); ok {
+		expandable.ToggleExpanded()
+	}
+}
+
 // HandleMouseDown handles mouse down events for the chat component.
 func (m *Chat) HandleMouseDown(x, y int) bool {
 	if m.list.Len() == 0 {

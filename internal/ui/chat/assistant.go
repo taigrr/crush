@@ -230,3 +230,22 @@ func (a *AssistantMessageItem) SetMessage(message *message.Message) tea.Cmd {
 	}
 	return nil
 }
+
+// ToggleExpanded toggles the expanded state of the thinking box.
+func (a *AssistantMessageItem) ToggleExpanded() {
+	a.thinkingExpanded = !a.thinkingExpanded
+	a.clearCache()
+}
+
+// HandleMouseClick implements MouseClickable.
+func (a *AssistantMessageItem) HandleMouseClick(btn ansi.MouseButton, x, y int) bool {
+	if btn != ansi.MouseLeft {
+		return false
+	}
+	// check if the click is within the thinking box
+	if a.thinkingBoxHeight > 0 && y < a.thinkingBoxHeight {
+		a.ToggleExpanded()
+		return true
+	}
+	return false
+}

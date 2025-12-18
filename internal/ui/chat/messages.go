@@ -26,9 +26,15 @@ type Identifiable interface {
 	ID() string
 }
 
+// Animatable is an interface for items that support animation.
 type Animatable interface {
 	StartAnimation() tea.Cmd
 	Animate(msg anim.StepMsg) tea.Cmd
+}
+
+// Expandable is an interface for items that can be expanded or collapsed.
+type Expandable interface {
+	ToggleExpanded()
 }
 
 // MessageItem represents a [message.Message] item that can be displayed in the
