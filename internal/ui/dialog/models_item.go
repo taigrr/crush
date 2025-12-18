@@ -20,9 +20,10 @@ type ModelGroup struct {
 // NewModelGroup creates a new ModelGroup.
 func NewModelGroup(t *styles.Styles, title string, configured bool, items ...*ModelItem) ModelGroup {
 	return ModelGroup{
-		Title: title,
-		Items: items,
-		t:     t,
+		Title:      title,
+		Items:      items,
+		configured: configured,
+		t:          t,
 	}
 }
 
@@ -51,21 +52,23 @@ type ModelItem struct {
 	prov  catwalk.Provider
 	model catwalk.Model
 
-	cache   map[int]string
-	t       *styles.Styles
-	m       fuzzy.Match
-	focused bool
+	cache        map[int]string
+	t            *styles.Styles
+	m            fuzzy.Match
+	focused      bool
+	showProvider bool
 }
 
 var _ ListItem = &ModelItem{}
 
 // NewModelItem creates a new ModelItem.
-func NewModelItem(t *styles.Styles, prov catwalk.Provider, model catwalk.Model) *ModelItem {
+func NewModelItem(t *styles.Styles, prov catwalk.Provider, model catwalk.Model, showProvider bool) *ModelItem {
 	return &ModelItem{
-		prov:  prov,
-		model: model,
-		t:     t,
-		cache: make(map[int]string),
+		prov:         prov,
+		model:        model,
+		t:            t,
+		cache:        make(map[int]string),
+		showProvider: showProvider,
 	}
 }
 
@@ -81,15 +84,23 @@ func (m *ModelItem) ID() string {
 
 // Render implements ListItem.
 func (m *ModelItem) Render(width int) string {
-	return renderItem(m.t, m.model.Name, "", m.focused, width, m.cache, &m.m)
+	var providerInfo string
+	if m.showProvider {
+		providerInfo = string(m.prov.Name)
+	}
+	return renderItem(m.t, m.model.Name, providerInfo, m.focused, width, m.cache, &m.m)
 }
 
 // SetFocused implements ListItem.
 func (m *ModelItem) SetFocused(focused bool) {
+	if m.focused != focused {
+		m.cache = nil
+	}
 	m.focused = focused
 }
 
 // SetMatch implements ListItem.
 func (m *ModelItem) SetMatch(fm fuzzy.Match) {
+	m.cache = nil
 	m.m = fm
 }

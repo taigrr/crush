@@ -12,7 +12,6 @@ import (
 type ModelsList struct {
 	*list.List
 	groups []ModelGroup
-	items  []list.Item
 	query  string
 	t      *styles.Styles
 }
@@ -30,6 +29,16 @@ func NewModelsList(sty *styles.Styles, groups ...ModelGroup) *ModelsList {
 // SetGroups sets the model groups and updates the list items.
 func (f *ModelsList) SetGroups(groups ...ModelGroup) {
 	f.groups = groups
+	items := []list.Item{}
+	for _, g := range f.groups {
+		items = append(items, &g)
+		for _, item := range g.Items {
+			items = append(items, item)
+		}
+		// Add a space separator after each provider section
+		items = append(items, list.NewSpacerItem(1))
+	}
+	f.List.SetItems(items...)
 }
 
 // SetFilter sets the filter query and updates the list items.
@@ -39,6 +48,11 @@ func (f *ModelsList) SetFilter(q string) {
 
 // SetSelectedItem sets the selected item in the list by item ID.
 func (f *ModelsList) SetSelectedItem(itemID string) {
+	if itemID == "" {
+		f.SetSelected(0)
+		return
+	}
+
 	count := 0
 	for _, g := range f.groups {
 		for _, item := range g.Items {
@@ -49,26 +63,6 @@ func (f *ModelsList) SetSelectedItem(itemID string) {
 			count++
 		}
 	}
-}
-
-// SelectNext selects the next selectable item in the list.
-func (f *ModelsList) SelectNext() bool {
-	for f.List.SelectNext() {
-		if _, ok := f.List.SelectedItem().(*ModelItem); ok {
-			return true
-		}
-	}
-	return false
-}
-
-// SelectPrev selects the previous selectable item in the list.
-func (f *ModelsList) SelectPrev() bool {
-	for f.List.SelectPrev() {
-		if _, ok := f.List.SelectedItem().(*ModelItem); ok {
-			return true
-		}
-	}
-	return false
 }
 
 // VisibleItems returns the visible items after filtering.
@@ -110,10 +104,11 @@ func (f *ModelsList) VisibleItems() []list.Item {
 	visitedGroups := map[int]bool{}
 
 	// Reconstruct groups with matched items
-	for _, match := range matches {
-		item := filterableItems[match.Index]
-		// Find which group this item belongs to
-		for gi, g := range f.groups {
+	// Find which group this item belongs to
+	for gi, g := range f.groups {
+		addedCount := 0
+		for _, match := range matches {
+			item := filterableItems[match.Index]
 			if slices.Contains(groupItems[gi], item.(*ModelItem)) {
 				if !visitedGroups[gi] {
 					// Add section header
@@ -125,10 +120,13 @@ func (f *ModelsList) VisibleItems() []list.Item {
 					ms.SetMatch(match)
 					item = ms.(list.FilterableItem)
 				}
-				// Add a space separator after each provider section
-				items = append(items, item, list.NewSpacerItem(1))
-				break
+				items = append(items, item)
+				addedCount++
 			}
+		}
+		if addedCount > 0 {
+			// Add a space separator after each provider section
+			items = append(items, list.NewSpacerItem(1))
 		}
 	}
 

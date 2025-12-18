@@ -314,7 +314,7 @@ func (m *Models) setProviderItems() error {
 
 			group := NewModelGroup(t, name, true)
 			for _, model := range p.Models {
-				item := NewModelItem(t, provider, model)
+				item := NewModelItem(t, provider, model, false)
 				group.AppendItems(item)
 				itemsMap[item.ID()] = item
 				if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
@@ -368,7 +368,7 @@ func (m *Models) setProviderItems() error {
 
 		group := NewModelGroup(t, name, providerConfigured)
 		for _, model := range displayProvider.Models {
-			item := NewModelItem(t, provider, model)
+			item := NewModelItem(t, provider, model, false)
 			group.AppendItems(item)
 			itemsMap[item.ID()] = item
 			if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
@@ -389,6 +389,10 @@ func (m *Models) setProviderItems() error {
 			if !ok {
 				continue
 			}
+
+			// Show provider for recent items
+			item = NewModelItem(t, item.prov, item.model, true)
+			item.showProvider = true
 
 			validRecentItems = append(validRecentItems, recent)
 			recentGroup.AppendItems(item)
@@ -412,6 +416,7 @@ func (m *Models) setProviderItems() error {
 	// Set model groups in the list.
 	m.list.SetGroups(groups...)
 	m.list.SetSelectedItem(selectedItemID)
+
 	// Update placeholder based on model type
 	if m.modelType == ModelTypeLarge {
 		m.input.Placeholder = largeModelInputPlaceholder
