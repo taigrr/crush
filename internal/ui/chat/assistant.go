@@ -155,7 +155,7 @@ func (a *AssistantMessageItem) renderThinking(thinking string, width int) string
 		hint := a.sty.Chat.Message.ThinkingTruncationHint.Render(
 			fmt.Sprintf("… (%d lines hidden) [click or space to expand]", totalLines-maxCollapsedThinkingHeight),
 		)
-		lines = append([]string{hint}, lines...)
+		lines = append(lines, "", hint)
 	}
 
 	thinkingStyle := a.sty.Chat.Message.ThinkingBox.Width(width)
