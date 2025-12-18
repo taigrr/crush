@@ -26,6 +26,15 @@ func NewModelsList(sty *styles.Styles, groups ...ModelGroup) *ModelsList {
 	return f
 }
 
+// Len returns the number of model items across all groups.
+func (f *ModelsList) Len() int {
+	n := 0
+	for _, g := range f.groups {
+		n += len(g.Items)
+	}
+	return n
+}
+
 // SetGroups sets the model groups and updates the list items.
 func (f *ModelsList) SetGroups(groups ...ModelGroup) {
 	f.groups = groups
@@ -81,7 +90,7 @@ func (f *ModelsList) VisibleItems() []list.Item {
 		return items
 	}
 
-	filterableItems := []list.FilterableItem{}
+	filterableItems := make([]list.FilterableItem, 0, f.Len())
 	for _, g := range f.groups {
 		for _, item := range g.Items {
 			filterableItems = append(filterableItems, item)
