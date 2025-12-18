@@ -81,12 +81,10 @@ func (f *ModelsList) VisibleItems() []list.Item {
 		return items
 	}
 
-	groupItems := map[int][]*ModelItem{}
 	filterableItems := []list.FilterableItem{}
-	for i, g := range f.groups {
+	for _, g := range f.groups {
 		for _, item := range g.Items {
 			filterableItems = append(filterableItems, item)
-			groupItems[i] = append(groupItems[i], item)
 		}
 	}
 
@@ -109,7 +107,7 @@ func (f *ModelsList) VisibleItems() []list.Item {
 		addedCount := 0
 		for _, match := range matches {
 			item := filterableItems[match.Index]
-			if slices.Contains(groupItems[gi], item.(*ModelItem)) {
+			if slices.Contains(g.Items, item.(*ModelItem)) {
 				if !visitedGroups[gi] {
 					// Add section header
 					items = append(items, &g)
