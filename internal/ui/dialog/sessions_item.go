@@ -86,13 +86,20 @@ func renderItem(t *styles.Styles, title string, updatedAt int64, focused bool, w
 	}
 
 	var ageLen int
+	var right string
+	lineWidth := width
 	if updatedAt > 0 {
 		ageLen = lipgloss.Width(age)
+		lineWidth -= ageLen
 	}
 
-	title = ansi.Truncate(title, max(0, width-ageLen), "…")
+	title = ansi.Truncate(title, max(0, lineWidth), "…")
 	titleLen := lipgloss.Width(title)
-	right := lipgloss.NewStyle().AlignHorizontal(lipgloss.Right).Width(width - titleLen).Render(age)
+
+	if updatedAt > 0 {
+		right = lipgloss.NewStyle().AlignHorizontal(lipgloss.Right).Width(width - titleLen).Render(age)
+	}
+
 	content := title
 	if matches := len(m.MatchedIndexes); matches > 0 {
 		var lastPos int
