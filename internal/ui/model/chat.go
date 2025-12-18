@@ -169,30 +169,30 @@ func (m *Chat) Blur() {
 	m.list.Blur()
 }
 
-// ScrollToTop scrolls the chat view to the top and returns a command to restart
+// ScrollToTopAndAnimate scrolls the chat view to the top and returns a command to restart
 // any paused animations that are now visible.
-func (m *Chat) ScrollToTop() tea.Cmd {
+func (m *Chat) ScrollToTopAndAnimate() tea.Cmd {
 	m.list.ScrollToTop()
 	return m.RestartPausedVisibleAnimations()
 }
 
-// ScrollToBottom scrolls the chat view to the bottom and returns a command to
+// ScrollToBottomAndAnimate scrolls the chat view to the bottom and returns a command to
 // restart any paused animations that are now visible.
-func (m *Chat) ScrollToBottom() tea.Cmd {
+func (m *Chat) ScrollToBottomAndAnimate() tea.Cmd {
 	m.list.ScrollToBottom()
 	return m.RestartPausedVisibleAnimations()
 }
 
-// ScrollBy scrolls the chat view by the given number of line deltas and returns
+// ScrollByAndAnimate scrolls the chat view by the given number of line deltas and returns
 // a command to restart any paused animations that are now visible.
-func (m *Chat) ScrollBy(lines int) tea.Cmd {
+func (m *Chat) ScrollByAndAnimate(lines int) tea.Cmd {
 	m.list.ScrollBy(lines)
 	return m.RestartPausedVisibleAnimations()
 }
 
-// ScrollToSelected scrolls the chat view to the selected item and returns a
+// ScrollToSelectedAndAnimate scrolls the chat view to the selected item and returns a
 // command to restart any paused animations that are now visible.
-func (m *Chat) ScrollToSelected() tea.Cmd {
+func (m *Chat) ScrollToSelectedAndAnimate() tea.Cmd {
 	m.list.ScrollToSelected()
 	return m.RestartPausedVisibleAnimations()
 }
