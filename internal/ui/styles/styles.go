@@ -26,6 +26,8 @@ const (
 	DocumentIcon string = "🖼"
 	ModelIcon    string = "◇"
 
+	ArrowRightIcon string = "→"
+
 	ToolPending string = "●"
 	ToolSuccess string = "✓"
 	ToolError   string = "×"
@@ -34,6 +36,10 @@ const (
 	BorderThick string = "▌"
 
 	SectionSeparator string = "─"
+
+	TodoCompletedIcon  string = "✓"
+	TodoPendingIcon    string = "•"
+	TodoInProgressIcon string = "→"
 )
 
 const (
@@ -227,7 +233,7 @@ type Styles struct {
 		ContentTruncation lipgloss.Style // Truncation message "… (N lines)"
 		ContentCodeLine   lipgloss.Style // Code line with background and width
 		ContentCodeBg     color.Color    // Background color for syntax highlighting
-		BodyPadding       lipgloss.Style // Body content padding (PaddingLeft(2))
+		Body              lipgloss.Style // Body content padding (PaddingLeft(2))
 
 		// Deprecated - kept for backward compatibility
 		ContentBg         lipgloss.Style // Content background
@@ -956,7 +962,7 @@ func DefaultStyles() Styles {
 	s.Tool.ContentTruncation = s.Muted.Background(bgBaseLighter)
 	s.Tool.ContentCodeLine = s.Base.Background(bgBaseLighter)
 	s.Tool.ContentCodeBg = bgBase
-	s.Tool.BodyPadding = base.PaddingLeft(2)
+	s.Tool.Body = base.PaddingLeft(2)
 
 	// Deprecated - kept for backward compatibility
 	s.Tool.ContentBg = s.Muted.Background(bgBaseLighter)

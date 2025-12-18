@@ -150,12 +150,12 @@ func cappedMessageWidth(availableWidth int) int {
 	return min(availableWidth-messageLeftPaddingTotal, maxTextWidth)
 }
 
-// GetMessageItems extracts [MessageItem]s from a [message.Message]. It returns
-// all parts of the message as [MessageItem]s.
+// ExtractMessageItems extracts [MessageItem]s from a [message.Message]. It
+// returns all parts of the message as [MessageItem]s.
 //
 // For assistant messages with tool calls, pass a toolResults map to link results.
 // Use BuildToolResultMap to create this map from all messages in a session.
-func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[string]message.ToolResult) []MessageItem {
+func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[string]message.ToolResult) []MessageItem {
 	switch msg.Role {
 	case message.User:
 		return []MessageItem{NewUserMessageItem(sty, msg)}
@@ -163,6 +163,18 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 		var items []MessageItem
 		if shouldRenderAssistantMessage(msg) {
 			items = append(items, NewAssistantMessageItem(sty, msg))
+		}
+		for _, tc := range msg.ToolCalls() {
+			var result *message.ToolResult
+			if tr, ok := toolResults[tc.ID]; ok {
+				result = &tr
+			}
+			items = append(items, NewToolMessageItem(
+				sty,
+				tc,
+				result,
+				msg.FinishReason() == message.FinishReasonCanceled,
+			))
 		}
 		return items
 	}

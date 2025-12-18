@@ -237,8 +237,16 @@ func (m *Chat) SelectLastInView() {
 	m.list.SelectLastInView()
 }
 
-// GetMessageItem returns the message item at the given id.
-func (m *Chat) GetMessageItem(id string) chat.MessageItem {
+// ClearMessages removes all messages from the chat list.
+func (m *Chat) ClearMessages() {
+	m.idInxMap = make(map[string]int)
+	m.pausedAnimations = make(map[string]struct{})
+	m.list.SetItems()
+	m.ClearMouse()
+}
+
+// MessageItem returns the message item with the given ID, or nil if not found.
+func (m *Chat) MessageItem(id string) chat.MessageItem {
 	idx, ok := m.idInxMap[id]
 	if !ok {
 		return nil

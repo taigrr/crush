@@ -152,13 +152,10 @@ func (a *AssistantMessageItem) renderThinking(thinking string, width int) string
 	isTruncated := totalLines > maxCollapsedThinkingHeight
 	if !a.thinkingExpanded && isTruncated {
 		lines = lines[totalLines-maxCollapsedThinkingHeight:]
-	}
-
-	if !a.thinkingExpanded && isTruncated {
 		hint := a.sty.Chat.Message.ThinkingTruncationHint.Render(
 			fmt.Sprintf("… (%d lines hidden) [click or space to expand]", totalLines-maxCollapsedThinkingHeight),
 		)
-		lines = append([]string{hint}, lines...)
+		lines = append(lines, "", hint)
 	}
 
 	thinkingStyle := a.sty.Chat.Message.ThinkingBox.Width(width)
@@ -167,7 +164,7 @@ func (a *AssistantMessageItem) renderThinking(thinking string, width int) string
 
 	var footer string
 	// if thinking is done add the thought for footer
-	if !a.message.IsThinking() {
+	if !a.message.IsThinking() || len(a.message.ToolCalls()) > 0 {
 		duration := a.message.ThinkingDuration()
 		if duration.String() != "0s" {
 			footer = a.sty.Chat.Message.ThinkingFooterTitle.Render("Thought for ") +
