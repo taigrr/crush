@@ -426,7 +426,7 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 				// we should have an item!
 				continue
 			}
-			if toolMsgItem, ok := toolItem.(*chat.ToolMessageItem); ok {
+			if toolMsgItem, ok := toolItem.(chat.ToolMessageItem); ok {
 				toolMsgItem.SetResult(&tr)
 			}
 		}
@@ -451,7 +451,7 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 	var items []chat.MessageItem
 	for _, tc := range msg.ToolCalls() {
 		existingToolItem := m.chat.MessageItem(tc.ID)
-		if toolItem, ok := existingToolItem.(*chat.ToolMessageItem); ok {
+		if toolItem, ok := existingToolItem.(chat.ToolMessageItem); ok {
 			existingToolCall := toolItem.ToolCall()
 			// only update if finished state changed or input changed
 			// to avoid clearing the cache

@@ -5,11 +5,40 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/crush/internal/agent/tools"
+	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 )
 
-// BashToolRenderer renders a bash tool call.
-func BashToolRenderer(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
+// BashToolMessageItem is a message item that represents a bash tool call.
+type BashToolMessageItem struct {
+	*baseToolMessageItem
+}
+
+var _ ToolMessageItem = (*BashToolMessageItem)(nil)
+
+// NewBashToolMessageItem creates a new [BashToolMessageItem].
+func NewBashToolMessageItem(
+	sty *styles.Styles,
+	toolCall message.ToolCall,
+	result *message.ToolResult,
+	canceled bool,
+) ToolMessageItem {
+	return newBaseToolMessageItem(
+		sty,
+		toolCall,
+		result,
+		&BashToolRenderContext{},
+		canceled,
+	)
+}
+
+// BashToolRenderContext holds context for rendering bash tool messages.
+//
+// It implements the [ToolRenderer] interface.
+type BashToolRenderContext struct{}
+
+// RenderTool implements the [ToolRenderer] interface.
+func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
 	cappedWidth := cappedMessageWidth(width)
 	const toolName = "Bash"
 	if !opts.ToolCall.Finished && !opts.Canceled {

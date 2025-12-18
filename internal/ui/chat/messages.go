@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/list"
@@ -180,17 +179,6 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 		return items
 	}
 	return []MessageItem{}
-}
-
-// ToolRenderer returns the appropriate [ToolRenderFunc] for a given tool call.
-// this should be used for nested tools as well.
-func ToolRenderer(tc message.ToolCall) ToolRenderFunc {
-	switch tc.Name {
-	case tools.BashToolName:
-		return BashToolRenderer
-	default:
-		return DefaultToolRenderer
-	}
 }
 
 // shouldRenderAssistantMessage determines if an assistant message should be rendered
