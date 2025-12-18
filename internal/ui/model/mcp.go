@@ -16,8 +16,10 @@ func (m *UI) mcpInfo(width, maxItems int, isSection bool) string {
 	var mcps []mcp.ClientInfo
 	t := m.com.Styles
 
-	for _, state := range m.mcpStates {
-		mcps = append(mcps, state)
+	for _, mcp := range m.com.Config().MCP.Sorted() {
+		if state, ok := m.mcpStates[mcp.Name]; ok {
+			mcps = append(mcps, state)
+		}
 	}
 
 	title := t.Subtle.Render("MCPs")

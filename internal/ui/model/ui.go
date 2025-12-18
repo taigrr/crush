@@ -267,22 +267,22 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case uiChat:
 			if msg.Y <= 0 {
-				if cmd := m.chat.ScrollBy(-1); cmd != nil {
+				if cmd := m.chat.ScrollByAndAnimate(-1); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				if !m.chat.SelectedItemInView() {
 					m.chat.SelectPrev()
-					if cmd := m.chat.ScrollToSelected(); cmd != nil {
+					if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
 				}
 			} else if msg.Y >= m.chat.Height()-1 {
-				if cmd := m.chat.ScrollBy(1); cmd != nil {
+				if cmd := m.chat.ScrollByAndAnimate(1); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				if !m.chat.SelectedItemInView() {
 					m.chat.SelectNext()
-					if cmd := m.chat.ScrollToSelected(); cmd != nil {
+					if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
 				}
@@ -309,22 +309,22 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case uiChat:
 			switch msg.Button {
 			case tea.MouseWheelUp:
-				if cmd := m.chat.ScrollBy(-5); cmd != nil {
+				if cmd := m.chat.ScrollByAndAnimate(-5); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				if !m.chat.SelectedItemInView() {
 					m.chat.SelectPrev()
-					if cmd := m.chat.ScrollToSelected(); cmd != nil {
+					if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
 				}
 			case tea.MouseWheelDown:
-				if cmd := m.chat.ScrollBy(5); cmd != nil {
+				if cmd := m.chat.ScrollByAndAnimate(5); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				if !m.chat.SelectedItemInView() {
 					m.chat.SelectNext()
-					if cmd := m.chat.ScrollToSelected(); cmd != nil {
+					if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
 				}
@@ -394,7 +394,7 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 	}
 
 	m.chat.SetMessages(items...)
-	if cmd := m.chat.ScrollToBottom(); cmd != nil {
+	if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	m.chat.SelectLast()
@@ -416,7 +416,7 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 			}
 		}
 		m.chat.AppendMessages(items...)
-		if cmd := m.chat.ScrollToBottom(); cmd != nil {
+		if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	case message.Tool:
@@ -472,7 +472,7 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 		}
 	}
 	m.chat.AppendMessages(items...)
-	if cmd := m.chat.ScrollToBottom(); cmd != nil {
+	if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 
@@ -641,62 +641,62 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			case key.Matches(msg, m.keyMap.Chat.Expand):
 				m.chat.ToggleExpandedSelectedItem()
 			case key.Matches(msg, m.keyMap.Chat.Up):
-				if cmd := m.chat.ScrollBy(-1); cmd != nil {
+				if cmd := m.chat.ScrollByAndAnimate(-1); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				if !m.chat.SelectedItemInView() {
 					m.chat.SelectPrev()
-					if cmd := m.chat.ScrollToSelected(); cmd != nil {
+					if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
 				}
 			case key.Matches(msg, m.keyMap.Chat.Down):
-				if cmd := m.chat.ScrollBy(1); cmd != nil {
+				if cmd := m.chat.ScrollByAndAnimate(1); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				if !m.chat.SelectedItemInView() {
 					m.chat.SelectNext()
-					if cmd := m.chat.ScrollToSelected(); cmd != nil {
+					if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
 				}
 			case key.Matches(msg, m.keyMap.Chat.UpOneItem):
 				m.chat.SelectPrev()
-				if cmd := m.chat.ScrollToSelected(); cmd != nil {
+				if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 			case key.Matches(msg, m.keyMap.Chat.DownOneItem):
 				m.chat.SelectNext()
-				if cmd := m.chat.ScrollToSelected(); cmd != nil {
+				if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 			case key.Matches(msg, m.keyMap.Chat.HalfPageUp):
-				if cmd := m.chat.ScrollBy(-m.chat.Height() / 2); cmd != nil {
+				if cmd := m.chat.ScrollByAndAnimate(-m.chat.Height() / 2); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				m.chat.SelectFirstInView()
 			case key.Matches(msg, m.keyMap.Chat.HalfPageDown):
-				if cmd := m.chat.ScrollBy(m.chat.Height() / 2); cmd != nil {
+				if cmd := m.chat.ScrollByAndAnimate(m.chat.Height() / 2); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				m.chat.SelectLastInView()
 			case key.Matches(msg, m.keyMap.Chat.PageUp):
-				if cmd := m.chat.ScrollBy(-m.chat.Height()); cmd != nil {
+				if cmd := m.chat.ScrollByAndAnimate(-m.chat.Height()); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				m.chat.SelectFirstInView()
 			case key.Matches(msg, m.keyMap.Chat.PageDown):
-				if cmd := m.chat.ScrollBy(m.chat.Height()); cmd != nil {
+				if cmd := m.chat.ScrollByAndAnimate(m.chat.Height()); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				m.chat.SelectLastInView()
 			case key.Matches(msg, m.keyMap.Chat.Home):
-				if cmd := m.chat.ScrollToTop(); cmd != nil {
+				if cmd := m.chat.ScrollToTopAndAnimate(); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				m.chat.SelectFirst()
 			case key.Matches(msg, m.keyMap.Chat.End):
-				if cmd := m.chat.ScrollToBottom(); cmd != nil {
+				if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				m.chat.SelectLast()
