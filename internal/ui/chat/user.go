@@ -16,9 +16,10 @@ import (
 type UserMessageItem struct {
 	*highlightableMessageItem
 	*cachedMessageItem
+	*focusableMessageItem
+
 	message *message.Message
 	sty     *styles.Styles
-	focused bool
 }
 
 // NewUserMessageItem creates a new UserMessageItem.
@@ -26,9 +27,9 @@ func NewUserMessageItem(sty *styles.Styles, message *message.Message) MessageIte
 	return &UserMessageItem{
 		highlightableMessageItem: defaultHighlighter(sty),
 		cachedMessageItem:        &cachedMessageItem{},
+		focusableMessageItem:     &focusableMessageItem{},
 		message:                  message,
 		sty:                      sty,
-		focused:                  false,
 	}
 }
 
@@ -65,11 +66,6 @@ func (m *UserMessageItem) Render(width int) string {
 	height = lipgloss.Height(content)
 	m.setCachedRender(content, cappedWidth, height)
 	return style.Render(m.renderHighlighted(content, cappedWidth, height))
-}
-
-// SetFocused implements MessageItem.
-func (m *UserMessageItem) SetFocused(focused bool) {
-	m.focused = focused
 }
 
 // ID implements MessageItem.

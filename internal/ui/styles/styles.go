@@ -85,7 +85,8 @@ type Styles struct {
 	ItemOnlineIcon  lipgloss.Style
 
 	// Markdown & Chroma
-	Markdown ansi.StyleConfig
+	Markdown      ansi.StyleConfig
+	PlainMarkdown ansi.StyleConfig
 
 	// Inputs
 	TextInput textinput.Styles
@@ -195,8 +196,13 @@ type Styles struct {
 			Attachment       lipgloss.Style
 			ToolCallFocused  lipgloss.Style
 			ToolCallBlurred  lipgloss.Style
-			ThinkingFooter   lipgloss.Style
 			SectionHeader    lipgloss.Style
+
+			// Thinking section styles
+			ThinkingBox            lipgloss.Style // Background for thinking content
+			ThinkingTruncationHint lipgloss.Style // "… (N lines hidden)" hint
+			ThinkingFooterTitle    lipgloss.Style // "Thought for" text
+			ThinkingFooterDuration lipgloss.Style // Duration value
 		}
 	}
 
@@ -667,6 +673,169 @@ func DefaultStyles() Styles {
 		},
 	}
 
+	// PlainMarkdown style - muted colors on subtle background for thinking content.
+	plainBg := stringPtr(bgBaseLighter.Hex())
+	plainFg := stringPtr(fgMuted.Hex())
+	s.PlainMarkdown = ansi.StyleConfig{
+		Document: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+		},
+		BlockQuote: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+			Indent:      uintPtr(1),
+			IndentToken: stringPtr("│ "),
+		},
+		List: ansi.StyleList{
+			LevelIndent: defaultListIndent,
+		},
+		Heading: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				BlockSuffix:     "\n",
+				Bold:            boolPtr(true),
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+		},
+		H1: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix:          " ",
+				Suffix:          " ",
+				Bold:            boolPtr(true),
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+		},
+		H2: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix:          "## ",
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+		},
+		H3: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix:          "### ",
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+		},
+		H4: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix:          "#### ",
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+		},
+		H5: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix:          "##### ",
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+		},
+		H6: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix:          "###### ",
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+		},
+		Strikethrough: ansi.StylePrimitive{
+			CrossedOut:      boolPtr(true),
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+		Emph: ansi.StylePrimitive{
+			Italic:          boolPtr(true),
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+		Strong: ansi.StylePrimitive{
+			Bold:            boolPtr(true),
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+		HorizontalRule: ansi.StylePrimitive{
+			Format:          "\n--------\n",
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+		Item: ansi.StylePrimitive{
+			BlockPrefix:     "• ",
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+		Enumeration: ansi.StylePrimitive{
+			BlockPrefix:     ". ",
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+		Task: ansi.StyleTask{
+			StylePrimitive: ansi.StylePrimitive{
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+			Ticked:   "[✓] ",
+			Unticked: "[ ] ",
+		},
+		Link: ansi.StylePrimitive{
+			Underline:       boolPtr(true),
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+		LinkText: ansi.StylePrimitive{
+			Bold:            boolPtr(true),
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+		Image: ansi.StylePrimitive{
+			Underline:       boolPtr(true),
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+		ImageText: ansi.StylePrimitive{
+			Format:          "Image: {{.text}} →",
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+		Code: ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Prefix:          " ",
+				Suffix:          " ",
+				Color:           plainFg,
+				BackgroundColor: plainBg,
+			},
+		},
+		CodeBlock: ansi.StyleCodeBlock{
+			StyleBlock: ansi.StyleBlock{
+				StylePrimitive: ansi.StylePrimitive{
+					Color:           plainFg,
+					BackgroundColor: plainBg,
+				},
+				Margin: uintPtr(defaultMargin),
+			},
+		},
+		Table: ansi.StyleTable{
+			StyleBlock: ansi.StyleBlock{
+				StylePrimitive: ansi.StylePrimitive{
+					Color:           plainFg,
+					BackgroundColor: plainBg,
+				},
+			},
+		},
+		DefinitionDescription: ansi.StylePrimitive{
+			BlockPrefix:     "\n ",
+			Color:           plainFg,
+			BackgroundColor: plainBg,
+		},
+	}
+
 	s.Help = help.Styles{
 		ShortKey:       base.Foreground(fgMuted),
 		ShortDesc:      base.Foreground(fgSubtle),
@@ -892,8 +1061,13 @@ func DefaultStyles() Styles {
 		BorderLeft(true).
 		BorderForeground(greenDark)
 	s.Chat.Message.ToolCallBlurred = s.Muted.PaddingLeft(2)
-	s.Chat.Message.ThinkingFooter = s.Base
 	s.Chat.Message.SectionHeader = s.Base.PaddingLeft(2)
+
+	// Thinking section styles
+	s.Chat.Message.ThinkingBox = s.Subtle.Background(bgBaseLighter)
+	s.Chat.Message.ThinkingTruncationHint = s.Muted
+	s.Chat.Message.ThinkingFooterTitle = s.Muted
+	s.Chat.Message.ThinkingFooterDuration = s.Subtle
 
 	// Text selection.
 	s.TextSelection = lipgloss.NewStyle().Foreground(charmtone.Salt).Background(charmtone.Charple)

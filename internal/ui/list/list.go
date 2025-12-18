@@ -189,9 +189,9 @@ func (l *List) ScrollBy(lines int) {
 	}
 }
 
-// findVisibleItems finds the range of items that are visible in the viewport.
+// VisibleItemIndices finds the range of items that are visible in the viewport.
 // This is used for checking if selected item is in view.
-func (l *List) findVisibleItems() (startIdx, endIdx int) {
+func (l *List) VisibleItemIndices() (startIdx, endIdx int) {
 	if len(l.items) == 0 {
 		return 0, 0
 	}
@@ -352,7 +352,7 @@ func (l *List) ScrollToSelected() {
 		return
 	}
 
-	startIdx, endIdx := l.findVisibleItems()
+	startIdx, endIdx := l.VisibleItemIndices()
 	if l.selectedIdx < startIdx {
 		// Selected item is above the visible range
 		l.offsetIdx = l.selectedIdx
@@ -385,7 +385,7 @@ func (l *List) SelectedItemInView() bool {
 	if l.selectedIdx < 0 || l.selectedIdx >= len(l.items) {
 		return false
 	}
-	startIdx, endIdx := l.findVisibleItems()
+	startIdx, endIdx := l.VisibleItemIndices()
 	return l.selectedIdx >= startIdx && l.selectedIdx <= endIdx
 }
 
@@ -466,13 +466,13 @@ func (l *List) SelectedItem() Item {
 
 // SelectFirstInView selects the first item currently in view.
 func (l *List) SelectFirstInView() {
-	startIdx, _ := l.findVisibleItems()
+	startIdx, _ := l.VisibleItemIndices()
 	l.selectedIdx = startIdx
 }
 
 // SelectLastInView selects the last item currently in view.
 func (l *List) SelectLastInView() {
-	_, endIdx := l.findVisibleItems()
+	_, endIdx := l.VisibleItemIndices()
 	l.selectedIdx = endIdx
 }
 
