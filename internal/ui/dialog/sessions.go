@@ -1,11 +1,12 @@
 package dialog
 
 import (
+	"context"
+
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/list"
 )
@@ -32,9 +33,14 @@ type Session struct {
 var _ Dialog = (*Session)(nil)
 
 // NewSessions creates a new Session dialog.
-func NewSessions(com *common.Common, sessions ...session.Session) *Session {
+func NewSessions(com *common.Common) (*Session, error) {
 	s := new(Session)
 	s.com = com
+	sessions, err := com.App.Sessions.List(context.TODO())
+	if err != nil {
+		return nil, err
+	}
+
 	help := help.New()
 	help.Styles = com.Styles.DialogHelpStyles()
 
@@ -62,7 +68,8 @@ func NewSessions(com *common.Common, sessions ...session.Session) *Session {
 		key.WithHelp("↑", "previous item"),
 	)
 	s.keyMap.Close = CloseKey
-	return s
+
+	return s, nil
 }
 
 // SetSize sets the size of the dialog.

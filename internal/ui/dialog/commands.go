@@ -331,7 +331,8 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			ID:          "switch_model",
 			Title:       "Switch Model",
 			Description: "Switch to a different model",
-			Shortcut:    "ctrl+l",
+			// FIXME: The shortcut might get updated if enhanced keyboard is supported.
+			Shortcut: "ctrl+l",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
 				return uiutil.CmdHandler(OpenDialogMsg{ModelsID})
 			},

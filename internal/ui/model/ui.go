@@ -540,7 +540,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				break
 			}
 
-			m.dialog.CloseDialog(msg.DialogID)
+			m.dialog.CloseDialog(dialog.CommandsID)
 
 		// Command dialog messages
 		case dialog.ToggleYoloModeMsg:
@@ -1436,12 +1436,11 @@ func (m *UI) openSessionsDialog() tea.Cmd {
 		return nil
 	}
 
-	sessions, err := m.com.App.Sessions.List(context.TODO())
+	dialog, err := dialog.NewSessions(m.com)
 	if err != nil {
 		return uiutil.ReportError(err)
 	}
 
-	dialog := dialog.NewSessions(m.com, sessions...)
 	// TODO: Get. Rid. Of. Magic numbers!
 	dialog.SetSize(min(120, m.width-8), 30)
 	m.dialog.OpenDialog(dialog)
