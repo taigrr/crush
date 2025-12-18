@@ -64,11 +64,6 @@ type openEditorMsg struct {
 	Text string
 }
 
-// listSessionsMsg is a message to list available sessions.
-type listSessionsMsg struct {
-	sessions []session.Session
-}
-
 // UI represents the main user interface model.
 type UI struct {
 	com          *common.Common
@@ -189,10 +184,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Is this Windows Terminal?
 		if !m.sendProgressBar {
 			m.sendProgressBar = slices.Contains(msg, "WT_SESSION")
-		}
-	case listSessionsMsg:
-		if cmd := m.openSessionsDialog(msg.sessions); cmd != nil {
-			cmds = append(cmds, cmd)
 		}
 	case loadSessionMsg:
 		m.state = uiChat
@@ -499,11 +490,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			}
 			return true
 		case key.Matches(msg, m.keyMap.Sessions):
-			if m.dialog.ContainsDialog(dialog.SessionsID) {
-				// Bring to front
-				m.dialog.BringToFront(dialog.SessionsID)
-			} else {
-				cmds = append(cmds, m.listSessions)
+			if cmd := m.openSessionsDialog(); cmd != nil {
+				cmds = append(cmds, cmd)
 			}
 			return true
 		}
@@ -536,14 +524,29 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			m.dialog.CloseDialog(dialog.SessionsID)
 			cmds = append(cmds, m.loadSession(msg.Session.ID))
 
+		// Open dialog message
+		case dialog.OpenDialogMsg:
+			switch msg.DialogID {
+			case dialog.SessionsID:
+				if cmd := m.openSessionsDialog(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			case dialog.ModelsID:
+				if cmd := m.openModelsDialog(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			default:
+				// Unknown dialog
+				break
+			}
+
+			m.dialog.CloseDialog(msg.DialogID)
+
 		// Command dialog messages
 		case dialog.ToggleYoloModeMsg:
 			yolo := !m.com.App.Permissions.SkipRequests()
 			m.com.App.Permissions.SetSkipRequests(yolo)
 			m.setEditorPrompt(yolo)
-			m.dialog.CloseDialog(dialog.CommandsID)
-		case dialog.SwitchSessionsMsg:
-			cmds = append(cmds, m.listSessions)
 			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.NewSessionsMsg:
 			if m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
@@ -562,11 +565,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.QuitMsg:
 			cmds = append(cmds, tea.Quit)
-		case dialog.SwitchModelMsg:
-			m.dialog.CloseDialog(dialog.CommandsID)
-			if cmd := m.openModelsDialog(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
 		case dialog.ModelSelectedMsg:
 			// TODO: Handle model switching
 		}
@@ -1428,12 +1426,19 @@ func (m *UI) openCommandsDialog() tea.Cmd {
 	return nil
 }
 
-// openSessionsDialog opens the sessions dialog with the given sessions.
-func (m *UI) openSessionsDialog(sessions []session.Session) tea.Cmd {
+// openSessionsDialog opens the sessions dialog. If the dialog is already open,
+// it brings it to the front. Otherwise, it will list all the sessions and open
+// the dialog.
+func (m *UI) openSessionsDialog() tea.Cmd {
 	if m.dialog.ContainsDialog(dialog.SessionsID) {
 		// Bring to front
 		m.dialog.BringToFront(dialog.SessionsID)
 		return nil
+	}
+
+	sessions, err := m.com.App.Sessions.List(context.TODO())
+	if err != nil {
+		return uiutil.ReportError(err)
 	}
 
 	dialog := dialog.NewSessions(m.com, sessions...)
@@ -1442,13 +1447,6 @@ func (m *UI) openSessionsDialog(sessions []session.Session) tea.Cmd {
 	m.dialog.OpenDialog(dialog)
 
 	return nil
-}
-
-// listSessions is a [tea.Cmd] that lists all sessions and returns them in a
-// [listSessionsMsg].
-func (m *UI) listSessions() tea.Msg {
-	allSessions, _ := m.com.App.Sessions.List(context.TODO())
-	return listSessionsMsg{sessions: allSessions}
 }
 
 // newSession clears the current session state and prepares for a new session.

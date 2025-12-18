@@ -12,6 +12,11 @@ type CloseMsg struct{}
 // QuitMsg is a message to quit the application.
 type QuitMsg = tea.QuitMsg
 
+// OpenDialogMsg is a message to open a dialog.
+type OpenDialogMsg struct {
+	DialogID string
+}
+
 // SessionSelectedMsg is a message indicating a session has been selected.
 type SessionSelectedMsg struct {
 	Session session.Session
@@ -25,9 +30,7 @@ type ModelSelectedMsg struct {
 
 // Messages for commands
 type (
-	SwitchSessionsMsg      struct{}
 	NewSessionsMsg         struct{}
-	SwitchModelMsg         struct{}
 	OpenFilePickerMsg      struct{}
 	ToggleHelpMsg          struct{}
 	ToggleCompactModeMsg   struct{}

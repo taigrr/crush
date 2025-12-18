@@ -324,7 +324,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Description: "Switch to a different session",
 			Shortcut:    "ctrl+s",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return uiutil.CmdHandler(SwitchSessionsMsg{})
+				return uiutil.CmdHandler(OpenDialogMsg{SessionsID})
 			},
 		},
 		{
@@ -333,7 +333,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 			Description: "Switch to a different model",
 			Shortcut:    "ctrl+l",
 			Handler: func(cmd uicmd.Command) tea.Cmd {
-				return uiutil.CmdHandler(SwitchModelMsg{})
+				return uiutil.CmdHandler(OpenDialogMsg{ModelsID})
 			},
 		},
 	}
