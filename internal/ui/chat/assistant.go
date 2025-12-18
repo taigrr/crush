@@ -152,9 +152,6 @@ func (a *AssistantMessageItem) renderThinking(thinking string, width int) string
 	isTruncated := totalLines > maxCollapsedThinkingHeight
 	if !a.thinkingExpanded && isTruncated {
 		lines = lines[totalLines-maxCollapsedThinkingHeight:]
-	}
-
-	if !a.thinkingExpanded && isTruncated {
 		hint := a.sty.Chat.Message.ThinkingTruncationHint.Render(
 			fmt.Sprintf("… (%d lines hidden) [click or space to expand]", totalLines-maxCollapsedThinkingHeight),
 		)
