@@ -1,6 +1,7 @@
 package dialog
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -71,35 +72,23 @@ func renderItem(t *styles.Styles, title string, updatedAt int64, focused bool, w
 		style = t.Dialog.SelectedItem
 	}
 
-	width -= style.GetHorizontalFrameSize()
-
 	var age string
+	var ageLen int
+	lineWidth := width
 	if updatedAt > 0 {
-		age = humanize.Time(time.Unix(updatedAt, 0))
+		age = fmt.Sprintf(" %s ", humanize.Time(time.Unix(updatedAt, 0)))
 		if focused {
 			age = t.Base.Render(age)
 		} else {
 			age = t.Subtle.Render(age)
 		}
 
-		age = " " + age
-	}
-
-	var ageLen int
-	var right string
-	lineWidth := width
-	if updatedAt > 0 {
 		ageLen = lipgloss.Width(age)
-		lineWidth -= ageLen
 	}
 
-	title = ansi.Truncate(title, max(0, lineWidth), "…")
+	title = ansi.Truncate(title, max(0, lineWidth), "")
 	titleLen := lipgloss.Width(title)
-
-	if updatedAt > 0 {
-		right = lipgloss.NewStyle().AlignHorizontal(lipgloss.Right).Width(width - titleLen).Render(age)
-	}
-
+	gap := strings.Repeat(" ", max(0, lineWidth-titleLen-ageLen))
 	content := title
 	if matches := len(m.MatchedIndexes); matches > 0 {
 		var lastPos int
@@ -129,7 +118,7 @@ func renderItem(t *styles.Styles, title string, updatedAt int64, focused bool, w
 		content = strings.Join(parts, "")
 	}
 
-	content = style.Render(content + right)
+	content = style.Render(content + gap + age)
 	cache[width] = content
 	return content
 }
