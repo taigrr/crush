@@ -182,18 +182,25 @@ func GetMessageItems(sty *styles.Styles, msg *message.Message, toolResults map[s
 	return []MessageItem{}
 }
 
-func GetToolMessageItem(sty *styles.Styles, tc message.ToolCall, result *message.ToolResult, canceled bool) MessageItem {
+// GetToolRenderer returns the appropriate ToolRenderFunc for a given tool call.
+// this should be used for nested tools as well.
+func GetToolRenderer(tc message.ToolCall) ToolRenderFunc {
 	renderFunc := DefaultToolRenderer
-	// we only do full width for diffs (as far as I know)
-	cappedWidth := true
 	switch tc.Name {
 	case tools.BashToolName:
 		renderFunc = BashToolRenderer
 	}
+	return renderFunc
+}
+
+// GetToolMessageItem creates a MessageItem for a tool call and its result.
+func GetToolMessageItem(sty *styles.Styles, tc message.ToolCall, result *message.ToolResult, canceled bool) MessageItem {
+	// we only do full width for diffs (as far as I know)
+	cappedWidth := tc.Name != tools.EditToolName && tc.Name != tools.MultiEditToolName
 
 	return NewToolMessageItem(
 		sty,
-		renderFunc,
+		GetToolRenderer(tc),
 		tc,
 		result,
 		canceled,
