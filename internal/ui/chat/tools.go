@@ -44,7 +44,7 @@ type ToolRenderOpts struct {
 
 // Status returns the current status of the tool call.
 func (opts *ToolRenderOpts) Status() ToolStatus {
-	if opts.Canceled {
+	if opts.Canceled && opts.Result == nil {
 		return ToolStatusCanceled
 	}
 	if opts.Result != nil {
