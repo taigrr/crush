@@ -562,6 +562,13 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.QuitMsg:
 			cmds = append(cmds, tea.Quit)
+		case dialog.SwitchModelMsg:
+			m.dialog.CloseDialog(dialog.CommandsID)
+			if cmd := m.openModelsDialog(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case dialog.ModelSelectedMsg:
+			// TODO: Handle model switching
 		}
 
 		return tea.Batch(cmds...)

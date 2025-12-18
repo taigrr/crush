@@ -169,8 +169,19 @@ func (m *Models) Update(msg tea.Msg) tea.Msg {
 			m.list.SelectNext()
 			m.list.ScrollToSelected()
 		case key.Matches(msg, m.keyMap.Select):
-			if selectedItem := m.list.SelectedItem(); selectedItem != nil {
-				// TODO: Handle model selection confirmation.
+			selectedItem := m.list.SelectedItem()
+			if selectedItem == nil {
+				break
+			}
+
+			modelItem, ok := selectedItem.(*ModelItem)
+			if !ok {
+				break
+			}
+
+			return ModelSelectedMsg{
+				Provider: modelItem.prov,
+				Model:    modelItem.model,
 			}
 		case key.Matches(msg, m.keyMap.Tab):
 			if m.modelType == ModelTypeLarge {

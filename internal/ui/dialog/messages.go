@@ -2,6 +2,7 @@ package dialog
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/session"
 )
 
@@ -14,6 +15,12 @@ type QuitMsg = tea.QuitMsg
 // SessionSelectedMsg is a message indicating a session has been selected.
 type SessionSelectedMsg struct {
 	Session session.Session
+}
+
+// ModelSelectedMsg is a message indicating a model has been selected.
+type ModelSelectedMsg struct {
+	Provider catwalk.Provider
+	Model    catwalk.Model
 }
 
 // Messages for commands
