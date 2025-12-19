@@ -160,6 +160,7 @@ type Styles struct {
 	White         color.Color
 	BlueLight     color.Color
 	Blue          color.Color
+	BlueDark      color.Color
 	Green         color.Color
 	GreenDark     color.Color
 	Red           color.Color
@@ -382,6 +383,7 @@ func DefaultStyles() Styles {
 
 		blueLight = charmtone.Sardine
 		blue      = charmtone.Malibu
+		blueDark  = charmtone.Damson
 
 		// yellow = charmtone.Mustard
 		yellow = charmtone.Mustard
@@ -424,6 +426,7 @@ func DefaultStyles() Styles {
 	s.White = white
 	s.BlueLight = blueLight
 	s.Blue = blue
+	s.BlueDark = blueDark
 	s.Green = green
 	s.GreenDark = greenDark
 	s.Red = red
@@ -992,8 +995,8 @@ func DefaultStyles() Styles {
 	s.Tool.JobIconError = base.Foreground(redDark)
 	s.Tool.JobIconSuccess = base.Foreground(green)
 	s.Tool.JobToolName = base.Foreground(blue)
-	s.Tool.JobAction = base.Foreground(fgHalfMuted)
-	s.Tool.JobPID = s.Subtle
+	s.Tool.JobAction = base.Foreground(blueDark)
+	s.Tool.JobPID = s.Muted
 	s.Tool.JobDescription = s.Subtle
 
 	// Agent task styles

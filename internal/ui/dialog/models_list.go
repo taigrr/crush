@@ -47,7 +47,7 @@ func (f *ModelsList) SetGroups(groups ...ModelGroup) {
 		// Add a space separator after each provider section
 		items = append(items, list.NewSpacerItem(1))
 	}
-	f.List.SetItems(items...)
+	f.SetItems(items...)
 }
 
 // SetFilter sets the filter query and updates the list items.
@@ -66,7 +66,7 @@ func (f *ModelsList) SetSelectedItem(itemID string) {
 	for _, g := range f.groups {
 		for _, item := range g.Items {
 			if item.ID() == itemID {
-				f.List.SetSelected(count)
+				f.SetSelected(count)
 				return
 			}
 			count++
@@ -142,7 +142,7 @@ func (f *ModelsList) VisibleItems() []list.Item {
 
 // Render renders the filterable list.
 func (f *ModelsList) Render() string {
-	f.List.SetItems(f.VisibleItems()...)
+	f.SetItems(f.VisibleItems()...)
 	return f.List.Render()
 }
 

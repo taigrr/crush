@@ -245,6 +245,30 @@ func (m *Chat) ClearMessages() {
 	m.ClearMouse()
 }
 
+// RemoveMessage removes a message from the chat list by its ID.
+func (m *Chat) RemoveMessage(id string) {
+	idx, ok := m.idInxMap[id]
+	if !ok {
+		return
+	}
+
+	// Remove from list
+	m.list.RemoveItem(idx)
+
+	// Remove from index map
+	delete(m.idInxMap, id)
+
+	// Rebuild index map for all items after the removed one
+	for i := idx; i < m.list.Len(); i++ {
+		if item, ok := m.list.ItemAt(i).(chat.MessageItem); ok {
+			m.idInxMap[item.ID()] = i
+		}
+	}
+
+	// Clean up any paused animations for this message
+	delete(m.pausedAnimations, id)
+}
+
 // MessageItem returns the message item with the given ID, or nil if not found.
 func (m *Chat) MessageItem(id string) chat.MessageItem {
 	idx, ok := m.idInxMap[id]
