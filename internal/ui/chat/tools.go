@@ -171,6 +171,12 @@ func NewToolMessageItem(
 		return NewEditToolMessageItem(sty, toolCall, result, canceled)
 	case tools.MultiEditToolName:
 		return NewMultiEditToolMessageItem(sty, toolCall, result, canceled)
+	case tools.GlobToolName:
+		return NewGlobToolMessageItem(sty, toolCall, result, canceled)
+	case tools.GrepToolName:
+		return NewGrepToolMessageItem(sty, toolCall, result, canceled)
+	case tools.LSToolName:
+		return NewLSToolMessageItem(sty, toolCall, result, canceled)
 	default:
 		// TODO: Implement other tool items
 		return newBaseToolMessageItem(
