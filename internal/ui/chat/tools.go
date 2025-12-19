@@ -158,6 +158,10 @@ func NewToolMessageItem(
 	switch toolCall.Name {
 	case tools.BashToolName:
 		return NewBashToolMessageItem(sty, toolCall, result, canceled)
+	case tools.JobOutputToolName:
+		return NewJobOutputToolMessageItem(sty, toolCall, result, canceled)
+	case tools.JobKillToolName:
+		return NewJobKillToolMessageItem(sty, toolCall, result, canceled)
 	default:
 		// TODO: Implement other tool items
 		return newBaseToolMessageItem(
