@@ -434,7 +434,7 @@ func toolOutputPlainContent(sty *styles.Styles, content string, width int, expan
 	if !expanded && wasTruncated {
 		out = append(out, sty.Tool.ContentTruncation.
 			Width(width).
-			Render(fmt.Sprintf("… (%d lines) [click or space to expand]", len(lines)-responseContextHeight)))
+			Render(fmt.Sprintf(assistantMessageTruncateFormat, len(lines)-responseContextHeight)))
 	}
 
 	return strings.Join(out, "\n")
@@ -489,8 +489,8 @@ func toolOutputCodeContent(sty *styles.Styles, path, content string, offset, wid
 	if len(lines) > maxLines && !expanded {
 		truncMsg := sty.Tool.ContentCodeTruncation.
 			Width(bodyWidth).
-			Render(fmt.Sprintf("… (%d lines) [click or space to expand]", len(lines)-maxLines))
-		out = append(out, truncMsg)
+			Render(fmt.Sprintf(assistantMessageTruncateFormat, len(lines)-maxLines))
+		out = append([]string{truncMsg}, out...)
 	}
 
 	return sty.Tool.Body.Render(strings.Join(out, "\n"))
@@ -567,8 +567,8 @@ func toolOutputDiffContent(sty *styles.Styles, file, oldContent, newContent stri
 	if len(lines) > maxLines && !expanded {
 		truncMsg := sty.Tool.DiffTruncation.
 			Width(bodyWidth).
-			Render(fmt.Sprintf("… (%d lines) [click or space to expand]", len(lines)-maxLines))
-		formatted = strings.Join(lines[:maxLines], "\n") + "\n" + truncMsg
+			Render(fmt.Sprintf(assistantMessageTruncateFormat, len(lines)-maxLines))
+		formatted = truncMsg + "\n" + strings.Join(lines[:maxLines], "\n")
 	}
 
 	return sty.Tool.Body.Render(formatted)
@@ -600,8 +600,8 @@ func toolOutputMultiEditDiffContent(sty *styles.Styles, file string, meta tools.
 	if len(lines) > maxLines && !expanded {
 		truncMsg := sty.Tool.DiffTruncation.
 			Width(bodyWidth).
-			Render(fmt.Sprintf("… (%d lines) [click or space to expand]", len(lines)-maxLines))
-		formatted = strings.Join(lines[:maxLines], "\n") + "\n" + truncMsg
+			Render(fmt.Sprintf(assistantMessageTruncateFormat, len(lines)-maxLines))
+		formatted = truncMsg + "\n" + strings.Join(lines[:maxLines], "\n")
 	}
 
 	// Add failed edits note if any exist.

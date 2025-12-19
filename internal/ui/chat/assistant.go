@@ -13,6 +13,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// assistantMessageTruncateFormat is the text shown when an assistant message is
+// truncated.
+const assistantMessageTruncateFormat = "… (%d lines hidden) [click or space to expand]"
+
 // maxCollapsedThinkingHeight defines the maximum height of the thinking
 const maxCollapsedThinkingHeight = 10
 
@@ -153,9 +157,9 @@ func (a *AssistantMessageItem) renderThinking(thinking string, width int) string
 	if !a.thinkingExpanded && isTruncated {
 		lines = lines[totalLines-maxCollapsedThinkingHeight:]
 		hint := a.sty.Chat.Message.ThinkingTruncationHint.Render(
-			fmt.Sprintf("… (%d lines hidden) [click or space to expand]", totalLines-maxCollapsedThinkingHeight),
+			fmt.Sprintf(assistantMessageTruncateFormat, totalLines-maxCollapsedThinkingHeight),
 		)
-		lines = append(lines, "", hint)
+		lines = append([]string{hint, ""}, lines...)
 	}
 
 	thinkingStyle := a.sty.Chat.Message.ThinkingBox.Width(width)
