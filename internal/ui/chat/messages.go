@@ -161,7 +161,7 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 		return []MessageItem{NewUserMessageItem(sty, msg)}
 	case message.Assistant:
 		var items []MessageItem
-		if shouldRenderAssistantMessage(msg) {
+		if ShouldRenderAssistantMessage(msg) {
 			items = append(items, NewAssistantMessageItem(sty, msg))
 		}
 		for _, tc := range msg.ToolCalls() {
@@ -181,11 +181,11 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 	return []MessageItem{}
 }
 
-// shouldRenderAssistantMessage determines if an assistant message should be rendered
+// ShouldRenderAssistantMessage determines if an assistant message should be rendered
 //
 // In some cases the assistant message only has tools so we do not want to render an
 // empty message.
-func shouldRenderAssistantMessage(msg *message.Message) bool {
+func ShouldRenderAssistantMessage(msg *message.Message) bool {
 	content := strings.TrimSpace(msg.Content().Text)
 	thinking := strings.TrimSpace(msg.ReasoningContent().Thinking)
 	isError := msg.FinishReason() == message.FinishReasonError

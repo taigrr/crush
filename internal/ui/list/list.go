@@ -304,6 +304,31 @@ func (l *List) AppendItems(items ...Item) {
 	l.items = append(l.items, items...)
 }
 
+// RemoveItem removes the item at the given index from the list.
+func (l *List) RemoveItem(idx int) {
+	if idx < 0 || idx >= len(l.items) {
+		return
+	}
+
+	// Remove the item
+	l.items = append(l.items[:idx], l.items[idx+1:]...)
+
+	// Adjust selection if needed
+	if l.selectedIdx == idx {
+		l.selectedIdx = -1
+	} else if l.selectedIdx > idx {
+		l.selectedIdx--
+	}
+
+	// Adjust offset if needed
+	if l.offsetIdx > idx {
+		l.offsetIdx--
+	} else if l.offsetIdx == idx && l.offsetIdx >= len(l.items) {
+		l.offsetIdx = max(0, len(l.items)-1)
+		l.offsetLine = 0
+	}
+}
+
 // Focus sets the focus state of the list.
 func (l *List) Focus() {
 	l.focused = true

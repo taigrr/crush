@@ -431,12 +431,16 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 	var cmds []tea.Cmd
 	existingItem := m.chat.MessageItem(msg.ID)
-	if existingItem == nil || msg.Role != message.Assistant {
-		return nil
+
+	if existingItem != nil {
+		if assistantItem, ok := existingItem.(*chat.AssistantMessageItem); ok {
+			assistantItem.SetMessage(&msg)
+		}
 	}
 
-	if assistantItem, ok := existingItem.(*chat.AssistantMessageItem); ok {
-		assistantItem.SetMessage(&msg)
+	// if the message of the assistant does not have any  response just tool calls we need to remove it
+	if !chat.ShouldRenderAssistantMessage(&msg) && len(msg.ToolCalls()) > 0 && existingItem != nil {
+		m.chat.RemoveMessage(msg.ID)
 	}
 
 	var items []chat.MessageItem
