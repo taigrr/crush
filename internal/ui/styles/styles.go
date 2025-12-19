@@ -238,11 +238,12 @@ type Styles struct {
 		ParamKey  lipgloss.Style // Parameter keys
 
 		// Content rendering styles
-		ContentLine       lipgloss.Style // Individual content line with background and width
-		ContentTruncation lipgloss.Style // Truncation message "… (N lines)"
-		ContentCodeLine   lipgloss.Style // Code line with background and width
-		ContentCodeBg     color.Color    // Background color for syntax highlighting
-		Body              lipgloss.Style // Body content padding (PaddingLeft(2))
+		ContentLine           lipgloss.Style // Individual content line with background and width
+		ContentTruncation     lipgloss.Style // Truncation message "… (N lines)"
+		ContentCodeLine       lipgloss.Style // Code line with background and width
+		ContentCodeTruncation lipgloss.Style // Code truncation message with bgBase
+		ContentCodeBg         color.Color    // Background color for syntax highlighting
+		Body                  lipgloss.Style // Body content padding (PaddingLeft(2))
 
 		// Deprecated - kept for backward compatibility
 		ContentBg         lipgloss.Style // Content background
@@ -970,14 +971,15 @@ func DefaultStyles() Styles {
 	// Content rendering - prepared styles that accept width parameter
 	s.Tool.ContentLine = s.Muted.Background(bgBaseLighter)
 	s.Tool.ContentTruncation = s.Muted.Background(bgBaseLighter)
-	s.Tool.ContentCodeLine = s.Base.Background(bgBaseLighter)
+	s.Tool.ContentCodeLine = s.Base.Background(bgBase)
+	s.Tool.ContentCodeTruncation = s.Muted.Background(bgBase).PaddingLeft(2)
 	s.Tool.ContentCodeBg = bgBase
 	s.Tool.Body = base.PaddingLeft(2)
 
 	// Deprecated - kept for backward compatibility
 	s.Tool.ContentBg = s.Muted.Background(bgBaseLighter)
 	s.Tool.ContentText = s.Muted
-	s.Tool.ContentLineNumber = s.Subtle
+	s.Tool.ContentLineNumber = base.Foreground(fgMuted).Background(bgBase).PaddingRight(1).PaddingLeft(1)
 
 	s.Tool.StateWaiting = base.Foreground(fgSubtle)
 	s.Tool.StateCancelled = base.Foreground(fgSubtle)
@@ -987,7 +989,7 @@ func DefaultStyles() Styles {
 
 	// Diff and multi-edit styles
 	s.Tool.DiffTruncation = s.Muted.Background(bgBaseLighter).PaddingLeft(2)
-	s.Tool.NoteTag = base.Padding(0, 1).Background(yellow).Foreground(white)
+	s.Tool.NoteTag = base.Padding(0, 1).Background(info).Foreground(white)
 	s.Tool.NoteMessage = base.Foreground(fgHalfMuted)
 
 	// Job header styles

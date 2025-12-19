@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/anim"
+	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -162,6 +163,14 @@ func NewToolMessageItem(
 		return NewJobOutputToolMessageItem(sty, toolCall, result, canceled)
 	case tools.JobKillToolName:
 		return NewJobKillToolMessageItem(sty, toolCall, result, canceled)
+	case tools.ViewToolName:
+		return NewViewToolMessageItem(sty, toolCall, result, canceled)
+	case tools.WriteToolName:
+		return NewWriteToolMessageItem(sty, toolCall, result, canceled)
+	case tools.EditToolName:
+		return NewEditToolMessageItem(sty, toolCall, result, canceled)
+	case tools.MultiEditToolName:
+		return NewMultiEditToolMessageItem(sty, toolCall, result, canceled)
 	default:
 		// TODO: Implement other tool items
 		return newBaseToolMessageItem(
@@ -376,9 +385,13 @@ func toolParamList(sty *styles.Styles, params []string, width int) string {
 }
 
 // toolHeader builds the tool header line: "● ToolName params..."
-func toolHeader(sty *styles.Styles, status ToolStatus, name string, width int, params ...string) string {
+func toolHeader(sty *styles.Styles, status ToolStatus, name string, width int, nested bool, params ...string) string {
 	icon := toolIcon(sty, status)
-	toolName := sty.Tool.NameNested.Render(name)
+	nameStyle := sty.Tool.NameNormal
+	if nested {
+		nameStyle = sty.Tool.NameNested
+	}
+	toolName := nameStyle.Render(name)
 	prefix := fmt.Sprintf("%s %s ", icon, toolName)
 	prefixWidth := lipgloss.Width(prefix)
 	remainingWidth := width - prefixWidth
@@ -419,4 +432,179 @@ func toolOutputPlainContent(sty *styles.Styles, content string, width int, expan
 	}
 
 	return strings.Join(out, "\n")
+}
+
+// toolOutputCodeContent renders code with syntax highlighting and line numbers.
+func toolOutputCodeContent(sty *styles.Styles, path, content string, offset, width int, expanded bool) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\t", "    ")
+
+	lines := strings.Split(content, "\n")
+	maxLines := responseContextHeight
+	if expanded {
+		maxLines = len(lines)
+	}
+
+	// Truncate if needed.
+	displayLines := lines
+	if len(lines) > maxLines {
+		displayLines = lines[:maxLines]
+	}
+
+	bg := sty.Tool.ContentCodeBg
+	highlighted, _ := common.SyntaxHighlight(sty, strings.Join(displayLines, "\n"), path, bg)
+	highlightedLines := strings.Split(highlighted, "\n")
+
+	// Calculate line number width.
+	maxLineNumber := len(displayLines) + offset
+	maxDigits := getDigits(maxLineNumber)
+	numFmt := fmt.Sprintf("%%%dd", maxDigits)
+
+	bodyWidth := width - toolBodyLeftPaddingTotal
+	codeWidth := bodyWidth - maxDigits - 4 // -4 for line number padding
+
+	var out []string
+	for i, ln := range highlightedLines {
+		lineNum := sty.Tool.ContentLineNumber.Render(fmt.Sprintf(numFmt, i+1+offset))
+
+		if lipgloss.Width(ln) > codeWidth {
+			ln = ansi.Truncate(ln, codeWidth, "…")
+		}
+
+		codeLine := sty.Tool.ContentCodeLine.
+			Width(codeWidth).
+			PaddingLeft(2).
+			Render(ln)
+
+		out = append(out, lipgloss.JoinHorizontal(lipgloss.Left, lineNum, codeLine))
+	}
+
+	// Add truncation message if needed.
+	if len(lines) > maxLines && !expanded {
+		truncMsg := sty.Tool.ContentCodeTruncation.
+			Width(bodyWidth).
+			Render(fmt.Sprintf("… (%d lines) [click or space to expand]", len(lines)-maxLines))
+		out = append(out, truncMsg)
+	}
+
+	return sty.Tool.Body.Render(strings.Join(out, "\n"))
+}
+
+// toolOutputImageContent renders image data with size info.
+func toolOutputImageContent(sty *styles.Styles, data, mediaType string) string {
+	dataSize := len(data) * 3 / 4
+	sizeStr := formatSize(dataSize)
+
+	loaded := sty.Base.Foreground(sty.Green).Render("Loaded")
+	arrow := sty.Base.Foreground(sty.GreenDark).Render("→")
+	typeStyled := sty.Base.Render(mediaType)
+	sizeStyled := sty.Subtle.Render(sizeStr)
+
+	return sty.Tool.Body.Render(fmt.Sprintf("%s %s %s %s", loaded, arrow, typeStyled, sizeStyled))
+}
+
+// getDigits returns the number of digits in a number.
+func getDigits(n int) int {
+	if n == 0 {
+		return 1
+	}
+	if n < 0 {
+		n = -n
+	}
+	digits := 0
+	for n > 0 {
+		n /= 10
+		digits++
+	}
+	return digits
+}
+
+// formatSize formats byte size into human readable format.
+func formatSize(bytes int) string {
+	const (
+		kb = 1024
+		mb = kb * 1024
+	)
+	switch {
+	case bytes >= mb:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(mb))
+	case bytes >= kb:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(kb))
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
+}
+
+// toolOutputDiffContent renders a diff between old and new content.
+func toolOutputDiffContent(sty *styles.Styles, file, oldContent, newContent string, width int, expanded bool) string {
+	bodyWidth := width - toolBodyLeftPaddingTotal
+
+	formatter := common.DiffFormatter(sty).
+		Before(file, oldContent).
+		After(file, newContent).
+		Width(bodyWidth)
+
+	// Use split view for wide terminals.
+	if width > 120 {
+		formatter = formatter.Split()
+	}
+
+	formatted := formatter.String()
+	lines := strings.Split(formatted, "\n")
+
+	// Truncate if needed.
+	maxLines := responseContextHeight
+	if expanded {
+		maxLines = len(lines)
+	}
+
+	if len(lines) > maxLines && !expanded {
+		truncMsg := sty.Tool.DiffTruncation.
+			Width(bodyWidth).
+			Render(fmt.Sprintf("… (%d lines) [click or space to expand]", len(lines)-maxLines))
+		formatted = strings.Join(lines[:maxLines], "\n") + "\n" + truncMsg
+	}
+
+	return sty.Tool.Body.Render(formatted)
+}
+
+// toolOutputMultiEditDiffContent renders a diff with optional failed edits note.
+func toolOutputMultiEditDiffContent(sty *styles.Styles, file string, meta tools.MultiEditResponseMetadata, totalEdits, width int, expanded bool) string {
+	bodyWidth := width - toolBodyLeftPaddingTotal
+
+	formatter := common.DiffFormatter(sty).
+		Before(file, meta.OldContent).
+		After(file, meta.NewContent).
+		Width(bodyWidth)
+
+	// Use split view for wide terminals.
+	if width > 120 {
+		formatter = formatter.Split()
+	}
+
+	formatted := formatter.String()
+	lines := strings.Split(formatted, "\n")
+
+	// Truncate if needed.
+	maxLines := responseContextHeight
+	if expanded {
+		maxLines = len(lines)
+	}
+
+	if len(lines) > maxLines && !expanded {
+		truncMsg := sty.Tool.DiffTruncation.
+			Width(bodyWidth).
+			Render(fmt.Sprintf("… (%d lines) [click or space to expand]", len(lines)-maxLines))
+		formatted = strings.Join(lines[:maxLines], "\n") + "\n" + truncMsg
+	}
+
+	// Add failed edits note if any exist.
+	if len(meta.EditsFailed) > 0 {
+		noteTag := sty.Tool.NoteTag.Render("Note")
+		noteMsg := fmt.Sprintf("%d of %d edits succeeded", meta.EditsApplied, totalEdits)
+		note := fmt.Sprintf("%s %s", noteTag, sty.Tool.NoteMessage.Render(noteMsg))
+		formatted = formatted + "\n\n" + note
+	}
+
+	return sty.Tool.Body.Render(formatted)
 }
