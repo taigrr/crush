@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -255,6 +256,7 @@ func (Attribution) JSONSchemaExtend(schema *jsonschema.Schema) {
 
 type Options struct {
 	ContextPaths              []string     `json:"context_paths,omitempty" jsonschema:"description=Paths to files containing context information for the AI,example=.cursorrules,example=CRUSH.md"`
+	SkillsPaths               []string     `json:"skills_paths,omitempty" jsonschema:"description=Paths to directories containing Agent Skills (folders with SKILL.md files),example=~/.config/crush/skills,example=./skills"`
 	TUI                       *TUIOptions  `json:"tui,omitempty" jsonschema:"description=Terminal user interface options"`
 	Debug                     bool         `json:"debug,omitempty" jsonschema:"description=Enable debug logging,default=false"`
 	DebugLSP                  bool         `json:"debug_lsp,omitempty" jsonschema:"description=Enable debug logging for LSP servers,default=false"`
@@ -498,7 +500,6 @@ func (c *Config) HasConfigField(key string) bool {
 }
 
 func (c *Config) SetConfigField(key string, value any) error {
-	// read the data
 	data, err := os.ReadFile(c.dataConfigDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -511,6 +512,9 @@ func (c *Config) SetConfigField(key string, value any) error {
 	newValue, err := sjson.Set(string(data), key, value)
 	if err != nil {
 		return fmt.Errorf("failed to set config field %s: %w", key, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(c.dataConfigDir), 0o755); err != nil {
+		return fmt.Errorf("failed to create config directory %q: %w", c.dataConfigDir, err)
 	}
 	if err := os.WriteFile(c.dataConfigDir, []byte(newValue), 0o600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
@@ -547,13 +551,12 @@ func (c *Config) RefreshOAuthToken(ctx context.Context, providerID string) error
 
 	slog.Info("Successfully refreshed OAuth token", "provider", providerID)
 	providerConfig.OAuthToken = newToken
+	providerConfig.APIKey = newToken.AccessToken
 
 	switch providerID {
 	case string(catwalk.InferenceProviderAnthropic):
-		providerConfig.APIKey = fmt.Sprintf("Bearer %s", newToken.AccessToken)
 		providerConfig.SetupClaudeCode()
 	case string(catwalk.InferenceProviderCopilot):
-		providerConfig.APIKey = newToken.AccessToken
 		providerConfig.SetupGitHubCopilot()
 	}
 
@@ -592,7 +595,6 @@ func (c *Config) SetProviderAPIKey(providerID string, apiKey any) error {
 			providerConfig.OAuthToken = v
 			switch providerID {
 			case string(catwalk.InferenceProviderAnthropic):
-				providerConfig.APIKey = fmt.Sprintf("Bearer %s", v.AccessToken)
 				providerConfig.SetupClaudeCode()
 			case string(catwalk.InferenceProviderCopilot):
 				providerConfig.SetupGitHubCopilot()
