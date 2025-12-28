@@ -1440,7 +1440,12 @@ func (m *UI) openSessionsDialog() tea.Cmd {
 		return nil
 	}
 
-	dialog, err := dialog.NewSessions(m.com)
+	selectedSessionID := ""
+	if m.session != nil {
+		selectedSessionID = m.session.ID
+	}
+
+	dialog, err := dialog.NewSessions(m.com, selectedSessionID)
 	if err != nil {
 		return uiutil.ReportError(err)
 	}

@@ -16,11 +16,12 @@ const SessionsID = "session"
 
 // Session is a session selector dialog.
 type Session struct {
-	width, height int
-	com           *common.Common
-	help          help.Model
-	list          *list.FilterableList
-	input         textinput.Model
+	width, height      int
+	com                *common.Common
+	help               help.Model
+	list               *list.FilterableList
+	input              textinput.Model
+	selectedSessionInx int
 
 	keyMap struct {
 		Select   key.Binding
@@ -33,12 +34,19 @@ type Session struct {
 var _ Dialog = (*Session)(nil)
 
 // NewSessions creates a new Session dialog.
-func NewSessions(com *common.Common) (*Session, error) {
+func NewSessions(com *common.Common, selectedSessionID string) (*Session, error) {
 	s := new(Session)
 	s.com = com
 	sessions, err := com.App.Sessions.List(context.TODO())
 	if err != nil {
 		return nil, err
+	}
+
+	for i, sess := range sessions {
+		if sess.ID == selectedSessionID {
+			s.selectedSessionInx = i
+			break
+		}
 	}
 
 	help := help.New()
@@ -47,7 +55,6 @@ func NewSessions(com *common.Common) (*Session, error) {
 	s.help = help
 	s.list = list.NewFilterableList(sessionItems(com.Styles, sessions...)...)
 	s.list.Focus()
-	s.list.SetSelected(0)
 
 	s.input = textinput.New()
 	s.input.SetVirtualCursor(false)
@@ -85,6 +92,10 @@ func (s *Session) SetSize(width, height int) {
 	s.input.SetWidth(innerWidth - t.Dialog.InputPrompt.GetHorizontalFrameSize() - 1) // (1) cursor padding
 	s.list.SetSize(innerWidth, height-heightOffset)
 	s.help.SetWidth(width)
+
+	// Now that we know the height we can select the selected session and scroll to it.
+	s.list.SetSelected(s.selectedSessionInx)
+	s.list.ScrollToSelected()
 }
 
 // ID implements Dialog.
