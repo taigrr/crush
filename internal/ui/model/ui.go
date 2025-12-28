@@ -560,6 +560,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			m.newSession()
 			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.CompactMsg:
+			if m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
+				cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait before summarizing session..."))
+				break
+			}
 			err := m.com.App.AgentCoordinator.Summarize(context.Background(), msg.SessionID)
 			if err != nil {
 				cmds = append(cmds, uiutil.ReportError(err))
