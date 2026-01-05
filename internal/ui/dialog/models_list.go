@@ -55,6 +55,28 @@ func (f *ModelsList) SetFilter(q string) {
 	f.query = q
 }
 
+// SetSelected sets the selected item index. It overrides the base method to
+// skip non-model items.
+func (f *ModelsList) SetSelected(index int) {
+	if index < 0 || index >= f.Len() {
+		f.List.SetSelected(index)
+		return
+	}
+
+	f.List.SetSelected(index)
+	for {
+		selectedItem := f.List.SelectedItem()
+		if _, ok := selectedItem.(*ModelItem); ok {
+			return
+		}
+		f.List.SetSelected(index + 1)
+		index++
+		if index >= f.Len() {
+			return
+		}
+	}
+}
+
 // SetSelectedItem sets the selected item in the list by item ID.
 func (f *ModelsList) SetSelectedItem(itemID string) {
 	if itemID == "" {
@@ -74,14 +96,63 @@ func (f *ModelsList) SetSelectedItem(itemID string) {
 	}
 }
 
+// SelectNext selects the next model item, skipping any non-focusable items
+// like group headers and spacers.
+func (f *ModelsList) SelectNext() (v bool) {
+	for {
+		v = f.List.SelectNext()
+		selectedItem := f.List.SelectedItem()
+		if _, ok := selectedItem.(*ModelItem); ok {
+			return v
+		}
+	}
+}
+
+// SelectPrev selects the previous model item, skipping any non-focusable items
+// like group headers and spacers.
+func (f *ModelsList) SelectPrev() (v bool) {
+	for {
+		v = f.List.SelectPrev()
+		selectedItem := f.List.SelectedItem()
+		if _, ok := selectedItem.(*ModelItem); ok {
+			return v
+		}
+	}
+}
+
+// SelectFirst selects the first model item in the list.
+func (f *ModelsList) SelectFirst() (v bool) {
+	v = f.List.SelectFirst()
+	for {
+		selectedItem := f.List.SelectedItem()
+		if _, ok := selectedItem.(*ModelItem); ok {
+			return v
+		}
+		v = f.List.SelectNext()
+	}
+}
+
+// SelectLast selects the last model item in the list.
+func (f *ModelsList) SelectLast() (v bool) {
+	v = f.List.SelectLast()
+	for {
+		selectedItem := f.List.SelectedItem()
+		if _, ok := selectedItem.(*ModelItem); ok {
+			return v
+		}
+		v = f.List.SelectPrev()
+	}
+}
+
 // VisibleItems returns the visible items after filtering.
 func (f *ModelsList) VisibleItems() []list.Item {
-	if len(f.query) == 0 {
+	if f.query == "" {
 		// No filter, return all items with group headers
 		items := []list.Item{}
 		for _, g := range f.groups {
 			items = append(items, &g)
 			for _, item := range g.Items {
+				item.SetMatch(fuzzy.Match{})
 				items = append(items, item)
 			}
 			// Add a space separator after each provider section

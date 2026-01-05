@@ -728,7 +728,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// Draw implements [tea.Layer] and draws the UI model.
+// Draw implements [uv.Drawable] and draws the UI model.
 func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 	layout := m.generateLayout(area.Dx(), area.Dy())
 
