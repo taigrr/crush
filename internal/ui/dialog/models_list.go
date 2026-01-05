@@ -167,7 +167,9 @@ func (f *ModelsList) IsSelectedLast() bool {
 
 // VisibleItems returns the visible items after filtering.
 func (f *ModelsList) VisibleItems() []list.Item {
-	if f.query == "" {
+	query := strings.ToLower(strings.ReplaceAll(f.query, " ", ""))
+
+	if query == "" {
 		// No filter, return all items with group headers
 		items := []list.Item{}
 		for _, g := range f.groups {
@@ -199,7 +201,7 @@ func (f *ModelsList) VisibleItems() []list.Item {
 		names[i] = filterValue(ms)
 	}
 
-	matches := fuzzy.Find(f.query, names)
+	matches := fuzzy.Find(query, names)
 	sort.SliceStable(matches, func(i, j int) bool {
 		return matches[i].Score > matches[j].Score
 	})
