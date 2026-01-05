@@ -574,7 +574,27 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		case dialog.QuitMsg:
 			cmds = append(cmds, tea.Quit)
 		case dialog.ModelSelectedMsg:
-			// TODO: Handle model switching
+			if m.com.App.AgentCoordinator.IsBusy() {
+				cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait..."))
+				break
+			}
+
+			cfg := m.com.Config()
+			if cfg == nil {
+				cmds = append(cmds, uiutil.ReportError(errors.New("configuration not found")))
+				break
+			}
+
+			if err := cfg.UpdatePreferredModel(msg.ModelType, msg.Model); err != nil {
+				cmds = append(cmds, uiutil.ReportError(err))
+			}
+
+			// XXX: Should this be in a separate goroutine?
+			go m.com.App.UpdateAgentModel(context.TODO())
+
+			modelMsg := fmt.Sprintf("%s model changed to %s", msg.ModelType, msg.Model.Model)
+			cmds = append(cmds, uiutil.ReportInfo(modelMsg))
+			m.dialog.CloseDialog(dialog.ModelsID)
 		}
 
 		return tea.Batch(cmds...)

@@ -37,6 +37,30 @@ func (mt ModelType) String() string {
 	}
 }
 
+// Config returns the corresponding config model type.
+func (mt ModelType) Config() config.SelectedModelType {
+	switch mt {
+	case ModelTypeLarge:
+		return config.SelectedModelTypeLarge
+	case ModelTypeSmall:
+		return config.SelectedModelTypeSmall
+	default:
+		return ""
+	}
+}
+
+// Placeholder returns the input placeholder for the model type.
+func (mt ModelType) Placeholder() string {
+	switch mt {
+	case ModelTypeLarge:
+		return largeModelInputPlaceholder
+	case ModelTypeSmall:
+		return smallModelInputPlaceholder
+	default:
+		return ""
+	}
+}
+
 const (
 	largeModelInputPlaceholder = "Choose a model for large, complex tasks"
 	smallModelInputPlaceholder = "Choose a model for small, simple tasks"
@@ -180,8 +204,8 @@ func (m *Models) Update(msg tea.Msg) tea.Msg {
 			}
 
 			return ModelSelectedMsg{
-				Provider: modelItem.prov,
-				Model:    modelItem.model,
+				Model:     modelItem.SelectedModel(),
+				ModelType: modelItem.SelectedModelType(),
 			}
 		case key.Matches(msg, m.keyMap.Tab):
 			if m.modelType == ModelTypeLarge {
@@ -276,14 +300,8 @@ func (m *Models) setProviderItems() error {
 	t := m.com.Styles
 	cfg := m.com.Config()
 
-	selectedType := config.SelectedModelTypeLarge
-	if m.modelType == ModelTypeLarge {
-		selectedType = config.SelectedModelTypeLarge
-	} else {
-		selectedType = config.SelectedModelTypeSmall
-	}
-
 	var selectedItemID string
+	selectedType := m.modelType.Config()
 	currentModel := cfg.Models[selectedType]
 	recentItems := cfg.RecentModels[selectedType]
 
@@ -325,7 +343,7 @@ func (m *Models) setProviderItems() error {
 
 			group := NewModelGroup(t, name, true)
 			for _, model := range p.Models {
-				item := NewModelItem(t, provider, model, false)
+				item := NewModelItem(t, provider, model, m.modelType, false)
 				group.AppendItems(item)
 				itemsMap[item.ID()] = item
 				if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
@@ -379,7 +397,7 @@ func (m *Models) setProviderItems() error {
 
 		group := NewModelGroup(t, name, providerConfigured)
 		for _, model := range displayProvider.Models {
-			item := NewModelItem(t, provider, model, false)
+			item := NewModelItem(t, provider, model, m.modelType, false)
 			group.AppendItems(item)
 			itemsMap[item.ID()] = item
 			if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
@@ -402,7 +420,7 @@ func (m *Models) setProviderItems() error {
 			}
 
 			// Show provider for recent items
-			item = NewModelItem(t, item.prov, item.model, true)
+			item = NewModelItem(t, item.prov, item.model, m.modelType, true)
 			item.showProvider = true
 
 			validRecentItems = append(validRecentItems, recent)
@@ -429,11 +447,7 @@ func (m *Models) setProviderItems() error {
 	m.list.SetSelectedItem(selectedItemID)
 
 	// Update placeholder based on model type
-	if m.modelType == ModelTypeLarge {
-		m.input.Placeholder = largeModelInputPlaceholder
-	} else {
-		m.input.Placeholder = smallModelInputPlaceholder
-	}
+	m.input.Placeholder = m.modelType.Placeholder()
 
 	return nil
 }

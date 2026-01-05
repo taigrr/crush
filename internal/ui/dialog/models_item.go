@@ -3,6 +3,7 @@ package dialog
 import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
+	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
@@ -49,8 +50,9 @@ func (m *ModelGroup) Render(width int) string {
 
 // ModelItem represents a list item for a model type.
 type ModelItem struct {
-	prov  catwalk.Provider
-	model catwalk.Model
+	prov      catwalk.Provider
+	model     catwalk.Model
+	modelType ModelType
 
 	cache        map[int]string
 	t            *styles.Styles
@@ -59,13 +61,29 @@ type ModelItem struct {
 	showProvider bool
 }
 
+// SelectedModel returns this model item as a [config.SelectedModel] instance.
+func (m *ModelItem) SelectedModel() config.SelectedModel {
+	return config.SelectedModel{
+		Model:           m.model.ID,
+		Provider:        string(m.prov.ID),
+		ReasoningEffort: m.model.DefaultReasoningEffort,
+		MaxTokens:       m.model.DefaultMaxTokens,
+	}
+}
+
+// SelectedModelType returns the type of model represented by this item.
+func (m *ModelItem) SelectedModelType() config.SelectedModelType {
+	return m.modelType.Config()
+}
+
 var _ ListItem = &ModelItem{}
 
 // NewModelItem creates a new ModelItem.
-func NewModelItem(t *styles.Styles, prov catwalk.Provider, model catwalk.Model, showProvider bool) *ModelItem {
+func NewModelItem(t *styles.Styles, prov catwalk.Provider, model catwalk.Model, typ ModelType, showProvider bool) *ModelItem {
 	return &ModelItem{
 		prov:         prov,
 		model:        model,
+		modelType:    typ,
 		t:            t,
 		cache:        make(map[int]string),
 		showProvider: showProvider,
