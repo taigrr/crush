@@ -191,21 +191,6 @@ func (f *ModelsList) VisibleItems() []list.Item {
 		}
 	}
 
-	filterValue := func(itm *ModelItem) string {
-		return strings.ToLower(fmt.Sprintf("%s %s", itm.prov.Name, itm.model.Name))
-	}
-
-	names := make([]string, len(filterableItems))
-	for i, item := range filterableItems {
-		ms := item.(*ModelItem)
-		names[i] = filterValue(ms)
-	}
-
-	matches := fuzzy.Find(query, names)
-	sort.SliceStable(matches, func(i, j int) bool {
-		return matches[i].Score > matches[j].Score
-	})
-
 	items := []list.Item{}
 	visitedGroups := map[int]bool{}
 
@@ -213,7 +198,19 @@ func (f *ModelsList) VisibleItems() []list.Item {
 	// Find which group this item belongs to
 	for gi, g := range f.groups {
 		addedCount := 0
-		name := g.Title + " "
+		name := strings.ToLower(g.Title) + " "
+
+		names := make([]string, len(filterableItems))
+		for i, item := range filterableItems {
+			ms := item.(*ModelItem)
+			names[i] = fmt.Sprintf("%s%s", name, ms.Filter())
+		}
+
+		matches := fuzzy.Find(query, names)
+		sort.SliceStable(matches, func(i, j int) bool {
+			return matches[i].Score > matches[j].Score
+		})
+
 		for _, match := range matches {
 			item := filterableItems[match.Index].(*ModelItem)
 			idxs := []int{}
