@@ -553,7 +553,7 @@ func (l *List) findItemAtY(_, y int) (itemIdx int, itemY int) {
 // countLines counts the number of lines in a string.
 func countLines(s string) int {
 	if s == "" {
-		return 0
+		return 1
 	}
 	return strings.Count(s, "\n") + 1
 }

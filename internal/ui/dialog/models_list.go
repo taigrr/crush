@@ -144,6 +144,24 @@ func (f *ModelsList) SelectLast() (v bool) {
 	}
 }
 
+// IsSelectedFirst checks if the selected item is the first model item.
+func (f *ModelsList) IsSelectedFirst() bool {
+	originalIndex := f.List.Selected()
+	f.SelectFirst()
+	isFirst := f.List.Selected() == originalIndex
+	f.List.SetSelected(originalIndex)
+	return isFirst
+}
+
+// IsSelectedLast checks if the selected item is the last model item.
+func (f *ModelsList) IsSelectedLast() bool {
+	originalIndex := f.List.Selected()
+	f.SelectLast()
+	isLast := f.List.Selected() == originalIndex
+	f.List.SetSelected(originalIndex)
+	return isLast
+}
+
 // VisibleItems returns the visible items after filtering.
 func (f *ModelsList) VisibleItems() []list.Item {
 	if f.query == "" {
