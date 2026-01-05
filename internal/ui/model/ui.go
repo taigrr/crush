@@ -579,6 +579,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				break
 			}
 
+			// TODO: Validate model API and authentication here?
+
 			cfg := m.com.Config()
 			if cfg == nil {
 				cmds = append(cmds, uiutil.ReportError(errors.New("configuration not found")))
