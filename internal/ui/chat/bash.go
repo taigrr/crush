@@ -69,8 +69,8 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "background", "true")
 	}
 
-	header := toolHeader(sty, opts.Status(), "Bash", cappedWidth, opts.Nested, toolParams...)
-	if opts.Nested {
+	header := toolHeader(sty, opts.Status(), "Bash", cappedWidth, opts.Simple, toolParams...)
+	if opts.Simple {
 		return header
 	}
 
@@ -201,7 +201,7 @@ func (j *JobKillToolRenderContext) RenderTool(sty *styles.Styles, width int, opt
 // header → nested check → early state → body.
 func renderJobTool(sty *styles.Styles, opts *ToolRenderOpts, width int, action, shellID, description, content string) string {
 	header := jobHeader(sty, opts.Status(), action, shellID, description, width)
-	if opts.Nested {
+	if opts.Simple {
 		return header
 	}
 

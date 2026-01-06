@@ -56,8 +56,8 @@ func (v *ViewToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "offset", fmt.Sprintf("%d", params.Offset))
 	}
 
-	header := toolHeader(sty, opts.Status(), "View", cappedWidth, opts.Nested, toolParams...)
-	if opts.Nested {
+	header := toolHeader(sty, opts.Status(), "View", cappedWidth, opts.Simple, toolParams...)
+	if opts.Simple {
 		return header
 	}
 
@@ -128,8 +128,8 @@ func (w *WriteToolRenderContext) RenderTool(sty *styles.Styles, width int, opts 
 	}
 
 	file := fsext.PrettyPath(params.FilePath)
-	header := toolHeader(sty, opts.Status(), "Write", cappedWidth, opts.Nested, file)
-	if opts.Nested {
+	header := toolHeader(sty, opts.Status(), "Write", cappedWidth, opts.Simple, file)
+	if opts.Simple {
 		return header
 	}
 
@@ -183,8 +183,8 @@ func (e *EditToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	}
 
 	file := fsext.PrettyPath(params.FilePath)
-	header := toolHeader(sty, opts.Status(), "Edit", width, opts.Nested, file)
-	if opts.Nested {
+	header := toolHeader(sty, opts.Status(), "Edit", width, opts.Simple, file)
+	if opts.Simple {
 		return header
 	}
 
@@ -251,8 +251,8 @@ func (m *MultiEditToolRenderContext) RenderTool(sty *styles.Styles, width int, o
 		toolParams = append(toolParams, "edits", fmt.Sprintf("%d", len(params.Edits)))
 	}
 
-	header := toolHeader(sty, opts.Status(), "Multi-Edit", width, opts.Nested, toolParams...)
-	if opts.Nested {
+	header := toolHeader(sty, opts.Status(), "Multi-Edit", width, opts.Simple, toolParams...)
+	if opts.Simple {
 		return header
 	}
 
@@ -274,5 +274,67 @@ func (m *MultiEditToolRenderContext) RenderTool(sty *styles.Styles, width int, o
 
 	// Render diff with optional failed edits note.
 	body := toolOutputMultiEditDiffContent(sty, file, meta, len(params.Edits), width, opts.Expanded)
+	return joinToolParts(header, body)
+}
+
+// -----------------------------------------------------------------------------
+// Download Tool
+// -----------------------------------------------------------------------------
+
+// DownloadToolMessageItem is a message item that represents a download tool call.
+type DownloadToolMessageItem struct {
+	*baseToolMessageItem
+}
+
+var _ ToolMessageItem = (*DownloadToolMessageItem)(nil)
+
+// NewDownloadToolMessageItem creates a new [DownloadToolMessageItem].
+func NewDownloadToolMessageItem(
+	sty *styles.Styles,
+	toolCall message.ToolCall,
+	result *message.ToolResult,
+	canceled bool,
+) ToolMessageItem {
+	return newBaseToolMessageItem(sty, toolCall, result, &DownloadToolRenderContext{}, canceled)
+}
+
+// DownloadToolRenderContext renders download tool messages.
+type DownloadToolRenderContext struct{}
+
+// RenderTool implements the [ToolRenderer] interface.
+func (d *DownloadToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
+	cappedWidth := cappedMessageWidth(width)
+	if !opts.ToolCall.Finished && !opts.Canceled {
+		return pendingTool(sty, "Download", opts.Anim)
+	}
+
+	var params tools.DownloadParams
+	if err := json.Unmarshal([]byte(opts.ToolCall.Input), &params); err != nil {
+		return toolErrorContent(sty, &message.ToolResult{Content: "Invalid parameters"}, cappedWidth)
+	}
+
+	toolParams := []string{params.URL}
+	if params.FilePath != "" {
+		toolParams = append(toolParams, "file_path", fsext.PrettyPath(params.FilePath))
+	}
+	if params.Timeout != 0 {
+		toolParams = append(toolParams, "timeout", formatTimeout(params.Timeout))
+	}
+
+	header := toolHeader(sty, opts.Status(), "Download", cappedWidth, opts.Simple, toolParams...)
+	if opts.Simple {
+		return header
+	}
+
+	if earlyState, ok := toolEarlyStateContent(sty, opts, cappedWidth); ok {
+		return joinToolParts(header, earlyState)
+	}
+
+	if opts.Result == nil || opts.Result.Content == "" {
+		return header
+	}
+
+	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.Expanded))
 	return joinToolParts(header, body)
 }

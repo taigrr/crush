@@ -1,0 +1,84 @@
+package chat
+
+import (
+	"encoding/json"
+
+	"github.com/charmbracelet/crush/internal/agent/tools"
+	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/ui/styles"
+)
+
+// -----------------------------------------------------------------------------
+// Fetch Tool
+// -----------------------------------------------------------------------------
+
+// FetchToolMessageItem is a message item that represents a fetch tool call.
+type FetchToolMessageItem struct {
+	*baseToolMessageItem
+}
+
+var _ ToolMessageItem = (*FetchToolMessageItem)(nil)
+
+// NewFetchToolMessageItem creates a new [FetchToolMessageItem].
+func NewFetchToolMessageItem(
+	sty *styles.Styles,
+	toolCall message.ToolCall,
+	result *message.ToolResult,
+	canceled bool,
+) ToolMessageItem {
+	return newBaseToolMessageItem(sty, toolCall, result, &FetchToolRenderContext{}, canceled)
+}
+
+// FetchToolRenderContext renders fetch tool messages.
+type FetchToolRenderContext struct{}
+
+// RenderTool implements the [ToolRenderer] interface.
+func (f *FetchToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
+	cappedWidth := cappedMessageWidth(width)
+	if !opts.ToolCall.Finished && !opts.Canceled {
+		return pendingTool(sty, "Fetch", opts.Anim)
+	}
+
+	var params tools.FetchParams
+	if err := json.Unmarshal([]byte(opts.ToolCall.Input), &params); err != nil {
+		return toolErrorContent(sty, &message.ToolResult{Content: "Invalid parameters"}, cappedWidth)
+	}
+
+	toolParams := []string{params.URL}
+	if params.Format != "" {
+		toolParams = append(toolParams, "format", params.Format)
+	}
+	if params.Timeout != 0 {
+		toolParams = append(toolParams, "timeout", formatTimeout(params.Timeout))
+	}
+
+	header := toolHeader(sty, opts.Status(), "Fetch", cappedWidth, opts.Simple, toolParams...)
+	if opts.Simple {
+		return header
+	}
+
+	if earlyState, ok := toolEarlyStateContent(sty, opts, cappedWidth); ok {
+		return joinToolParts(header, earlyState)
+	}
+
+	if opts.Result == nil || opts.Result.Content == "" {
+		return header
+	}
+
+	// Determine file extension for syntax highlighting based on format.
+	file := getFileExtensionForFormat(params.Format)
+	body := toolOutputCodeContent(sty, file, opts.Result.Content, 0, cappedWidth, opts.Expanded)
+	return joinToolParts(header, body)
+}
+
+// getFileExtensionForFormat returns a filename with appropriate extension for syntax highlighting.
+func getFileExtensionForFormat(format string) string {
+	switch format {
+	case "text":
+		return "fetch.txt"
+	case "html":
+		return "fetch.html"
+	default:
+		return "fetch.md"
+	}
+}

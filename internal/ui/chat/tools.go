@@ -40,6 +40,12 @@ type ToolMessageItem interface {
 	SetResult(res *message.ToolResult)
 }
 
+// Simplifiable is an interface for tool items that can render in a simplified mode.
+// When simple mode is enabled, tools render as a compact single-line header.
+type Simplifiable interface {
+	SetSimple(simple bool)
+}
+
 // DefaultToolRenderContext implements the default [ToolRenderer] interface.
 type DefaultToolRenderContext struct{}
 
@@ -55,7 +61,7 @@ type ToolRenderOpts struct {
 	Canceled            bool
 	Anim                *anim.Anim
 	Expanded            bool
-	Nested              bool
+	Simple              bool
 	IsSpinning          bool
 	PermissionRequested bool
 	PermissionGranted   bool
@@ -106,6 +112,8 @@ type baseToolMessageItem struct {
 	// we use this so we can efficiently cache
 	// tools that have a capped width (e.x bash.. and others)
 	hasCappedWidth bool
+	// isSimple indicates this tool should render in simplified/compact mode.
+	isSimple bool
 
 	sty      *styles.Styles
 	anim     *anim.Anim
@@ -177,6 +185,14 @@ func NewToolMessageItem(
 		return NewGrepToolMessageItem(sty, toolCall, result, canceled)
 	case tools.LSToolName:
 		return NewLSToolMessageItem(sty, toolCall, result, canceled)
+	case tools.DownloadToolName:
+		return NewDownloadToolMessageItem(sty, toolCall, result, canceled)
+	case tools.FetchToolName:
+		return NewFetchToolMessageItem(sty, toolCall, result, canceled)
+	case tools.SourcegraphToolName:
+		return NewSourcegraphToolMessageItem(sty, toolCall, result, canceled)
+	case tools.DiagnosticsToolName:
+		return NewDiagnosticsToolMessageItem(sty, toolCall, result, canceled)
 	default:
 		// TODO: Implement other tool items
 		return newBaseToolMessageItem(
@@ -187,6 +203,12 @@ func NewToolMessageItem(
 			canceled,
 		)
 	}
+}
+
+// SetSimple implements the Simplifiable interface.
+func (t *baseToolMessageItem) SetSimple(simple bool) {
+	t.isSimple = simple
+	t.clearCache()
 }
 
 // ID returns the unique identifier for this tool message item.
@@ -230,6 +252,7 @@ func (t *baseToolMessageItem) Render(width int) string {
 			Canceled:            t.canceled,
 			Anim:                t.anim,
 			Expanded:            t.expanded,
+			Simple:              t.isSimple,
 			PermissionRequested: t.permissionRequested,
 			PermissionGranted:   t.permissionGranted,
 			IsSpinning:          t.isSpinning(),
@@ -487,10 +510,10 @@ func toolOutputCodeContent(sty *styles.Styles, path, content string, offset, wid
 
 	// Add truncation message if needed.
 	if len(lines) > maxLines && !expanded {
-		truncMsg := sty.Tool.ContentCodeTruncation.
+		out = append(out, sty.Tool.ContentCodeTruncation.
 			Width(bodyWidth).
-			Render(fmt.Sprintf(assistantMessageTruncateFormat, len(lines)-maxLines))
-		out = append([]string{truncMsg}, out...)
+			Render(fmt.Sprintf(assistantMessageTruncateFormat, len(lines)-maxLines)),
+		)
 	}
 
 	return sty.Tool.Body.Render(strings.Join(out, "\n"))
@@ -572,6 +595,23 @@ func toolOutputDiffContent(sty *styles.Styles, file, oldContent, newContent stri
 	}
 
 	return sty.Tool.Body.Render(formatted)
+}
+
+// formatTimeout converts timeout seconds to a duration string (e.g., "30s").
+// Returns empty string if timeout is 0.
+func formatTimeout(timeout int) string {
+	if timeout == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%ds", timeout)
+}
+
+// formatNonZero returns string representation of non-zero integers, empty string for zero.
+func formatNonZero(value int) string {
+	if value == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", value)
 }
 
 // toolOutputMultiEditDiffContent renders a diff with optional failed edits note.

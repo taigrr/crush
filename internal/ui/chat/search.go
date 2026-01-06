@@ -50,8 +50,8 @@ func (g *GlobToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "path", params.Path)
 	}
 
-	header := toolHeader(sty, opts.Status(), "Glob", cappedWidth, opts.Nested, toolParams...)
-	if opts.Nested {
+	header := toolHeader(sty, opts.Status(), "Glob", cappedWidth, opts.Simple, toolParams...)
+	if opts.Simple {
 		return header
 	}
 
@@ -115,8 +115,8 @@ func (g *GrepToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "literal", "true")
 	}
 
-	header := toolHeader(sty, opts.Status(), "Grep", cappedWidth, opts.Nested, toolParams...)
-	if opts.Nested {
+	header := toolHeader(sty, opts.Status(), "Grep", cappedWidth, opts.Simple, toolParams...)
+	if opts.Simple {
 		return header
 	}
 
@@ -175,8 +175,70 @@ func (l *LSToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *To
 	}
 	path = fsext.PrettyPath(path)
 
-	header := toolHeader(sty, opts.Status(), "List", cappedWidth, opts.Nested, path)
-	if opts.Nested {
+	header := toolHeader(sty, opts.Status(), "List", cappedWidth, opts.Simple, path)
+	if opts.Simple {
+		return header
+	}
+
+	if earlyState, ok := toolEarlyStateContent(sty, opts, cappedWidth); ok {
+		return joinToolParts(header, earlyState)
+	}
+
+	if opts.Result == nil || opts.Result.Content == "" {
+		return header
+	}
+
+	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.Expanded))
+	return joinToolParts(header, body)
+}
+
+// -----------------------------------------------------------------------------
+// Sourcegraph Tool
+// -----------------------------------------------------------------------------
+
+// SourcegraphToolMessageItem is a message item that represents a sourcegraph tool call.
+type SourcegraphToolMessageItem struct {
+	*baseToolMessageItem
+}
+
+var _ ToolMessageItem = (*SourcegraphToolMessageItem)(nil)
+
+// NewSourcegraphToolMessageItem creates a new [SourcegraphToolMessageItem].
+func NewSourcegraphToolMessageItem(
+	sty *styles.Styles,
+	toolCall message.ToolCall,
+	result *message.ToolResult,
+	canceled bool,
+) ToolMessageItem {
+	return newBaseToolMessageItem(sty, toolCall, result, &SourcegraphToolRenderContext{}, canceled)
+}
+
+// SourcegraphToolRenderContext renders sourcegraph tool messages.
+type SourcegraphToolRenderContext struct{}
+
+// RenderTool implements the [ToolRenderer] interface.
+func (s *SourcegraphToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
+	cappedWidth := cappedMessageWidth(width)
+	if !opts.ToolCall.Finished && !opts.Canceled {
+		return pendingTool(sty, "Sourcegraph", opts.Anim)
+	}
+
+	var params tools.SourcegraphParams
+	if err := json.Unmarshal([]byte(opts.ToolCall.Input), &params); err != nil {
+		return toolErrorContent(sty, &message.ToolResult{Content: "Invalid parameters"}, cappedWidth)
+	}
+
+	toolParams := []string{params.Query}
+	if params.Count != 0 {
+		toolParams = append(toolParams, "count", formatNonZero(params.Count))
+	}
+	if params.ContextWindow != 0 {
+		toolParams = append(toolParams, "context", formatNonZero(params.ContextWindow))
+	}
+
+	header := toolHeader(sty, opts.Status(), "Sourcegraph", cappedWidth, opts.Simple, toolParams...)
+	if opts.Simple {
 		return header
 	}
 
