@@ -200,8 +200,15 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case pubsub.Event[message.Message]:
-		// TODO: handle nested messages for agentic tools
-		if m.session == nil || msg.Payload.SessionID != m.session.ID {
+		// Check if this is a child session message for an agent tool.
+		if m.session == nil {
+			break
+		}
+		if msg.Payload.SessionID != m.session.ID {
+			// This might be a child session message from an agent tool.
+			if cmd := m.handleChildSessionMessage(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 			break
 		}
 		switch msg.Type {
@@ -384,6 +391,9 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 		items = append(items, chat.ExtractMessageItems(m.com.Styles, msg, toolResultMap)...)
 	}
 
+	// Load nested tool calls for agent/agentic_fetch tools.
+	m.loadNestedToolCalls(items)
+
 	// If the user switches between sessions while the agent is working we want
 	// to make sure the animations are shown.
 	for _, item := range items {
@@ -400,6 +410,64 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 	}
 	m.chat.SelectLast()
 	return tea.Batch(cmds...)
+}
+
+// loadNestedToolCalls recursively loads nested tool calls for agent/agentic_fetch tools.
+func (m *UI) loadNestedToolCalls(items []chat.MessageItem) {
+	for _, item := range items {
+		nestedContainer, ok := item.(chat.NestedToolContainer)
+		if !ok {
+			continue
+		}
+		toolItem, ok := item.(chat.ToolMessageItem)
+		if !ok {
+			continue
+		}
+
+		tc := toolItem.ToolCall()
+		messageID := toolItem.MessageID()
+
+		// Get the agent tool session ID.
+		agentSessionID := m.com.App.Sessions.CreateAgentToolSessionID(messageID, tc.ID)
+
+		// Fetch nested messages.
+		nestedMsgs, err := m.com.App.Messages.List(context.Background(), agentSessionID)
+		if err != nil || len(nestedMsgs) == 0 {
+			continue
+		}
+
+		// Build tool result map for nested messages.
+		nestedMsgPtrs := make([]*message.Message, len(nestedMsgs))
+		for i := range nestedMsgs {
+			nestedMsgPtrs[i] = &nestedMsgs[i]
+		}
+		nestedToolResultMap := chat.BuildToolResultMap(nestedMsgPtrs)
+
+		// Extract nested tool items.
+		var nestedTools []chat.ToolMessageItem
+		for _, nestedMsg := range nestedMsgPtrs {
+			nestedItems := chat.ExtractMessageItems(m.com.Styles, nestedMsg, nestedToolResultMap)
+			for _, nestedItem := range nestedItems {
+				if nestedToolItem, ok := nestedItem.(chat.ToolMessageItem); ok {
+					// Mark nested tools as simple (compact) rendering.
+					if simplifiable, ok := nestedToolItem.(chat.Compactable); ok {
+						simplifiable.SetCompact(true)
+					}
+					nestedTools = append(nestedTools, nestedToolItem)
+				}
+			}
+		}
+
+		// Recursively load nested tool calls for any agent tools within.
+		nestedMessageItems := make([]chat.MessageItem, len(nestedTools))
+		for i, nt := range nestedTools {
+			nestedMessageItems[i] = nt
+		}
+		m.loadNestedToolCalls(nestedMessageItems)
+
+		// Set nested tools on the parent.
+		nestedContainer.SetNestedTools(nestedTools)
+	}
 }
 
 // appendSessionMessage appends a new message to the current session in the chat
@@ -465,7 +533,7 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 			}
 		}
 		if existingToolItem == nil {
-			items = append(items, chat.NewToolMessageItem(m.com.Styles, tc, nil, false))
+			items = append(items, chat.NewToolMessageItem(m.com.Styles, msg.ID, tc, nil, false))
 		}
 	}
 
@@ -480,6 +548,92 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 	if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+
+	return tea.Batch(cmds...)
+}
+
+// handleChildSessionMessage handles messages from child sessions (agent tools).
+func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.Cmd {
+	var cmds []tea.Cmd
+
+	// Only process messages with tool calls or results.
+	if len(event.Payload.ToolCalls()) == 0 && len(event.Payload.ToolResults()) == 0 {
+		return nil
+	}
+
+	// Check if this is an agent tool session and parse it.
+	childSessionID := event.Payload.SessionID
+	_, toolCallID, ok := m.com.App.Sessions.ParseAgentToolSessionID(childSessionID)
+	if !ok {
+		return nil
+	}
+
+	// Find the parent agent tool item.
+	var agentItem chat.NestedToolContainer
+	for i := 0; i < m.chat.Len(); i++ {
+		item := m.chat.MessageItem(toolCallID)
+		if item == nil {
+			continue
+		}
+		if agent, ok := item.(chat.NestedToolContainer); ok {
+			if toolMessageItem, ok := item.(chat.ToolMessageItem); ok {
+				if toolMessageItem.ToolCall().ID == toolCallID {
+					// Verify this agent belongs to the correct parent message.
+					// We can't directly check parentMessageID on the item, so we trust the session parsing.
+					agentItem = agent
+					break
+				}
+			}
+		}
+	}
+
+	if agentItem == nil {
+		return nil
+	}
+
+	// Get existing nested tools.
+	nestedTools := agentItem.NestedTools()
+
+	// Update or create nested tool calls.
+	for _, tc := range event.Payload.ToolCalls() {
+		found := false
+		for _, existingTool := range nestedTools {
+			if existingTool.ToolCall().ID == tc.ID {
+				existingTool.SetToolCall(tc)
+				found = true
+				break
+			}
+		}
+		if !found {
+			// Create a new nested tool item.
+			nestedItem := chat.NewToolMessageItem(m.com.Styles, event.Payload.ID, tc, nil, false)
+			if simplifiable, ok := nestedItem.(chat.Compactable); ok {
+				simplifiable.SetCompact(true)
+			}
+			if animatable, ok := nestedItem.(chat.Animatable); ok {
+				if cmd := animatable.StartAnimation(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+			nestedTools = append(nestedTools, nestedItem)
+		}
+	}
+
+	// Update nested tool results.
+	for _, tr := range event.Payload.ToolResults() {
+		for _, nestedTool := range nestedTools {
+			if nestedTool.ToolCall().ID == tr.ToolCallID {
+				nestedTool.SetResult(&tr)
+				break
+			}
+		}
+	}
+
+	// Update the agent item with the new nested tools.
+	agentItem.SetNestedTools(nestedTools)
+
+	// Update the chat so it updates the index map for animations to work as expected
+	m.chat.UpdateNestedToolIDs(toolCallID)
 
 	return tea.Batch(cmds...)
 }

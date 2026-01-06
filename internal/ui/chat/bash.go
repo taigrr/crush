@@ -69,8 +69,8 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "background", "true")
 	}
 
-	header := toolHeader(sty, opts.Status(), "Bash", cappedWidth, opts.Nested, toolParams...)
-	if opts.Nested {
+	header := toolHeader(sty, opts.Status(), "Bash", cappedWidth, opts.Compact, toolParams...)
+	if opts.Compact {
 		return header
 	}
 
@@ -91,7 +91,7 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, output, bodyWidth, opts.Expanded))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, output, bodyWidth, opts.ExpandedContent))
 	return joinToolParts(header, body)
 }
 
@@ -201,7 +201,7 @@ func (j *JobKillToolRenderContext) RenderTool(sty *styles.Styles, width int, opt
 // header → nested check → early state → body.
 func renderJobTool(sty *styles.Styles, opts *ToolRenderOpts, width int, action, shellID, description, content string) string {
 	header := jobHeader(sty, opts.Status(), action, shellID, description, width)
-	if opts.Nested {
+	if opts.Compact {
 		return header
 	}
 
@@ -214,7 +214,7 @@ func renderJobTool(sty *styles.Styles, opts *ToolRenderOpts, width int, action, 
 	}
 
 	bodyWidth := width - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, content, bodyWidth, opts.Expanded))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, content, bodyWidth, opts.ExpandedContent))
 	return joinToolParts(header, body)
 }
 

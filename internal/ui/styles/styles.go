@@ -210,6 +210,7 @@ type Styles struct {
 			ErrorDetails     lipgloss.Style
 			Attachment       lipgloss.Style
 			ToolCallFocused  lipgloss.Style
+			ToolCallCompact  lipgloss.Style
 			ToolCallBlurred  lipgloss.Style
 			SectionHeader    lipgloss.Style
 
@@ -277,6 +278,15 @@ type Styles struct {
 		// Agent task styles
 		AgentTaskTag lipgloss.Style // Agent task tag (blue background, bold)
 		AgentPrompt  lipgloss.Style // Agent prompt text
+
+		// Agentic fetch styles
+		AgenticFetchPromptTag lipgloss.Style // Agentic fetch prompt tag (green background, bold)
+
+		// Todo styles
+		TodoRatio          lipgloss.Style // Todo ratio (e.g., "2/5")
+		TodoCompletedIcon  lipgloss.Style // Completed todo icon
+		TodoInProgressIcon lipgloss.Style // In-progress todo icon
+		TodoPendingIcon    lipgloss.Style // Pending todo icon
 	}
 
 	// Dialog styles
@@ -1022,6 +1032,15 @@ func DefaultStyles() Styles {
 	s.Tool.AgentTaskTag = base.Bold(true).Padding(0, 1).MarginLeft(2).Background(blueLight).Foreground(white)
 	s.Tool.AgentPrompt = s.Muted
 
+	// Agentic fetch styles
+	s.Tool.AgenticFetchPromptTag = base.Bold(true).Padding(0, 1).MarginLeft(2).Background(green).Foreground(border)
+
+	// Todo styles
+	s.Tool.TodoRatio = base.Foreground(blueDark)
+	s.Tool.TodoCompletedIcon = base.Foreground(green)
+	s.Tool.TodoInProgressIcon = base.Foreground(greenDark)
+	s.Tool.TodoPendingIcon = base.Foreground(fgMuted)
+
 	// Buttons
 	s.ButtonFocus = lipgloss.NewStyle().Foreground(white).Background(secondary)
 	s.ButtonBlur = s.Base.Background(bgSubtle)
@@ -1099,6 +1118,8 @@ func DefaultStyles() Styles {
 		BorderLeft(true).
 		BorderForeground(greenDark)
 	s.Chat.Message.ToolCallBlurred = s.Muted.PaddingLeft(2)
+	// No padding or border for compact tool calls within messages
+	s.Chat.Message.ToolCallCompact = s.Muted
 	s.Chat.Message.SectionHeader = s.Base.PaddingLeft(2)
 
 	// Thinking section styles
