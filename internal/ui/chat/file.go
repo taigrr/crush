@@ -56,8 +56,8 @@ func (v *ViewToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "offset", fmt.Sprintf("%d", params.Offset))
 	}
 
-	header := toolHeader(sty, opts.Status(), "View", cappedWidth, opts.Simple, toolParams...)
-	if opts.Simple {
+	header := toolHeader(sty, opts.Status(), "View", cappedWidth, opts.Compact, toolParams...)
+	if opts.Compact {
 		return header
 	}
 
@@ -87,7 +87,7 @@ func (v *ViewToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	}
 
 	// Render code content with syntax highlighting.
-	body := toolOutputCodeContent(sty, params.FilePath, content, params.Offset, cappedWidth, opts.Expanded)
+	body := toolOutputCodeContent(sty, params.FilePath, content, params.Offset, cappedWidth, opts.ExpandedContent)
 	return joinToolParts(header, body)
 }
 
@@ -128,8 +128,8 @@ func (w *WriteToolRenderContext) RenderTool(sty *styles.Styles, width int, opts 
 	}
 
 	file := fsext.PrettyPath(params.FilePath)
-	header := toolHeader(sty, opts.Status(), "Write", cappedWidth, opts.Simple, file)
-	if opts.Simple {
+	header := toolHeader(sty, opts.Status(), "Write", cappedWidth, opts.Compact, file)
+	if opts.Compact {
 		return header
 	}
 
@@ -142,7 +142,7 @@ func (w *WriteToolRenderContext) RenderTool(sty *styles.Styles, width int, opts 
 	}
 
 	// Render code content with syntax highlighting.
-	body := toolOutputCodeContent(sty, params.FilePath, params.Content, 0, cappedWidth, opts.Expanded)
+	body := toolOutputCodeContent(sty, params.FilePath, params.Content, 0, cappedWidth, opts.ExpandedContent)
 	return joinToolParts(header, body)
 }
 
@@ -183,8 +183,8 @@ func (e *EditToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	}
 
 	file := fsext.PrettyPath(params.FilePath)
-	header := toolHeader(sty, opts.Status(), "Edit", width, opts.Simple, file)
-	if opts.Simple {
+	header := toolHeader(sty, opts.Status(), "Edit", width, opts.Compact, file)
+	if opts.Compact {
 		return header
 	}
 
@@ -200,12 +200,12 @@ func (e *EditToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	var meta tools.EditResponseMetadata
 	if err := json.Unmarshal([]byte(opts.Result.Metadata), &meta); err != nil {
 		bodyWidth := width - toolBodyLeftPaddingTotal
-		body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.Expanded))
+		body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
 		return joinToolParts(header, body)
 	}
 
 	// Render diff.
-	body := toolOutputDiffContent(sty, file, meta.OldContent, meta.NewContent, width, opts.Expanded)
+	body := toolOutputDiffContent(sty, file, meta.OldContent, meta.NewContent, width, opts.ExpandedContent)
 	return joinToolParts(header, body)
 }
 
@@ -251,8 +251,8 @@ func (m *MultiEditToolRenderContext) RenderTool(sty *styles.Styles, width int, o
 		toolParams = append(toolParams, "edits", fmt.Sprintf("%d", len(params.Edits)))
 	}
 
-	header := toolHeader(sty, opts.Status(), "Multi-Edit", width, opts.Simple, toolParams...)
-	if opts.Simple {
+	header := toolHeader(sty, opts.Status(), "Multi-Edit", width, opts.Compact, toolParams...)
+	if opts.Compact {
 		return header
 	}
 
@@ -268,12 +268,12 @@ func (m *MultiEditToolRenderContext) RenderTool(sty *styles.Styles, width int, o
 	var meta tools.MultiEditResponseMetadata
 	if err := json.Unmarshal([]byte(opts.Result.Metadata), &meta); err != nil {
 		bodyWidth := width - toolBodyLeftPaddingTotal
-		body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.Expanded))
+		body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
 		return joinToolParts(header, body)
 	}
 
 	// Render diff with optional failed edits note.
-	body := toolOutputMultiEditDiffContent(sty, file, meta, len(params.Edits), width, opts.Expanded)
+	body := toolOutputMultiEditDiffContent(sty, file, meta, len(params.Edits), width, opts.ExpandedContent)
 	return joinToolParts(header, body)
 }
 
@@ -321,8 +321,8 @@ func (d *DownloadToolRenderContext) RenderTool(sty *styles.Styles, width int, op
 		toolParams = append(toolParams, "timeout", formatTimeout(params.Timeout))
 	}
 
-	header := toolHeader(sty, opts.Status(), "Download", cappedWidth, opts.Simple, toolParams...)
-	if opts.Simple {
+	header := toolHeader(sty, opts.Status(), "Download", cappedWidth, opts.Compact, toolParams...)
+	if opts.Compact {
 		return header
 	}
 
@@ -335,6 +335,6 @@ func (d *DownloadToolRenderContext) RenderTool(sty *styles.Styles, width int, op
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.Expanded))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
 	return joinToolParts(header, body)
 }

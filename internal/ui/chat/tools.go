@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/tree"
+	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/ui/anim"
@@ -38,13 +40,26 @@ type ToolMessageItem interface {
 	ToolCall() message.ToolCall
 	SetToolCall(tc message.ToolCall)
 	SetResult(res *message.ToolResult)
+	MessageID() string
+	SetMessageID(id string)
 }
 
-// Simplifiable is an interface for tool items that can render in a simplified mode.
-// When simple mode is enabled, tools render as a compact single-line header.
-type Simplifiable interface {
-	SetSimple(simple bool)
+// Compactable is an interface for tool items that can render in a compacted mode.
+// When compact mode is enabled, tools render as a compact single-line header.
+type Compactable interface {
+	SetCompact(compact bool)
 }
+
+// IsSpinningState contains the state passed to IsSpinningFn for custom spinning logic.
+type IsSpinningState struct {
+	ToolCall message.ToolCall
+	Result   *message.ToolResult
+	Canceled bool
+}
+
+// IsSpinningFn is a function type for custom spinning logic.
+// Returns true if the tool should show the spinning animation.
+type IsSpinningFn func(state IsSpinningState) bool
 
 // DefaultToolRenderContext implements the default [ToolRenderer] interface.
 type DefaultToolRenderContext struct{}
@@ -60,8 +75,8 @@ type ToolRenderOpts struct {
 	Result              *message.ToolResult
 	Canceled            bool
 	Anim                *anim.Anim
-	Expanded            bool
-	Simple              bool
+	ExpandedContent     bool
+	Compact             bool
 	IsSpinning          bool
 	PermissionRequested bool
 	PermissionGranted   bool
@@ -106,18 +121,22 @@ type baseToolMessageItem struct {
 	toolRenderer        ToolRenderer
 	toolCall            message.ToolCall
 	result              *message.ToolResult
+	messageID           string
 	canceled            bool
 	permissionRequested bool
 	permissionGranted   bool
 	// we use this so we can efficiently cache
 	// tools that have a capped width (e.x bash.. and others)
 	hasCappedWidth bool
-	// isSimple indicates this tool should render in simplified/compact mode.
-	isSimple bool
+	// isCompact indicates this tool should render in compact mode.
+	isCompact bool
+	// isSpinningFn allows tools to override the default spinning logic.
+	// If nil, uses the default: !toolCall.Finished && !canceled.
+	isSpinningFn IsSpinningFn
 
-	sty      *styles.Styles
-	anim     *anim.Anim
-	expanded bool
+	sty             *styles.Styles
+	anim            *anim.Anim
+	expandedContent bool
 }
 
 // newBaseToolMessageItem is the internal constructor for base tool message items.
@@ -157,45 +176,58 @@ func newBaseToolMessageItem(
 // NewToolMessageItem creates a new [ToolMessageItem] based on the tool call name.
 //
 // It returns a specific tool message item type if implemented, otherwise it
-// returns a generic tool message item.
+// returns a generic tool message item. The messageID is the ID of the assistant
+// message containing this tool call.
 func NewToolMessageItem(
 	sty *styles.Styles,
+	messageID string,
 	toolCall message.ToolCall,
 	result *message.ToolResult,
 	canceled bool,
 ) ToolMessageItem {
+	var item ToolMessageItem
 	switch toolCall.Name {
 	case tools.BashToolName:
-		return NewBashToolMessageItem(sty, toolCall, result, canceled)
+		item = NewBashToolMessageItem(sty, toolCall, result, canceled)
 	case tools.JobOutputToolName:
-		return NewJobOutputToolMessageItem(sty, toolCall, result, canceled)
+		item = NewJobOutputToolMessageItem(sty, toolCall, result, canceled)
 	case tools.JobKillToolName:
-		return NewJobKillToolMessageItem(sty, toolCall, result, canceled)
+		item = NewJobKillToolMessageItem(sty, toolCall, result, canceled)
 	case tools.ViewToolName:
-		return NewViewToolMessageItem(sty, toolCall, result, canceled)
+		item = NewViewToolMessageItem(sty, toolCall, result, canceled)
 	case tools.WriteToolName:
-		return NewWriteToolMessageItem(sty, toolCall, result, canceled)
+		item = NewWriteToolMessageItem(sty, toolCall, result, canceled)
 	case tools.EditToolName:
-		return NewEditToolMessageItem(sty, toolCall, result, canceled)
+		item = NewEditToolMessageItem(sty, toolCall, result, canceled)
 	case tools.MultiEditToolName:
-		return NewMultiEditToolMessageItem(sty, toolCall, result, canceled)
+		item = NewMultiEditToolMessageItem(sty, toolCall, result, canceled)
 	case tools.GlobToolName:
-		return NewGlobToolMessageItem(sty, toolCall, result, canceled)
+		item = NewGlobToolMessageItem(sty, toolCall, result, canceled)
 	case tools.GrepToolName:
-		return NewGrepToolMessageItem(sty, toolCall, result, canceled)
+		item = NewGrepToolMessageItem(sty, toolCall, result, canceled)
 	case tools.LSToolName:
-		return NewLSToolMessageItem(sty, toolCall, result, canceled)
+		item = NewLSToolMessageItem(sty, toolCall, result, canceled)
 	case tools.DownloadToolName:
-		return NewDownloadToolMessageItem(sty, toolCall, result, canceled)
+		item = NewDownloadToolMessageItem(sty, toolCall, result, canceled)
 	case tools.FetchToolName:
-		return NewFetchToolMessageItem(sty, toolCall, result, canceled)
+		item = NewFetchToolMessageItem(sty, toolCall, result, canceled)
 	case tools.SourcegraphToolName:
-		return NewSourcegraphToolMessageItem(sty, toolCall, result, canceled)
+		item = NewSourcegraphToolMessageItem(sty, toolCall, result, canceled)
 	case tools.DiagnosticsToolName:
-		return NewDiagnosticsToolMessageItem(sty, toolCall, result, canceled)
+		item = NewDiagnosticsToolMessageItem(sty, toolCall, result, canceled)
+	case agent.AgentToolName:
+		item = NewAgentToolMessageItem(sty, toolCall, result, canceled)
+	case tools.AgenticFetchToolName:
+		item = NewAgenticFetchToolMessageItem(sty, toolCall, result, canceled)
+	case tools.WebFetchToolName:
+		item = NewWebFetchToolMessageItem(sty, toolCall, result, canceled)
+	case tools.WebSearchToolName:
+		item = NewWebSearchToolMessageItem(sty, toolCall, result, canceled)
+	case tools.TodosToolName:
+		item = NewTodosToolMessageItem(sty, toolCall, result, canceled)
 	default:
 		// TODO: Implement other tool items
-		return newBaseToolMessageItem(
+		item = newBaseToolMessageItem(
 			sty,
 			toolCall,
 			result,
@@ -203,11 +235,13 @@ func NewToolMessageItem(
 			canceled,
 		)
 	}
+	item.SetMessageID(messageID)
+	return item
 }
 
-// SetSimple implements the Simplifiable interface.
-func (t *baseToolMessageItem) SetSimple(simple bool) {
-	t.isSimple = simple
+// SetCompact implements the Compactable interface.
+func (t *baseToolMessageItem) SetCompact(compact bool) {
+	t.isCompact = compact
 	t.clearCache()
 }
 
@@ -243,6 +277,10 @@ func (t *baseToolMessageItem) Render(width int) string {
 		style = t.sty.Chat.Message.ToolCallFocused
 	}
 
+	if t.isCompact {
+		style = t.sty.Chat.Message.ToolCallCompact
+	}
+
 	content, height, ok := t.getCachedRender(toolItemWidth)
 	// if we are spinning or there is no cache rerender
 	if !ok || t.isSpinning() {
@@ -251,8 +289,8 @@ func (t *baseToolMessageItem) Render(width int) string {
 			Result:              t.result,
 			Canceled:            t.canceled,
 			Anim:                t.anim,
-			Expanded:            t.expanded,
-			Simple:              t.isSimple,
+			ExpandedContent:     t.expandedContent,
+			Compact:             t.isCompact,
 			PermissionRequested: t.permissionRequested,
 			PermissionGranted:   t.permissionGranted,
 			IsSpinning:          t.isSpinning(),
@@ -283,6 +321,16 @@ func (t *baseToolMessageItem) SetResult(res *message.ToolResult) {
 	t.clearCache()
 }
 
+// MessageID returns the ID of the message containing this tool call.
+func (t *baseToolMessageItem) MessageID() string {
+	return t.messageID
+}
+
+// SetMessageID sets the ID of the message containing this tool call.
+func (t *baseToolMessageItem) SetMessageID(id string) {
+	t.messageID = id
+}
+
 // SetPermissionRequested sets whether permission has been requested for this tool call.
 // TODO: Consider merging with SetPermissionGranted and add an interface for
 // permission management.
@@ -301,12 +349,24 @@ func (t *baseToolMessageItem) SetPermissionGranted(granted bool) {
 
 // isSpinning returns true if the tool should show animation.
 func (t *baseToolMessageItem) isSpinning() bool {
+	if t.isSpinningFn != nil {
+		return t.isSpinningFn(IsSpinningState{
+			ToolCall: t.toolCall,
+			Result:   t.result,
+			Canceled: t.canceled,
+		})
+	}
 	return !t.toolCall.Finished && !t.canceled
+}
+
+// SetIsSpinningFn sets a custom function to determine if the tool should spin.
+func (t *baseToolMessageItem) SetIsSpinningFn(fn IsSpinningFn) {
+	t.isSpinningFn = fn
 }
 
 // ToggleExpanded toggles the expanded state of the thinking box.
 func (t *baseToolMessageItem) ToggleExpanded() {
-	t.expanded = !t.expanded
+	t.expandedContent = !t.expandedContent
 	t.clearCache()
 }
 
@@ -653,4 +713,63 @@ func toolOutputMultiEditDiffContent(sty *styles.Styles, file string, meta tools.
 	}
 
 	return sty.Tool.Body.Render(formatted)
+}
+
+// roundedEnumerator creates a tree enumerator with rounded corners.
+func roundedEnumerator(lPadding, width int) tree.Enumerator {
+	if width == 0 {
+		width = 2
+	}
+	if lPadding == 0 {
+		lPadding = 1
+	}
+	return func(children tree.Children, index int) string {
+		line := strings.Repeat("─", width)
+		padding := strings.Repeat(" ", lPadding)
+		if children.Length()-1 == index {
+			return padding + "╰" + line
+		}
+		return padding + "├" + line
+	}
+}
+
+// toolOutputMarkdownContent renders markdown content with optional truncation.
+func toolOutputMarkdownContent(sty *styles.Styles, content string, width int, expanded bool) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\t", "    ")
+	content = strings.TrimSpace(content)
+
+	// Cap width for readability.
+	if width > 120 {
+		width = 120
+	}
+
+	renderer := common.PlainMarkdownRenderer(sty, width)
+	rendered, err := renderer.Render(content)
+	if err != nil {
+		return toolOutputPlainContent(sty, content, width, expanded)
+	}
+
+	lines := strings.Split(rendered, "\n")
+	maxLines := responseContextHeight
+	if expanded {
+		maxLines = len(lines)
+	}
+
+	var out []string
+	for i, ln := range lines {
+		if i >= maxLines {
+			break
+		}
+		out = append(out, ln)
+	}
+
+	if len(lines) > maxLines && !expanded {
+		out = append(out, sty.Tool.ContentTruncation.
+			Width(width).
+			Render(fmt.Sprintf(assistantMessageTruncateFormat, len(lines)-maxLines)),
+		)
+	}
+
+	return sty.Tool.Body.Render(strings.Join(out, "\n"))
 }

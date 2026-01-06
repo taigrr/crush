@@ -52,8 +52,8 @@ func (f *FetchToolRenderContext) RenderTool(sty *styles.Styles, width int, opts 
 		toolParams = append(toolParams, "timeout", formatTimeout(params.Timeout))
 	}
 
-	header := toolHeader(sty, opts.Status(), "Fetch", cappedWidth, opts.Simple, toolParams...)
-	if opts.Simple {
+	header := toolHeader(sty, opts.Status(), "Fetch", cappedWidth, opts.Compact, toolParams...)
+	if opts.Compact {
 		return header
 	}
 
@@ -67,7 +67,7 @@ func (f *FetchToolRenderContext) RenderTool(sty *styles.Styles, width int, opts 
 
 	// Determine file extension for syntax highlighting based on format.
 	file := getFileExtensionForFormat(params.Format)
-	body := toolOutputCodeContent(sty, file, opts.Result.Content, 0, cappedWidth, opts.Expanded)
+	body := toolOutputCodeContent(sty, file, opts.Result.Content, 0, cappedWidth, opts.ExpandedContent)
 	return joinToolParts(header, body)
 }
 
@@ -81,4 +81,112 @@ func getFileExtensionForFormat(format string) string {
 	default:
 		return "fetch.md"
 	}
+}
+
+// -----------------------------------------------------------------------------
+// WebFetch Tool
+// -----------------------------------------------------------------------------
+
+// WebFetchToolMessageItem is a message item that represents a web_fetch tool call.
+type WebFetchToolMessageItem struct {
+	*baseToolMessageItem
+}
+
+var _ ToolMessageItem = (*WebFetchToolMessageItem)(nil)
+
+// NewWebFetchToolMessageItem creates a new [WebFetchToolMessageItem].
+func NewWebFetchToolMessageItem(
+	sty *styles.Styles,
+	toolCall message.ToolCall,
+	result *message.ToolResult,
+	canceled bool,
+) ToolMessageItem {
+	return newBaseToolMessageItem(sty, toolCall, result, &WebFetchToolRenderContext{}, canceled)
+}
+
+// WebFetchToolRenderContext renders web_fetch tool messages.
+type WebFetchToolRenderContext struct{}
+
+// RenderTool implements the [ToolRenderer] interface.
+func (w *WebFetchToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
+	cappedWidth := cappedMessageWidth(width)
+	if !opts.ToolCall.Finished && !opts.Canceled {
+		return pendingTool(sty, "Fetch", opts.Anim)
+	}
+
+	var params tools.WebFetchParams
+	if err := json.Unmarshal([]byte(opts.ToolCall.Input), &params); err != nil {
+		return toolErrorContent(sty, &message.ToolResult{Content: "Invalid parameters"}, cappedWidth)
+	}
+
+	toolParams := []string{params.URL}
+	header := toolHeader(sty, opts.Status(), "Fetch", cappedWidth, opts.Compact, toolParams...)
+	if opts.Compact {
+		return header
+	}
+
+	if earlyState, ok := toolEarlyStateContent(sty, opts, cappedWidth); ok {
+		return joinToolParts(header, earlyState)
+	}
+
+	if opts.Result == nil || opts.Result.Content == "" {
+		return header
+	}
+
+	body := toolOutputMarkdownContent(sty, opts.Result.Content, cappedWidth, opts.ExpandedContent)
+	return joinToolParts(header, body)
+}
+
+// -----------------------------------------------------------------------------
+// WebSearch Tool
+// -----------------------------------------------------------------------------
+
+// WebSearchToolMessageItem is a message item that represents a web_search tool call.
+type WebSearchToolMessageItem struct {
+	*baseToolMessageItem
+}
+
+var _ ToolMessageItem = (*WebSearchToolMessageItem)(nil)
+
+// NewWebSearchToolMessageItem creates a new [WebSearchToolMessageItem].
+func NewWebSearchToolMessageItem(
+	sty *styles.Styles,
+	toolCall message.ToolCall,
+	result *message.ToolResult,
+	canceled bool,
+) ToolMessageItem {
+	return newBaseToolMessageItem(sty, toolCall, result, &WebSearchToolRenderContext{}, canceled)
+}
+
+// WebSearchToolRenderContext renders web_search tool messages.
+type WebSearchToolRenderContext struct{}
+
+// RenderTool implements the [ToolRenderer] interface.
+func (w *WebSearchToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
+	cappedWidth := cappedMessageWidth(width)
+	if !opts.ToolCall.Finished && !opts.Canceled {
+		return pendingTool(sty, "Search", opts.Anim)
+	}
+
+	var params tools.WebSearchParams
+	if err := json.Unmarshal([]byte(opts.ToolCall.Input), &params); err != nil {
+		return toolErrorContent(sty, &message.ToolResult{Content: "Invalid parameters"}, cappedWidth)
+	}
+
+	toolParams := []string{params.Query}
+	header := toolHeader(sty, opts.Status(), "Search", cappedWidth, opts.Compact, toolParams...)
+	if opts.Compact {
+		return header
+	}
+
+	if earlyState, ok := toolEarlyStateContent(sty, opts, cappedWidth); ok {
+		return joinToolParts(header, earlyState)
+	}
+
+	if opts.Result == nil || opts.Result.Content == "" {
+		return header
+	}
+
+	body := toolOutputMarkdownContent(sty, opts.Result.Content, cappedWidth, opts.ExpandedContent)
+	return joinToolParts(header, body)
 }

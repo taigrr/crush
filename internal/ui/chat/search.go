@@ -50,8 +50,8 @@ func (g *GlobToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "path", params.Path)
 	}
 
-	header := toolHeader(sty, opts.Status(), "Glob", cappedWidth, opts.Simple, toolParams...)
-	if opts.Simple {
+	header := toolHeader(sty, opts.Status(), "Glob", cappedWidth, opts.Compact, toolParams...)
+	if opts.Compact {
 		return header
 	}
 
@@ -64,7 +64,7 @@ func (g *GlobToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.Expanded))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
 	return joinToolParts(header, body)
 }
 
@@ -115,8 +115,8 @@ func (g *GrepToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "literal", "true")
 	}
 
-	header := toolHeader(sty, opts.Status(), "Grep", cappedWidth, opts.Simple, toolParams...)
-	if opts.Simple {
+	header := toolHeader(sty, opts.Status(), "Grep", cappedWidth, opts.Compact, toolParams...)
+	if opts.Compact {
 		return header
 	}
 
@@ -129,7 +129,7 @@ func (g *GrepToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.Expanded))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
 	return joinToolParts(header, body)
 }
 
@@ -175,8 +175,8 @@ func (l *LSToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *To
 	}
 	path = fsext.PrettyPath(path)
 
-	header := toolHeader(sty, opts.Status(), "List", cappedWidth, opts.Simple, path)
-	if opts.Simple {
+	header := toolHeader(sty, opts.Status(), "List", cappedWidth, opts.Compact, path)
+	if opts.Compact {
 		return header
 	}
 
@@ -189,7 +189,7 @@ func (l *LSToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *To
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.Expanded))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
 	return joinToolParts(header, body)
 }
 
@@ -237,8 +237,8 @@ func (s *SourcegraphToolRenderContext) RenderTool(sty *styles.Styles, width int,
 		toolParams = append(toolParams, "context", formatNonZero(params.ContextWindow))
 	}
 
-	header := toolHeader(sty, opts.Status(), "Sourcegraph", cappedWidth, opts.Simple, toolParams...)
-	if opts.Simple {
+	header := toolHeader(sty, opts.Status(), "Sourcegraph", cappedWidth, opts.Compact, toolParams...)
+	if opts.Compact {
 		return header
 	}
 
@@ -251,6 +251,6 @@ func (s *SourcegraphToolRenderContext) RenderTool(sty *styles.Styles, width int,
 	}
 
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.Expanded))
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
 	return joinToolParts(header, body)
 }

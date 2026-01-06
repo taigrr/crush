@@ -171,6 +171,7 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 			}
 			items = append(items, NewToolMessageItem(
 				sty,
+				msg.ID,
 				tc,
 				result,
 				msg.FinishReason() == message.FinishReasonCanceled,
