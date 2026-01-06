@@ -279,6 +279,9 @@ type Styles struct {
 		AgentTaskTag lipgloss.Style // Agent task tag (blue background, bold)
 		AgentPrompt  lipgloss.Style // Agent prompt text
 
+		// Agentic fetch styles
+		AgenticFetchPromptTag lipgloss.Style // Agentic fetch prompt tag (green background, bold)
+
 		// Todo styles
 		TodoRatio          lipgloss.Style // Todo ratio (e.g., "2/5")
 		TodoCompletedIcon  lipgloss.Style // Completed todo icon
@@ -1011,6 +1014,9 @@ func DefaultStyles() Styles {
 	// Agent task styles
 	s.Tool.AgentTaskTag = base.Bold(true).Padding(0, 1).MarginLeft(2).Background(blueLight).Foreground(white)
 	s.Tool.AgentPrompt = s.Muted
+
+	// Agentic fetch styles
+	s.Tool.AgenticFetchPromptTag = base.Bold(true).Padding(0, 1).MarginLeft(2).Background(green).Foreground(border)
 
 	// Todo styles
 	s.Tool.TodoRatio = base.Foreground(blueDark)

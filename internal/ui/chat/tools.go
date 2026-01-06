@@ -634,7 +634,7 @@ func toolOutputDiffContent(sty *styles.Styles, file, oldContent, newContent stri
 		Width(bodyWidth)
 
 	// Use split view for wide terminals.
-	if width > 120 {
+	if width > maxTextWidth {
 		formatter = formatter.Split()
 	}
 
@@ -684,7 +684,7 @@ func toolOutputMultiEditDiffContent(sty *styles.Styles, file string, meta tools.
 		Width(bodyWidth)
 
 	// Use split view for wide terminals.
-	if width > 120 {
+	if width > maxTextWidth {
 		formatter = formatter.Split()
 	}
 
@@ -740,8 +740,8 @@ func toolOutputMarkdownContent(sty *styles.Styles, content string, width int, ex
 	content = strings.TrimSpace(content)
 
 	// Cap width for readability.
-	if width > 120 {
-		width = 120
+	if width > maxTextWidth {
+		width = maxTextWidth
 	}
 
 	renderer := common.PlainMarkdownRenderer(sty, width)

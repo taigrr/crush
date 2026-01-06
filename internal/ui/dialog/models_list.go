@@ -68,7 +68,7 @@ func (f *ModelsList) SetSelected(index int) {
 
 	f.List.SetSelected(index)
 	for {
-		selectedItem := f.List.SelectedItem()
+		selectedItem := f.SelectedItem()
 		if _, ok := selectedItem.(*ModelItem); ok {
 			return
 		}
@@ -104,7 +104,7 @@ func (f *ModelsList) SetSelectedItem(itemID string) {
 func (f *ModelsList) SelectNext() (v bool) {
 	for {
 		v = f.List.SelectNext()
-		selectedItem := f.List.SelectedItem()
+		selectedItem := f.SelectedItem()
 		if _, ok := selectedItem.(*ModelItem); ok {
 			return v
 		}
@@ -116,7 +116,7 @@ func (f *ModelsList) SelectNext() (v bool) {
 func (f *ModelsList) SelectPrev() (v bool) {
 	for {
 		v = f.List.SelectPrev()
-		selectedItem := f.List.SelectedItem()
+		selectedItem := f.SelectedItem()
 		if _, ok := selectedItem.(*ModelItem); ok {
 			return v
 		}
@@ -127,7 +127,7 @@ func (f *ModelsList) SelectPrev() (v bool) {
 func (f *ModelsList) SelectFirst() (v bool) {
 	v = f.List.SelectFirst()
 	for {
-		selectedItem := f.List.SelectedItem()
+		selectedItem := f.SelectedItem()
 		if _, ok := selectedItem.(*ModelItem); ok {
 			return v
 		}
@@ -139,7 +139,7 @@ func (f *ModelsList) SelectFirst() (v bool) {
 func (f *ModelsList) SelectLast() (v bool) {
 	v = f.List.SelectLast()
 	for {
-		selectedItem := f.List.SelectedItem()
+		selectedItem := f.SelectedItem()
 		if _, ok := selectedItem.(*ModelItem); ok {
 			return v
 		}
@@ -149,18 +149,18 @@ func (f *ModelsList) SelectLast() (v bool) {
 
 // IsSelectedFirst checks if the selected item is the first model item.
 func (f *ModelsList) IsSelectedFirst() bool {
-	originalIndex := f.List.Selected()
+	originalIndex := f.Selected()
 	f.SelectFirst()
-	isFirst := f.List.Selected() == originalIndex
+	isFirst := f.Selected() == originalIndex
 	f.List.SetSelected(originalIndex)
 	return isFirst
 }
 
 // IsSelectedLast checks if the selected item is the last model item.
 func (f *ModelsList) IsSelectedLast() bool {
-	originalIndex := f.List.Selected()
+	originalIndex := f.Selected()
 	f.SelectLast()
-	isLast := f.List.Selected() == originalIndex
+	isLast := f.Selected() == originalIndex
 	f.List.SetSelected(originalIndex)
 	return isLast
 }
