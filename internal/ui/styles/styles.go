@@ -303,6 +303,23 @@ type Styles struct {
 
 		Commands struct{}
 	}
+
+	// Status bar and help
+	Status struct {
+		Help lipgloss.Style
+
+		ErrorIndicator   lipgloss.Style
+		WarnIndicator    lipgloss.Style
+		InfoIndicator    lipgloss.Style
+		UpdateIndicator  lipgloss.Style
+		SuccessIndicator lipgloss.Style
+
+		ErrorMessage   lipgloss.Style
+		WarnMessage    lipgloss.Style
+		InfoMessage    lipgloss.Style
+		UpdateMessage  lipgloss.Style
+		SuccessMessage lipgloss.Style
+	}
 }
 
 // ChromaTheme converts the current markdown chroma styles to a chroma
@@ -1109,6 +1126,18 @@ func DefaultStyles() Styles {
 	s.Dialog.InputPrompt = base.Margin(1, 1)
 
 	s.Dialog.List = base.Margin(0, 0, 1, 0)
+
+	s.Status.Help = lipgloss.NewStyle().Padding(0, 1)
+	s.Status.SuccessIndicator = base.Foreground(bgSubtle).Background(green).Padding(0, 1).Bold(true).SetString("OKAY!")
+	s.Status.InfoIndicator = s.Status.SuccessIndicator
+	s.Status.UpdateIndicator = s.Status.SuccessIndicator.SetString("HEY!")
+	s.Status.WarnIndicator = s.Status.SuccessIndicator.Foreground(bgOverlay).Background(yellow).SetString("WARNING")
+	s.Status.ErrorIndicator = s.Status.SuccessIndicator.Foreground(bgBase).Background(red).SetString("ERROR")
+	s.Status.SuccessMessage = base.Foreground(bgSubtle).Background(greenDark).Padding(0, 1)
+	s.Status.InfoMessage = s.Status.SuccessMessage
+	s.Status.UpdateMessage = s.Status.SuccessMessage
+	s.Status.WarnMessage = s.Status.SuccessMessage.Foreground(bgOverlay).Background(warning)
+	s.Status.ErrorMessage = s.Status.SuccessMessage.Foreground(white).Background(redDark)
 
 	return s
 }

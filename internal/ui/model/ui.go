@@ -82,7 +82,7 @@ type UI struct {
 	keyenh tea.KeyboardEnhancementsMsg
 
 	dialog *dialog.Overlay
-	help   help.Model
+	status *Status
 
 	// header is the last cached header logo
 	header string
@@ -137,12 +137,13 @@ func New(com *common.Common) *UI {
 		com:      com,
 		dialog:   dialog.NewOverlay(),
 		keyMap:   DefaultKeyMap(),
-		help:     help.New(),
 		focus:    uiFocusNone,
 		state:    uiConfigure,
 		textarea: ta,
 		chat:     ch,
 	}
+
+	status := NewStatus(com, ui)
 
 	// set onboarding state defaults
 	ui.onboarding.yesInitializeSelected = true
@@ -162,7 +163,7 @@ func New(com *common.Common) *UI {
 	ui.setEditorPrompt(false)
 	ui.randomizePlaceholders()
 	ui.textarea.Placeholder = ui.readyPlaceholder
-	ui.help.Styles = com.Styles.Help
+	ui.status = status
 
 	return ui
 }
@@ -338,6 +339,15 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case openEditorMsg:
 		m.textarea.SetValue(msg.Text)
 		m.textarea.MoveToEnd()
+	case uiutil.InfoMsg:
+		m.status.SetInfoMsg(msg)
+		ttl := msg.TTL
+		if ttl <= 0 {
+			ttl = DefaultStatusTTL
+		}
+		cmds = append(cmds, clearInfoMsgCmd(ttl))
+	case uiutil.ClearStatusMsg:
+		m.status.ClearInfoMsg()
 	}
 
 	// This logic gets triggered on any message type, but should it?
@@ -480,7 +490,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 	handleGlobalKeys := func(msg tea.KeyPressMsg) bool {
 		switch {
 		case key.Matches(msg, m.keyMap.Help):
-			m.help.ShowAll = !m.help.ShowAll
+			m.status.ToggleHelp()
 			m.updateLayoutAndSize()
 			return true
 		case key.Matches(msg, m.keyMap.Commands):
@@ -569,7 +579,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				cmds = append(cmds, uiutil.ReportError(err))
 			}
 		case dialog.ToggleHelpMsg:
-			m.help.ShowAll = !m.help.ShowAll
+			m.status.ToggleHelp()
 			m.dialog.CloseDialog(dialog.CommandsID)
 		case dialog.QuitMsg:
 			cmds = append(cmds, tea.Quit)
@@ -815,9 +825,8 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 		editor.Draw(scr, layout.editor)
 	}
 
-	// Add help layer
-	help := uv.NewStyledString(m.help.View(m))
-	help.Draw(scr, layout.help)
+	// Add status and help layer
+	m.status.Draw(scr, layout.status)
 
 	// Debugging rendering (visually see when the tui rerenders)
 	if os.Getenv("CRUSH_UI_DEBUG") == "true" {
@@ -1077,8 +1086,8 @@ func (m *UI) updateLayoutAndSize() {
 
 // updateSize updates the sizes of UI components based on the current layout.
 func (m *UI) updateSize() {
-	// Set help width
-	m.help.SetWidth(m.layout.help.Dx())
+	// Set status width
+	m.status.SetWidth(m.layout.status.Dx())
 
 	m.chat.SetSize(m.layout.main.Dx(), m.layout.main.Dy())
 	m.textarea.SetWidth(m.layout.editor.Dx())
@@ -1115,18 +1124,16 @@ func (m *UI) generateLayout(w, h int) layout {
 	headerHeight := 4
 
 	var helpKeyMap help.KeyMap = m
-	if m.help.ShowAll {
+	if m.status.ShowingAll() {
 		for _, row := range helpKeyMap.FullHelp() {
 			helpHeight = max(helpHeight, len(row))
 		}
 	}
 
 	// Add app margins
-	appRect := area
+	appRect, helpRect := uv.SplitVertical(area, uv.Fixed(area.Dy()-helpHeight))
 	appRect.Min.X += 1
-	appRect.Min.Y += 1
 	appRect.Max.X -= 1
-	appRect.Max.Y -= 1
 
 	if slices.Contains([]uiState{uiConfigure, uiInitialize, uiLanding}, m.state) {
 		// extra padding on left and right for these states
@@ -1134,11 +1141,9 @@ func (m *UI) generateLayout(w, h int) layout {
 		appRect.Max.X -= 1
 	}
 
-	appRect, helpRect := uv.SplitVertical(appRect, uv.Fixed(appRect.Dy()-helpHeight))
-
 	layout := layout{
-		area: area,
-		help: helpRect,
+		area:   area,
+		status: helpRect,
 	}
 
 	// Handle different app states
@@ -1242,8 +1247,8 @@ type layout struct {
 	// sidebar is the area for the sidebar.
 	sidebar uv.Rectangle
 
-	// help is the area for the help view.
-	help uv.Rectangle
+	// status is the area for the status view.
+	status uv.Rectangle
 }
 
 func (m *UI) openEditor(value string) tea.Cmd {
