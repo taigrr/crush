@@ -50,16 +50,16 @@ type Compactable interface {
 	SetCompact(compact bool)
 }
 
-// IsSpinningState contains the state passed to IsSpinningFn for custom spinning logic.
-type IsSpinningState struct {
+// SpinningState contains the state passed to SpinningFunc for custom spinning logic.
+type SpinningState struct {
 	ToolCall message.ToolCall
 	Result   *message.ToolResult
 	Canceled bool
 }
 
-// IsSpinningFn is a function type for custom spinning logic.
+// SpinningFunc is a function type for custom spinning logic.
 // Returns true if the tool should show the spinning animation.
-type IsSpinningFn func(state IsSpinningState) bool
+type SpinningFunc func(state SpinningState) bool
 
 // DefaultToolRenderContext implements the default [ToolRenderer] interface.
 type DefaultToolRenderContext struct{}
@@ -130,9 +130,9 @@ type baseToolMessageItem struct {
 	hasCappedWidth bool
 	// isCompact indicates this tool should render in compact mode.
 	isCompact bool
-	// isSpinningFn allows tools to override the default spinning logic.
+	// spinningFunc allows tools to override the default spinning logic.
 	// If nil, uses the default: !toolCall.Finished && !canceled.
-	isSpinningFn IsSpinningFn
+	spinningFunc SpinningFunc
 
 	sty             *styles.Styles
 	anim            *anim.Anim
@@ -349,8 +349,8 @@ func (t *baseToolMessageItem) SetPermissionGranted(granted bool) {
 
 // isSpinning returns true if the tool should show animation.
 func (t *baseToolMessageItem) isSpinning() bool {
-	if t.isSpinningFn != nil {
-		return t.isSpinningFn(IsSpinningState{
+	if t.spinningFunc != nil {
+		return t.spinningFunc(SpinningState{
 			ToolCall: t.toolCall,
 			Result:   t.result,
 			Canceled: t.canceled,
@@ -359,9 +359,9 @@ func (t *baseToolMessageItem) isSpinning() bool {
 	return !t.toolCall.Finished && !t.canceled
 }
 
-// SetIsSpinningFn sets a custom function to determine if the tool should spin.
-func (t *baseToolMessageItem) SetIsSpinningFn(fn IsSpinningFn) {
-	t.isSpinningFn = fn
+// SetSpinningFunc sets a custom function to determine if the tool should spin.
+func (t *baseToolMessageItem) SetSpinningFunc(fn SpinningFunc) {
+	t.spinningFunc = fn
 }
 
 // ToggleExpanded toggles the expanded state of the thinking box.
