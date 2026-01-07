@@ -334,10 +334,7 @@ func (m *Models) setProviderItems() error {
 			provider := p.ToProvider()
 
 			// Add this unknown provider to the list
-			name := p.Name
-			if name == "" {
-				name = id
-			}
+			name := cmp.Or(p.Name, id)
 
 			addedProviders[id] = true
 
