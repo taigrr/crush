@@ -347,6 +347,9 @@ func (m *Models) setProviderItems() error {
 					selectedItemID = item.ID()
 				}
 			}
+			if len(group.Items) > 0 {
+				groups = append(groups, group)
+			}
 		}
 	}
 
