@@ -371,6 +371,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, clearInfoMsgCmd(ttl))
 	case uiutil.ClearStatusMsg:
 		m.status.ClearInfoMsg()
+	case completions.FilesLoadedMsg:
+		// Handle async file loading for completions.
+		if m.completionsOpen {
+			m.completions.SetFiles(msg.Files)
+		}
 	}
 
 	// This logic gets triggered on any message type, but should it?
@@ -878,7 +883,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 						m.completionsStartIndex = curIdx
 						m.completionsPositionStart = m.completionsPosition()
 						depth, limit := m.com.Config().Options.TUI.Completions.Limits()
-						m.completions.OpenWithFiles(depth, limit)
+						cmds = append(cmds, m.completions.OpenWithFiles(depth, limit))
 					}
 				}
 

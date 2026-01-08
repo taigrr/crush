@@ -29,6 +29,11 @@ type SelectionMsg struct {
 // ClosedMsg is sent when the completions are closed.
 type ClosedMsg struct{}
 
+// FilesLoadedMsg is sent when files have been loaded for completions.
+type FilesLoadedMsg struct {
+	Files []string
+}
+
 // Completions represents the completions popup component.
 type Completions struct {
 	// Popup dimensions
@@ -88,10 +93,12 @@ func (c *Completions) KeyMap() KeyMap {
 }
 
 // OpenWithFiles opens the completions with file items from the filesystem.
-func (c *Completions) OpenWithFiles(depth, limit int) {
-	files, _, _ := fsext.ListDirectory(".", nil, depth, limit)
-	slices.Sort(files)
-	c.SetFiles(files)
+func (c *Completions) OpenWithFiles(depth, limit int) tea.Cmd {
+	return func() tea.Msg {
+		files, _, _ := fsext.ListDirectory(".", nil, depth, limit)
+		slices.Sort(files)
+		return FilesLoadedMsg{Files: files}
+	}
 }
 
 // SetFiles sets the file items on the completions popup.
