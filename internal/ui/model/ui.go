@@ -21,13 +21,14 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/app"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/filetracker"
 	"github.com/charmbracelet/crush/internal/history"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/tui/components/dialogs/filepicker"
 	"github.com/charmbracelet/crush/internal/ui/anim"
+	"github.com/charmbracelet/crush/internal/ui/attachments"
 	"github.com/charmbracelet/crush/internal/ui/chat"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/completions"
@@ -39,6 +40,12 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/ultraviolet/screen"
 )
+
+// Max file size set to 5M.
+const maxAttachmentSize = int64(5 * 1024 * 1024)
+
+// Allowed image formats.
+var allowedImageTypes = []string{".jpg", ".jpeg", ".png"}
 
 // uiFocusState represents the current focus state of the UI.
 type uiFocusState uint8
@@ -99,7 +106,8 @@ type UI struct {
 	// Editor components
 	textarea textarea.Model
 
-	attachments []message.Attachment // TODO: Implement attachments
+	// Attachment list
+	attachments *attachments.Attachments
 
 	readyPlaceholder   string
 	workingPlaceholder string
@@ -141,6 +149,8 @@ func New(com *common.Common) *UI {
 
 	ch := NewChat(com)
 
+	keyMap := DefaultKeyMap()
+
 	// Completions component
 	comp := completions.New(
 		com.Styles.Completions.Normal,
@@ -148,15 +158,31 @@ func New(com *common.Common) *UI {
 		com.Styles.Completions.Match,
 	)
 
+	// Attachments component
+	attachments := attachments.New(
+		attachments.NewRenderer(
+			com.Styles.Attachments.Normal,
+			com.Styles.Attachments.Deleting,
+			com.Styles.Attachments.Image,
+			com.Styles.Attachments.Text,
+		),
+		attachments.Keymap{
+			DeleteMode: keyMap.Editor.AttachmentDeleteMode,
+			DeleteAll:  keyMap.Editor.DeleteAllAttachments,
+			Escape:     keyMap.Editor.Escape,
+		},
+	)
+
 	ui := &UI{
 		com:         com,
 		dialog:      dialog.NewOverlay(),
-		keyMap:      DefaultKeyMap(),
+		keyMap:      keyMap,
 		focus:       uiFocusNone,
 		state:       uiConfigure,
 		textarea:    ta,
 		chat:        ch,
 		completions: comp,
+		attachments: attachments,
 	}
 
 	status := NewStatus(com, ui)
@@ -393,6 +419,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// at this point this can only handle [message.Attachment] message, and we
+	// should return all cmds anyway.
+	_ = m.attachments.Update(msg)
 	return m, tea.Batch(cmds...)
 }
 
@@ -707,6 +736,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		// Generic dialog messages
 		case dialog.CloseMsg:
 			m.dialog.CloseFrontDialog()
+			if m.focus == uiFocusEditor {
+				cmds = append(cmds, m.textarea.Focus())
+			}
 
 		// Session dialog messages
 		case dialog.SessionSelectedMsg:
@@ -803,7 +835,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					case completions.SelectionMsg:
 						// Handle file completion selection.
 						if item, ok := msg.Value.(completions.FileCompletionValue); ok {
-							m.insertFileCompletion(item.Path)
+							cmds = append(cmds, m.insertFileCompletion(item.Path))
 						}
 						if !msg.Insert {
 							m.closeCompletions()
@@ -813,6 +845,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					}
 					return tea.Batch(cmds...)
 				}
+			}
+
+			if ok := m.attachments.Update(msg); ok {
+				return tea.Batch(cmds...)
 			}
 
 			switch {
@@ -832,8 +868,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					return m.openQuitDialog()
 				}
 
-				attachments := m.attachments
-				m.attachments = nil
+				attachments := m.attachments.List()
+				m.attachments.Reset()
 				if len(value) == 0 {
 					return nil
 				}
@@ -1033,7 +1069,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 		main := uv.NewStyledString(m.landingView())
 		main.Draw(scr, layout.main)
 
-		editor := uv.NewStyledString(m.textarea.View())
+		editor := uv.NewStyledString(m.renderEditorView(scr.Bounds().Dx()))
 		editor.Draw(scr, layout.editor)
 
 	case uiChat:
@@ -1043,7 +1079,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 		header.Draw(scr, layout.header)
 		m.drawSidebar(scr, layout.sidebar)
 
-		editor := uv.NewStyledString(m.textarea.View())
+		editor := uv.NewStyledString(m.renderEditorView(scr.Bounds().Dx() - layout.sidebar.Dx()))
 		editor.Draw(scr, layout.editor)
 
 	case uiChatCompact:
@@ -1057,7 +1093,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) {
 		main := uv.NewStyledString(mainView)
 		main.Draw(scr, layout.main)
 
-		editor := uv.NewStyledString(m.textarea.View())
+		editor := uv.NewStyledString(m.renderEditorView(scr.Bounds().Dx()))
 		editor.Draw(scr, layout.editor)
 	}
 
@@ -1128,6 +1164,10 @@ func (m *UI) Cursor() *tea.Cursor {
 			cur := m.textarea.Cursor()
 			cur.X++ // Adjust for app margins
 			cur.Y += m.layout.editor.Min.Y
+			// Offset for attachment row if present.
+			if len(m.attachments.List()) > 0 {
+				cur.Y++
+			}
 			return cur
 		}
 	}
@@ -1229,7 +1269,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 	k := &m.keyMap
 	help := k.Help
 	help.SetHelp("ctrl+g", "less")
-	hasAttachments := false // TODO: implement attachments
+	hasAttachments := len(m.attachments.List()) > 0
 	hasSession := m.session != nil && m.session.ID != ""
 	commands := k.Commands
 	if m.focus == uiFocusEditor && m.textarea.LineCount() == 0 {
@@ -1317,6 +1357,17 @@ func (m *UI) FullHelp() [][]key.Binding {
 					k.Editor.MentionFile,
 					k.Editor.OpenEditor,
 				},
+			)
+			if hasAttachments {
+				binds = append(binds,
+					[]key.Binding{
+						k.Editor.AttachmentDeleteMode,
+						k.Editor.DeleteAllAttachments,
+						k.Editor.Escape,
+					},
+				)
+			}
+			binds = append(binds,
 				[]key.Binding{
 					help,
 				},
@@ -1601,39 +1652,48 @@ func (m *UI) closeCompletions() {
 
 // insertFileCompletion inserts the selected file path into the textarea,
 // replacing the @query, and adds the file as an attachment.
-func (m *UI) insertFileCompletion(path string) {
+func (m *UI) insertFileCompletion(path string) tea.Cmd {
 	value := m.textarea.Value()
 	word := m.textareaWord()
 
 	// Find the @ and query to replace.
 	if m.completionsStartIndex > len(value) {
-		return
+		return nil
 	}
 
 	// Build the new value: everything before @, the path, everything after query.
-	endIdx := m.completionsStartIndex + len(word)
-	if endIdx > len(value) {
-		endIdx = len(value)
-	}
+	endIdx := min(m.completionsStartIndex+len(word), len(value))
 
 	newValue := value[:m.completionsStartIndex] + path + value[endIdx:]
 	m.textarea.SetValue(newValue)
-	// XXX: This will always move the cursor to the end of the textarea.
 	m.textarea.MoveToEnd()
+	m.textarea.InsertRune(' ')
 
-	// Add file as attachment.
-	content, err := os.ReadFile(path)
-	if err != nil {
-		// If it fails, let the LLM handle it later.
-		return
+	return func() tea.Msg {
+		absPath, _ := filepath.Abs(path)
+		// Skip attachment if file was already read and hasn't been modified.
+		lastRead := filetracker.LastReadTime(absPath)
+		if !lastRead.IsZero() {
+			if info, err := os.Stat(path); err == nil && !info.ModTime().After(lastRead) {
+				return nil
+			}
+		}
+
+		// Add file as attachment.
+		content, err := os.ReadFile(path)
+		if err != nil {
+			// If it fails, let the LLM handle it later.
+			return nil
+		}
+		filetracker.RecordRead(absPath)
+
+		return message.Attachment{
+			FilePath: path,
+			FileName: filepath.Base(path),
+			MimeType: mimeOf(content),
+			Content:  content,
+		}
 	}
-
-	m.attachments = append(m.attachments, message.Attachment{
-		FilePath: path,
-		FileName: filepath.Base(path),
-		MimeType: mimeOf(content),
-		Content:  content,
-	})
 }
 
 // completionsPosition returns the X and Y position for the completions popup.
@@ -1688,6 +1748,18 @@ var workingPlaceholders = [...]string{
 func (m *UI) randomizePlaceholders() {
 	m.workingPlaceholder = workingPlaceholders[rand.Intn(len(workingPlaceholders))]
 	m.readyPlaceholder = readyPlaceholders[rand.Intn(len(readyPlaceholders))]
+}
+
+// renderEditorView renders the editor view with attachments if any.
+func (m *UI) renderEditorView(width int) string {
+	if len(m.attachments.List()) == 0 {
+		return m.textarea.View()
+	}
+	return lipgloss.JoinVertical(
+		lipgloss.Top,
+		m.attachments.Render(width),
+		m.textarea.View(),
+	)
 }
 
 // renderHeader renders and caches the header logo at the specified width.
@@ -1847,15 +1919,18 @@ func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
 
 	var cmd tea.Cmd
 	path := strings.ReplaceAll(msg.Content, "\\ ", " ")
-	// try to get an image
+	// Try to get an image.
 	path, err := filepath.Abs(strings.TrimSpace(path))
 	if err != nil {
 		m.textarea, cmd = m.textarea.Update(msg)
 		return cmd
 	}
+
+	// Check if file has an allowed image extension.
 	isAllowedType := false
-	for _, ext := range filepicker.AllowedTypes {
-		if strings.HasSuffix(path, ext) {
+	lowerPath := strings.ToLower(path)
+	for _, ext := range allowedImageTypes {
+		if strings.HasSuffix(lowerPath, ext) {
 			isAllowedType = true
 			break
 		}
@@ -1864,24 +1939,31 @@ func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
 		m.textarea, cmd = m.textarea.Update(msg)
 		return cmd
 	}
-	tooBig, _ := filepicker.IsFileTooBig(path, filepicker.MaxAttachmentSize)
-	if tooBig {
-		m.textarea, cmd = m.textarea.Update(msg)
-		return cmd
-	}
 
-	content, err := os.ReadFile(path)
-	if err != nil {
-		m.textarea, cmd = m.textarea.Update(msg)
-		return cmd
+	return func() tea.Msg {
+		fileInfo, err := os.Stat(path)
+		if err != nil {
+			return uiutil.ReportError(err)
+		}
+		if fileInfo.Size() > maxAttachmentSize {
+			return uiutil.ReportWarn("File is too big (>5mb)")
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return uiutil.ReportError(err)
+		}
+
+		mimeBufferSize := min(512, len(content))
+		mimeType := http.DetectContentType(content[:mimeBufferSize])
+		fileName := filepath.Base(path)
+		return message.Attachment{
+			FilePath: path,
+			FileName: fileName,
+			MimeType: mimeType,
+			Content:  content,
+		}
 	}
-	mimeBufferSize := min(512, len(content))
-	mimeType := http.DetectContentType(content[:mimeBufferSize])
-	fileName := filepath.Base(path)
-	attachment := message.Attachment{FilePath: path, FileName: fileName, MimeType: mimeType, Content: content}
-	return uiutil.CmdHandler(filepicker.FilePickedMsg{
-		Attachment: attachment,
-	})
 }
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
