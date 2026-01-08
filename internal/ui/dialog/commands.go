@@ -176,7 +176,9 @@ func (c *Commands) Update(msg tea.Msg) tea.Msg {
 			c.list.SetFilter(value)
 			c.list.ScrollToTop()
 			c.list.SetSelected(0)
-			return cmd
+			if cmd != nil {
+				return cmd()
+			}
 		}
 	}
 	return nil
