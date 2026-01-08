@@ -43,8 +43,8 @@ const (
 	TodoPendingIcon    string = "•"
 	TodoInProgressIcon string = "→"
 
-	ImageIcon = "■"
-	TextIcon  = "≡"
+	ImageIcon string = "■"
+	TextIcon  string = "≡"
 )
 
 const (
