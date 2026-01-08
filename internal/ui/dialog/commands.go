@@ -31,6 +31,7 @@ type Commands struct {
 	com    *common.Common
 	keyMap struct {
 		Select,
+		UpDown,
 		Next,
 		Previous,
 		Tab,
@@ -86,6 +87,10 @@ func NewCommands(com *common.Common, sessionID string) (*Commands, error) {
 	c.keyMap.Select = key.NewBinding(
 		key.WithKeys("enter", "ctrl+y"),
 		key.WithHelp("enter", "confirm"),
+	)
+	c.keyMap.UpDown = key.NewBinding(
+		key.WithKeys("up", "down"),
+		key.WithHelp("↑/↓", "choose"),
 	)
 	c.keyMap.Next = key.NewBinding(
 		key.WithKeys("down", "ctrl+n"),
@@ -240,13 +245,9 @@ func (c *Commands) View() string {
 
 // ShortHelp implements [help.KeyMap].
 func (c *Commands) ShortHelp() []key.Binding {
-	upDown := key.NewBinding(
-		key.WithKeys("up", "down"),
-		key.WithHelp("↑/↓", "choose"),
-	)
 	return []key.Binding{
 		c.keyMap.Tab,
-		upDown,
+		c.keyMap.UpDown,
 		c.keyMap.Select,
 		c.keyMap.Close,
 	}
