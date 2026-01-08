@@ -813,9 +813,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			switch {
 			case key.Matches(msg, m.keyMap.Editor.SendMessage):
 				value := m.textarea.Value()
-				if strings.HasSuffix(value, "\\") {
+				if before, ok := strings.CutSuffix(value, "\\"); ok {
 					// If the last character is a backslash, remove it and add a newline.
-					m.textarea.SetValue(strings.TrimSuffix(value, "\\"))
+					m.textarea.SetValue(before)
 					break
 				}
 
