@@ -330,6 +330,13 @@ type Styles struct {
 		UpdateMessage  lipgloss.Style
 		SuccessMessage lipgloss.Style
 	}
+
+	// Completions popup styles
+	Completions struct {
+		Normal  lipgloss.Style
+		Focused lipgloss.Style
+		Match   lipgloss.Style
+	}
 }
 
 // ChromaTheme converts the current markdown chroma styles to a chroma
@@ -1159,6 +1166,11 @@ func DefaultStyles() Styles {
 	s.Status.UpdateMessage = s.Status.SuccessMessage
 	s.Status.WarnMessage = s.Status.SuccessMessage.Foreground(bgOverlay).Background(warning)
 	s.Status.ErrorMessage = s.Status.SuccessMessage.Foreground(white).Background(redDark)
+
+	// Completions styles
+	s.Completions.Normal = base.Background(bgSubtle).Foreground(fgBase)
+	s.Completions.Focused = base.Background(primary).Foreground(white)
+	s.Completions.Match = base.Underline(true)
 
 	return s
 }
