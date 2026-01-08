@@ -126,9 +126,8 @@ func (c *Completions) SetFiles(files []string) {
 }
 
 // Close closes the completions popup.
-func (c *Completions) Close() tea.Msg {
+func (c *Completions) Close() {
 	c.open = false
-	return ClosedMsg{}
 }
 
 // Filter filters the completions with the given query.
@@ -188,7 +187,8 @@ func (c *Completions) Update(msg tea.KeyPressMsg) (tea.Msg, bool) {
 		return c.selectCurrent(false), true
 
 	case key.Matches(msg, c.keyMap.Cancel):
-		return c.Close(), true
+		c.Close()
+		return ClosedMsg{}, true
 	}
 
 	return nil, false
