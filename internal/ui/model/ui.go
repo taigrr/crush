@@ -351,21 +351,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
-	case completions.SelectionMsg:
-		// Handle file completion selection.
-		if item, ok := msg.Value.(completions.FileCompletionValue); ok {
-			m.insertFileCompletion(item.Path)
-		}
-		if !msg.Insert {
-			m.closeCompletions()
-		}
-	case completions.FilesLoadedMsg:
-		// Handle async file loading for completions.
-		if m.completionsOpen {
-			m.completions.SetFiles(msg.Files)
-		}
-	case completions.ClosedMsg:
-		m.completionsOpen = false
 	case tea.KeyPressMsg:
 		if cmd := m.handleKeyPressMsg(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -808,8 +793,19 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		case uiFocusEditor:
 			// Handle completions if open.
 			if m.completionsOpen {
-				if cmd, ok := m.completions.Update(msg); ok {
-					cmds = append(cmds, cmd)
+				if msg, ok := m.completions.Update(msg); ok {
+					switch msg := msg.(type) {
+					case completions.SelectionMsg:
+						// Handle file completion selection.
+						if item, ok := msg.Value.(completions.FileCompletionValue); ok {
+							m.insertFileCompletion(item.Path)
+						}
+						if !msg.Insert {
+							m.closeCompletions()
+						}
+					case completions.ClosedMsg:
+						m.completionsOpen = false
+					}
 					return tea.Batch(cmds...)
 				}
 			}
@@ -882,7 +878,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 						m.completionsStartIndex = curIdx
 						m.completionsPositionStart = m.completionsPosition()
 						depth, limit := m.com.Config().Options.TUI.Completions.Limits()
-						cmds = append(cmds, m.completions.OpenWithFiles(depth, limit))
+						m.completions.OpenWithFiles(depth, limit)
 					}
 				}
 
