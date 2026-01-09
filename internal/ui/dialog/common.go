@@ -45,12 +45,21 @@ func HeaderInputListHelpView(t *styles.Styles, width, listHeight int, header, in
 	listStyle := t.Dialog.List.Height(listHeight)
 	listContent := listStyle.Render(list)
 
-	content := strings.Join([]string{
-		titleStyle.Render(header),
-		inputStyle.Render(input),
-		listContent,
-		helpStyle.Render(help),
-	}, "\n")
+	parts := []string{}
+	if len(header) > 0 {
+		parts = append(parts, titleStyle.Render(header))
+	}
+	if len(input) > 0 {
+		parts = append(parts, inputStyle.Render(input))
+	}
+	if len(list) > 0 {
+		parts = append(parts, listContent)
+	}
+	if len(help) > 0 {
+		parts = append(parts, helpStyle.Render(help))
+	}
+
+	content := strings.Join(parts, "\n")
 
 	return dialogStyle.Render(content)
 }

@@ -36,6 +36,7 @@ import (
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/completions"
 	"github.com/charmbracelet/crush/internal/ui/dialog"
+	timage "github.com/charmbracelet/crush/internal/ui/image"
 	"github.com/charmbracelet/crush/internal/ui/logo"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/crush/internal/uiutil"
@@ -144,6 +145,9 @@ type UI struct {
 
 	// sidebarLogo keeps a cached version of the sidebar sidebarLogo.
 	sidebarLogo string
+
+	// imageCaps stores the terminal image capabilities.
+	imageCaps timage.Capabilities
 }
 
 // New creates a new instance of the [UI] model.
@@ -224,6 +228,11 @@ func (m *UI) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	if m.QueryVersion {
 		cmds = append(cmds, tea.RequestTerminalVersion)
+		// XXX: Right now, we're using the same logic to determine image
+		// support. Terminals like Apple Terminal and possibly others might
+		// bleed characters when querying for Kitty graphics via APC escape
+		// sequences.
+		cmds = append(cmds, timage.RequestCapabilities())
 	}
 	return tea.Batch(cmds...)
 }
@@ -426,6 +435,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.completionsOpen {
 			m.completions.SetFiles(msg.Files)
 		}
+	case uv.KittyGraphicsEvent:
+		// [timage.RequestCapabilities] sends a Kitty graphics query and this
+		// captures the response. Any response means the terminal understands
+		// the protocol.
+		m.imageCaps.SupportsKittyGraphics = true
 	default:
 		if m.dialog.HasDialogs() {
 			if cmd := m.handleDialogMsg(msg); cmd != nil {
@@ -926,6 +940,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			}
 
 			switch {
+			case key.Matches(msg, m.keyMap.Editor.AddImage):
+				if cmd := m.openFilesDialog(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+
 			case key.Matches(msg, m.keyMap.Editor.SendMessage):
 				value := m.textarea.Value()
 				if before, ok := strings.CutSuffix(value, "\\"); ok {
@@ -2032,6 +2051,27 @@ func (m *UI) openSessionsDialog() tea.Cmd {
 	}
 
 	m.dialog.OpenDialog(dialog)
+	return nil
+}
+
+// openFilesDialog opens the file picker dialog.
+func (m *UI) openFilesDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.FilePickerID) {
+		// Bring to front
+		m.dialog.BringToFront(dialog.FilePickerID)
+		return nil
+	}
+
+	const desiredFilePickerHeight = 10
+	filePicker, action := dialog.NewFilePicker(m.com)
+	filePicker.SetWindowSize(min(80, m.width-8), desiredFilePickerHeight)
+	filePicker.SetImageCapabilities(&m.imageCaps)
+	m.dialog.OpenDialog(filePicker)
+
+	switch action := action.(type) {
+	case dialog.ActionCmd:
+		return action.Cmd
+	}
 
 	return nil
 }
