@@ -40,7 +40,7 @@ type BashToolRenderContext struct{}
 // RenderTool implements the [ToolRenderer] interface.
 func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
 	cappedWidth := cappedMessageWidth(width)
-	if !opts.ToolCall.Finished && !opts.Canceled {
+	if opts.IsPending() {
 		return pendingTool(sty, "Bash", opts.Anim)
 	}
 
@@ -51,7 +51,7 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 
 	// Check if this is a background job.
 	var meta tools.BashResponseMetadata
-	if opts.Result != nil {
+	if opts.HasResult() {
 		_ = json.Unmarshal([]byte(opts.Result.Metadata), &meta)
 	}
 
@@ -69,7 +69,7 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "background", "true")
 	}
 
-	header := toolHeader(sty, opts.Status(), "Bash", cappedWidth, opts.Compact, toolParams...)
+	header := toolHeader(sty, opts.Status, "Bash", cappedWidth, opts.Compact, toolParams...)
 	if opts.Compact {
 		return header
 	}
@@ -78,7 +78,7 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		return joinToolParts(header, earlyState)
 	}
 
-	if opts.Result == nil {
+	if !opts.HasResult() {
 		return header
 	}
 
@@ -122,7 +122,7 @@ type JobOutputToolRenderContext struct{}
 // RenderTool implements the [ToolRenderer] interface.
 func (j *JobOutputToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
 	cappedWidth := cappedMessageWidth(width)
-	if !opts.ToolCall.Finished && !opts.Canceled {
+	if opts.IsPending() {
 		return pendingTool(sty, "Job", opts.Anim)
 	}
 
@@ -132,7 +132,7 @@ func (j *JobOutputToolRenderContext) RenderTool(sty *styles.Styles, width int, o
 	}
 
 	var description string
-	if opts.Result != nil && opts.Result.Metadata != "" {
+	if opts.HasResult() && opts.Result.Metadata != "" {
 		var meta tools.JobOutputResponseMetadata
 		if err := json.Unmarshal([]byte(opts.Result.Metadata), &meta); err == nil {
 			description = cmp.Or(meta.Description, meta.Command)
@@ -140,7 +140,7 @@ func (j *JobOutputToolRenderContext) RenderTool(sty *styles.Styles, width int, o
 	}
 
 	content := ""
-	if opts.Result != nil {
+	if opts.HasResult() {
 		content = opts.Result.Content
 	}
 	return renderJobTool(sty, opts, cappedWidth, "Output", params.ShellID, description, content)
@@ -173,7 +173,7 @@ type JobKillToolRenderContext struct{}
 // RenderTool implements the [ToolRenderer] interface.
 func (j *JobKillToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
 	cappedWidth := cappedMessageWidth(width)
-	if !opts.ToolCall.Finished && !opts.Canceled {
+	if opts.IsPending() {
 		return pendingTool(sty, "Job", opts.Anim)
 	}
 
@@ -183,7 +183,7 @@ func (j *JobKillToolRenderContext) RenderTool(sty *styles.Styles, width int, opt
 	}
 
 	var description string
-	if opts.Result != nil && opts.Result.Metadata != "" {
+	if opts.HasResult() && opts.Result.Metadata != "" {
 		var meta tools.JobKillResponseMetadata
 		if err := json.Unmarshal([]byte(opts.Result.Metadata), &meta); err == nil {
 			description = cmp.Or(meta.Description, meta.Command)
@@ -191,7 +191,7 @@ func (j *JobKillToolRenderContext) RenderTool(sty *styles.Styles, width int, opt
 	}
 
 	content := ""
-	if opts.Result != nil {
+	if opts.HasResult() {
 		content = opts.Result.Content
 	}
 	return renderJobTool(sty, opts, cappedWidth, "Kill", params.ShellID, description, content)
@@ -200,7 +200,7 @@ func (j *JobKillToolRenderContext) RenderTool(sty *styles.Styles, width int, opt
 // renderJobTool renders a job-related tool with the common pattern:
 // header → nested check → early state → body.
 func renderJobTool(sty *styles.Styles, opts *ToolRenderOpts, width int, action, shellID, description, content string) string {
-	header := jobHeader(sty, opts.Status(), action, shellID, description, width)
+	header := jobHeader(sty, opts.Status, action, shellID, description, width)
 	if opts.Compact {
 		return header
 	}

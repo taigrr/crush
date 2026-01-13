@@ -42,6 +42,8 @@ type ToolMessageItem interface {
 	SetResult(res *message.ToolResult)
 	MessageID() string
 	SetMessageID(id string)
+	SetStatus(status ToolStatus)
+	Status() ToolStatus
 }
 
 // Compactable is an interface for tool items that can render in a compacted mode.
@@ -54,7 +56,17 @@ type Compactable interface {
 type SpinningState struct {
 	ToolCall message.ToolCall
 	Result   *message.ToolResult
-	Canceled bool
+	Status   ToolStatus
+}
+
+// IsCanceled returns true if the tool status is canceled.
+func (s *SpinningState) IsCanceled() bool {
+	return s.Status == ToolStatusCanceled
+}
+
+// HasResult returns true if the result is not nil.
+func (s *SpinningState) HasResult() bool {
+	return s.Result != nil
 }
 
 // SpinningFunc is a function type for custom spinning logic.
@@ -71,32 +83,34 @@ func (d *DefaultToolRenderContext) RenderTool(sty *styles.Styles, width int, opt
 
 // ToolRenderOpts contains the data needed to render a tool call.
 type ToolRenderOpts struct {
-	ToolCall            message.ToolCall
-	Result              *message.ToolResult
-	Canceled            bool
-	Anim                *anim.Anim
-	ExpandedContent     bool
-	Compact             bool
-	IsSpinning          bool
-	PermissionRequested bool
-	PermissionGranted   bool
+	ToolCall        message.ToolCall
+	Result          *message.ToolResult
+	Anim            *anim.Anim
+	ExpandedContent bool
+	Compact         bool
+	IsSpinning      bool
+	Status          ToolStatus
 }
 
-// Status returns the current status of the tool call.
-func (opts *ToolRenderOpts) Status() ToolStatus {
-	if opts.Canceled && opts.Result == nil {
-		return ToolStatusCanceled
-	}
-	if opts.Result != nil {
-		if opts.Result.IsError {
-			return ToolStatusError
-		}
-		return ToolStatusSuccess
-	}
-	if opts.PermissionRequested && !opts.PermissionGranted {
-		return ToolStatusAwaitingPermission
-	}
-	return ToolStatusRunning
+// IsPending returns true if the tool call is still pending (not finished and
+// not canceled).
+func (o *ToolRenderOpts) IsPending() bool {
+	return !o.ToolCall.Finished && !o.IsCanceled()
+}
+
+// IsCanceled returns true if the tool status is canceled.
+func (o *ToolRenderOpts) IsCanceled() bool {
+	return o.Status == ToolStatusCanceled
+}
+
+// HasResult returns true if the result is not nil.
+func (o *ToolRenderOpts) HasResult() bool {
+	return o.Result != nil
+}
+
+// HasEmptyResult returns true if the result is nil or has empty content.
+func (o *ToolRenderOpts) HasEmptyResult() bool {
+	return o.Result == nil || o.Result.Content == ""
 }
 
 // ToolRenderer represents an interface for rendering tool calls.
@@ -118,13 +132,11 @@ type baseToolMessageItem struct {
 	*cachedMessageItem
 	*focusableMessageItem
 
-	toolRenderer        ToolRenderer
-	toolCall            message.ToolCall
-	result              *message.ToolResult
-	messageID           string
-	canceled            bool
-	permissionRequested bool
-	permissionGranted   bool
+	toolRenderer ToolRenderer
+	toolCall     message.ToolCall
+	result       *message.ToolResult
+	messageID    string
+	status       ToolStatus
 	// we use this so we can efficiently cache
 	// tools that have a capped width (e.x bash.. and others)
 	hasCappedWidth bool
@@ -150,6 +162,11 @@ func newBaseToolMessageItem(
 	// we only do full width for diffs (as far as I know)
 	hasCappedWidth := toolCall.Name != tools.EditToolName && toolCall.Name != tools.MultiEditToolName
 
+	status := ToolStatusRunning
+	if canceled {
+		status = ToolStatusCanceled
+	}
+
 	t := &baseToolMessageItem{
 		highlightableMessageItem: defaultHighlighter(sty),
 		cachedMessageItem:        &cachedMessageItem{},
@@ -158,7 +175,7 @@ func newBaseToolMessageItem(
 		toolRenderer:             toolRenderer,
 		toolCall:                 toolCall,
 		result:                   result,
-		canceled:                 canceled,
+		status:                   status,
 		hasCappedWidth:           hasCappedWidth,
 	}
 	t.anim = anim.New(anim.Settings{
@@ -285,15 +302,13 @@ func (t *baseToolMessageItem) Render(width int) string {
 	// if we are spinning or there is no cache rerender
 	if !ok || t.isSpinning() {
 		content = t.toolRenderer.RenderTool(t.sty, toolItemWidth, &ToolRenderOpts{
-			ToolCall:            t.toolCall,
-			Result:              t.result,
-			Canceled:            t.canceled,
-			Anim:                t.anim,
-			ExpandedContent:     t.expandedContent,
-			Compact:             t.isCompact,
-			PermissionRequested: t.permissionRequested,
-			PermissionGranted:   t.permissionGranted,
-			IsSpinning:          t.isSpinning(),
+			ToolCall:        t.toolCall,
+			Result:          t.result,
+			Anim:            t.anim,
+			ExpandedContent: t.expandedContent,
+			Compact:         t.isCompact,
+			IsSpinning:      t.isSpinning(),
+			Status:          t.computeStatus(),
 		})
 		height = lipgloss.Height(content)
 		// cache the rendered content
@@ -331,20 +346,26 @@ func (t *baseToolMessageItem) SetMessageID(id string) {
 	t.messageID = id
 }
 
-// SetPermissionRequested sets whether permission has been requested for this tool call.
-// TODO: Consider merging with SetPermissionGranted and add an interface for
-// permission management.
-func (t *baseToolMessageItem) SetPermissionRequested(requested bool) {
-	t.permissionRequested = requested
+// SetStatus sets the tool status.
+func (t *baseToolMessageItem) SetStatus(status ToolStatus) {
+	t.status = status
 	t.clearCache()
 }
 
-// SetPermissionGranted sets whether permission has been granted for this tool call.
-// TODO: Consider merging with SetPermissionRequested and add an interface for
-// permission management.
-func (t *baseToolMessageItem) SetPermissionGranted(granted bool) {
-	t.permissionGranted = granted
-	t.clearCache()
+// Status returns the current tool status.
+func (t *baseToolMessageItem) Status() ToolStatus {
+	return t.status
+}
+
+// computeStatus computes the effective status considering the result.
+func (t *baseToolMessageItem) computeStatus() ToolStatus {
+	if t.result != nil {
+		if t.result.IsError {
+			return ToolStatusError
+		}
+		return ToolStatusSuccess
+	}
+	return t.status
 }
 
 // isSpinning returns true if the tool should show animation.
@@ -353,10 +374,10 @@ func (t *baseToolMessageItem) isSpinning() bool {
 		return t.spinningFunc(SpinningState{
 			ToolCall: t.toolCall,
 			Result:   t.result,
-			Canceled: t.canceled,
+			Status:   t.status,
 		})
 	}
-	return !t.toolCall.Finished && !t.canceled
+	return !t.toolCall.Finished && t.status != ToolStatusCanceled
 }
 
 // SetSpinningFunc sets a custom function to determine if the tool should spin.
@@ -396,7 +417,7 @@ func pendingTool(sty *styles.Styles, name string, anim *anim.Anim) string {
 // Returns the rendered output and true if early state was handled.
 func toolEarlyStateContent(sty *styles.Styles, opts *ToolRenderOpts, width int) (string, bool) {
 	var msg string
-	switch opts.Status() {
+	switch opts.Status {
 	case ToolStatusError:
 		msg = toolErrorContent(sty, opts.Result, width)
 	case ToolStatusCanceled:

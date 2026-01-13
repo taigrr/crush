@@ -241,15 +241,13 @@ func (m *Models) modelTypeRadioView() string {
 // Draw implements [Dialog].
 func (m *Models) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	t := m.com.Styles
-	width := max(0, min(60, area.Dx()))
-	height := max(0, min(30, area.Dy()))
-	// TODO: Why do we need this 2?
-	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize() - 2
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + 1 + // (1) title content
-		t.Dialog.InputPrompt.GetVerticalFrameSize() + 1 + // (1) input content
+	width := max(0, min(defaultDialogMaxWidth, area.Dx()))
+	height := max(0, min(defaultDialogHeight, area.Dy()))
+	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize()
+	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
+		t.Dialog.InputPrompt.GetVerticalFrameSize() + inputContentHeight +
 		t.Dialog.HelpView.GetVerticalFrameSize() +
-		// TODO: Why do we need this 2?
-		t.Dialog.View.GetVerticalFrameSize() + 2
+		t.Dialog.View.GetVerticalFrameSize()
 	m.input.SetWidth(innerWidth - t.Dialog.InputPrompt.GetHorizontalFrameSize() - 1) // (1) cursor padding
 	m.list.SetSize(innerWidth, height-heightOffset)
 	m.help.SetWidth(innerWidth)

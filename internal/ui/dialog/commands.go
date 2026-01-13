@@ -220,16 +220,15 @@ func commandsRadioView(sty *styles.Styles, selected uicmd.CommandType, hasUserCm
 // Draw implements [Dialog].
 func (c *Commands) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	t := c.com.Styles
-	width := max(0, min(100, area.Dx()))
-	height := max(0, min(30, area.Dy()))
+	width := max(0, min(defaultDialogMaxWidth, area.Dx()))
+	height := max(0, min(defaultDialogHeight, area.Dy()))
 	c.width = width
-	// TODO: Why do we need this 2?
-	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize() - 2
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + 1 + // (1) title content
-		t.Dialog.InputPrompt.GetVerticalFrameSize() + 1 + // (1) input content
+	innerWidth := width - c.com.Styles.Dialog.View.GetHorizontalFrameSize()
+	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
+		t.Dialog.InputPrompt.GetVerticalFrameSize() + inputContentHeight +
 		t.Dialog.HelpView.GetVerticalFrameSize() +
-		// TODO: Why do we need this 2?
-		t.Dialog.View.GetVerticalFrameSize() + 2
+		t.Dialog.View.GetVerticalFrameSize()
+
 	c.input.SetWidth(innerWidth - t.Dialog.InputPrompt.GetHorizontalFrameSize() - 1) // (1) cursor padding
 	c.list.SetSize(innerWidth, height-heightOffset)
 	c.help.SetWidth(innerWidth)
@@ -416,7 +415,7 @@ func (c *Commands) defaultCommands() []uicmd.Command {
 		cfg := c.com.Config()
 		agentCfg := cfg.Agents[config.AgentCoder]
 		model := cfg.GetModelByType(agentCfg.Model)
-		if model.SupportsImages {
+		if model != nil && model.SupportsImages {
 			commands = append(commands, uicmd.Command{
 				ID:          "file_picker",
 				Title:       "Open File Picker",

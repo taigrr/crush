@@ -3,6 +3,7 @@ package dialog
 import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/session"
 )
 
@@ -38,6 +39,10 @@ type (
 	ActionToggleYoloMode    struct{}
 	ActionSummarize         struct {
 		SessionID string
+	}
+	ActionPermissionResponse struct {
+		Permission permission.PermissionRequest
+		Action     PermissionAction
 	}
 )
 

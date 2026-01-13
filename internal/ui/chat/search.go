@@ -36,7 +36,7 @@ type GlobToolRenderContext struct{}
 // RenderTool implements the [ToolRenderer] interface.
 func (g *GlobToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
 	cappedWidth := cappedMessageWidth(width)
-	if !opts.ToolCall.Finished && !opts.Canceled {
+	if opts.IsPending() {
 		return pendingTool(sty, "Glob", opts.Anim)
 	}
 
@@ -50,7 +50,7 @@ func (g *GlobToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "path", params.Path)
 	}
 
-	header := toolHeader(sty, opts.Status(), "Glob", cappedWidth, opts.Compact, toolParams...)
+	header := toolHeader(sty, opts.Status, "Glob", cappedWidth, opts.Compact, toolParams...)
 	if opts.Compact {
 		return header
 	}
@@ -59,7 +59,7 @@ func (g *GlobToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		return joinToolParts(header, earlyState)
 	}
 
-	if opts.Result == nil || opts.Result.Content == "" {
+	if !opts.HasResult() || opts.Result.Content == "" {
 		return header
 	}
 
@@ -95,7 +95,7 @@ type GrepToolRenderContext struct{}
 // RenderTool implements the [ToolRenderer] interface.
 func (g *GrepToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
 	cappedWidth := cappedMessageWidth(width)
-	if !opts.ToolCall.Finished && !opts.Canceled {
+	if opts.IsPending() {
 		return pendingTool(sty, "Grep", opts.Anim)
 	}
 
@@ -115,7 +115,7 @@ func (g *GrepToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		toolParams = append(toolParams, "literal", "true")
 	}
 
-	header := toolHeader(sty, opts.Status(), "Grep", cappedWidth, opts.Compact, toolParams...)
+	header := toolHeader(sty, opts.Status, "Grep", cappedWidth, opts.Compact, toolParams...)
 	if opts.Compact {
 		return header
 	}
@@ -124,7 +124,7 @@ func (g *GrepToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 		return joinToolParts(header, earlyState)
 	}
 
-	if opts.Result == nil || opts.Result.Content == "" {
+	if opts.HasEmptyResult() {
 		return header
 	}
 
@@ -160,7 +160,7 @@ type LSToolRenderContext struct{}
 // RenderTool implements the [ToolRenderer] interface.
 func (l *LSToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
 	cappedWidth := cappedMessageWidth(width)
-	if !opts.ToolCall.Finished && !opts.Canceled {
+	if opts.IsPending() {
 		return pendingTool(sty, "List", opts.Anim)
 	}
 
@@ -175,7 +175,7 @@ func (l *LSToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *To
 	}
 	path = fsext.PrettyPath(path)
 
-	header := toolHeader(sty, opts.Status(), "List", cappedWidth, opts.Compact, path)
+	header := toolHeader(sty, opts.Status, "List", cappedWidth, opts.Compact, path)
 	if opts.Compact {
 		return header
 	}
@@ -184,7 +184,7 @@ func (l *LSToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *To
 		return joinToolParts(header, earlyState)
 	}
 
-	if opts.Result == nil || opts.Result.Content == "" {
+	if opts.HasEmptyResult() {
 		return header
 	}
 
@@ -220,7 +220,7 @@ type SourcegraphToolRenderContext struct{}
 // RenderTool implements the [ToolRenderer] interface.
 func (s *SourcegraphToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
 	cappedWidth := cappedMessageWidth(width)
-	if !opts.ToolCall.Finished && !opts.Canceled {
+	if opts.IsPending() {
 		return pendingTool(sty, "Sourcegraph", opts.Anim)
 	}
 
@@ -237,7 +237,7 @@ func (s *SourcegraphToolRenderContext) RenderTool(sty *styles.Styles, width int,
 		toolParams = append(toolParams, "context", formatNonZero(params.ContextWindow))
 	}
 
-	header := toolHeader(sty, opts.Status(), "Sourcegraph", cappedWidth, opts.Compact, toolParams...)
+	header := toolHeader(sty, opts.Status, "Sourcegraph", cappedWidth, opts.Compact, toolParams...)
 	if opts.Compact {
 		return header
 	}
@@ -246,7 +246,7 @@ func (s *SourcegraphToolRenderContext) RenderTool(sty *styles.Styles, width int,
 		return joinToolParts(header, earlyState)
 	}
 
-	if opts.Result == nil || opts.Result.Content == "" {
+	if opts.HasEmptyResult() {
 		return header
 	}
 
