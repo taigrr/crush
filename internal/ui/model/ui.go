@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/app"
+	"github.com/charmbracelet/crush/internal/commands"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/filetracker"
 	"github.com/charmbracelet/crush/internal/history"
@@ -76,7 +78,18 @@ type openEditorMsg struct {
 	Text string
 }
 
-type cancelTimerExpiredMsg struct{}
+type (
+	// cancelTimerExpiredMsg is sent when the cancel timer expires.
+	cancelTimerExpiredMsg struct{}
+	// userCommandsLoadedMsg is sent when user commands are loaded.
+	userCommandsLoadedMsg struct {
+		Commands []commands.CustomCommand
+	}
+	// mcpCustomCommandsLoadedMsg is sent when mcp prompts are loaded.
+	mcpCustomCommandsLoadedMsg struct {
+		Prompts []commands.MCPCustomCommand
+	}
+)
 
 // UI represents the main user interface model.
 type UI struct {
@@ -144,6 +157,10 @@ type UI struct {
 
 	// sidebarLogo keeps a cached version of the sidebar sidebarLogo.
 	sidebarLogo string
+
+	// custom commands & mcp commands
+	customCommands    []commands.CustomCommand
+	mcpCustomCommands []commands.MCPCustomCommand
 }
 
 // New creates a new instance of the [UI] model.
@@ -225,7 +242,35 @@ func (m *UI) Init() tea.Cmd {
 	if m.QueryVersion {
 		cmds = append(cmds, tea.RequestTerminalVersion)
 	}
+	// load the user commands async
+	cmds = append(cmds, m.loadCustomCommands())
 	return tea.Batch(cmds...)
+}
+
+// loadCustomCommands loads the custom commands asynchronously.
+func (m *UI) loadCustomCommands() tea.Cmd {
+	return func() tea.Msg {
+		customCommands, err := commands.LoadCustomCommands(m.com.Config())
+		if err != nil {
+			slog.Error("failed to load custom commands", "error", err)
+		}
+		return userCommandsLoadedMsg{Commands: customCommands}
+	}
+}
+
+// loadMCPrompts loads the MCP prompts asynchronously.
+func (m *UI) loadMCPrompts() tea.Cmd {
+	return func() tea.Msg {
+		prompts, err := commands.LoadMCPCustomCommands()
+		if err != nil {
+			slog.Error("failed to load mcp prompts", "error", err)
+		}
+		if prompts == nil {
+			// flag them as loaded even if there is none or an error
+			prompts = []commands.MCPCustomCommand{}
+		}
+		return mcpCustomCommandsLoadedMsg{Prompts: prompts}
+	}
 }
 
 // Update handles updates to the UI model.
@@ -248,6 +293,29 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if cmd := m.setSessionMessages(msgs); cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+
+	case userCommandsLoadedMsg:
+		m.customCommands = msg.Commands
+		dia := m.dialog.Dialog(dialog.CommandsID)
+		if dia == nil {
+			break
+		}
+
+		commands, ok := dia.(*dialog.Commands)
+		if ok {
+			commands.SetCustomCommands(m.customCommands)
+		}
+	case mcpCustomCommandsLoadedMsg:
+		m.mcpCustomCommands = msg.Prompts
+		dia := m.dialog.Dialog(dialog.CommandsID)
+		if dia == nil {
+			break
+		}
+
+		commands, ok := dia.(*dialog.Commands)
+		if ok {
+			commands.SetMCPCustomCommands(m.mcpCustomCommands)
 		}
 
 	case pubsub.Event[message.Message]:
@@ -274,18 +342,16 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lspStates = app.GetLSPStates()
 	case pubsub.Event[mcp.Event]:
 		m.mcpStates = mcp.GetStates()
-		if msg.Type == pubsub.UpdatedEvent && m.dialog.ContainsDialog(dialog.CommandsID) {
-			dia := m.dialog.Dialog(dialog.CommandsID)
-			if dia == nil {
+		// check if all mcps are initialized
+		initialized := true
+		for _, state := range m.mcpStates {
+			if state.State == mcp.StateStarting {
+				initialized = false
 				break
 			}
-
-			commands, ok := dia.(*dialog.Commands)
-			if ok {
-				if cmd := commands.ReloadMCPPrompts(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-			}
+		}
+		if initialized && m.mcpCustomCommands == nil {
+			cmds = append(cmds, m.loadMCPrompts())
 		}
 	case pubsub.Event[permission.PermissionRequest]:
 		if cmd := m.openPermissionsDialog(msg.Payload); cmd != nil {
@@ -776,6 +842,13 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionQuit:
 		cmds = append(cmds, tea.Quit)
+	case dialog.ActionInitializeProject:
+		if m.com.App.AgentCoordinator != nil && m.com.App.AgentCoordinator.IsBusy() {
+			cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait before summarizing session..."))
+			break
+		}
+		cmds = append(cmds, m.initializeProject())
+
 	case dialog.ActionSelectModel:
 		if m.com.App.AgentCoordinator.IsBusy() {
 			cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait..."))
@@ -2001,7 +2074,7 @@ func (m *UI) openCommandsDialog() tea.Cmd {
 		sessionID = m.session.ID
 	}
 
-	commands, err := dialog.NewCommands(m.com, sessionID)
+	commands, err := dialog.NewCommands(m.com, sessionID, m.customCommands, m.mcpCustomCommands)
 	if err != nil {
 		return uiutil.ReportError(err)
 	}
