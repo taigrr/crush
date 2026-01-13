@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
+	"github.com/charmbracelet/crush/internal/commands"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
@@ -47,12 +48,31 @@ type (
 	ActionToggleThinking    struct{}
 	ActionExternalEditor    struct{}
 	ActionToggleYoloMode    struct{}
+	// ActionInitializeProject is a message to initialize a project.
+	ActionInitializeProject struct{}
 	ActionSummarize         struct {
 		SessionID string
 	}
 	ActionPermissionResponse struct {
 		Permission permission.PermissionRequest
 		Action     PermissionAction
+	}
+	// ActionRunCustomCommand is a message to run a custom command.
+	ActionRunCustomCommand struct {
+		CommandID string
+		// Used when running a user-defined command
+		Content string
+		// Used when running a prompt from MCP
+		Client string
+	}
+	// ActionOpenCustomCommandArgumentsDialog is a message to open the custom command arguments dialog.
+	ActionOpenCustomCommandArgumentsDialog struct {
+		CommandID string
+		// Used when running a user-defined command
+		Content string
+		// Used when running a prompt from MCP
+		Client    string
+		Arguments []commands.Argument
 	}
 )
 
