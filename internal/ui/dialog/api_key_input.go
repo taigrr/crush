@@ -286,12 +286,12 @@ func (m *APIKeyInput) verifyAPIKey() tea.Msg {
 	return ActionChangeAPIKeyState{APIKeyInputStateError}
 }
 
-func (m *APIKeyInput) saveKeyAndContinue() tea.Msg {
+func (m *APIKeyInput) saveKeyAndContinue() Action {
 	cfg := m.com.Config()
 
 	err := cfg.SetProviderAPIKey(string(m.provider.ID), m.input.Value())
 	if err != nil {
-		return uiutil.ReportError(fmt.Errorf("failed to save API key: %w", err))
+		return ActionCmd{uiutil.ReportError(fmt.Errorf("failed to save API key: %w", err))}
 	}
 
 	return ActionSelectModel{
