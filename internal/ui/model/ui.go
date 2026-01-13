@@ -46,12 +46,6 @@ import (
 	"github.com/charmbracelet/x/editor"
 )
 
-// Max file size set to 5M.
-const maxAttachmentSize = int64(5 * 1024 * 1024)
-
-// Allowed image formats.
-var allowedImageTypes = []string{".jpg", ".jpeg", ".png"}
-
 // uiFocusState represents the current focus state of the UI.
 type uiFocusState uint8
 
@@ -146,8 +140,8 @@ type UI struct {
 	// sidebarLogo keeps a cached version of the sidebar sidebarLogo.
 	sidebarLogo string
 
-	// imageCaps stores the terminal image capabilities.
-	imageCaps timage.Capabilities
+	// imgCaps stores the terminal image capabilities.
+	imgCaps timage.Capabilities
 }
 
 // New creates a new instance of the [UI] model.
@@ -314,6 +308,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.updateLayoutAndSize()
+		// XXX: We need to store cell dimensions for image rendering.
+		m.imgCaps.Columns, m.imgCaps.Rows = msg.Width, msg.Height
 	case tea.KeyboardEnhancementsMsg:
 		m.keyenh = msg
 		if msg.SupportsKeyDisambiguation() {
@@ -435,11 +431,16 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.completionsOpen {
 			m.completions.SetFiles(msg.Files)
 		}
+	case uv.WindowPixelSizeEvent:
+		// [timage.RequestCapabilities] requests the terminal to send a window
+		// size event to help determine pixel dimensions.
+		m.imgCaps.PixelWidth = msg.Width
+		m.imgCaps.PixelHeight = msg.Height
 	case uv.KittyGraphicsEvent:
 		// [timage.RequestCapabilities] sends a Kitty graphics query and this
 		// captures the response. Any response means the terminal understands
 		// the protocol.
-		m.imageCaps.SupportsKittyGraphics = true
+		m.imgCaps.SupportsKittyGraphics = true
 	default:
 		if m.dialog.HasDialogs() {
 			if cmd := m.handleDialogMsg(msg); cmd != nil {
@@ -833,6 +834,16 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		case dialog.PermissionDeny:
 			m.com.App.Permissions.Deny(msg.Permission)
 		}
+
+	case dialog.ActionFilePickerSelected:
+		cmds = append(cmds, tea.Sequence(
+			msg.Cmd(),
+			func() tea.Msg {
+				m.dialog.CloseDialog(dialog.FilePickerID)
+				return nil
+			},
+		))
+
 	default:
 		cmds = append(cmds, uiutil.CmdHandler(msg))
 	}
@@ -2062,10 +2073,8 @@ func (m *UI) openFilesDialog() tea.Cmd {
 		return nil
 	}
 
-	const desiredFilePickerHeight = 10
 	filePicker, action := dialog.NewFilePicker(m.com)
-	filePicker.SetWindowSize(min(80, m.width-8), desiredFilePickerHeight)
-	filePicker.SetImageCapabilities(&m.imageCaps)
+	filePicker.SetImageCapabilities(&m.imgCaps)
 	m.dialog.OpenDialog(filePicker)
 
 	switch action := action.(type) {
@@ -2138,7 +2147,7 @@ func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
 	if strings.Count(msg.Content, "\n") > 2 {
 		return func() tea.Msg {
 			content := []byte(msg.Content)
-			if int64(len(content)) > maxAttachmentSize {
+			if int64(len(content)) > common.MaxAttachmentSize {
 				return uiutil.ReportWarn("Paste is too big (>5mb)")
 			}
 			name := fmt.Sprintf("paste_%d.txt", m.pasteIdx())
@@ -2165,7 +2174,7 @@ func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
 	// Check if file has an allowed image extension.
 	isAllowedType := false
 	lowerPath := strings.ToLower(path)
-	for _, ext := range allowedImageTypes {
+	for _, ext := range common.AllowedImageTypes {
 		if strings.HasSuffix(lowerPath, ext) {
 			isAllowedType = true
 			break
@@ -2181,7 +2190,7 @@ func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
 		if err != nil {
 			return uiutil.ReportError(err)
 		}
-		if fileInfo.Size() > maxAttachmentSize {
+		if fileInfo.Size() > common.MaxAttachmentSize {
 			return uiutil.ReportWarn("File is too big (>5mb)")
 		}
 

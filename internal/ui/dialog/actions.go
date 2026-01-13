@@ -1,11 +1,19 @@
 package dialog
 
 import (
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/session"
+	"github.com/charmbracelet/crush/internal/ui/common"
+	"github.com/charmbracelet/crush/internal/uiutil"
 )
 
 // ActionClose is a message to close the current dialog.
@@ -59,4 +67,53 @@ type (
 // Bubble Tea program loop.
 type ActionCmd struct {
 	Cmd tea.Cmd
+}
+
+// ActionFilePickerSelected is a message indicating a file has been selected in
+// the file picker dialog.
+type ActionFilePickerSelected struct {
+	Path string
+}
+
+// Cmd returns a command that reads the file at path and sends a
+// [message.Attachement] to the program.
+func (a ActionFilePickerSelected) Cmd() tea.Cmd {
+	path := a.Path
+	if path == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		isFileLarge, err := common.IsFileTooBig(path, common.MaxAttachmentSize)
+		if err != nil {
+			return uiutil.InfoMsg{
+				Type: uiutil.InfoTypeError,
+				Msg:  fmt.Sprintf("unable to read the image: %v", err),
+			}
+		}
+		if isFileLarge {
+			return uiutil.InfoMsg{
+				Type: uiutil.InfoTypeError,
+				Msg:  "file too large, max 5MB",
+			}
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return uiutil.InfoMsg{
+				Type: uiutil.InfoTypeError,
+				Msg:  fmt.Sprintf("unable to read the image: %v", err),
+			}
+		}
+
+		mimeBufferSize := min(512, len(content))
+		mimeType := http.DetectContentType(content[:mimeBufferSize])
+		fileName := filepath.Base(path)
+
+		return message.Attachment{
+			FilePath: path,
+			FileName: fileName,
+			MimeType: mimeType,
+			Content:  content,
+		}
+	}
 }

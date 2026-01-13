@@ -1188,7 +1188,7 @@ func DefaultStyles() Styles {
 	s.Dialog.ScrollbarThumb = base.Foreground(secondary)
 	s.Dialog.ScrollbarTrack = base.Foreground(border)
 
-	s.Dialog.ImagePreview = lipgloss.NewStyle().Padding(1)
+	s.Dialog.ImagePreview = lipgloss.NewStyle().Padding(0, 1).Foreground(fgSubtle)
 
 	s.Status.Help = lipgloss.NewStyle().Padding(0, 1)
 	s.Status.SuccessIndicator = base.Foreground(bgSubtle).Background(green).Padding(0, 1).Bold(true).SetString("OKAY!")
