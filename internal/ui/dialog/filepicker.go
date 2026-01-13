@@ -185,14 +185,17 @@ func (f *FilePicker) HandleMsg(msg tea.Msg) Action {
 
 		f.previewingImage = allowed
 		if allowed && !fimage.HasTransmitted(selFile, f.imgPrevWidth, f.imgPrevHeight) {
+			f.previewingImage = false
 			img, err := loadImage(selFile)
-			if err != nil {
-				f.previewingImage = false
+			if err == nil {
+				cmds = append(cmds, tea.Sequence(
+					f.imgEnc.Transmit(selFile, img, f.cellSize, f.imgPrevWidth, f.imgPrevHeight),
+					func() tea.Msg {
+						f.previewingImage = true
+						return nil
+					},
+				))
 			}
-
-			cmds = append(cmds, f.imgEnc.Transmit(
-				selFile, img, f.cellSize, f.imgPrevWidth, f.imgPrevHeight))
-			f.previewingImage = true
 		}
 	}
 	if cmd != nil {
