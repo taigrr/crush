@@ -2,6 +2,7 @@ package image
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"image"
@@ -13,6 +14,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/crush/internal/uiutil"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
 	"github.com/charmbracelet/x/mosaic"
@@ -33,6 +35,8 @@ type Capabilities struct {
 	// SupportsKittyGraphics indicates whether the terminal supports the Kitty
 	// graphics protocol.
 	SupportsKittyGraphics bool
+	// Env is the terminal environment variables.
+	Env uv.Environ
 }
 
 // CellSize returns the size of a single terminal cell in pixels.
@@ -55,12 +59,15 @@ func CalculateCellSize(pixelWidth, pixelHeight, charWidth, charHeight int) CellS
 
 // RequestCapabilities is a [tea.Cmd] that requests the terminal to report
 // its image related capabilities to the program.
-func RequestCapabilities() tea.Cmd {
-	return tea.Raw(
-		ansi.WindowOp(14) + // Window size in pixels
-			// ID 31 is just a random ID used to detect Kitty graphics support.
-			ansi.KittyGraphics([]byte("AAAA"), "i=31", "s=1", "v=1", "a=q", "t=d", "f=24"),
-	)
+func RequestCapabilities(env uv.Environ) tea.Cmd {
+	winOpReq := ansi.WindowOp(14) // Window size in pixels
+	// ID 31 is just a random ID used to detect Kitty graphics support.
+	kittyReq := ansi.KittyGraphics([]byte("AAAA"), "i=31", "s=1", "v=1", "a=q", "t=d", "f=24")
+	if _, isTmux := env.LookupEnv("TMUX"); isTmux {
+		kittyReq = ansi.TmuxPassthrough(kittyReq)
+	}
+
+	return tea.Raw(winOpReq + kittyReq)
 }
 
 // TransmittedMsg is a message indicating that an image has been transmitted to
@@ -161,7 +168,7 @@ func HasTransmitted(id string, cols, rows int) bool {
 
 // Transmit transmits the image data to the terminal if needed. This is used to
 // cache the image on the terminal for later rendering.
-func (e Encoding) Transmit(id string, img image.Image, cs CellSize, cols, rows int) tea.Cmd {
+func (e Encoding) Transmit(id string, img image.Image, cs CellSize, cols, rows int, tmux bool) tea.Cmd {
 	if img == nil {
 		return nil
 	}
@@ -188,13 +195,50 @@ func (e Encoding) Transmit(id string, img image.Image, cs CellSize, cols, rows i
 		}
 
 		var buf bytes.Buffer
+		rp, wp := io.Pipe()
+		go func() {
+			for {
+				// Read single Kitty graphic chunks from the pipe and wrap them
+				// for tmux if needed.
+				var out bytes.Buffer
+				seenEsc := false
+				for {
+					var p [1]byte
+					n, err := rp.Read(p[:])
+					if n > 0 {
+						out.WriteByte(p[0])
+						if p[0] == ansi.ESC {
+							seenEsc = true
+						} else if seenEsc && p[0] == '\\' {
+							// End of Kitty graphics sequence
+							break
+						} else {
+							seenEsc = false
+						}
+					}
+					if err != nil {
+						if !errors.Is(err, io.EOF) {
+							slog.Error("error reading from pipe", "err", err)
+						}
+						return
+					}
+				}
+
+				seq := out.String()
+				if tmux {
+					seq = ansi.TmuxPassthrough(seq)
+				}
+
+				buf.WriteString(seq)
+			}
+		}()
+
 		img := fitImage(id, img, cs, cols, rows)
 		bounds := img.Bounds()
 		imgWidth := bounds.Dx()
 		imgHeight := bounds.Dy()
-
 		imgID := int(key.Hash())
-		if err := kitty.EncodeGraphics(&buf, img, &kitty.Options{
+		if err := kitty.EncodeGraphics(wp, img, &kitty.Options{
 			ID:               imgID,
 			Action:           kitty.TransmitAndPut,
 			Transmission:     kitty.Direct,
@@ -205,6 +249,7 @@ func (e Encoding) Transmit(id string, img image.Image, cs CellSize, cols, rows i
 			Rows:             rows,
 			VirtualPlacement: true,
 			Quite:            1,
+			Chunk:            true,
 		}); err != nil {
 			slog.Error("failed to encode image for kitty graphics", "err", err)
 			return uiutil.ReportError(fmt.Errorf("failed to encode image"))
