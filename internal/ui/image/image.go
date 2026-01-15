@@ -2,7 +2,6 @@ package image
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"image"
@@ -195,50 +194,12 @@ func (e Encoding) Transmit(id string, img image.Image, cs CellSize, cols, rows i
 		}
 
 		var buf bytes.Buffer
-		rp, wp := io.Pipe()
-		go func() {
-			for {
-				// Read single Kitty graphic chunks from the pipe and wrap them
-				// for tmux if needed.
-				var out bytes.Buffer
-				seenEsc := false
-				for {
-					var p [1]byte
-					n, err := rp.Read(p[:])
-					if n > 0 {
-						out.WriteByte(p[0])
-						if p[0] == ansi.ESC {
-							seenEsc = true
-						} else if seenEsc && p[0] == '\\' {
-							// End of Kitty graphics sequence
-							break
-						} else {
-							seenEsc = false
-						}
-					}
-					if err != nil {
-						if !errors.Is(err, io.EOF) {
-							slog.Error("error reading from pipe", "err", err)
-						}
-						return
-					}
-				}
-
-				seq := out.String()
-				if tmux {
-					seq = ansi.TmuxPassthrough(seq)
-				}
-
-				buf.WriteString(seq)
-			}
-		}()
-
 		img := fitImage(id, img, cs, cols, rows)
 		bounds := img.Bounds()
 		imgWidth := bounds.Dx()
 		imgHeight := bounds.Dy()
 		imgID := int(key.Hash())
-		if err := kitty.EncodeGraphics(wp, img, &kitty.Options{
+		if err := kitty.EncodeGraphics(&buf, img, &kitty.Options{
 			ID:               imgID,
 			Action:           kitty.TransmitAndPut,
 			Transmission:     kitty.Direct,
@@ -250,9 +211,18 @@ func (e Encoding) Transmit(id string, img image.Image, cs CellSize, cols, rows i
 			VirtualPlacement: true,
 			Quite:            1,
 			Chunk:            true,
+			ChunkFormatter: func(chunk string) string {
+				if tmux {
+					return ansi.TmuxPassthrough(chunk)
+				}
+				return chunk
+			},
 		}); err != nil {
 			slog.Error("failed to encode image for kitty graphics", "err", err)
-			return uiutil.ReportError(fmt.Errorf("failed to encode image"))
+			return uiutil.InfoMsg{
+				Type: uiutil.InfoTypeError,
+				Msg:  "failed to encode image",
+			}
 		}
 
 		return tea.RawMsg{Msg: buf.String()}
