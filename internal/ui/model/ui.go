@@ -375,6 +375,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.appendSessionMessage(msg.Payload))
 		case pubsub.UpdatedEvent:
 			cmds = append(cmds, m.updateSessionMessage(msg.Payload))
+		case pubsub.DeletedEvent:
+			m.chat.RemoveMessage(msg.Payload.ID)
 		}
 	case pubsub.Event[history.File]:
 		cmds = append(cmds, m.handleFileEvent(msg.Payload))
@@ -887,12 +889,23 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait before summarizing session..."))
 			break
 		}
-		err := m.com.App.AgentCoordinator.Summarize(context.Background(), msg.SessionID)
-		if err != nil {
-			cmds = append(cmds, uiutil.ReportError(err))
-		}
+		cmds = append(cmds, func() tea.Msg {
+			err := m.com.App.AgentCoordinator.Summarize(context.Background(), msg.SessionID)
+			if err != nil {
+				return uiutil.ReportError(err)()
+			}
+			return nil
+		})
+		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionToggleHelp:
 		m.status.ToggleHelp()
+		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionExternalEditor:
+		if m.session != nil && m.com.App.AgentCoordinator.IsSessionBusy(m.session.ID) {
+			cmds = append(cmds, uiutil.ReportWarn("Agent is working, please wait..."))
+			break
+		}
+		cmds = append(cmds, m.openEditor(m.textarea.Value()))
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionToggleCompactMode:
 		cmds = append(cmds, m.toggleCompactMode())
