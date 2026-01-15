@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -52,26 +53,29 @@ type Commands struct {
 	sessionID string // can be empty for non-session-specific commands
 	selected  CommandType
 
+	spinner spinner.Model
+	loading bool
+
 	help  help.Model
 	input textinput.Model
 	list  *list.FilterableList
 
 	windowWidth int
 
-	customCommands    []commands.CustomCommand
-	mcpCustomCommands []commands.MCPCustomCommand
+	customCommands []commands.CustomCommand
+	mcpPrompts     []commands.MCPPrompt
 }
 
 var _ Dialog = (*Commands)(nil)
 
 // NewCommands creates a new commands dialog.
-func NewCommands(com *common.Common, sessionID string, customCommands []commands.CustomCommand, mcpCustomCommands []commands.MCPCustomCommand) (*Commands, error) {
+func NewCommands(com *common.Common, sessionID string, customCommands []commands.CustomCommand, mcpPrompts []commands.MCPPrompt) (*Commands, error) {
 	c := &Commands{
-		com:               com,
-		selected:          SystemCommands,
-		sessionID:         sessionID,
-		customCommands:    customCommands,
-		mcpCustomCommands: mcpCustomCommands,
+		com:            com,
+		selected:       SystemCommands,
+		sessionID:      sessionID,
+		customCommands: customCommands,
+		mcpPrompts:     mcpPrompts,
 	}
 
 	help := help.New()
@@ -120,6 +124,11 @@ func NewCommands(com *common.Common, sessionID string, customCommands []commands
 	// Set initial commands
 	c.setCommandItems(c.selected)
 
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = com.Styles.Dialog.Spinner
+	c.spinner = s
+
 	return c, nil
 }
 
@@ -128,9 +137,15 @@ func (c *Commands) ID() string {
 	return CommandsID
 }
 
-// HandleMsg implements Dialog.
+// HandleMsg implements [Dialog].
 func (c *Commands) HandleMsg(msg tea.Msg) Action {
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		if c.loading {
+			var cmd tea.Cmd
+			c.spinner, cmd = c.spinner.Update(msg)
+			return ActionCmd{Cmd: cmd}
+		}
 	case tea.KeyPressMsg:
 		switch {
 		case key.Matches(msg, c.keyMap.Close):
@@ -160,12 +175,12 @@ func (c *Commands) HandleMsg(msg tea.Msg) Action {
 				}
 			}
 		case key.Matches(msg, c.keyMap.Tab):
-			if len(c.customCommands) > 0 || len(c.mcpCustomCommands) > 0 {
+			if len(c.customCommands) > 0 || len(c.mcpPrompts) > 0 {
 				c.selected = c.nextCommandType()
 				c.setCommandItems(c.selected)
 			}
 		case key.Matches(msg, c.keyMap.ShiftTab):
-			if len(c.customCommands) > 0 || len(c.mcpCustomCommands) > 0 {
+			if len(c.customCommands) > 0 || len(c.mcpPrompts) > 0 {
 				c.selected = c.previousCommandType()
 				c.setCommandItems(c.selected)
 			}
@@ -242,12 +257,16 @@ func (c *Commands) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	c.list.SetSize(innerWidth, height-heightOffset)
 	c.help.SetWidth(innerWidth)
 
-	radio := commandsRadioView(t, c.selected, len(c.customCommands) > 0, len(c.mcpCustomCommands) > 0)
+	radio := commandsRadioView(t, c.selected, len(c.customCommands) > 0, len(c.mcpPrompts) > 0)
 	titleStyle := t.Dialog.Title
 	dialogStyle := t.Dialog.View.Width(width)
 	headerOffset := lipgloss.Width(radio) + titleStyle.GetHorizontalFrameSize() + dialogStyle.GetHorizontalFrameSize()
 	helpView := ansi.Truncate(c.help.View(c), innerWidth, "")
 	header := common.DialogTitle(t, "Commands", width-headerOffset) + radio
+
+	if c.loading {
+		helpView = t.Dialog.HelpView.Width(width).Render(c.spinner.View() + " Generating Prompt...")
+	}
 	view := HeaderInputListHelpView(t, width, c.list.Height(), header,
 		c.input.View(), c.list.Render(), helpView)
 
@@ -281,12 +300,12 @@ func (c *Commands) nextCommandType() CommandType {
 		if len(c.customCommands) > 0 {
 			return UserCommands
 		}
-		if len(c.mcpCustomCommands) > 0 {
+		if len(c.mcpPrompts) > 0 {
 			return MCPPrompts
 		}
 		fallthrough
 	case UserCommands:
-		if len(c.mcpCustomCommands) > 0 {
+		if len(c.mcpPrompts) > 0 {
 			return MCPPrompts
 		}
 		fallthrough
@@ -301,7 +320,7 @@ func (c *Commands) nextCommandType() CommandType {
 func (c *Commands) previousCommandType() CommandType {
 	switch c.selected {
 	case SystemCommands:
-		if len(c.mcpCustomCommands) > 0 {
+		if len(c.mcpPrompts) > 0 {
 			return MCPPrompts
 		}
 		if len(c.customCommands) > 0 {
@@ -332,37 +351,22 @@ func (c *Commands) setCommandItems(commandType CommandType) {
 		}
 	case UserCommands:
 		for _, cmd := range c.customCommands {
-			var action Action
-			if len(cmd.Arguments) > 0 {
-				action = ActionOpenCustomCommandArgumentsDialog{
-					CommandID: cmd.ID,
-					Content:   cmd.Content,
-					Arguments: cmd.Arguments,
-				}
-			} else {
-				action = ActionRunCustomCommand{
-					CommandID: cmd.ID,
-					Content:   cmd.Content,
-				}
+			action := ActionRunCustomCommand{
+				Content:   cmd.Content,
+				Arguments: cmd.Arguments,
 			}
 			commandItems = append(commandItems, NewCommandItem(c.com.Styles, "custom_"+cmd.ID, cmd.Name, "", action))
 		}
 	case MCPPrompts:
-		for _, cmd := range c.mcpCustomCommands {
-			var action Action
-			if len(cmd.Arguments) > 0 {
-				action = ActionOpenCustomCommandArgumentsDialog{
-					CommandID: cmd.ID,
-					Client:    cmd.Client,
-					Arguments: cmd.Arguments,
-				}
-			} else {
-				action = ActionRunCustomCommand{
-					CommandID: cmd.ID,
-					Client:    cmd.Client,
-				}
+		for _, cmd := range c.mcpPrompts {
+			action := ActionRunMCPPrompt{
+				Title:       cmd.Title,
+				Description: cmd.Description,
+				PromptID:    cmd.PromptID,
+				ClientID:    cmd.ClientID,
+				Arguments:   cmd.Arguments,
 			}
-			commandItems = append(commandItems, NewCommandItem(c.com.Styles, "mcp_"+cmd.ID, cmd.Name, "", action))
+			commandItems = append(commandItems, NewCommandItem(c.com.Styles, "mcp_"+cmd.ID, cmd.PromptID, "", action))
 		}
 	}
 
@@ -448,10 +452,24 @@ func (c *Commands) SetCustomCommands(customCommands []commands.CustomCommand) {
 	}
 }
 
-// SetMCPCustomCommands sets the MCP custom commands and refreshes the view if MCP prompts are currently displayed.
-func (c *Commands) SetMCPCustomCommands(mcpCustomCommands []commands.MCPCustomCommand) {
-	c.mcpCustomCommands = mcpCustomCommands
+// SetMCPPrompts sets the MCP prompts and refreshes the view if MCP prompts are currently displayed.
+func (c *Commands) SetMCPPrompts(mcpPrompts []commands.MCPPrompt) {
+	c.mcpPrompts = mcpPrompts
 	if c.selected == MCPPrompts {
 		c.setCommandItems(c.selected)
 	}
+}
+
+// StartLoading implements [LoadingDialog].
+func (a *Commands) StartLoading() tea.Cmd {
+	if a.loading {
+		return nil
+	}
+	a.loading = true
+	return a.spinner.Tick
+}
+
+// StopLoading implements [LoadingDialog].
+func (a *Commands) StopLoading() {
+	a.loading = false
 }

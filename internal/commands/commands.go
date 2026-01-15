@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,18 +20,22 @@ const (
 	projectCommandPrefix = "project:"
 )
 
-// Argument represents a command argument with its name and required status.
+// Argument represents a command argument with its metadata.
 type Argument struct {
-	Name     string
-	Required bool
+	ID          string
+	Title       string
+	Description string
+	Required    bool
 }
 
-// MCPCustomCommand represents a custom command loaded from an MCP server.
-type MCPCustomCommand struct {
-	ID        string
-	Name      string
-	Client    string
-	Arguments []Argument
+// MCPPrompt represents a custom command loaded from an MCP server.
+type MCPPrompt struct {
+	ID          string
+	Title       string
+	Description string
+	PromptID    string
+	ClientID    string
+	Arguments   []Argument
 }
 
 // CustomCommand represents a user-defined custom command loaded from markdown files.
@@ -52,22 +57,32 @@ func LoadCustomCommands(cfg *config.Config) ([]CustomCommand, error) {
 	return loadAll(buildCommandSources(cfg))
 }
 
-// LoadMCPCustomCommands loads custom commands from available MCP servers.
-func LoadMCPCustomCommands() ([]MCPCustomCommand, error) {
-	var commands []MCPCustomCommand
+// LoadMCPPrompts loads custom commands from available MCP servers.
+func LoadMCPPrompts() ([]MCPPrompt, error) {
+	var commands []MCPPrompt
 	for mcpName, prompts := range mcp.Prompts() {
 		for _, prompt := range prompts {
 			key := mcpName + ":" + prompt.Name
 			var args []Argument
 			for _, arg := range prompt.Arguments {
-				args = append(args, Argument{Name: arg.Name, Required: arg.Required})
+				title := arg.Title
+				if title == "" {
+					title = arg.Name
+				}
+				args = append(args, Argument{
+					ID:          arg.Name,
+					Title:       title,
+					Description: arg.Description,
+					Required:    arg.Required,
+				})
 			}
-
-			commands = append(commands, MCPCustomCommand{
-				ID:        key,
-				Name:      prompt.Name,
-				Client:    mcpName,
-				Arguments: args,
+			commands = append(commands, MCPPrompt{
+				ID:          key,
+				Title:       prompt.Title,
+				Description: prompt.Description,
+				PromptID:    prompt.Name,
+				ClientID:    mcpName,
+				Arguments:   args,
 			})
 		}
 	}
@@ -168,7 +183,7 @@ func extractArgNames(content string) []Argument {
 		if !seen[arg] {
 			seen[arg] = true
 			// for normal custom commands, all args are required
-			args = append(args, Argument{Name: arg, Required: true})
+			args = append(args, Argument{ID: arg, Title: arg, Required: true})
 		}
 	}
 
@@ -210,4 +225,13 @@ func ensureDir(path string) error {
 
 func isMarkdownFile(name string) bool {
 	return strings.HasSuffix(strings.ToLower(name), ".md")
+}
+
+func GetMCPPrompt(clientID, promptID string, args map[string]string) (string, error) {
+	// TODO: we should pass the context down
+	result, err := mcp.GetPromptMessages(context.Background(), clientID, promptID, args)
+	if err != nil {
+		return "", err
+	}
+	return strings.Join(result, " "), nil
 }

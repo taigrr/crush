@@ -18,6 +18,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -93,10 +94,19 @@ type (
 	userCommandsLoadedMsg struct {
 		Commands []commands.CustomCommand
 	}
-	// mcpCustomCommandsLoadedMsg is sent when mcp prompts are loaded.
-	mcpCustomCommandsLoadedMsg struct {
-		Prompts []commands.MCPCustomCommand
+	// mcpPromptsLoadedMsg is sent when mcp prompts are loaded.
+	mcpPromptsLoadedMsg struct {
+		Prompts []commands.MCPPrompt
 	}
+	// sendMessageMsg is sent to send a message.
+	// currently only used for mcp prompts.
+	sendMessageMsg struct {
+		Content     string
+		Attachments []message.Attachment
+	}
+
+	// closeDialogMsg is sent to close the current dialog.
+	closeDialogMsg struct{}
 )
 
 // UI represents the main user interface model.
@@ -167,8 +177,8 @@ type UI struct {
 	sidebarLogo string
 
 	// custom commands & mcp commands
-	customCommands    []commands.CustomCommand
-	mcpCustomCommands []commands.MCPCustomCommand
+	customCommands []commands.CustomCommand
+	mcpPrompts     []commands.MCPPrompt
 
 	// forceCompactMode tracks whether compact mode is forced by user toggle
 	forceCompactMode bool
@@ -282,15 +292,15 @@ func (m *UI) loadCustomCommands() tea.Cmd {
 // loadMCPrompts loads the MCP prompts asynchronously.
 func (m *UI) loadMCPrompts() tea.Cmd {
 	return func() tea.Msg {
-		prompts, err := commands.LoadMCPCustomCommands()
+		prompts, err := commands.LoadMCPPrompts()
 		if err != nil {
 			slog.Error("failed to load mcp prompts", "error", err)
 		}
 		if prompts == nil {
 			// flag them as loaded even if there is none or an error
-			prompts = []commands.MCPCustomCommand{}
+			prompts = []commands.MCPPrompt{}
 		}
-		return mcpCustomCommandsLoadedMsg{Prompts: prompts}
+		return mcpPromptsLoadedMsg{Prompts: prompts}
 	}
 }
 
@@ -319,6 +329,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case sendMessageMsg:
+		cmds = append(cmds, m.sendMessage(msg.Content, msg.Attachments...))
+
 	case userCommandsLoadedMsg:
 		m.customCommands = msg.Commands
 		dia := m.dialog.Dialog(dialog.CommandsID)
@@ -330,8 +343,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if ok {
 			commands.SetCustomCommands(m.customCommands)
 		}
-	case mcpCustomCommandsLoadedMsg:
-		m.mcpCustomCommands = msg.Prompts
+	case mcpPromptsLoadedMsg:
+		m.mcpPrompts = msg.Prompts
 		dia := m.dialog.Dialog(dialog.CommandsID)
 		if dia == nil {
 			break
@@ -339,8 +352,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		commands, ok := dia.(*dialog.Commands)
 		if ok {
-			commands.SetMCPCustomCommands(m.mcpCustomCommands)
+			commands.SetMCPPrompts(m.mcpPrompts)
 		}
+
+	case closeDialogMsg:
+		m.dialog.CloseFrontDialog()
 
 	case pubsub.Event[message.Message]:
 		// Check if this is a child session message for an agent tool.
@@ -374,7 +390,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
-		if initialized && m.mcpCustomCommands == nil {
+		if initialized && m.mcpPrompts == nil {
 			cmds = append(cmds, m.loadMCPrompts())
 		}
 	case pubsub.Event[permission.PermissionRequest]:
@@ -492,6 +508,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
+	case spinner.TickMsg:
+		if m.dialog.HasDialogs() {
+			// route to dialog
+			if cmd := m.handleDialogMsg(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
 	case tea.KeyPressMsg:
 		if cmd := m.handleKeyPressMsg(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -645,6 +669,11 @@ func (m *UI) loadNestedToolCalls(items []chat.MessageItem) {
 // if the message is a tool result it will update the corresponding tool call message
 func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 	var cmds []tea.Cmd
+	existing := m.chat.MessageItem(msg.ID)
+	if existing != nil {
+		// message already exists, skip
+		return nil
+	}
 	switch msg.Role {
 	case message.User, message.Assistant:
 		items := chat.ExtractMessageItems(m.com.Styles, &msg, nil)
@@ -920,11 +949,58 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		case dialog.PermissionDeny:
 			m.com.App.Permissions.Deny(msg.Permission)
 		}
+
+	case dialog.ActionRunCustomCommand:
+		if len(msg.Arguments) > 0 && msg.Args == nil {
+			m.dialog.CloseFrontDialog()
+			argsDialog := dialog.NewArguments(
+				m.com,
+				"Custom Command Arguments",
+				"",
+				msg.Arguments,
+				msg, // Pass the action as the result
+			)
+			m.dialog.OpenDialog(argsDialog)
+			break
+		}
+		content := msg.Content
+		if msg.Args != nil {
+			content = substituteArgs(content, msg.Args)
+		}
+		cmds = append(cmds, m.sendMessage(content))
+		m.dialog.CloseFrontDialog()
+	case dialog.ActionRunMCPPrompt:
+		if len(msg.Arguments) > 0 && msg.Args == nil {
+			m.dialog.CloseFrontDialog()
+			title := msg.Title
+			if title == "" {
+				title = "MCP Prompt Arguments"
+			}
+			argsDialog := dialog.NewArguments(
+				m.com,
+				title,
+				msg.Description,
+				msg.Arguments,
+				msg, // Pass the action as the result
+			)
+			m.dialog.OpenDialog(argsDialog)
+			break
+		}
+		cmds = append(cmds, m.runMCPPrompt(msg.ClientID, msg.PromptID, msg.Args))
 	default:
 		cmds = append(cmds, uiutil.CmdHandler(msg))
 	}
 
 	return tea.Batch(cmds...)
+}
+
+// substituteArgs replaces $ARG_NAME placeholders in content with actual values.
+func substituteArgs(content string, args map[string]string) string {
+	for name, value := range args {
+		placeholder := "$" + name
+		content = strings.ReplaceAll(content, placeholder, value)
+	}
+	return content
 }
 
 // openAPIKeyInputDialog opens the API key input dialog.
@@ -1055,7 +1131,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 				m.randomizePlaceholders()
 
-				return m.sendMessage(value, attachments)
+				return m.sendMessage(value, attachments...)
 			case key.Matches(msg, m.keyMap.Chat.NewSession):
 				if m.session == nil || m.session.ID == "" {
 					break
@@ -2013,7 +2089,7 @@ func (m *UI) renderSidebarLogo(width int) {
 }
 
 // sendMessage sends a message with the given content and attachments.
-func (m *UI) sendMessage(content string, attachments []message.Attachment) tea.Cmd {
+func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.Cmd {
 	if m.com.App.AgentCoordinator == nil {
 		return uiutil.ReportError(fmt.Errorf("coder agent is not initialized"))
 	}
@@ -2165,7 +2241,7 @@ func (m *UI) openCommandsDialog() tea.Cmd {
 		sessionID = m.session.ID
 	}
 
-	commands, err := dialog.NewCommands(m.com, sessionID, m.customCommands, m.mcpCustomCommands)
+	commands, err := dialog.NewCommands(m.com, sessionID, m.customCommands, m.mcpPrompts)
 	if err != nil {
 		return uiutil.ReportError(err)
 	}
@@ -2391,6 +2467,33 @@ func (m *UI) drawSessionDetails(scr uv.Screen, area uv.Rectangle) {
 				),
 			),
 	).Draw(scr, area)
+}
+
+func (m *UI) runMCPPrompt(clientID, promptID string, arguments map[string]string) tea.Cmd {
+	load := func() tea.Msg {
+		prompt, err := commands.GetMCPPrompt(clientID, promptID, arguments)
+		if err != nil {
+			// TODO: make this better
+			return uiutil.ReportError(err)()
+		}
+
+		if prompt == "" {
+			return nil
+		}
+		return sendMessageMsg{
+			Content: prompt,
+		}
+	}
+
+	var cmds []tea.Cmd
+	if cmd := m.dialog.StartLoading(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	cmds = append(cmds, load, func() tea.Msg {
+		return closeDialogMsg{}
+	})
+
+	return tea.Sequence(cmds...)
 }
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
