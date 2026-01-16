@@ -49,7 +49,7 @@ type FilePicker struct {
 var _ Dialog = (*FilePicker)(nil)
 
 // NewFilePicker creates a new [FilePicker] dialog.
-func NewFilePicker(com *common.Common) (*FilePicker, Action) {
+func NewFilePicker(com *common.Common) (*FilePicker, tea.Cmd) {
 	f := new(FilePicker)
 	f.com = com
 
@@ -98,7 +98,7 @@ func NewFilePicker(com *common.Common) (*FilePicker, Action) {
 
 	f.fp = fp
 
-	return f, ActionCmd{f.fp.Init()}
+	return f, f.fp.Init()
 }
 
 // SetImageCapabilities sets the image capabilities for the [FilePicker].
@@ -154,11 +154,6 @@ func (f *FilePicker) FullHelp() [][]key.Binding {
 // ID returns the identifier of the [FilePicker] dialog.
 func (f *FilePicker) ID() string {
 	return FilePickerID
-}
-
-// Init implements the [Dialog] interface.
-func (f *FilePicker) Init() tea.Cmd {
-	return f.fp.Init()
 }
 
 // HandleMsg updates the [FilePicker] dialog based on the given message.

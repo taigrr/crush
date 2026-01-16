@@ -2345,13 +2345,12 @@ func (m *UI) openFilesDialog() tea.Cmd {
 		return nil
 	}
 
-	filePicker, action := dialog.NewFilePicker(m.com)
+	filePicker, cmd := dialog.NewFilePicker(m.com)
 	filePicker.SetImageCapabilities(&m.imgCaps)
 	m.dialog.OpenDialog(filePicker)
 
-	switch action := action.(type) {
-	case dialog.ActionCmd:
-		return action.Cmd
+	if cmd != nil {
+		return cmd
 	}
 
 	return nil
