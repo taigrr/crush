@@ -2349,11 +2349,7 @@ func (m *UI) openFilesDialog() tea.Cmd {
 	filePicker.SetImageCapabilities(&m.imgCaps)
 	m.dialog.OpenDialog(filePicker)
 
-	if cmd != nil {
-		return cmd
-	}
-
-	return nil
+	return cmd
 }
 
 // openPermissionsDialog opens the permissions dialog for a permission request.
