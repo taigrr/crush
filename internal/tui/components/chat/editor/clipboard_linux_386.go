@@ -1,4 +1,4 @@
-//go:build linux && 386
+//go:build (linux || freebsd) && 386
 
 package editor
 
