@@ -355,6 +355,8 @@ type Styles struct {
 		}
 
 		Commands struct{}
+
+		ImagePreview lipgloss.Style
 	}
 
 	// Status bar and help
@@ -1226,6 +1228,8 @@ func DefaultStyles() Styles {
 	s.Dialog.Spinner = base.Foreground(secondary)
 	s.Dialog.ScrollbarThumb = base.Foreground(secondary)
 	s.Dialog.ScrollbarTrack = base.Foreground(border)
+
+	s.Dialog.ImagePreview = lipgloss.NewStyle().Padding(0, 1).Foreground(fgSubtle)
 
 	s.Dialog.Arguments.Content = base.Padding(1)
 	s.Dialog.Arguments.Description = base.MarginBottom(1).MaxHeight(3)
