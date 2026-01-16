@@ -378,6 +378,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.appendSessionMessage(msg.Payload))
 		case pubsub.UpdatedEvent:
 			cmds = append(cmds, m.updateSessionMessage(msg.Payload))
+		case pubsub.DeletedEvent:
+			m.chat.RemoveMessage(msg.Payload.ID)
 		}
 	case pubsub.Event[history.File]:
 		cmds = append(cmds, m.handleFileEvent(msg.Payload))
@@ -902,12 +904,23 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait before summarizing session..."))
 			break
 		}
-		err := m.com.App.AgentCoordinator.Summarize(context.Background(), msg.SessionID)
-		if err != nil {
-			cmds = append(cmds, uiutil.ReportError(err))
-		}
+		cmds = append(cmds, func() tea.Msg {
+			err := m.com.App.AgentCoordinator.Summarize(context.Background(), msg.SessionID)
+			if err != nil {
+				return uiutil.ReportError(err)()
+			}
+			return nil
+		})
+		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionToggleHelp:
 		m.status.ToggleHelp()
+		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionExternalEditor:
+		if m.session != nil && m.com.App.AgentCoordinator.IsSessionBusy(m.session.ID) {
+			cmds = append(cmds, uiutil.ReportWarn("Agent is working, please wait..."))
+			break
+		}
+		cmds = append(cmds, m.openEditor(m.textarea.Value()))
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionToggleCompactMode:
 		cmds = append(cmds, m.toggleCompactMode())
@@ -933,10 +946,20 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			break
 		}
 
-		_, isProviderConfigured := cfg.Providers.Get(msg.Model.Provider)
-		if !isProviderConfigured {
+		var (
+			providerID   = msg.Model.Provider
+			isCopilot    = providerID == string(catwalk.InferenceProviderCopilot)
+			isConfigured = func() bool { _, ok := cfg.Providers.Get(providerID); return ok }
+		)
+
+		// Attempt to import GitHub Copilot tokens from VSCode if available.
+		if isCopilot && !isConfigured() {
+			config.Get().ImportCopilot()
+		}
+
+		if !isConfigured() {
 			m.dialog.CloseDialog(dialog.ModelsID)
-			if cmd := m.openAPIKeyInputDialog(msg.Provider, msg.Model, msg.ModelType); cmd != nil {
+			if cmd := m.openAuthenticationDialog(msg.Provider, msg.Model, msg.ModelType); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 			break
@@ -952,6 +975,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		modelMsg := fmt.Sprintf("%s model changed to %s", msg.ModelType, msg.Model.Model)
 		cmds = append(cmds, uiutil.ReportInfo(modelMsg))
 		m.dialog.CloseDialog(dialog.APIKeyInputID)
+		m.dialog.CloseDialog(dialog.OAuthID)
 		m.dialog.CloseDialog(dialog.ModelsID)
 		// TODO CHANGE
 	case dialog.ActionPermissionResponse:
@@ -1027,19 +1051,28 @@ func substituteArgs(content string, args map[string]string) string {
 	return content
 }
 
-// openAPIKeyInputDialog opens the API key input dialog.
-func (m *UI) openAPIKeyInputDialog(provider catwalk.Provider, model config.SelectedModel, modelType config.SelectedModelType) tea.Cmd {
-	if m.dialog.ContainsDialog(dialog.APIKeyInputID) {
-		m.dialog.BringToFront(dialog.APIKeyInputID)
+func (m *UI) openAuthenticationDialog(provider catwalk.Provider, model config.SelectedModel, modelType config.SelectedModelType) tea.Cmd {
+	var (
+		dlg dialog.Dialog
+		cmd tea.Cmd
+	)
+
+	switch provider.ID {
+	case "hyper":
+		dlg, cmd = dialog.NewOAuthHyper(m.com, provider, model, modelType)
+	case catwalk.InferenceProviderCopilot:
+		dlg, cmd = dialog.NewOAuthCopilot(m.com, provider, model, modelType)
+	default:
+		dlg, cmd = dialog.NewAPIKeyInput(m.com, provider, model, modelType)
+	}
+
+	if m.dialog.ContainsDialog(dlg.ID()) {
+		m.dialog.BringToFront(dlg.ID())
 		return nil
 	}
 
-	apiKeyInputDialog, err := dialog.NewAPIKeyInput(m.com, provider, model, modelType)
-	if err != nil {
-		return uiutil.ReportError(err)
-	}
-	m.dialog.OpenDialog(apiKeyInputDialog)
-	return nil
+	m.dialog.OpenDialog(dlg)
+	return cmd
 }
 
 func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {

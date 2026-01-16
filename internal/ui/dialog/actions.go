@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/crush/internal/commands"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/oauth"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/common"
@@ -78,6 +79,29 @@ type (
 type (
 	ActionChangeAPIKeyState struct {
 		State APIKeyInputState
+	}
+)
+
+// Messages for OAuth2 device flow dialog.
+type (
+	// ActionInitiateOAuth is sent when the device auth is initiated
+	// successfully.
+	ActionInitiateOAuth struct {
+		DeviceCode      string
+		UserCode        string
+		ExpiresIn       int
+		VerificationURL string
+		Interval        int
+	}
+
+	// ActionCompleteOAuth is sent when the device flow completes successfully.
+	ActionCompleteOAuth struct {
+		Token *oauth.Token
+	}
+
+	// ActionOAuthErrored is sent when the device flow encounters an error.
+	ActionOAuthErrored struct {
+		Error error
 	}
 )
 
