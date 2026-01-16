@@ -108,7 +108,7 @@ require (
 	github.com/disintegration/gift v1.1.2 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.10.0-alpha.3.0.20260102153238-200df6041cff // indirect
+	github.com/ebitengine/purego v0.10.0-alpha.3.0.20260115160133-57859678ab72 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-json-experiment/json v0.0.0-20251027170946-4849db3c2f7e // indirect
