@@ -38,9 +38,17 @@ import (
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/stringext"
+	"github.com/charmbracelet/x/exp/charmtone"
 )
 
-const defaultSessionName = "Untitled Session"
+const (
+	defaultSessionName = "Untitled Session"
+
+	// Constants for auto-summarization thresholds
+	largeContextWindowThreshold = 200_000
+	largeContextWindowBuffer    = 20_000
+	smallContextWindowRatio     = 0.2
+)
 
 //go:embed templates/title.md
 var titlePrompt []byte
@@ -383,10 +391,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 				tokens := currentSession.CompletionTokens + currentSession.PromptTokens
 				remaining := cw - tokens
 				var threshold int64
-				if cw > 200_000 {
-					threshold = 20_000
+				if cw > largeContextWindowThreshold {
+					threshold = largeContextWindowBuffer
 				} else {
-					threshold = int64(float64(cw) * 0.2)
+					threshold = int64(float64(cw) * smallContextWindowRatio)
 				}
 				if (remaining <= threshold) && !a.disableAutoSummarize {
 					shouldSummarize = true
@@ -466,18 +474,19 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		var fantasyErr *fantasy.Error
 		var providerErr *fantasy.ProviderError
 		const defaultTitle = "Provider Error"
+		linkStyle := lipgloss.NewStyle().Foreground(charmtone.Guac).Underline(true)
 		if isCancelErr {
 			currentAssistant.AddFinish(message.FinishReasonCanceled, "User canceled request", "")
 		} else if isPermissionErr {
 			currentAssistant.AddFinish(message.FinishReasonPermissionDenied, "User denied permission", "")
 		} else if errors.Is(err, hyper.ErrNoCredits) {
 			url := hyper.BaseURL()
-			link := lipgloss.NewStyle().Hyperlink(url, "id=hyper").Render(url)
+			link := linkStyle.Hyperlink(url, "id=hyper").Render(url)
 			currentAssistant.AddFinish(message.FinishReasonError, "No credits", "You're out of credits. Add more at "+link)
 		} else if errors.As(err, &providerErr) {
 			if providerErr.Message == "The requested model is not supported." {
 				url := "https://github.com/settings/copilot/features"
-				link := lipgloss.NewStyle().Hyperlink(url, "id=hyper").Render(url)
+				link := linkStyle.Hyperlink(url, "id=copilot").Render(url)
 				currentAssistant.AddFinish(
 					message.FinishReasonError,
 					"Copilot model not enabled",
@@ -720,15 +729,15 @@ func (a *sessionAgent) getSessionMessages(ctx context.Context, session session.S
 	}
 
 	if session.SummaryMessageID != "" {
-		summaryMsgInex := -1
+		summaryMsgIndex := -1
 		for i, msg := range msgs {
 			if msg.ID == session.SummaryMessageID {
-				summaryMsgInex = i
+				summaryMsgIndex = i
 				break
 			}
 		}
-		if summaryMsgInex != -1 {
-			msgs = msgs[summaryMsgInex:]
+		if summaryMsgIndex != -1 {
+			msgs = msgs[summaryMsgIndex:]
 			msgs[0].Role = message.User
 		}
 	}
@@ -811,7 +820,6 @@ func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, user
 	// Clean up title.
 	var title string
 	title = strings.ReplaceAll(resp.Response.Content.Text(), "\n", " ")
-	slog.Info("generated title", "title", title)
 
 	// Remove thinking tags if present.
 	title = thinkTagRegex.ReplaceAllString(title, "")
