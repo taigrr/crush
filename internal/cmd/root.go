@@ -88,11 +88,20 @@ crush -y
 
 		// Set up the TUI.
 		var env uv.Environ = os.Environ()
-		com := common.DefaultCommon(app)
-		ui := ui.New(com)
-		ui.QueryVersion = shouldQueryTerminalVersion(env)
+
+		var model tea.Model
+		if _, ok := env.LookupEnv("CRUSH_NEW_UI"); ok {
+			com := common.DefaultCommon(app)
+			ui := ui.New(com)
+			ui.QueryVersion = shouldQueryTerminalVersion(env)
+			model = ui
+		} else {
+			ui := tui.New(app)
+			ui.QueryVersion = shouldQueryTerminalVersion(env)
+			model = ui
+		}
 		program := tea.NewProgram(
-			ui,
+			model,
 			tea.WithEnvironment(env),
 			tea.WithContext(cmd.Context()),
 			tea.WithFilter(tui.MouseEventFilter)) // Filter mouse events based on focus state
