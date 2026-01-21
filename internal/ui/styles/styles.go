@@ -310,6 +310,11 @@ type Styles struct {
 		TodoCompletedIcon  lipgloss.Style // Completed todo icon
 		TodoInProgressIcon lipgloss.Style // In-progress todo icon
 		TodoPendingIcon    lipgloss.Style // Pending todo icon
+
+		// MCP tools
+		MCPName     lipgloss.Style // The mcp name
+		MCPToolName lipgloss.Style // The mcp tool name
+		MCPArrow    lipgloss.Style // The mcp arrow icon
 	}
 
 	// Dialog styles
@@ -1129,6 +1134,11 @@ func DefaultStyles() Styles {
 	s.Tool.TodoCompletedIcon = base.Foreground(green)
 	s.Tool.TodoInProgressIcon = base.Foreground(greenDark)
 	s.Tool.TodoPendingIcon = base.Foreground(fgMuted)
+
+	// MCP styles
+	s.Tool.MCPName = base.Foreground(blue)
+	s.Tool.MCPToolName = base.Foreground(blueDark)
+	s.Tool.MCPArrow = base.Foreground(blue).SetString(ArrowRightIcon)
 
 	// Buttons
 	s.ButtonFocus = lipgloss.NewStyle().Foreground(white).Background(secondary)
