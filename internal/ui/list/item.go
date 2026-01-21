@@ -13,6 +13,14 @@ type Item interface {
 	Render(width int) string
 }
 
+// RawRenderable represents an item that can provide a raw rendering
+// without additional styling.
+type RawRenderable interface {
+	// RawRender returns the raw rendered string without any additional
+	// styling.
+	RawRender(width int) string
+}
+
 // Focusable represents an item that can be aware of focus state changes.
 type Focusable interface {
 	// SetFocused sets the focus state of the item.

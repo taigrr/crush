@@ -287,19 +287,11 @@ func (t *baseToolMessageItem) Animate(msg anim.StepMsg) tea.Cmd {
 	return t.anim.Animate(msg)
 }
 
-// Render renders the tool message item at the given width.
-func (t *baseToolMessageItem) Render(width int) string {
+// RawRender implements [MessageItem].
+func (t *baseToolMessageItem) RawRender(width int) string {
 	toolItemWidth := width - messageLeftPaddingTotal
 	if t.hasCappedWidth {
 		toolItemWidth = cappedMessageWidth(width)
-	}
-	style := t.sty.Chat.Message.ToolCallBlurred
-	if t.focused {
-		style = t.sty.Chat.Message.ToolCallFocused
-	}
-
-	if t.isCompact {
-		style = t.sty.Chat.Message.ToolCallCompact
 	}
 
 	content, height, ok := t.getCachedRender(toolItemWidth)
@@ -319,8 +311,21 @@ func (t *baseToolMessageItem) Render(width int) string {
 		t.setCachedRender(content, toolItemWidth, height)
 	}
 
-	highlightedContent := t.renderHighlighted(content, toolItemWidth, height)
-	return style.Render(highlightedContent)
+	return t.renderHighlighted(content, toolItemWidth, height)
+}
+
+// Render renders the tool message item at the given width.
+func (t *baseToolMessageItem) Render(width int) string {
+	style := t.sty.Chat.Message.ToolCallBlurred
+	if t.focused {
+		style = t.sty.Chat.Message.ToolCallFocused
+	}
+
+	if t.isCompact {
+		style = t.sty.Chat.Message.ToolCallCompact
+	}
+
+	return style.Render(t.RawRender(width))
 }
 
 // ToolCall returns the tool call associated with this message item.
