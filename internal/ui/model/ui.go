@@ -31,6 +31,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/filetracker"
 	"github.com/charmbracelet/crush/internal/history"
+	"github.com/charmbracelet/crush/internal/home"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
@@ -1717,6 +1718,7 @@ func (m *UI) View() tea.View {
 	v.AltScreen = true
 	v.BackgroundColor = m.com.Styles.Background
 	v.MouseMode = tea.MouseModeCellMotion
+	v.WindowTitle = "crush " + home.Short(m.com.Config().WorkingDir())
 
 	canvas := uv.NewScreenBuffer(m.width, m.height)
 	v.Cursor = m.Draw(canvas, canvas.Bounds())
