@@ -91,6 +91,7 @@ crush -y
 
 		var model tea.Model
 		if _, ok := env.LookupEnv("CRUSH_NEW_UI"); ok {
+			slog.Info("New UI in control!")
 			com := common.DefaultCommon(app)
 			ui := ui.New(com)
 			ui.QueryVersion = shouldQueryTerminalVersion(env)
