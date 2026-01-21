@@ -26,6 +26,7 @@ func NewModelsList(sty *styles.Styles, groups ...ModelGroup) *ModelsList {
 		groups: groups,
 		t:      sty,
 	}
+	f.RegisterRenderCallback(list.FocusedRenderCallback(f.List))
 	return f
 }
 

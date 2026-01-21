@@ -31,6 +31,7 @@ func NewFilterableList(items ...FilterableItem) *FilterableList {
 		List:  NewList(),
 		items: items,
 	}
+	f.RegisterRenderCallback(FocusedRenderCallback(f.List))
 	f.SetItems(items...)
 	return f
 }

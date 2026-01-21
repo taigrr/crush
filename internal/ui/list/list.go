@@ -49,9 +49,13 @@ func NewList(items ...Item) *List {
 	return l
 }
 
+// RenderCallback defines a function that can modify an item before it is
+// rendered.
+type RenderCallback func(idx, selectedIdx int, item Item) Item
+
 // RegisterRenderCallback registers a callback to be called when rendering
 // items. This can be used to modify items before they are rendered.
-func (l *List) RegisterRenderCallback(cb func(idx, selectedIdx int, item Item) Item) {
+func (l *List) RegisterRenderCallback(cb RenderCallback) {
 	l.renderCallbacks = append(l.renderCallbacks, cb)
 }
 
@@ -64,6 +68,11 @@ func (l *List) SetSize(width, height int) {
 // SetGap sets the gap between items.
 func (l *List) SetGap(gap int) {
 	l.gap = gap
+}
+
+// Gap returns the gap between items.
+func (l *List) Gap() int {
+	return l.gap
 }
 
 // SetReverse shows the list in reverse order.
@@ -99,10 +108,6 @@ func (l *List) getItem(idx int) renderedItem {
 				item = it
 			}
 		}
-	}
-
-	if focusable, isFocusable := item.(Focusable); isFocusable {
-		focusable.SetFocused(l.focused && idx == l.selectedIdx)
 	}
 
 	rendered := item.Render(l.width)
@@ -346,6 +351,11 @@ func (l *List) RemoveItem(idx int) {
 		l.offsetIdx = max(0, len(l.items)-1)
 		l.offsetLine = 0
 	}
+}
+
+// Focused returns whether the list is focused.
+func (l *List) Focused() bool {
+	return l.focused
 }
 
 // Focus sets the focus state of the list.
