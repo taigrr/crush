@@ -1,6 +1,3 @@
-// Package chat provides UI components for displaying and managing chat messages.
-// It defines message item types that can be rendered in a list view, including
-// support for highlighting, focusing, and caching rendered content.
 package chat
 
 import (
@@ -48,6 +45,7 @@ type Expandable interface {
 // UI and be part of a [list.List] identifiable by a unique ID.
 type MessageItem interface {
 	list.Item
+	list.RawRenderable
 	Identifiable
 }
 
@@ -77,6 +75,8 @@ type highlightableMessageItem struct {
 	highlighter list.Highlighter
 }
 
+var _ list.Highlightable = (*highlightableMessageItem)(nil)
+
 // isHighlighted returns true if the item has a highlight range set.
 func (h *highlightableMessageItem) isHighlighted() bool {
 	return h.startLine != -1 || h.endLine != -1
@@ -91,8 +91,8 @@ func (h *highlightableMessageItem) renderHighlighted(content string, width, heig
 	return list.Highlight(content, area, h.startLine, h.startCol, h.endLine, h.endCol, h.highlighter)
 }
 
-// Highlight implements MessageItem.
-func (h *highlightableMessageItem) Highlight(startLine int, startCol int, endLine int, endCol int) {
+// SetHighlight implements list.Highlightable.
+func (h *highlightableMessageItem) SetHighlight(startLine int, startCol int, endLine int, endCol int) {
 	// Adjust columns for the style's left inset (border + padding) since we
 	// highlight the content only.
 	offset := messageLeftPaddingTotal
@@ -104,6 +104,11 @@ func (h *highlightableMessageItem) Highlight(startLine int, startCol int, endLin
 	} else {
 		h.endCol = endCol
 	}
+}
+
+// Highlight implements list.Highlightable.
+func (h *highlightableMessageItem) Highlight() (startLine int, startCol int, endLine int, endCol int) {
+	return h.startLine, h.startCol, h.endLine, h.endCol
 }
 
 func defaultHighlighter(sty *styles.Styles) *highlightableMessageItem {
@@ -193,8 +198,8 @@ func (a *AssistantInfoItem) ID() string {
 	return a.id
 }
 
-// Render implements MessageItem.
-func (a *AssistantInfoItem) Render(width int) string {
+// RawRender implements MessageItem.
+func (a *AssistantInfoItem) RawRender(width int) string {
 	innerWidth := max(0, width-messageLeftPaddingTotal)
 	content, _, ok := a.getCachedRender(innerWidth)
 	if !ok {
@@ -202,8 +207,12 @@ func (a *AssistantInfoItem) Render(width int) string {
 		height := lipgloss.Height(content)
 		a.setCachedRender(content, innerWidth, height)
 	}
+	return content
+}
 
-	return a.sty.Chat.Message.SectionHeader.Render(content)
+// Render implements MessageItem.
+func (a *AssistantInfoItem) Render(width int) string {
+	return a.sty.Chat.Message.SectionHeader.Render(a.RawRender(width))
 }
 
 func (a *AssistantInfoItem) renderContent(width int) string {

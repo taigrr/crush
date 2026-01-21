@@ -33,19 +33,14 @@ func NewUserMessageItem(sty *styles.Styles, message *message.Message, attachment
 	}
 }
 
-// Render implements MessageItem.
-func (m *UserMessageItem) Render(width int) string {
+// RawRender implements [MessageItem].
+func (m *UserMessageItem) RawRender(width int) string {
 	cappedWidth := cappedMessageWidth(width)
-
-	style := m.sty.Chat.Message.UserBlurred
-	if m.focused {
-		style = m.sty.Chat.Message.UserFocused
-	}
 
 	content, height, ok := m.getCachedRender(cappedWidth)
 	// cache hit
 	if ok {
-		return style.Render(m.renderHighlighted(content, cappedWidth, height))
+		return m.renderHighlighted(content, cappedWidth, height)
 	}
 
 	renderer := common.MarkdownRenderer(m.sty, cappedWidth)
@@ -69,7 +64,16 @@ func (m *UserMessageItem) Render(width int) string {
 
 	height = lipgloss.Height(content)
 	m.setCachedRender(content, cappedWidth, height)
-	return style.Render(m.renderHighlighted(content, cappedWidth, height))
+	return m.renderHighlighted(content, cappedWidth, height)
+}
+
+// Render implements MessageItem.
+func (m *UserMessageItem) Render(width int) string {
+	style := m.sty.Chat.Message.UserBlurred
+	if m.focused {
+		style = m.sty.Chat.Message.UserFocused
+	}
+	return style.Render(m.RawRender(width))
 }
 
 // ID implements MessageItem.

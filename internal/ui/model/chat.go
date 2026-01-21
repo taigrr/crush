@@ -1,7 +1,10 @@
 package model
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/chat"
 	"github.com/charmbracelet/crush/internal/ui/common"
@@ -43,6 +46,7 @@ func NewChat(com *common.Common) *Chat {
 	l := list.NewList()
 	l.SetGap(1)
 	l.RegisterRenderCallback(c.applyHighlightRange)
+	l.RegisterRenderCallback(list.FocusedRenderCallback(l))
 	c.list = l
 	c.mouseDownItem = -1
 	c.mouseDragItem = -1
@@ -445,9 +449,6 @@ func (m *Chat) HandleMouseUp(x, y int) bool {
 		return false
 	}
 
-	// TODO: Handle the behavior when mouse is released after a drag selection
-	// (e.g., copy selected text to clipboard)
-
 	m.mouseDown = false
 	return true
 }
@@ -472,6 +473,47 @@ func (m *Chat) HandleMouseDrag(x, y int) bool {
 	m.mouseDragY = itemY
 
 	return true
+}
+
+// HasHighlight returns whether there is currently highlighted content.
+func (m *Chat) HasHighlight() bool {
+	startItemIdx, startLine, startCol, endItemIdx, endLine, endCol := m.getHighlightRange()
+	return startItemIdx >= 0 && endItemIdx >= 0 && (startLine != endLine || startCol != endCol)
+}
+
+// HighlighContent returns the currently highlighted content based on the mouse
+// selection. It returns an empty string if no content is highlighted.
+func (m *Chat) HighlighContent() string {
+	startItemIdx, startLine, startCol, endItemIdx, endLine, endCol := m.getHighlightRange()
+	if startItemIdx < 0 || endItemIdx < 0 || startLine == endLine && startCol == endCol {
+		return ""
+	}
+
+	var sb strings.Builder
+	for i := startItemIdx; i <= endItemIdx; i++ {
+		item := m.list.ItemAt(i)
+		if hi, ok := item.(list.Highlightable); ok {
+			startLine, startCol, endLine, endCol := hi.Highlight()
+			listWidth := m.list.Width()
+			var rendered string
+			if rr, ok := item.(list.RawRenderable); ok {
+				rendered = rr.RawRender(listWidth)
+			} else {
+				rendered = item.Render(listWidth)
+			}
+			sb.WriteString(list.HighlightContent(
+				rendered,
+				uv.Rect(0, 0, listWidth, lipgloss.Height(rendered)),
+				startLine,
+				startCol,
+				endLine,
+				endCol,
+			))
+			sb.WriteString(strings.Repeat("\n", m.list.Gap()))
+		}
+	}
+
+	return strings.TrimSpace(sb.String())
 }
 
 // ClearMouse clears the current mouse interaction state.
@@ -515,7 +557,7 @@ func (m *Chat) applyHighlightRange(idx, selectedIdx int, item list.Item) list.It
 			}
 		}
 
-		hi.Highlight(sLine, sCol, eLine, eCol)
+		hi.SetHighlight(sLine, sCol, eLine, eCol)
 		return hi.(list.Item)
 	}
 

@@ -13,6 +13,14 @@ type Item interface {
 	Render(width int) string
 }
 
+// RawRenderable represents an item that can provide a raw rendering
+// without additional styling.
+type RawRenderable interface {
+	// RawRender returns the raw rendered string without any additional
+	// styling.
+	RawRender(width int) string
+}
+
 // Focusable represents an item that can be aware of focus state changes.
 type Focusable interface {
 	// SetFocused sets the focus state of the item.
@@ -21,9 +29,11 @@ type Focusable interface {
 
 // Highlightable represents an item that can highlight a portion of its content.
 type Highlightable interface {
-	// Highlight highlights the content from the given start to end positions.
-	// Use -1 for no highlight.
-	Highlight(startLine, startCol, endLine, endCol int)
+	// SetHighlight highlights the content from the given start to end
+	// positions. Use -1 for no highlight.
+	SetHighlight(startLine, startCol, endLine, endCol int)
+	// Highlight returns the current highlight positions within the item.
+	Highlight() (startLine, startCol, endLine, endCol int)
 }
 
 // MouseClickable represents an item that can handle mouse click events.

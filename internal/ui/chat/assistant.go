@@ -77,13 +77,9 @@ func (a *AssistantMessageItem) ID() string {
 	return a.message.ID
 }
 
-// Render implements MessageItem.
-func (a *AssistantMessageItem) Render(width int) string {
+// RawRender implements [MessageItem].
+func (a *AssistantMessageItem) RawRender(width int) string {
 	cappedWidth := cappedMessageWidth(width)
-	style := a.sty.Chat.Message.AssistantBlurred
-	if a.focused {
-		style = a.sty.Chat.Message.AssistantFocused
-	}
 
 	var spinner string
 	if a.isSpinning() {
@@ -103,10 +99,19 @@ func (a *AssistantMessageItem) Render(width int) string {
 		if highlightedContent != "" {
 			highlightedContent += "\n\n"
 		}
-		return style.Render(highlightedContent + spinner)
+		return highlightedContent + spinner
 	}
 
-	return style.Render(highlightedContent)
+	return highlightedContent
+}
+
+// Render implements MessageItem.
+func (a *AssistantMessageItem) Render(width int) string {
+	style := a.sty.Chat.Message.AssistantBlurred
+	if a.focused {
+		style = a.sty.Chat.Message.AssistantFocused
+	}
+	return style.Render(a.RawRender(width))
 }
 
 // renderMessageContent renders the message content including thinking, main content, and finish reason.

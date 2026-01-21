@@ -23,6 +23,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/app"
@@ -106,6 +107,9 @@ type (
 
 	// closeDialogMsg is sent to close the current dialog.
 	closeDialogMsg struct{}
+
+	// copyChatHighlightMsg is sent to copy the current chat highlight to clipboard.
+	copyChatHighlightMsg struct{}
 )
 
 // UI represents the main user interface model.
@@ -203,6 +207,9 @@ type UI struct {
 	// Todo spinner
 	todoSpinner    spinner.Model
 	todoIsSpinning bool
+
+	// mouse highlighting related state
+	lastClickTime time.Time
 }
 
 // New creates a new instance of the [UI] model.
@@ -484,6 +491,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.keyMap.Models.SetHelp("ctrl+m", "models")
 			m.keyMap.Editor.Newline.SetHelp("shift+enter", "newline")
 		}
+	case copyChatHighlightMsg:
+		cmds = append(cmds, m.copyChatHighlight())
 	case tea.MouseClickMsg:
 		switch m.state {
 		case uiChat:
@@ -491,7 +500,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Adjust for chat area position
 			x -= m.layout.main.Min.X
 			y -= m.layout.main.Min.Y
-			m.chat.HandleMouseDown(x, y)
+			if m.chat.HandleMouseDown(x, y) {
+				m.lastClickTime = time.Now()
+			}
 		}
 
 	case tea.MouseMotionMsg:
@@ -527,13 +538,22 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseReleaseMsg:
+		const doubleClickThreshold = 500 * time.Millisecond
+
 		switch m.state {
 		case uiChat:
 			x, y := msg.X, msg.Y
 			// Adjust for chat area position
 			x -= m.layout.main.Min.X
 			y -= m.layout.main.Min.Y
-			m.chat.HandleMouseUp(x, y)
+			if m.chat.HandleMouseUp(x, y) {
+				cmds = append(cmds, tea.Tick(doubleClickThreshold, func(t time.Time) tea.Msg {
+					if time.Since(m.lastClickTime) >= doubleClickThreshold {
+						return copyChatHighlightMsg{}
+					}
+					return nil
+				}))
+			}
 		}
 	case tea.MouseWheelMsg:
 		// Pass mouse events to dialogs first if any are open.
@@ -2842,6 +2862,22 @@ func (m *UI) runMCPPrompt(clientID, promptID string, arguments map[string]string
 	})
 
 	return tea.Sequence(cmds...)
+}
+
+func (m *UI) copyChatHighlight() tea.Cmd {
+	text := m.chat.HighlighContent()
+	return tea.Sequence(
+		tea.SetClipboard(text),
+		func() tea.Msg {
+			_ = clipboard.WriteAll(text)
+			return nil
+		},
+		func() tea.Msg {
+			m.chat.ClearMouse()
+			return nil
+		},
+		uiutil.ReportInfo("Selected text copied to clipboard"),
+	)
 }
 
 // renderLogo renders the Crush logo with the given styles and dimensions.
