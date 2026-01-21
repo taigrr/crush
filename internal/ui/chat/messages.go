@@ -77,6 +77,8 @@ type highlightableMessageItem struct {
 	highlighter list.Highlighter
 }
 
+var _ list.Highlightable = (*highlightableMessageItem)(nil)
+
 // isHighlighted returns true if the item has a highlight range set.
 func (h *highlightableMessageItem) isHighlighted() bool {
 	return h.startLine != -1 || h.endLine != -1
@@ -91,8 +93,8 @@ func (h *highlightableMessageItem) renderHighlighted(content string, width, heig
 	return list.Highlight(content, area, h.startLine, h.startCol, h.endLine, h.endCol, h.highlighter)
 }
 
-// Highlight implements MessageItem.
-func (h *highlightableMessageItem) Highlight(startLine int, startCol int, endLine int, endCol int) {
+// SetHighlight implements [MessageItem].
+func (h *highlightableMessageItem) SetHighlight(startLine int, startCol int, endLine int, endCol int) {
 	// Adjust columns for the style's left inset (border + padding) since we
 	// highlight the content only.
 	offset := messageLeftPaddingTotal
@@ -104,6 +106,11 @@ func (h *highlightableMessageItem) Highlight(startLine int, startCol int, endLin
 	} else {
 		h.endCol = endCol
 	}
+}
+
+// Highlight implements [MessageItem].
+func (h *highlightableMessageItem) Highlight() (startLine int, startCol int, endLine int, endCol int) {
+	return h.startLine, h.startCol, h.endLine, h.endCol
 }
 
 func defaultHighlighter(sty *styles.Styles) *highlightableMessageItem {

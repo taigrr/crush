@@ -2,24 +2,59 @@ package list
 
 import (
 	"image"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // DefaultHighlighter is the default highlighter function that applies inverse style.
-var DefaultHighlighter Highlighter = func(s uv.Style) uv.Style {
-	s.Attrs |= uv.AttrReverse
-	return s
+var DefaultHighlighter Highlighter = func(x, y int, c *uv.Cell) *uv.Cell {
+	if c == nil {
+		return c
+	}
+	c.Style.Attrs |= uv.AttrReverse
+	return c
 }
 
 // Highlighter represents a function that defines how to highlight text.
-type Highlighter func(uv.Style) uv.Style
+type Highlighter func(x, y int, c *uv.Cell) *uv.Cell
+
+// HighlightContent returns the content with highlighted regions based on the specified parameters.
+func HighlightContent(content string, area image.Rectangle, startLine, startCol, endLine, endCol int) string {
+	var sb strings.Builder
+	pos := image.Pt(-1, -1)
+	HighlightBuffer(content, area, startLine, startCol, endLine, endCol, func(x, y int, c *uv.Cell) *uv.Cell {
+		pos.X = x
+		if pos.Y == -1 {
+			pos.Y = y
+		} else if y > pos.Y {
+			sb.WriteString(strings.Repeat("\n", y-pos.Y))
+			pos.Y = y
+		}
+		sb.WriteString(c.Content)
+		return c
+	})
+	if sb.Len() > 0 {
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
 
 // Highlight highlights a region of text within the given content and region.
 func Highlight(content string, area image.Rectangle, startLine, startCol, endLine, endCol int, highlighter Highlighter) string {
-	if startLine < 0 || startCol < 0 {
+	buf := HighlightBuffer(content, area, startLine, startCol, endLine, endCol, highlighter)
+	if buf == nil {
 		return content
+	}
+	return buf.Render()
+}
+
+// HighlightBuffer highlights a region of text within the given content and
+// region, returning a [uv.ScreenBuffer].
+func HighlightBuffer(content string, area image.Rectangle, startLine, startCol, endLine, endCol int, highlighter Highlighter) *uv.ScreenBuffer {
+	if startLine < 0 || startCol < 0 {
+		return nil
 	}
 
 	if highlighter == nil {
@@ -87,17 +122,22 @@ func Highlight(content string, area image.Rectangle, startLine, startCol, endLin
 				continue
 			}
 			cell := line.At(x)
-			cell.Style = highlighter(cell.Style)
+			if cell != nil {
+				line.Set(x, highlighter(x, y, cell))
+			}
 		}
 	}
 
-	return buf.Render()
+	return &buf
 }
 
 // ToHighlighter converts a [lipgloss.Style] to a [Highlighter].
 func ToHighlighter(lgStyle lipgloss.Style) Highlighter {
-	return func(uv.Style) uv.Style {
-		return ToStyle(lgStyle)
+	return func(_ int, _ int, c *uv.Cell) *uv.Cell {
+		if c != nil {
+			c.Style = ToStyle(lgStyle)
+		}
+		return c
 	}
 }
 

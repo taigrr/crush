@@ -21,9 +21,11 @@ type Focusable interface {
 
 // Highlightable represents an item that can highlight a portion of its content.
 type Highlightable interface {
-	// Highlight highlights the content from the given start to end positions.
-	// Use -1 for no highlight.
-	Highlight(startLine, startCol, endLine, endCol int)
+	// SetHighlight highlights the content from the given start to end
+	// positions. Use -1 for no highlight.
+	SetHighlight(startLine, startCol, endLine, endCol int)
+	// Highlight returns the current highlight positions within the item.
+	Highlight() (startLine, startCol, endLine, endCol int)
 }
 
 // MouseClickable represents an item that can handle mouse click events.

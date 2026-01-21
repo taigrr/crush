@@ -515,7 +515,7 @@ func (m *Chat) applyHighlightRange(idx, selectedIdx int, item list.Item) list.It
 			}
 		}
 
-		hi.Highlight(sLine, sCol, eLine, eCol)
+		hi.SetHighlight(sLine, sCol, eLine, eCol)
 		return hi.(list.Item)
 	}
 
