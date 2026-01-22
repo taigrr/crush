@@ -28,7 +28,10 @@ type CommandType uint
 // String returns the string representation of the CommandType.
 func (c CommandType) String() string { return []string{"System", "User", "MCP"}[c] }
 
-const sidebarCompactModeBreakpoint = 120
+const (
+	sidebarCompactModeBreakpoint  = 120
+	defaultCommandsDialogMaxWidth = 70
+)
 
 const (
 	SystemCommands CommandType = iota
@@ -238,7 +241,7 @@ func commandsRadioView(sty *styles.Styles, selected CommandType, hasUserCmds boo
 // Draw implements [Dialog].
 func (c *Commands) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	t := c.com.Styles
-	width := max(0, min(defaultDialogMaxWidth, area.Dx()))
+	width := max(0, min(defaultCommandsDialogMaxWidth, area.Dx()))
 	height := max(0, min(defaultDialogHeight, area.Dy()))
 	if area.Dx() != c.windowWidth && c.selected == SystemCommands {
 		c.windowWidth = area.Dx()
@@ -254,7 +257,9 @@ func (c *Commands) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		t.Dialog.View.GetVerticalFrameSize()
 
 	c.input.SetWidth(innerWidth - t.Dialog.InputPrompt.GetHorizontalFrameSize() - 1) // (1) cursor padding
-	c.list.SetSize(innerWidth, height-heightOffset)
+
+	listHeight := min(height-heightOffset, c.list.Len())
+	c.list.SetSize(innerWidth, listHeight)
 	c.help.SetWidth(innerWidth)
 
 	rc := NewRenderContext(t, width)
