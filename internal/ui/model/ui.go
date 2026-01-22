@@ -1511,6 +1511,16 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				m.focus = uiFocusEditor
 				cmds = append(cmds, m.textarea.Focus())
 				m.chat.Blur()
+			case key.Matches(msg, m.keyMap.Chat.NewSession):
+				if !m.hasSession() {
+					break
+				}
+				if m.isAgentBusy() {
+					cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait before starting a new session..."))
+					break
+				}
+				m.focus = uiFocusEditor
+				m.newSession()
 			case key.Matches(msg, m.keyMap.Chat.Expand):
 				m.chat.ToggleExpandedSelectedItem()
 			case key.Matches(msg, m.keyMap.Chat.Up):
