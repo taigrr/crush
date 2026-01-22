@@ -1106,6 +1106,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			break
 		}
 		cmds = append(cmds, m.initializeProject())
+		m.dialog.CloseDialog(dialog.CommandsID)
 
 	case dialog.ActionSelectModel:
 		if m.isAgentBusy() {
