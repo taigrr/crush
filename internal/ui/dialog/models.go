@@ -206,8 +206,10 @@ func (m *Models) HandleMsg(msg tea.Msg) Action {
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
 			value := m.input.Value()
+			m.list.Focus()
 			m.list.SetFilter(value)
-			m.list.ScrollToSelected()
+			m.list.SelectFirst()
+			m.list.ScrollToTop()
 			return ActionCmd{cmd}
 		}
 	}
