@@ -265,6 +265,8 @@ func New(com *common.Common) *UI {
 		completions: comp,
 		attachments: attachments,
 		todoSpinner: todoSpinner,
+		lspStates:   make(map[string]app.LSPClientInfo),
+		mcpStates:   make(map[string]mcp.ClientInfo),
 	}
 
 	status := NewStatus(com, ui)
@@ -1106,6 +1108,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			break
 		}
 		cmds = append(cmds, m.initializeProject())
+		m.dialog.CloseDialog(dialog.CommandsID)
 
 	case dialog.ActionSelectModel:
 		if m.isAgentBusy() {
@@ -1329,6 +1332,13 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				}
 				return true
 			}
+		case key.Matches(msg, m.keyMap.Suspend):
+			if m.isAgentBusy() {
+				cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait..."))
+				return true
+			}
+			cmds = append(cmds, tea.Suspend)
+			return true
 		}
 		return false
 	}
@@ -1430,10 +1440,12 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				}
 				m.newSession()
 			case key.Matches(msg, m.keyMap.Tab):
-				m.focus = uiFocusMain
-				m.textarea.Blur()
-				m.chat.Focus()
-				m.chat.SetSelected(m.chat.Len() - 1)
+				if m.state != uiLanding {
+					m.focus = uiFocusMain
+					m.textarea.Blur()
+					m.chat.Focus()
+					m.chat.SetSelected(m.chat.Len() - 1)
+				}
 			case key.Matches(msg, m.keyMap.Editor.OpenEditor):
 				if m.isAgentBusy() {
 					cmds = append(cmds, uiutil.ReportWarn("Agent is working, please wait..."))
@@ -1506,6 +1518,16 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				m.focus = uiFocusEditor
 				cmds = append(cmds, m.textarea.Focus())
 				m.chat.Blur()
+			case key.Matches(msg, m.keyMap.Chat.NewSession):
+				if !m.hasSession() {
+					break
+				}
+				if m.isAgentBusy() {
+					cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait before starting a new session..."))
+					break
+				}
+				m.focus = uiFocusEditor
+				m.newSession()
 			case key.Matches(msg, m.keyMap.Chat.Expand):
 				m.chat.ToggleExpandedSelectedItem()
 			case key.Matches(msg, m.keyMap.Chat.Up):
