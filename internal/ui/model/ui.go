@@ -1332,6 +1332,13 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				}
 				return true
 			}
+		case key.Matches(msg, m.keyMap.Suspend):
+			if m.isAgentBusy() {
+				cmds = append(cmds, uiutil.ReportWarn("Agent is busy, please wait..."))
+				return true
+			}
+			cmds = append(cmds, tea.Suspend)
+			return true
 		}
 		return false
 	}
