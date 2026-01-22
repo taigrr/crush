@@ -265,6 +265,8 @@ func New(com *common.Common) *UI {
 		completions: comp,
 		attachments: attachments,
 		todoSpinner: todoSpinner,
+		lspStates:   make(map[string]app.LSPClientInfo),
+		mcpStates:   make(map[string]mcp.ClientInfo),
 	}
 
 	status := NewStatus(com, ui)
