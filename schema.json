@@ -435,6 +435,10 @@
             "CLAUDE.md",
             "docs/LLMs.md"
           ]
+        },
+        "auto_lsp": {
+          "type": "boolean",
+          "description": "Automatically setup LSPs based on root markers"
         }
       },
       "additionalProperties": false,
