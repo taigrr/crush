@@ -192,7 +192,7 @@ func NewViewTool(lspClients *csync.Map[string, *lsp.Client], permissions permiss
 			output += getDiagnostics(filePath, lspClients)
 			filetracker.RecordRead(filePath)
 			return fantasy.WithResponseMetadata(
-				fantasy.NewTextResponse(output),
+				fantasy.NewTextResponse(TruncateOutputCtx(ctx, output)),
 				ViewResponseMetadata{
 					FilePath: filePath,
 					Content:  content,
