@@ -9,8 +9,8 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/oauth"
 	"github.com/charmbracelet/crush/internal/ui/common"
@@ -227,7 +227,7 @@ func (m *OAuth) headerContent() string {
 	if m.isOnboarding {
 		return textStyle.Render(dialogTitle)
 	}
-	return common.DialogTitle(t, titleStyle.Render(dialogTitle), m.width-headerOffset)
+	return common.DialogTitle(t, titleStyle.Render(dialogTitle), m.width-headerOffset, t.Primary, t.Secondary)
 }
 
 func (m *OAuth) innerDialogContent() string {

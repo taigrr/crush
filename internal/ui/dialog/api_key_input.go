@@ -10,7 +10,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/catwalk/pkg/catwalk"
+	"charm.land/catwalk/pkg/catwalk"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/styles"
@@ -207,7 +207,7 @@ func (m *APIKeyInput) headerView() string {
 		return textStyle.Render(m.dialogTitle())
 	}
 	headerOffset := titleStyle.GetHorizontalFrameSize() + dialogStyle.GetHorizontalFrameSize()
-	return common.DialogTitle(t, titleStyle.Render(m.dialogTitle()), m.width-headerOffset)
+	return common.DialogTitle(t, titleStyle.Render(m.dialogTitle()), m.width-headerOffset, m.com.Styles.Primary, m.com.Styles.Secondary)
 }
 
 func (m *APIKeyInput) dialogTitle() string {

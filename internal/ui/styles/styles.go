@@ -2,6 +2,7 @@ package styles
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/help"
@@ -338,6 +339,7 @@ type Styles struct {
 			FullDesc       lipgloss.Style
 			FullSeparator  lipgloss.Style
 		}
+
 		NormalItem   lipgloss.Style
 		SelectedItem lipgloss.Style
 		InputPrompt  lipgloss.Style
@@ -366,6 +368,26 @@ type Styles struct {
 		Commands struct{}
 
 		ImagePreview lipgloss.Style
+
+		Sessions struct {
+			// styles for when we are in delete mode
+			DeletingView                   lipgloss.Style
+			DeletingItemFocused            lipgloss.Style
+			DeletingItemBlurred            lipgloss.Style
+			DeletingTitle                  lipgloss.Style
+			DeletingMessage                lipgloss.Style
+			DeletingTitleGradientFromColor color.Color
+			DeletingTitleGradientToColor   color.Color
+
+			// styles for when we are in update mode
+			UpdatingView                   lipgloss.Style
+			UpdatingItemFocused            lipgloss.Style
+			UpdatingItemBlurred            lipgloss.Style
+			UpdatingTitle                  lipgloss.Style
+			UpdatingMessage                lipgloss.Style
+			UpdatingTitleGradientFromColor color.Color
+			UpdatingTitleGradientToColor   color.Color
+		}
 	}
 
 	// Status bar and help
@@ -1268,6 +1290,22 @@ func DefaultStyles() Styles {
 	s.Dialog.Arguments.InputRequiredMarkBlurred = base.Foreground(fgMuted).SetString("*")
 	s.Dialog.Arguments.InputRequiredMarkFocused = base.Foreground(primary).Bold(true).SetString("*")
 
+	s.Dialog.Sessions.DeletingTitle = s.Dialog.Title.Foreground(red)
+	s.Dialog.Sessions.DeletingView = s.Dialog.View.BorderForeground(red)
+	s.Dialog.Sessions.DeletingMessage = s.Base.Padding(1)
+	s.Dialog.Sessions.DeletingTitleGradientFromColor = red
+	s.Dialog.Sessions.DeletingTitleGradientToColor = s.Primary
+	s.Dialog.Sessions.DeletingItemBlurred = s.Dialog.NormalItem.Foreground(fgSubtle)
+	s.Dialog.Sessions.DeletingItemFocused = s.Dialog.SelectedItem.Background(red)
+
+	s.Dialog.Sessions.UpdatingTitle = s.Dialog.Title.Foreground(charmtone.Zest)
+	s.Dialog.Sessions.UpdatingView = s.Dialog.View.BorderForeground(charmtone.Zest)
+	s.Dialog.Sessions.UpdatingMessage = s.Base.Padding(1)
+	s.Dialog.Sessions.UpdatingTitleGradientFromColor = charmtone.Zest
+	s.Dialog.Sessions.UpdatingTitleGradientToColor = charmtone.Bok
+	s.Dialog.Sessions.UpdatingItemBlurred = s.Dialog.NormalItem.Foreground(fgSubtle)
+	s.Dialog.Sessions.UpdatingItemFocused = s.Dialog.SelectedItem.UnsetBackground().UnsetForeground()
+
 	s.Status.Help = lipgloss.NewStyle().Padding(0, 1)
 	s.Status.SuccessIndicator = base.Foreground(bgSubtle).Background(green).Padding(0, 1).Bold(true).SetString("OKAY!")
 	s.Status.InfoIndicator = s.Status.SuccessIndicator
@@ -1310,35 +1348,36 @@ func boolPtr(b bool) *bool       { return &b }
 func stringPtr(s string) *string { return &s }
 func uintPtr(u uint) *uint       { return &u }
 func chromaStyle(style ansi.StylePrimitive) string {
-	var s string
+	var s strings.Builder
 
 	if style.Color != nil {
-		s = *style.Color
+		s.WriteString(*style.Color)
 	}
 	if style.BackgroundColor != nil {
-		if s != "" {
-			s += " "
+		if s.Len() > 0 {
+			s.WriteString(" ")
 		}
-		s += "bg:" + *style.BackgroundColor
+		s.WriteString("bg:")
+		s.WriteString(*style.BackgroundColor)
 	}
 	if style.Italic != nil && *style.Italic {
-		if s != "" {
-			s += " "
+		if s.Len() > 0 {
+			s.WriteString(" ")
 		}
-		s += "italic"
+		s.WriteString("italic")
 	}
 	if style.Bold != nil && *style.Bold {
-		if s != "" {
-			s += " "
+		if s.Len() > 0 {
+			s.WriteString(" ")
 		}
-		s += "bold"
+		s.WriteString("bold")
 	}
 	if style.Underline != nil && *style.Underline {
-		if s != "" {
-			s += " "
+		if s.Len() > 0 {
+			s.WriteString(" ")
 		}
-		s += "underline"
+		s.WriteString("underline")
 	}
 
-	return s
+	return s.String()
 }
