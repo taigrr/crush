@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/permission"
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
+	"github.com/taigrr/crush/internal/app"
+	"github.com/taigrr/crush/internal/backend"
+	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
