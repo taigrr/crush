@@ -3940,6 +3940,7 @@ func (m *UI) newSession() tea.Cmd {
 			return nil
 		},
 		m.loadPromptHistory(),
+		m.reportCurrentSession(""),
 	)
 }
 
