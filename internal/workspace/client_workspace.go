@@ -293,24 +293,8 @@ func (w *ClientWorkspace) GetDefaultSmallModel(providerID string) config.Selecte
 
 // -- Permissions --
 
-func (w *ClientWorkspace) PermissionGrant(perm permission.PermissionRequest) {
-	_ = w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
-		Permission: proto.PermissionRequest{
-			ID:          perm.ID,
-			SessionID:   perm.SessionID,
-			ToolCallID:  perm.ToolCallID,
-			ToolName:    perm.ToolName,
-			Description: perm.Description,
-			Action:      perm.Action,
-			Path:        perm.Path,
-			Params:      perm.Params,
-		},
-		Action: proto.PermissionAllowForSession,
-	})
-}
-
-func (w *ClientWorkspace) PermissionGrantPersistent(perm permission.PermissionRequest) {
-	_ = w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
+func (w *ClientWorkspace) PermissionGrant(perm permission.PermissionRequest) bool {
+	resolved, _ := w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
 		Permission: proto.PermissionRequest{
 			ID:          perm.ID,
 			SessionID:   perm.SessionID,
@@ -323,10 +307,28 @@ func (w *ClientWorkspace) PermissionGrantPersistent(perm permission.PermissionRe
 		},
 		Action: proto.PermissionAllow,
 	})
+	return resolved
 }
 
-func (w *ClientWorkspace) PermissionDeny(perm permission.PermissionRequest) {
-	_ = w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
+func (w *ClientWorkspace) PermissionGrantPersistent(perm permission.PermissionRequest) bool {
+	resolved, _ := w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
+		Permission: proto.PermissionRequest{
+			ID:          perm.ID,
+			SessionID:   perm.SessionID,
+			ToolCallID:  perm.ToolCallID,
+			ToolName:    perm.ToolName,
+			Description: perm.Description,
+			Action:      perm.Action,
+			Path:        perm.Path,
+			Params:      perm.Params,
+		},
+		Action: proto.PermissionAllowForSession,
+	})
+	return resolved
+}
+
+func (w *ClientWorkspace) PermissionDeny(perm permission.PermissionRequest) bool {
+	resolved, _ := w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
 		Permission: proto.PermissionRequest{
 			ID:          perm.ID,
 			SessionID:   perm.SessionID,
@@ -339,6 +341,7 @@ func (w *ClientWorkspace) PermissionDeny(perm permission.PermissionRequest) {
 		},
 		Action: proto.PermissionDeny,
 	})
+	return resolved
 }
 
 func (w *ClientWorkspace) PermissionSkipRequests() bool {

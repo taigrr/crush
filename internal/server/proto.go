@@ -1022,7 +1022,7 @@ func (c *controllerV1) handleGetWorkspaceAgentDefaultSmallModel(w http.ResponseW
 //	@Accept			json
 //	@Param			id		path	string				true	"Workspace ID"
 //	@Param			request	body	proto.PermissionGrant	true	"Permission grant"
-//	@Success		200
+//	@Success		200	{object}	proto.PermissionGrantResponse
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
@@ -1037,11 +1037,12 @@ func (c *controllerV1) handlePostWorkspacePermissionsGrant(w http.ResponseWriter
 		return
 	}
 
-	if err := c.backend.GrantPermission(id, req); err != nil {
+	resolved, err := c.backend.GrantPermission(id, req)
+	if err != nil {
 		c.handleError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	jsonEncode(w, proto.PermissionGrantResponse{Resolved: resolved})
 }
 
 // handlePostWorkspacePermissionsSkip sets whether to skip permission prompts.
