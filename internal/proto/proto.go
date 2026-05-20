@@ -24,6 +24,7 @@ type Workspace struct {
 	Config    *config.Config `json:"config,omitempty"`
 	Env       []string       `json:"env,omitempty"`
 	Skills    []SkillState   `json:"skills,omitempty"`
+	ClientID  string         `json:"client_id,omitempty"`
 }
 
 // Error represents an error response.

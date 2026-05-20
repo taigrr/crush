@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
@@ -134,6 +135,23 @@ func (c *controllerV1) handlePostWorkspaces(w http.ResponseWriter, r *http.Reque
 	jsonEncode(w, result)
 }
 
+// requireClientID reads the client_id query parameter and validates it
+// as a UUID. On failure it writes a 400 and returns false.
+func (c *controllerV1) requireClientID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	cid := r.URL.Query().Get("client_id")
+	if cid == "" {
+		c.server.logError(r, "Missing client_id query parameter")
+		jsonError(w, http.StatusBadRequest, "client_id is required")
+		return "", false
+	}
+	if _, err := uuid.Parse(cid); err != nil {
+		c.server.logError(r, "Invalid client_id", "error", err)
+		jsonError(w, http.StatusBadRequest, "client_id is not a valid UUID")
+		return "", false
+	}
+	return cid, true
+}
+
 // handleDeleteWorkspaces deletes a workspace.
 //
 //	@Summary		Delete workspace
@@ -144,7 +162,14 @@ func (c *controllerV1) handlePostWorkspaces(w http.ResponseWriter, r *http.Reque
 //	@Router			/workspaces/{id} [delete]
 func (c *controllerV1) handleDeleteWorkspaces(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	c.backend.DeleteWorkspace(id)
+	clientID, ok := c.requireClientID(w, r)
+	if !ok {
+		return
+	}
+	if err := c.backend.DeleteWorkspace(id, clientID); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
 }
 
 // handleGetWorkspaceConfig returns workspace configuration.
@@ -200,6 +225,15 @@ func (c *controllerV1) handleGetWorkspaceProviders(w http.ResponseWriter, r *htt
 func (c *controllerV1) handleGetWorkspaceEvents(w http.ResponseWriter, r *http.Request) {
 	flusher := http.NewResponseController(w)
 	id := r.PathValue("id")
+	clientID, ok := c.requireClientID(w, r)
+	if !ok {
+		return
+	}
+	if err := c.backend.AttachClient(id, clientID); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	defer c.backend.DetachClient(id, clientID)
 	events, err := c.backend.SubscribeEvents(r.Context(), id)
 	if err != nil {
 		c.handleError(w, r, err)
@@ -1074,6 +1108,8 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, backend.ErrInvalidPermissionAction):
 		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrUnknownCommand):
+		status = http.StatusBadRequest
+	case errors.Is(err, backend.ErrInvalidClientID):
 		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrSnapshotsDisabled):
 		status = http.StatusBadRequest

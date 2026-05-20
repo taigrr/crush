@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/server"
@@ -22,10 +23,11 @@ const DummyHost = "api.crush.localhost"
 
 // Client represents an RPC client connected to a Crush server.
 type Client struct {
-	h       *http.Client
-	path    string
-	network string
-	addr    string
+	h        *http.Client
+	path     string
+	network  string
+	addr     string
+	clientID string
 }
 
 // DefaultClient creates a new [Client] connected to the default server address.
@@ -44,6 +46,7 @@ func NewClient(path, network, address string) (*Client, error) {
 	c.path = filepath.Clean(path)
 	c.network = network
 	c.addr = address
+	c.clientID = uuid.New().String()
 	p := &http.Protocols{}
 	p.SetHTTP1(true)
 	p.SetUnencryptedHTTP2(true)

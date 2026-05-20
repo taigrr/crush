@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/version"
+	"github.com/taigrr/crush/internal/version"
 )
 
 // ErrDataDirLocked is returned by Connect when the data directory is

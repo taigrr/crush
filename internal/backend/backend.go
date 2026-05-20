@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/app"
@@ -31,7 +34,13 @@ var (
 	ErrPathRequired            = errors.New("path is required")
 	ErrInvalidPermissionAction = errors.New("invalid permission action")
 	ErrUnknownCommand          = errors.New("unknown command")
+	ErrInvalidClientID         = errors.New("invalid client_id")
 )
+
+// DefaultCreateGrace is the window in which a client must open an SSE
+// stream after creating a workspace before its creation hold is
+// released. Exposed as a package variable so tests can shorten it.
+var DefaultCreateGrace = 30 * time.Second
 
 // ShutdownFunc is called when the backend needs to trigger a server
 // shutdown (e.g. when the last workspace is removed).
@@ -39,12 +48,28 @@ type ShutdownFunc func()
 
 // Backend provides transport-agnostic business logic for the Crush
 // server. It manages workspaces and delegates to [app.App] services.
+//
+// Locking order: when both [Backend.mu] and [Workspace.clientsMu] are
+// held at once, [Backend.mu] is acquired first.
 type Backend struct {
 	workspaces *csync.Map[string, *Workspace]
-	clients    *clientTracker
-	cfg        *config.ConfigStore
-	ctx        context.Context
-	shutdownFn ShutdownFunc
+	// pathIndex maps a resolved absolute workspace path to its
+	// workspace ID. Reads and writes are serialised via mu so
+	// concurrent CreateWorkspace calls at the same path deduplicate
+	// deterministically.
+	pathIndex map[string]string
+	mu        sync.Mutex
+
+	cfg         *config.ConfigStore
+	ctx         context.Context
+	shutdownFn  ShutdownFunc
+	createGrace time.Duration
+}
+
+// clientState tracks one client's claim on a workspace.
+type clientState struct {
+	streams   int
+	holdTimer *time.Timer
 }
 
 // Workspace represents a running [app.App] workspace with its
@@ -56,35 +81,63 @@ type Workspace struct {
 	Cfg    *config.ConfigStore
 	Env    []string
 	Skills *skills.Manager
+
+	// resolvedPath is the path used as the dedup key in
+	// Backend.pathIndex.
+	resolvedPath string
+
+	// clientsMu guards clients. It is held only briefly (no IO).
+	clientsMu sync.Mutex
+	// clients tracks each client's claim on this workspace. Refcount
+	// is a derived value: len(clients).
+	clients map[string]*clientState
+
+	// shutdownFn is the function invoked by [Backend.teardown] to
+	// release the workspace's underlying resources. It defaults to the
+	// embedded [app.App.Shutdown]; tests may override it to avoid
+	// driving a full [app.App] through shutdown.
+	shutdownFn func()
+}
+
+// invokeShutdown calls the workspace shutdown hook if set, falling
+// back to the embedded [app.App.Shutdown] when not.
+func (w *Workspace) invokeShutdown() {
+	if w.shutdownFn != nil {
+		w.shutdownFn()
+		return
+	}
+	if w.App != nil {
+		w.Shutdown()
+	}
 }
 
 // New creates a new [Backend].
 func New(ctx context.Context, cfg *config.ConfigStore, shutdownFn ShutdownFunc) *Backend {
 	return &Backend{
-		workspaces: csync.NewMap[string, *Workspace](),
-		clients:    newClientTracker(),
-		cfg:        cfg,
-		ctx:        ctx,
-		shutdownFn: shutdownFn,
+		workspaces:  csync.NewMap[string, *Workspace](),
+		pathIndex:   make(map[string]string),
+		cfg:         cfg,
+		ctx:         ctx,
+		shutdownFn:  shutdownFn,
+		createGrace: DefaultCreateGrace,
 	}
 }
 
-// GetWorkspace retrieves a workspace by ID. The ID can be either a workspace ID
-// or a client ID that maps to a shared workspace.
+// SetCreateGrace overrides the create-grace window. Intended for tests
+// that need short timeouts.
+func (b *Backend) SetCreateGrace(d time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.createGrace = d
+}
+
+// GetWorkspace retrieves a workspace by ID.
 func (b *Backend) GetWorkspace(id string) (*Workspace, error) {
-	// Try direct workspace lookup first.
-	if ws, ok := b.workspaces.Get(id); ok {
-		return ws, nil
+	ws, ok := b.workspaces.Get(id)
+	if !ok {
+		return nil, ErrWorkspaceNotFound
 	}
-
-	// Try as a client ID.
-	if workspaceID, ok := b.clients.workspaceForClient(id); ok {
-		if ws, ok := b.workspaces.Get(workspaceID); ok {
-			return ws, nil
-		}
-	}
-
-	return nil, ErrWorkspaceNotFound
+	return ws, nil
 }
 
 // ListWorkspaces returns all running workspaces.
@@ -96,51 +149,55 @@ func (b *Backend) ListWorkspaces() []proto.Workspace {
 	return workspaces
 }
 
-// CreateWorkspace initializes a new workspace from the given parameters.
-// If a workspace already exists for the same data directory, the existing
-// workspace is returned with a new client ID to avoid opening multiple
-// DB connections to the same file.
+// CreateWorkspace initializes a new workspace from the given
+// parameters, or returns an existing workspace if one already exists at
+// the same resolved path (first-wins semantics).
+//
+// args.ClientID must be a valid UUID identifying the calling client;
+// the resulting workspace registers a creation hold on behalf of that
+// client which is released either by the first SSE attach or by the
+// grace window expiring.
 func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Workspace, error) {
 	if args.Path == "" {
 		return nil, proto.Workspace{}, ErrPathRequired
 	}
+	clientID, err := validateClientID(args.ClientID)
+	if err != nil {
+		return nil, proto.Workspace{}, err
+	}
 
-	clientID := uuid.New().String()
+	key, err := resolveWorkspaceKey(args.Path)
+	if err != nil {
+		return nil, proto.Workspace{}, fmt.Errorf("failed to resolve workspace path: %w", err)
+	}
 
+	b.mu.Lock()
+	if !args.Isolated {
+		if existingID, ok := b.pathIndex[key]; ok {
+			if ws, found := b.workspaces.Get(existingID); found {
+				logFirstWinsMismatch(ws, args)
+				b.registerClient(ws, clientID)
+				b.mu.Unlock()
+				return ws, workspaceToProto(ws), nil
+			}
+			delete(b.pathIndex, key)
+		}
+	}
+	b.mu.Unlock()
+
+	id := uuid.New().String()
 	cfg, err := config.Init(args.Path, args.DataDir, args.Debug)
 	if err != nil {
 		return nil, proto.Workspace{}, fmt.Errorf("failed to initialize config: %w", err)
 	}
 
-	dataDir := cfg.Config().Options.DataDirectory
-
-	// Check for existing workspace (unless the client requested isolation).
-	if !args.Isolated {
-		if existingID, ok := b.clients.workspaceForDataDir(dataDir); ok {
-			if ws, ok := b.workspaces.Get(existingID); ok {
-				count, _ := b.clients.addClient(clientID, existingID, dataDir)
-				slog.Info(
-					"Reusing existing workspace for data directory",
-					"client_id", clientID,
-					"workspace_id", existingID,
-					"data_dir", dataDir,
-					"client_count", count,
-				)
-				return ws, b.makeProtoWorkspace(clientID, args.Path, dataDir, args.Env, ws.Cfg), nil
-			}
-			// Stale entry - clean up.
-			b.clients.cleanupStaleWorkspace(existingID, dataDir)
-		}
-	}
-
-	// Create new workspace.
 	cfg.Overrides().SkipPermissionRequests = args.YOLO
 
-	if err := createDotCrushDir(dataDir); err != nil {
+	if err := createDotCrushDir(cfg.Config().Options.DataDirectory); err != nil {
 		return nil, proto.Workspace{}, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	conn, err := db.Connect(b.ctx, dataDir)
+	conn, err := db.Connect(b.ctx, cfg.Config().Options.DataDirectory)
 	if err != nil {
 		return nil, proto.Workspace{}, fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -163,15 +220,37 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	}
 
 	ws := &Workspace{
-		App:  appWorkspace,
-		ID:   clientID,
-		Path: args.Path,
-		Cfg:  cfg,
-		Env:  args.Env,
+		App:          appWorkspace,
+		ID:           id,
+		Path:         args.Path,
+		Cfg:          cfg,
+		Env:          args.Env,
+		Skills:       skillsMgr,
+		resolvedPath: key,
+		clients:      make(map[string]*clientState),
 	}
 
-	b.workspaces.Set(clientID, ws)
-	b.clients.addClient(clientID, clientID, dataDir)
+	b.mu.Lock()
+	if !args.Isolated {
+		// Re-check the index under the lock: a concurrent caller may
+		// have won the race between the initial unlock and here.
+		if existingID, ok := b.pathIndex[key]; ok {
+			if existing, found := b.workspaces.Get(existingID); found {
+				logFirstWinsMismatch(existing, args)
+				b.registerClient(existing, clientID)
+				b.mu.Unlock()
+				ws.invokeShutdown()
+				return existing, workspaceToProto(existing), nil
+			}
+			delete(b.pathIndex, key)
+		}
+	}
+	b.workspaces.Set(id, ws)
+	if !args.Isolated {
+		b.pathIndex[key] = id
+	}
+	b.registerClient(ws, clientID)
+	b.mu.Unlock()
 
 	if args.Version != "" && args.Version != version.Version {
 		slog.Warn(
@@ -185,60 +264,164 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		)))
 	}
 
-	return ws, b.makeProtoWorkspace(clientID, args.Path, dataDir, args.Env, cfg), nil
+	return ws, workspaceToProto(ws), nil
 }
 
-// DeleteWorkspace removes a client from its workspace. The workspace is only
-// shut down when the last client disconnects.
-func (b *Backend) DeleteWorkspace(clientID string) {
-	workspaceID, _, lastClient, ok := b.clients.removeClient(clientID)
+// AttachClient registers a new SSE stream for the given client on the
+// workspace. The stream's deferred cleanup must call DetachClient with
+// the same arguments to release the claim.
+func (b *Backend) AttachClient(workspaceID, clientID string) error {
+	if _, err := validateClientID(clientID); err != nil {
+		return err
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ws, ok := b.workspaces.Get(workspaceID)
 	if !ok {
-		// Unknown client - try legacy direct lookup.
-		if ws, ok := b.workspaces.Get(clientID); ok {
-			ws.Shutdown()
-			b.workspaces.Del(clientID)
-		}
-		b.maybeShutdown()
-		return
+		return ErrWorkspaceNotFound
 	}
 
-	slog.Info(
-		"Client disconnected from workspace",
-		"client_id", clientID,
-		"workspace_id", workspaceID,
-		"last_client", lastClient,
-	)
-
-	if !lastClient {
-		return
+	ws.clientsMu.Lock()
+	defer ws.clientsMu.Unlock()
+	cs, ok := ws.clients[clientID]
+	if !ok {
+		ws.clients[clientID] = &clientState{streams: 1}
+		return nil
 	}
-
-	if ws, ok := b.workspaces.Get(workspaceID); ok {
-		ws.Shutdown()
+	if cs.holdTimer != nil {
+		cs.holdTimer.Stop()
+		cs.holdTimer = nil
 	}
-	b.workspaces.Del(workspaceID)
-	b.maybeShutdown()
+	cs.streams++
+	return nil
 }
 
-func (b *Backend) maybeShutdown() {
-	if b.workspaces.Len() == 0 && b.shutdownFn != nil {
+// DetachClient releases one SSE stream's hold on the workspace.
+func (b *Backend) DetachClient(workspaceID, clientID string) {
+	ws, ok := b.workspaces.Get(workspaceID)
+	if !ok {
+		return
+	}
+	b.detachStream(ws, clientID)
+}
+
+// releaseHold releases the creation hold for a client, if any.
+func (b *Backend) releaseHold(workspaceID, clientID string) error {
+	if _, err := validateClientID(clientID); err != nil {
+		return err
+	}
+	ws, ok := b.workspaces.Get(workspaceID)
+	if !ok {
+		return nil
+	}
+	b.releaseHoldLocked(ws, clientID)
+	return nil
+}
+
+// registerClient installs (idempotently) the given client's claim on
+// the workspace and starts a grace timer if the entry is fresh.
+func (b *Backend) registerClient(ws *Workspace, clientID string) {
+	ws.clientsMu.Lock()
+	defer ws.clientsMu.Unlock()
+	if _, ok := ws.clients[clientID]; ok {
+		return
+	}
+	cs := &clientState{}
+	cs.holdTimer = time.AfterFunc(b.createGrace, func() {
+		b.expireHold(ws, clientID, cs)
+	})
+	ws.clients[clientID] = cs
+}
+
+func (b *Backend) expireHold(ws *Workspace, clientID string, timer *clientState) {
+	ws.clientsMu.Lock()
+	cs, ok := ws.clients[clientID]
+	if !ok || cs != timer || cs.holdTimer == nil || cs.streams > 0 {
+		ws.clientsMu.Unlock()
+		return
+	}
+	cs.holdTimer = nil
+	delete(ws.clients, clientID)
+	teardown := len(ws.clients) == 0
+	ws.clientsMu.Unlock()
+	if teardown {
+		b.teardown(ws)
+	}
+}
+
+func (b *Backend) releaseHoldLocked(ws *Workspace, clientID string) {
+	ws.clientsMu.Lock()
+	cs, ok := ws.clients[clientID]
+	if !ok {
+		ws.clientsMu.Unlock()
+		return
+	}
+	if cs.holdTimer != nil {
+		cs.holdTimer.Stop()
+		cs.holdTimer = nil
+	}
+	teardown := false
+	if cs.streams == 0 {
+		delete(ws.clients, clientID)
+		teardown = len(ws.clients) == 0
+	}
+	ws.clientsMu.Unlock()
+	if teardown {
+		b.teardown(ws)
+	}
+}
+
+func (b *Backend) detachStream(ws *Workspace, clientID string) {
+	ws.clientsMu.Lock()
+	cs, ok := ws.clients[clientID]
+	if !ok {
+		ws.clientsMu.Unlock()
+		return
+	}
+	if cs.streams > 0 {
+		cs.streams--
+	}
+	teardown := false
+	if cs.streams == 0 && cs.holdTimer == nil {
+		delete(ws.clients, clientID)
+		teardown = len(ws.clients) == 0
+	}
+	ws.clientsMu.Unlock()
+	if teardown {
+		b.teardown(ws)
+	}
+}
+
+func (b *Backend) teardown(ws *Workspace) {
+	b.mu.Lock()
+	ws.clientsMu.Lock()
+	if len(ws.clients) > 0 {
+		ws.clientsMu.Unlock()
+		b.mu.Unlock()
+		return
+	}
+	ws.clientsMu.Unlock()
+	if existing, ok := b.pathIndex[ws.resolvedPath]; ok && existing == ws.ID {
+		delete(b.pathIndex, ws.resolvedPath)
+	}
+	b.workspaces.Del(ws.ID)
+	remaining := b.workspaces.Len()
+	b.mu.Unlock()
+
+	ws.invokeShutdown()
+
+	if remaining == 0 && b.shutdownFn != nil {
 		slog.Info("Last workspace removed, shutting down server...")
 		b.shutdownFn()
 	}
 }
 
-func (b *Backend) makeProtoWorkspace(clientID, path, dataDir string, env []string, cfg *config.ConfigStore) proto.Workspace {
-	c := cfg.Config()
-	return proto.Workspace{
-		ID:        clientID,
-		Path:      path,
-		GitBranch: getGitBranch(path),
-		DataDir:   dataDir,
-		Debug:     c.Options.Debug,
-		YOLO:      cfg.Overrides().SkipPermissionRequests,
-		Config:    c,
-		Env:       env,
-	}
+// DeleteWorkspace releases the named client's creation hold; live
+// streams from the same client remain attached until their own
+// deferred DetachClient runs.
+func (b *Backend) DeleteWorkspace(id, clientID string) error {
+	return b.releaseHold(id, clientID)
 }
 
 // GetWorkspaceProto returns the proto representation of a workspace.
@@ -273,6 +456,31 @@ func (b *Backend) Shutdown() {
 	}
 }
 
+// resolveWorkspaceKey returns a stable canonical form of path suitable
+// for use as a dedup key.
+func resolveWorkspaceKey(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	}
+	return abs, nil
+}
+
+// validateClientID returns the trimmed UUID string or an error if the
+// input is empty or not a valid UUID.
+func validateClientID(id string) (string, error) {
+	if id == "" {
+		return "", ErrInvalidClientID
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidClientID, err)
+	}
+	return id, nil
+}
+
 func workspaceToProto(ws *Workspace) proto.Workspace {
 	cfg := ws.Cfg.Config()
 	out := proto.Workspace{
@@ -283,6 +491,8 @@ func workspaceToProto(ws *Workspace) proto.Workspace {
 		DataDir:   cfg.Options.DataDirectory,
 		Debug:     cfg.Options.Debug,
 		Config:    cfg,
+		Env:       ws.Env,
+		Version:   version.Version,
 	}
 	if ws.Skills != nil {
 		out.Skills = skillStatesToProto(ws.Skills.States())
@@ -330,6 +540,45 @@ func skillStatesToProto(states []*skills.SkillState) []proto.SkillState {
 		out[i] = entry
 	}
 	return out
+}
+
+// logFirstWinsMismatch emits a debug line whenever a second
+// CreateWorkspace at the same resolved path arrives with flags that
+// differ from the originating workspace.
+func logFirstWinsMismatch(existing *Workspace, args proto.Workspace) {
+	existingCfg := existing.Cfg.Config()
+	existingYOLO := existing.Cfg.Overrides().SkipPermissionRequests
+	if existingYOLO == args.YOLO &&
+		existingCfg.Options.Debug == args.Debug &&
+		existingCfg.Options.DataDirectory == args.DataDir &&
+		stringSlicesEqual(existing.Env, args.Env) {
+		return
+	}
+	slog.Debug(
+		"Workspace flag mismatch on duplicate create; first wins",
+		"workspace_id", existing.ID,
+		"path", existing.Path,
+		"existing_yolo", existingYOLO,
+		"requested_yolo", args.YOLO,
+		"existing_debug", existingCfg.Options.Debug,
+		"requested_debug", args.Debug,
+		"existing_data_dir", existingCfg.Options.DataDirectory,
+		"requested_data_dir", args.DataDir,
+		"existing_env", existing.Env,
+		"requested_env", args.Env,
+	)
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // getGitBranch returns the current git branch for the given directory.
