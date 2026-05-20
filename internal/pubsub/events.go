@@ -26,6 +26,7 @@ const (
 	PayloadTypeFile                   PayloadType = "file"
 	PayloadTypeAgentEvent             PayloadType = "agent_event"
 	PayloadTypeSkillsEvent            PayloadType = "skills_event"
+	PayloadTypeConfigChanged          PayloadType = "config_changed"
 )
 
 // Payload wraps a discriminated JSON payload with a type tag.

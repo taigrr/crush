@@ -69,7 +69,7 @@ func NewClientWorkspace(c *client.Client, ws proto.Workspace) *ClientWorkspace {
 // refreshWorkspace re-fetches the workspace from the server, updating
 // the cached snapshot. Called after config-mutating operations.
 func (w *ClientWorkspace) refreshWorkspace() {
-	updated, err := w.client.GetWorkspace(context.Background(), w.ws.ID)
+	updated, err := w.client.GetWorkspace(context.Background(), w.workspaceID())
 	if err != nil {
 		slog.Error("Failed to refresh workspace", "error", err)
 		return
@@ -841,10 +841,22 @@ func (w *ClientWorkspace) Subscribe(program *tea.Program) {
 		Payload: LSPEvent{Type: LSPEventStateChanged},
 	})
 
+	w.consumeEvents(evc, program.Send)
+}
+
+// consumeEvents drives the workspace event loop. It is split out from
+// Subscribe so tests can drive it without a real *tea.Program.
+// ConfigChanged events trigger a workspace refresh; all other events
+// are translated into domain types and forwarded to send.
+func (w *ClientWorkspace) consumeEvents(evc <-chan any, send func(tea.Msg)) {
 	for ev := range evc {
+		if _, ok := ev.(pubsub.Event[proto.ConfigChanged]); ok {
+			w.refreshWorkspace()
+			continue
+		}
 		translated := translateEvent(ev)
-		if translated != nil {
-			program.Send(translated)
+		if translated != nil && send != nil {
+			send(translated)
 		}
 	}
 }

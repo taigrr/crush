@@ -97,6 +97,8 @@ func wrapEvent(ev any) *pubsub.Payload {
 			Type:    e.Type,
 			Payload: skillsEventToProto(e.Payload),
 		})
+	case pubsub.Event[proto.ConfigChanged]:
+		return envelope(pubsub.PayloadTypeConfigChanged, e)
 	default:
 		slog.Warn("Unrecognized event type for SSE wrapping", "type", fmt.Sprintf("%T", ev))
 		return nil
