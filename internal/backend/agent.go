@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 
+	"github.com/taigrr/crush/internal/agent"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
@@ -13,6 +14,13 @@ import (
 
 // SendMessage sends a prompt to the agent coordinator for the given
 // workspace and session.
+//
+// When msg.RunID is non-empty it is attached to the context via
+// agent.WithRunID so the coordinator can stamp the resulting
+// SessionAgentCall (and therefore the terminal notify.RunComplete
+// event) with that correlator. This is the only way for the
+// originating client to distinguish its own turn's RunComplete from
+// any concurrent turn that finishes on the same session.
 func (b *Backend) SendMessage(ctx context.Context, workspaceID string, msg proto.AgentMessage) error {
 	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
@@ -23,17 +31,10 @@ func (b *Backend) SendMessage(ctx context.Context, workspaceID string, msg proto
 		return ErrAgentNotInitialized
 	}
 
-	attachments := make([]message.Attachment, len(msg.Attachments))
-	for i, a := range msg.Attachments {
-		attachments[i] = message.Attachment{
-			FilePath: a.FilePath,
-			FileName: a.FileName,
-			MimeType: a.MimeType,
-			Content:  a.Content,
-		}
+	if msg.RunID != "" {
+		ctx = agent.WithRunID(ctx, msg.RunID)
 	}
-
-	_, err = ws.AgentCoordinator.Run(ctx, msg.SessionID, msg.Prompt, attachments...)
+	_, err = ws.AgentCoordinator.Run(ctx, msg.SessionID, msg.Prompt, proto.AttachmentsToMessage(msg.Attachments)...)
 	return err
 }
 
