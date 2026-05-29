@@ -99,35 +99,44 @@ func newRunner(cwd string, env []string, stdin io.Reader, stdout, stderr io.Writ
 	)
 }
 
-// withNonInteractiveEnv ensures commands that spawn editors or pagers
-// fail fast instead of hanging on a TTY that doesn't exist.
+// nonInteractiveEnvVars are forced on every shell execution to prevent
+// commands from hanging on a nonexistent TTY. These are always applied
+// regardless of the caller's environment because Crush shells are never
+// interactive — preserving user preferences like EDITOR=nvim only causes
+// hangs, not useful behavior.
+var nonInteractiveEnvVars = []string{
+	"TERM=xterm-256color",
+	"GIT_EDITOR=false",
+	"EDITOR=false",
+	"VISUAL=false",
+	"JJ_EDITOR=false",
+	"JJ_PAGER=cat",
+	"GIT_PAGER=cat",
+	"PAGER=cat",
+}
+
+// withNonInteractiveEnv returns env with nonInteractiveEnvVars forced in,
+// replacing any existing values for those keys. The returned slice is a
+// new allocation safe to use concurrently with the input.
 func withNonInteractiveEnv(env []string) []string {
-	overrides := map[string]string{
-		"TERM":       "dumb",
-		"GIT_EDITOR": "true",
-		"EDITOR":     "true",
-		"VISUAL":     "true",
-		"GIT_PAGER":  "cat",
-		"PAGER":      "cat",
+	// Build a set of override keys for fast lookup.
+	overrideKeys := make(map[string]bool, len(nonInteractiveEnvVars))
+	for _, kv := range nonInteractiveEnvVars {
+		if key, _, ok := strings.Cut(kv, "="); ok {
+			overrideKeys[key] = true
+		}
 	}
-	// Only set if not already present in env.
-	present := make(map[string]bool, len(overrides))
+
+	// Copy env, filtering out any keys we will override.
+	result := make([]string, 0, len(env)+len(nonInteractiveEnvVars))
 	for _, e := range env {
-		for k := range overrides {
-			if strings.HasPrefix(e, k+"=") {
-				present[k] = true
-			}
+		if key, _, ok := strings.Cut(e, "="); ok && overrideKeys[key] {
+			continue
 		}
+		result = append(result, e)
 	}
-	// Copy to avoid racing when the caller shares the slice across goroutines.
-	result := make([]string, len(env), len(env)+len(overrides))
-	copy(result, env)
-	for k, v := range overrides {
-		if !present[k] {
-			result = append(result, k+"="+v)
-		}
-	}
-	return result
+
+	return append(result, nonInteractiveEnvVars...)
 }
 
 // standardHandlers returns the exec-handler middleware chain used by both
