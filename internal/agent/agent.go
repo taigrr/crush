@@ -184,14 +184,17 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		return nil, ErrSessionMissing
 	}
 
-	// Queue the message if busy
+	// Queue the message if busy. Use Update so the read-modify-write of the
+	// queue is atomic; otherwise concurrent enqueues (or an enqueue racing
+	// with the drain in PrepareStep) can silently drop messages.
 	if a.IsSessionBusy(call.SessionID) {
-		existing, ok := a.messageQueue.Get(call.SessionID)
-		if !ok {
-			existing = []SessionAgentCall{}
-		}
-		existing = append(existing, call)
-		a.messageQueue.Set(call.SessionID, existing)
+		var depth int
+		a.messageQueue.Update(call.SessionID, func(existing []SessionAgentCall, _ bool) ([]SessionAgentCall, bool) {
+			next := append(existing, call)
+			depth = len(next)
+			return next, true
+		})
+		slog.Debug("Queued user prompt while session busy", "session_id", call.SessionID, "queue_depth", depth)
 		return nil, nil
 	}
 
@@ -345,8 +348,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 			// Use latest tools (updated by SetTools when MCP tools change).
 			prepared.Tools = a.tools.Copy()
 
-			queuedCalls, _ := a.messageQueue.Get(call.SessionID)
-			a.messageQueue.Del(call.SessionID)
+			// Take is atomic Get+Delete; using Get then Del would drop any
+			// enqueue that lands between the two calls.
+			queuedCalls, _ := a.messageQueue.Take(call.SessionID)
+			if n := len(queuedCalls); n > 0 {
+				slog.Debug("Draining queued prompts mid-step", "session_id", call.SessionID, "count", n)
+			}
 			for _, queued := range queuedCalls {
 				userMessage, createErr := a.createUserMessage(callContext, queued)
 				if createErr != nil {
@@ -702,13 +709,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		}
 		// If the agent wasn't done...
 		if len(currentAssistant.ToolCalls()) > 0 {
-			existing, ok := a.messageQueue.Get(call.SessionID)
-			if !ok {
-				existing = []SessionAgentCall{}
-			}
 			call.Prompt = fmt.Sprintf("The previous session was interrupted because it got too long, the initial user request was: `%s`", call.Prompt)
-			existing = append(existing, call)
-			a.messageQueue.Set(call.SessionID, existing)
+			a.messageQueue.Update(call.SessionID, func(existing []SessionAgentCall, _ bool) ([]SessionAgentCall, bool) {
+				return append(existing, call), true
+			})
 		}
 	}
 
@@ -729,14 +733,40 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		})
 	}
 
-	queuedMessages, ok := a.messageQueue.Get(call.SessionID)
-	if !ok || len(queuedMessages) == 0 {
+	// Pop the head of the queue atomically; an enqueue that lands between a
+	// non-atomic Get and Set would otherwise be lost. This is also the path
+	// that handles FinishReasonStop with a queued message: fantasy's loop
+	// (see fantasy/agent.go:531) breaks immediately when the model returns
+	// any non-tool-call finish reason, so the only way to deliver a queued
+	// prompt is to start a fresh Run.
+	next, ok := a.popQueuedCall(call.SessionID)
+	if !ok {
 		return result, err
 	}
-	// There are queued messages restart the loop.
-	firstQueuedMessage := queuedMessages[0]
-	a.messageQueue.Set(call.SessionID, queuedMessages[1:])
-	return a.Run(ctx, firstQueuedMessage)
+	slog.Debug("Restarting agent loop with queued prompt", "session_id", call.SessionID, "finish_reason", currentAssistant.FinishReason())
+	return a.Run(ctx, next)
+}
+
+// popQueuedCall atomically removes and returns the head of the queued
+// prompts for the session. Returns false if the queue is empty. Atomicity
+// matters: a Get followed by a Set would race with a concurrent enqueue and
+// either drop the new entry or the popped tail.
+func (a *sessionAgent) popQueuedCall(sessionID string) (SessionAgentCall, bool) {
+	var head SessionAgentCall
+	var got bool
+	a.messageQueue.Update(sessionID, func(q []SessionAgentCall, ok bool) ([]SessionAgentCall, bool) {
+		if !ok || len(q) == 0 {
+			return nil, false
+		}
+		head = q[0]
+		got = true
+		rest := q[1:]
+		if len(rest) == 0 {
+			return nil, false
+		}
+		return rest, true
+	})
+	return head, got
 }
 
 func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fantasy.ProviderOptions) error {
@@ -873,13 +903,12 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 	cancel()
 
 	// Process any messages that were queued while summarizing.
-	queuedMessages, ok := a.messageQueue.Get(sessionID)
-	if !ok || len(queuedMessages) == 0 {
+	next, ok := a.popQueuedCall(sessionID)
+	if !ok {
 		return nil
 	}
-	firstQueuedMessage := queuedMessages[0]
-	a.messageQueue.Set(sessionID, queuedMessages[1:])
-	_, qErr := a.Run(ctx, firstQueuedMessage)
+	slog.Debug("Restarting agent loop with queued prompt after summarize", "session_id", sessionID)
+	_, qErr := a.Run(ctx, next)
 	return qErr
 }
 
