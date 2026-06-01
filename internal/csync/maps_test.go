@@ -627,6 +627,79 @@ func TestMap_ConcurrentTake(t *testing.T) {
 	}
 }
 
+func TestMap_Update_NewKey(t *testing.T) {
+	t.Parallel()
+
+	m := NewMap[string, int]()
+	m.Update("a", func(_ int, present bool) (int, bool) {
+		require.False(t, present)
+		return 5, true
+	})
+	got, ok := m.Get("a")
+	require.True(t, ok)
+	require.Equal(t, 5, got)
+}
+
+func TestMap_Update_ExistingKey(t *testing.T) {
+	t.Parallel()
+
+	m := NewMap[string, int]()
+	m.Set("a", 5)
+	m.Update("a", func(cur int, present bool) (int, bool) {
+		require.True(t, present)
+		return cur + 1, true
+	})
+	got, _ := m.Get("a")
+	require.Equal(t, 6, got)
+}
+
+func TestMap_Update_DeletesWhenKeepFalse(t *testing.T) {
+	t.Parallel()
+
+	m := NewMap[string, int]()
+	m.Set("a", 5)
+	m.Update("a", func(_ int, _ bool) (int, bool) {
+		return 0, false
+	})
+	_, ok := m.Get("a")
+	require.False(t, ok)
+}
+
+// TestMap_Update_ConcurrentAppend exercises the read-modify-write race that
+// motivated adding Update: many goroutines appending to the same slice value.
+// With Get+Set this loses appends; with Update under a single lock it must
+// preserve every one.
+func TestMap_Update_ConcurrentAppend(t *testing.T) {
+	t.Parallel()
+
+	m := NewMap[string, []int]()
+	const workers = 50
+	const perWorker = 200
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := range workers {
+		go func(id int) {
+			defer wg.Done()
+			for j := range perWorker {
+				value := id*perWorker + j
+				m.Update("k", func(cur []int, _ bool) ([]int, bool) {
+					return append(cur, value), true
+				})
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	got, _ := m.Get("k")
+	require.Len(t, got, workers*perWorker)
+	seen := make(map[int]bool, len(got))
+	for _, v := range got {
+		require.False(t, seen[v], "value %d appeared twice", v)
+		seen[v] = true
+	}
+}
+
 func TestMap_TypeSafety(t *testing.T) {
 	t.Parallel()
 

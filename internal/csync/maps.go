@@ -96,6 +96,24 @@ func (m *Map[K, V]) Take(key K) (V, bool) {
 	return v, ok
 }
 
+// Update atomically applies fn to the current value for key. fn receives the
+// current value (zero-valued if absent) and a bool indicating whether the key
+// was present. If fn returns keep=true, the returned value is stored at key.
+// If fn returns keep=false, the key is deleted (no-op if absent). The whole
+// read-modify-write happens under a single lock, so concurrent Updates on the
+// same key are serialized and never lose writes.
+func (m *Map[K, V]) Update(key K, fn func(current V, present bool) (next V, keep bool)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cur, ok := m.inner[key]
+	next, keep := fn(cur, ok)
+	if keep {
+		m.inner[key] = next
+	} else {
+		delete(m.inner, key)
+	}
+}
+
 // Copy returns a copy of the inner map.
 func (m *Map[K, V]) Copy() map[K]V {
 	m.mu.RLock()
