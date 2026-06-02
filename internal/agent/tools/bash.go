@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/fsext"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/shell"
+	"github.com/taigrr/fantasy"
 )
 
 type BashParams struct {
@@ -62,14 +62,14 @@ var bashDescriptionTpl = template.Must(
 )
 
 type bashDescriptionData struct {
-	BannedCommands  string
-	MaxOutputLength int
-	Attribution     config.Attribution
-	ModelName       string
-	RgAvailable     bool
+	SysadminCommands string
+	MaxOutputLength  int
+	Attribution      config.Attribution
+	ModelName        string
+	RgAvailable      bool
 }
 
-var bannedCommands = []string{
+var sysadminCommands = []string{
 	// Network/Download tools
 	"alias",
 	"aria2c",
@@ -143,14 +143,14 @@ var bannedCommands = []string{
 }
 
 func bashDescription(attribution *config.Attribution, modelName string) string {
-	bannedCommandsStr := strings.Join(bannedCommands, ", ")
+	sysadminCommandsStr := strings.Join(sysadminCommands, ", ")
 	var out bytes.Buffer
 	if err := bashDescriptionTpl.Execute(&out, bashDescriptionData{
-		BannedCommands:  bannedCommandsStr,
-		MaxOutputLength: MaxOutputLength,
-		Attribution:     *attribution,
-		ModelName:       modelName,
-		RgAvailable:     getRg() != "",
+		SysadminCommands: sysadminCommandsStr,
+		MaxOutputLength:  MaxOutputLength,
+		Attribution:      *attribution,
+		ModelName:        modelName,
+		RgAvailable:      getRg() != "",
 	}); err != nil {
 		// this should never happen.
 		panic("failed to execute bash description template: " + err.Error())
@@ -160,7 +160,7 @@ func bashDescription(attribution *config.Attribution, modelName string) string {
 
 func blockFuncs() []shell.BlockFunc {
 	return []shell.BlockFunc{
-		shell.CommandsBlocker(bannedCommands),
+		shell.CommandsBlocker(sysadminCommands),
 
 		// System package managers
 		shell.ArgumentsBlocker("apk", []string{"add"}, nil),

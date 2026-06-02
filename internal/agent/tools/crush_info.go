@@ -7,11 +7,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/lsp"
 	"github.com/taigrr/crush/internal/skills"
+	"github.com/taigrr/fantasy"
 )
 
 const CrushInfoToolName = "crush_info"
@@ -60,7 +60,8 @@ func writeConfigFiles(b *strings.Builder, cfg *config.ConfigStore) {
 	b.WriteString("[config_files]\n")
 	paths := cfg.LoadedPaths()
 	for _, p := range paths {
-		b.WriteString(p + "\n")
+		b.WriteString(p)
+		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 }
@@ -460,7 +461,8 @@ func writeHooks(b *strings.Builder, cfg *config.ConfigStore) {
 		if e.timeout > 0 && e.timeout != 30 {
 			line += fmt.Sprintf(" (timeout: %ds)", e.timeout)
 		}
-		b.WriteString(line + "\n")
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 
 	b.WriteString("\n")

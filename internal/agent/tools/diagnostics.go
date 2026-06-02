@@ -189,14 +189,18 @@ func writeDiagnostics(output *strings.Builder, tag string, in []string) {
 	if len(in) == 0 {
 		return
 	}
-	output.WriteString("\n<" + tag + ">\n")
+	output.WriteString("\n<")
+	output.WriteString(tag)
+	output.WriteString(">\n")
 	if len(in) > 10 {
 		output.WriteString(strings.Join(in[:10], "\n"))
 		fmt.Fprintf(output, "\n... and %d more diagnostics", len(in)-10)
 	} else {
 		output.WriteString(strings.Join(in, "\n"))
 	}
-	output.WriteString("\n</" + tag + ">\n")
+	output.WriteString("\n</")
+	output.WriteString(tag)
+	output.WriteString(">\n")
 }
 
 func sortDiagnostics(in []string) []string {
