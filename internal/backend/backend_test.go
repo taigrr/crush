@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taigrr/crush/internal/csync"
-	"github.com/taigrr/crush/internal/proto"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/csync"
+	"github.com/taigrr/crush/internal/proto"
 )
 
 // newTestBackend returns a Backend whose teardown path skips any

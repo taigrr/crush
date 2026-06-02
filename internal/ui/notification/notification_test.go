@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/taigrr/crush/internal/ui/notification"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/ui/notification"
 )
 
 func TestNoopBackend_Send(t *testing.T) {

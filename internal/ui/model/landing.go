@@ -4,9 +4,9 @@ import (
 	"image"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/ultraviolet/layout"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/workspace"
-	"github.com/charmbracelet/ultraviolet/layout"
 )
 
 // selectedLargeModel returns the currently selected large language model from

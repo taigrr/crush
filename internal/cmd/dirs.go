@@ -8,8 +8,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/exp/charmtone"
 	"github.com/charmbracelet/x/term"
-	"github.com/taigrr/crush/internal/config"
 	"github.com/spf13/cobra"
+	"github.com/taigrr/crush/internal/config"
 )
 
 var dirsCmd = &cobra.Command{

@@ -3,11 +3,11 @@ package model
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/common"
 	uistyles "github.com/taigrr/crush/internal/ui/styles"
-	"github.com/stretchr/testify/require"
 )
 
 // TestSkillStatusItemsIncludesBuiltinSkills verifies sidebar skills include

@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/taigrr/crush/internal/config"
-	"github.com/taigrr/crush/internal/db"
 	"github.com/pkg/browser"
 	"github.com/spf13/cobra"
+	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/db"
 )
 
 //go:embed stats/index.html
@@ -132,7 +132,6 @@ func runStats(cmd *cobra.Command, _ []string) error {
 	}
 	if shouldEnableMetrics(cfg.Config()) {
 	}
-
 
 	conn, err := db.Connect(ctx, dataDir)
 	if err != nil {

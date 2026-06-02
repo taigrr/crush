@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taigrr/crush/internal/db"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/db"
 )
 
 func TestServiceCreateSnapshot(t *testing.T) {

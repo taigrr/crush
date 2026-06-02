@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/crush/internal/proto"
-	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/pubsub"
 )
 
 func TestSendEventAfterContextCancelIsIdempotent(t *testing.T) {

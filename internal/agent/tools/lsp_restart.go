@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/lsp"
+	"github.com/taigrr/fantasy"
 )
 
 const LSPRestartToolName = "lsp_restart"

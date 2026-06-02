@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/checkpoint"
 )
 
 func TestInitRepo(t *testing.T) {

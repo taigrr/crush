@@ -3,12 +3,12 @@ package dialog
 import (
 	"testing"
 
+	"github.com/sahilm/fuzzy"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
-	"github.com/sahilm/fuzzy"
-	"github.com/stretchr/testify/require"
 )
 
 // versionedItem is the cross-cutting interface every dialog list

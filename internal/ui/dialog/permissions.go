@@ -10,13 +10,13 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/fsext"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/stringext"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/styles"
-	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // PermissionsID is the identifier for the permissions dialog.

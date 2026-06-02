@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/taigrr/crush/internal/proto"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/proto"
 )
 
 // TestRecoverHandler_PanicReturns500 verifies that a panicking handler

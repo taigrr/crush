@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/pubsub"
-	"github.com/stretchr/testify/require"
 )
 
 type mockPermissionService struct {

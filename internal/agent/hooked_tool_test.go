@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/taigrr/fantasy"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/hooks"
 	"github.com/taigrr/crush/internal/permission"
-	"github.com/stretchr/testify/require"
+	"github.com/taigrr/fantasy"
 )
 
 // fakeTool records the context it was invoked with so tests can assert on

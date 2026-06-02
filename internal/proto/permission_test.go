@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/proto"
-	"github.com/stretchr/testify/require"
 )
 
 // TestPermissionRequestParamsTypeAssertable guards the permission

@@ -5,8 +5,8 @@ import (
 	_ "embed"
 	"fmt"
 
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/shell"
+	"github.com/taigrr/fantasy"
 )
 
 const (

@@ -16,13 +16,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/version"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func parseLevel(level mcp.LoggingLevel) slog.Level {

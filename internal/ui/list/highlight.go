@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/taigrr/crush/internal/stringext"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/taigrr/crush/internal/stringext"
 )
 
 // DefaultHighlighter is the default highlighter function that applies inverse style.

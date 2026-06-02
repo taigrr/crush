@@ -9,14 +9,14 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/pkg/browser"
+	"github.com/spf13/cobra"
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/oauth/copilot"
 	"github.com/taigrr/crush/internal/oauth/hyper"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/pkg/browser"
-	"github.com/spf13/cobra"
 )
 
 var loginCmd = &cobra.Command{

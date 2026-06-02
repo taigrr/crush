@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/taigrr/fantasy"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/fantasy"
 )
 
 func makeTestAttachments(n int, contentSize int) []Attachment {

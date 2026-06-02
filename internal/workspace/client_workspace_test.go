@@ -8,13 +8,13 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/skills"
-	"github.com/stretchr/testify/require"
 )
 
 // TestProtoToMessageToolResult ensures that ToolResult metadata,

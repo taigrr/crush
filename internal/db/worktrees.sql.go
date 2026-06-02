@@ -41,7 +41,8 @@ type CreateWorktreeParams struct {
 }
 
 func (q *Queries) CreateWorktree(ctx context.Context, arg CreateWorktreeParams) error {
-	_, err := q.exec(ctx, q.createWorktreeStmt, createWorktree,
+	_, err := q.exec(
+		ctx, q.createWorktreeStmt, createWorktree,
 		arg.ID,
 		arg.SessionID,
 		arg.Name,

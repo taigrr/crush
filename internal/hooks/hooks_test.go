@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/shell"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAggregation(t *testing.T) {

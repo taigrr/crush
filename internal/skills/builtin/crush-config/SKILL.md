@@ -53,14 +53,14 @@ fails loudly at load time with your message.
 
 ### Which fields expand
 
-| Surface                                             | Expansion |
-| --------------------------------------------------- | --------- |
-| Provider `api_key`, `base_url`, `api_endpoint`      | yes       |
-| Provider `extra_headers`                            | yes       |
-| Provider `extra_body`                               | **no**    |
-| MCP `command`, `args`, `env`, `headers`, `url`      | yes       |
-| LSP `command`, `args`, `env`                        | yes       |
-| Hook `command`                                      | runs via `sh -c`, not the resolver |
+| Surface                                        | Expansion                          |
+| ---------------------------------------------- | ---------------------------------- |
+| Provider `api_key`, `base_url`, `api_endpoint` | yes                                |
+| Provider `extra_headers`                       | yes                                |
+| Provider `extra_body`                          | **no**                             |
+| MCP `command`, `args`, `env`, `headers`, `url` | yes                                |
+| LSP `command`, `args`, `env`                   | yes                                |
+| Hook `command`                                 | runs via `sh -c`, not the resolver |
 
 `extra_body` is a JSON passthrough. If you need env-driven values in
 a request body, put them in `extra_headers`, `api_key`, or
@@ -219,7 +219,14 @@ Crush automatically snapshots the filesystem before each user message, enabling 
 {
   "snapshots": {
     "enabled": true,
-    "exclude": ["node_modules", "**/node_modules", "vendor", ".venv", "dist", "build"]
+    "exclude": [
+      "node_modules",
+      "**/node_modules",
+      "vendor",
+      ".venv",
+      "dist",
+      "build"
+    ]
   }
 }
 ```
@@ -236,9 +243,9 @@ Crush can manage git worktrees for isolated work environments.
   "worktree": {
     "enabled": true,
     "post_create": [
-      {"if_exists": "bun.lockb", "run": "bun i"},
-      {"if_exists": "package-lock.json", "run": "npm ci"},
-      {"if_exists": "go.sum", "run": "go mod download"}
+      { "if_exists": "bun.lockb", "run": "bun i" },
+      { "if_exists": "package-lock.json", "run": "npm ci" },
+      { "if_exists": "go.sum", "run": "go mod download" }
     ]
   }
 }
@@ -298,20 +305,20 @@ A JSON payload is piped to the hook command:
   "session_id": "abc-123",
   "cwd": "/path/to/project",
   "tool_name": "bash",
-  "tool_input": {"command": "ls -la"}
+  "tool_input": { "command": "ls -la" }
 }
 ```
 
 ### Hook Environment Variables
 
-| Variable | Description |
-|---|---|
-| `CRUSH_EVENT` | Event name (e.g. `PreToolUse`) |
-| `CRUSH_TOOL_NAME` | Name of the tool being called |
-| `CRUSH_SESSION_ID` | Current session ID |
-| `CRUSH_CWD` | Current working directory |
-| `CRUSH_PROJECT_DIR` | Project root directory |
-| `CRUSH_TOOL_INPUT_COMMAND` | Value of `command` from tool input (if present) |
+| Variable                     | Description                                       |
+| ---------------------------- | ------------------------------------------------- |
+| `CRUSH_EVENT`                | Event name (e.g. `PreToolUse`)                    |
+| `CRUSH_TOOL_NAME`            | Name of the tool being called                     |
+| `CRUSH_SESSION_ID`           | Current session ID                                |
+| `CRUSH_CWD`                  | Current working directory                         |
+| `CRUSH_PROJECT_DIR`          | Project root directory                            |
+| `CRUSH_TOOL_INPUT_COMMAND`   | Value of `command` from tool input (if present)   |
 | `CRUSH_TOOL_INPUT_FILE_PATH` | Value of `file_path` from tool input (if present) |
 
 ### Hook Output
@@ -319,7 +326,7 @@ A JSON payload is piped to the hook command:
 **Exit code 0** — the hook succeeded. Stdout is parsed as JSON:
 
 ```json
-{"decision": "allow", "context": "optional context appended to tool result"}
+{ "decision": "allow", "context": "optional context appended to tool result" }
 ```
 
 - `decision`: `allow` to explicitly allow, `deny` to block, `none` (or omit) for no opinion.
@@ -345,7 +352,7 @@ Crush also supports the Claude Code hook output format:
   "hookSpecificOutput": {
     "permissionDecision": "allow",
     "permissionDecisionReason": "Auto-approved",
-    "updatedInput": {"command": "echo rewritten"}
+    "updatedInput": { "command": "echo rewritten" }
   }
 }
 ```

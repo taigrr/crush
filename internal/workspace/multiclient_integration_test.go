@@ -8,13 +8,13 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/server"
 	"github.com/taigrr/crush/internal/workspace"
-	"github.com/stretchr/testify/require"
 )
 
 // xdgIsolate redirects HOME and XDG_* to fresh temp dirs so config

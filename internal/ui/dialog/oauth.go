@@ -9,14 +9,14 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
-	"github.com/taigrr/catwalk/pkg/catwalk"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/pkg/browser"
+	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/util"
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/pkg/browser"
 )
 
 type OAuthProvider interface {

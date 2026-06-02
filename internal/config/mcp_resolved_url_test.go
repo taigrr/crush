@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/taigrr/crush/internal/env"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/env"
 )
 
 func TestMCPConfig_ResolvedURL(t *testing.T) {

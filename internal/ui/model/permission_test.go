@@ -3,9 +3,9 @@ package model
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/ui/dialog"
-	"github.com/stretchr/testify/require"
 )
 
 // newTestUIForPermissions builds a UI with a chat, dialog overlay, and

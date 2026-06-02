@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/taigrr/crush/internal/projects"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/projects"
 )
 
 func TestProjectsEmpty(t *testing.T) {

@@ -4,11 +4,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/catwalk/pkg/catwalk"
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/session"
-	"github.com/stretchr/testify/require"
+	"github.com/taigrr/fantasy"
 )
 
 func TestUsageIsZero(t *testing.T) {

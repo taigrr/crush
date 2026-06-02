@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/env"
-	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
-	"github.com/stretchr/testify/require"
 )
 
 func TestClient(t *testing.T) {

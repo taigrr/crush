@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/taigrr/fantasy"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/shell"
-	"github.com/stretchr/testify/require"
+	"github.com/taigrr/fantasy"
 )
 
 type mockBashPermissionService struct {

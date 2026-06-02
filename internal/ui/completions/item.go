@@ -4,10 +4,10 @@ import (
 	"slices"
 
 	"charm.land/lipgloss/v2"
-	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rivo/uniseg"
 	"github.com/sahilm/fuzzy"
+	"github.com/taigrr/crush/internal/ui/list"
 )
 
 // FileCompletionValue represents a file path completion value.

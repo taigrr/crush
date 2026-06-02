@@ -33,7 +33,8 @@ type CreateFileParams struct {
 }
 
 func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) (File, error) {
-	row := q.queryRow(ctx, q.createFileStmt, createFile,
+	row := q.queryRow(
+		ctx, q.createFileStmt, createFile,
 		arg.ID,
 		arg.SessionID,
 		arg.Path,

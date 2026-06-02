@@ -9,9 +9,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/pubsub"
-	"github.com/google/uuid"
 	"github.com/zeebo/xxh3"
 )
 

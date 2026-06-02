@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"charm.land/glamour/v2"
-	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 // newTestRenderer builds a fresh glamour renderer for the given
@@ -116,7 +116,7 @@ func containsRawMarkdownSource(rendered string) bool {
 	if strings.Contains(clean, "```") {
 		return true
 	}
-	for _, line := range strings.Split(clean, "\n") {
+	for line := range strings.SplitSeq(clean, "\n") {
 		if strings.HasPrefix(strings.TrimLeft(line, " \t"), "###") {
 			return true
 		}
@@ -676,7 +676,7 @@ func TestStreamingMarkdown_NoSafeBoundaryDoesNotCrash(t *testing.T) {
 func nonBlankLines(s string) []string {
 	clean := stripANSI(s)
 	out := make([]string, 0)
-	for _, l := range strings.Split(clean, "\n") {
+	for l := range strings.SplitSeq(clean, "\n") {
 		l = strings.TrimRight(l, " \t")
 		if strings.TrimSpace(l) == "" {
 			continue

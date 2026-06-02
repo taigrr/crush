@@ -8,10 +8,10 @@ import (
 	"os/signal"
 
 	"charm.land/lipgloss/v2"
-	"github.com/taigrr/crush/internal/client"
-	"github.com/taigrr/crush/internal/config"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
+	"github.com/taigrr/crush/internal/client"
+	"github.com/taigrr/crush/internal/config"
 )
 
 var (

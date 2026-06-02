@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/charmbracelet/x/term"
+	"github.com/spf13/cobra"
 	"github.com/taigrr/crush/internal/config"
 	crushlog "github.com/taigrr/crush/internal/log"
 	"github.com/taigrr/crush/internal/server"
-	"github.com/charmbracelet/x/term"
-	"github.com/spf13/cobra"
 )
 
 var serverHost string

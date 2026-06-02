@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/styles"
-	"github.com/stretchr/testify/require"
 )
 
 // Fixed Unix timestamps for deterministic cache-equality tests. The

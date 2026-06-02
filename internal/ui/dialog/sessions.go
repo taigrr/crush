@@ -10,11 +10,11 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/util"
-	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // SessionsID is the identifier for the session selector dialog.
@@ -33,35 +33,35 @@ const (
 
 // Session is a session selector dialog.
 type Session struct {
-	com                 *common.Common
-	help                help.Model
-	list                *list.FilterableList
-	input               textinput.Model
-	selectedSessionInx  int
-	sessions            []session.Session
-	archivedSessions    []session.Session
-	archivedStartIndex  int // index where archived section starts (-1 if no archived)
+	com                *common.Common
+	help               help.Model
+	list               *list.FilterableList
+	input              textinput.Model
+	selectedSessionInx int
+	sessions           []session.Session
+	archivedSessions   []session.Session
+	archivedStartIndex int // index where archived section starts (-1 if no archived)
 
 	sessionsMode sessionsMode
 
 	keyMap struct {
-		Select          key.Binding
-		Next            key.Binding
-		Previous        key.Binding
-		UpDown          key.Binding
-		Delete          key.Binding
-		Rename          key.Binding
-		Archive         key.Binding
-		Unarchive       key.Binding
-		ConfirmRename   key.Binding
-		CancelRename    key.Binding
-		ConfirmDelete   key.Binding
-		CancelDelete    key.Binding
-		ConfirmArchive  key.Binding
-		CancelArchive   key.Binding
+		Select           key.Binding
+		Next             key.Binding
+		Previous         key.Binding
+		UpDown           key.Binding
+		Delete           key.Binding
+		Rename           key.Binding
+		Archive          key.Binding
+		Unarchive        key.Binding
+		ConfirmRename    key.Binding
+		CancelRename     key.Binding
+		ConfirmDelete    key.Binding
+		CancelDelete     key.Binding
+		ConfirmArchive   key.Binding
+		CancelArchive    key.Binding
 		ConfirmUnarchive key.Binding
 		CancelUnarchive  key.Binding
-		Close           key.Binding
+		Close            key.Binding
 	}
 }
 

@@ -3,8 +3,8 @@ package tools
 import (
 	"testing"
 
-	"github.com/taigrr/crush/internal/config"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/config"
 )
 
 // TestToolDescriptions_NoPanic verifies that all tool description templates

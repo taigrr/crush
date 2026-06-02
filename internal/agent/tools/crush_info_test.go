@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/lsp"
 	"github.com/taigrr/crush/internal/skills"
-	"github.com/stretchr/testify/require"
 )
 
 func TestCrushInfo_MinimalConfig(t *testing.T) {

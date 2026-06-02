@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/pubsub"
-	"github.com/google/uuid"
 )
 
 // defaultUpdateDebounce is the default debounce window for [Service.Update].

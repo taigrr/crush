@@ -599,7 +599,8 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 
 	// Add LSP tools if user has configured LSPs or auto_lsp is enabled (nil or true).
 	if len(c.cfg.Config().LSP) > 0 || c.cfg.Config().Options.AutoLSP == nil || *c.cfg.Config().Options.AutoLSP {
-		allTools = append(allTools,
+		allTools = append(
+			allTools,
 			tools.NewDiagnosticsTool(c.lspManager),
 			tools.NewReferencesTool(c.lspManager),
 			tools.NewDefinitionTool(c.lspManager),
@@ -1122,7 +1123,7 @@ func (c *coordinator) retryAfterUnauthorized(ctx context.Context, providerCfg co
 		return c.refreshOAuth2Token(ctx, providerCfg)
 	case strings.Contains(providerCfg.APIKeyTemplate, "$"):
 		slog.Debug("Received 401. Refreshing API Key template and retrying", "provider", providerCfg.ID)
-		return c.refreshApiKeyTemplate(ctx, providerCfg)
+		return c.refreshAPIKeyTemplate(ctx, providerCfg)
 	default:
 		return nil
 	}
@@ -1144,7 +1145,7 @@ func (c *coordinator) refreshOAuth2Token(ctx context.Context, providerCfg config
 	return nil
 }
 
-func (c *coordinator) refreshApiKeyTemplate(ctx context.Context, providerCfg config.ProviderConfig) error {
+func (c *coordinator) refreshAPIKeyTemplate(ctx context.Context, providerCfg config.ProviderConfig) error {
 	newAPIKey, err := c.cfg.Resolve(providerCfg.APIKeyTemplate)
 	if err != nil {
 		slog.Error("Failed to re-resolve API key after 401 error", "provider", providerCfg.ID, "error", err)

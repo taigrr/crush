@@ -6,11 +6,11 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 )
 
 // awaitConfigChanged drains events until a ConfigChanged is received

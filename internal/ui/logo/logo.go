@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 // letterform represents a letterform. It can be stretched horizontally by

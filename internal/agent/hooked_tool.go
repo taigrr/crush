@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/hooks"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/fantasy"
 	"github.com/tidwall/sjson"
 )
 

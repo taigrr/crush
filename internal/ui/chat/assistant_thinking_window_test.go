@@ -5,10 +5,10 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
-	"github.com/taigrr/crush/internal/message"
-	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 // thinkingMessageWithLines builds a still-thinking assistant message

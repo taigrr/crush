@@ -7,13 +7,13 @@ import (
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/dustin/go-humanize"
+	"github.com/sahilm/fuzzy"
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/dustin/go-humanize"
-	"github.com/sahilm/fuzzy"
 )
 
 // SnapshotsID is the identifier for the snapshots dialog.

@@ -6,9 +6,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
-	"github.com/taigrr/crush/internal/projects"
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
+	"github.com/taigrr/crush/internal/projects"
 )
 
 var projectsCmd = &cobra.Command{

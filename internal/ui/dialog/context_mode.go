@@ -7,12 +7,12 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/sahilm/fuzzy"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/sahilm/fuzzy"
 )
 
 const (

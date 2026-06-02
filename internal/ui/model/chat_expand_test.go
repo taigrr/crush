@@ -3,9 +3,9 @@ package model
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/chat"
-	"github.com/stretchr/testify/require"
 )
 
 // TestChatToggleExpandedSelectedItem_AssistantMessage is the regression test

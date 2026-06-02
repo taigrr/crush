@@ -119,7 +119,8 @@ func formatDefinitions(locations []protocol.Location) string {
 		if err != nil {
 			path = string(loc.URI)
 		}
-		fmt.Fprintf(&output, "%s:%d:%d\n",
+		fmt.Fprintf(
+			&output, "%s:%d:%d\n",
 			path,
 			loc.Range.Start.Line+1,
 			loc.Range.Start.Character+1,

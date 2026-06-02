@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/oauth"
-	"github.com/stretchr/testify/require"
 )
 
 func TestConfigStore_ConfigPath_GlobalAlwaysWorks(t *testing.T) {

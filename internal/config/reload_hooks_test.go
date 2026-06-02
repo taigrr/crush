@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/hooks"
-	"github.com/stretchr/testify/require"
 )
 
 // TestReloadFromDisk_CompilesHookMatchers is a regression test for a bug

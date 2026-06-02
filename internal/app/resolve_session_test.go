@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
-	"github.com/stretchr/testify/require"
 )
 
 // mockSessionService is a minimal mock of session.Service for testing resolveSession.

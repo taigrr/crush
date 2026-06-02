@@ -3,8 +3,8 @@ package session
 import (
 	"testing"
 
-	"github.com/taigrr/crush/internal/db"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/db"
 )
 
 func TestEstimatedUsageStateSurvivesFetchModifySave(t *testing.T) {

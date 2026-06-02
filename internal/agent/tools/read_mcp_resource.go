@@ -8,11 +8,11 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/filepathext"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/fantasy"
 )
 
 type ReadMCPResourceParams struct {

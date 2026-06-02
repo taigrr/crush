@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/taigrr/crush/internal/config"
-	"github.com/taigrr/crush/internal/csync"
-	"github.com/taigrr/crush/internal/fsext"
 	powernapconfig "github.com/charmbracelet/x/powernap/pkg/config"
 	powernap "github.com/charmbracelet/x/powernap/pkg/lsp"
 	"github.com/sourcegraph/jsonrpc2"
+	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/csync"
+	"github.com/taigrr/crush/internal/fsext"
 )
 
 const unavailableRetryDelay = 30 * time.Second

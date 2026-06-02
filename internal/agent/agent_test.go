@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taigrr/fantasy"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/session"
-	"github.com/stretchr/testify/require"
+	"github.com/taigrr/fantasy"
 
 	_ "github.com/joho/godotenv/autoload"
 )

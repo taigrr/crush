@@ -3,9 +3,9 @@ package app
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/config"
-	"github.com/stretchr/testify/require"
 )
 
 func TestParseModelStr(t *testing.T) {

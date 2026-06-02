@@ -9,10 +9,10 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/proto"
-	"github.com/stretchr/testify/require"
 )
 
 // captureClient returns a Client that talks to the given test server,

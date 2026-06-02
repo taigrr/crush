@@ -10,11 +10,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/filepathext"
 	"github.com/taigrr/crush/internal/fsext"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/fantasy"
 )
 
 type LSParams struct {

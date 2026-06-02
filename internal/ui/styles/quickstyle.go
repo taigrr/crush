@@ -10,8 +10,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2/ansi"
 	"charm.land/lipgloss/v2"
-	"github.com/taigrr/crush/internal/ui/diffview"
 	"github.com/charmbracelet/x/exp/charmtone"
+	"github.com/taigrr/crush/internal/ui/diffview"
 )
 
 // quickStyleOpts is the palette of colors used by quickStyle to simplify the

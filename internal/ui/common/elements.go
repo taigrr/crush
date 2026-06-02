@@ -8,10 +8,10 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/agent/hyper"
 	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/ui/styles"
-	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )

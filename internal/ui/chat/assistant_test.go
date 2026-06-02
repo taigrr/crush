@@ -3,10 +3,10 @@ package chat
 import (
 	"testing"
 
-	"github.com/taigrr/crush/internal/message"
-	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 // TestAssistantMessageItemExpandable guards the Expandable contract on

@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/app"
 	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/db"
@@ -21,8 +23,6 @@ import (
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 )
 
 // e2eHarness wires a Server, its Backend (with a custom shutdownFn we

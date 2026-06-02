@@ -232,4 +232,3 @@ type WriteResponseMetadata struct {
 	Additions int    `json:"additions"`
 	Removals  int    `json:"removals"`
 }
-

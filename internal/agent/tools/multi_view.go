@@ -57,7 +57,8 @@ func NewMultiViewTool(viewTool fantasy.AgentTool) fantasy.AgentTool {
 			if len(params.FilePaths) > maxMultiViewFiles {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf(
 					"too many files: requested %d, limit is %d. Read in batches.",
-					len(params.FilePaths), maxMultiViewFiles)), nil
+					len(params.FilePaths), maxMultiViewFiles,
+				)), nil
 			}
 
 			results := make([]MultiViewFileResult, len(params.FilePaths))

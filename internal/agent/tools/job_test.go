@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taigrr/crush/internal/shell"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/shell"
 )
 
 func TestBackgroundShell_Integration(t *testing.T) {

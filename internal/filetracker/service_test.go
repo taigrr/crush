@@ -6,8 +6,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/taigrr/crush/internal/db"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/db"
 )
 
 type testEnv struct {

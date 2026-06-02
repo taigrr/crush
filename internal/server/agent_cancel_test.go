@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"charm.land/fantasy"
-	"github.com/charmbracelet/crush/internal/agent"
-	"github.com/charmbracelet/crush/internal/app"
-	"github.com/charmbracelet/crush/internal/backend"
-	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/agent"
+	"github.com/taigrr/crush/internal/app"
+	"github.com/taigrr/crush/internal/backend"
+	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/fantasy"
 )
 
 // runCoordinator is a configurable agent.Coordinator stub for the
@@ -74,6 +74,7 @@ func (s *runCoordinator) Summarize(context.Context, string) error {
 }
 func (s *runCoordinator) Model() agent.Model                 { return agent.Model{} }
 func (s *runCoordinator) UpdateModels(context.Context) error { return nil }
+func (s *runCoordinator) IsExtendedContext(string) bool      { return false }
 
 func (s *runCoordinator) capturedCtx() context.Context {
 	s.mu.Lock()

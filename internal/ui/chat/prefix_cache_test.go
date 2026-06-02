@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/attachments"
 	"github.com/taigrr/crush/internal/ui/styles"
-	"github.com/stretchr/testify/require"
 )
 
 // finishedAssistantMessage builds an assistant message with text content and a

@@ -25,9 +25,9 @@ func TestFormatDefinitions(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		locs      []protocol.Location
-		wantSubs  []string
+		name     string
+		locs     []protocol.Location
+		wantSubs []string
 	}{
 		{
 			name:     "single location includes path and 1-based position",

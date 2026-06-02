@@ -16,12 +16,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/filepathext"
 	"github.com/taigrr/crush/internal/filetracker"
 	"github.com/taigrr/crush/internal/lsp"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/skills"
+	"github.com/taigrr/fantasy"
 )
 
 //go:embed view.md.tpl

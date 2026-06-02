@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
-	"github.com/stretchr/testify/require"
 )
 
 // slowUpdateQuerier wraps a [db.Querier] and forces UpdateMessage to

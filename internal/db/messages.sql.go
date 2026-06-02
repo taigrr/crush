@@ -38,7 +38,8 @@ type CreateMessageParams struct {
 }
 
 func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error) {
-	row := q.queryRow(ctx, q.createMessageStmt, createMessage,
+	row := q.queryRow(
+		ctx, q.createMessageStmt, createMessage,
 		arg.ID,
 		arg.SessionID,
 		arg.Role,

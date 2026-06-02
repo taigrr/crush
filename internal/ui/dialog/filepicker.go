@@ -14,10 +14,10 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/ui/common"
 	fimage "github.com/taigrr/crush/internal/ui/image"
-	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // FilePickerID is the identifier for the FilePicker dialog.

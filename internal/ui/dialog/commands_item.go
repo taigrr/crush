@@ -6,9 +6,9 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/sahilm/fuzzy"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
-	"github.com/sahilm/fuzzy"
 )
 
 // CommandItem wraps a uicmd.Command to implement the ListItem interface.

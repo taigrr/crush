@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/proto"
-	"github.com/stretchr/testify/require"
 )
 
 func TestConfigProviderKeyRequestStringRoundTrip(t *testing.T) {

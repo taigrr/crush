@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taigrr/fantasy"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/filetracker"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/pubsub"
-	"github.com/stretchr/testify/require"
+	"github.com/taigrr/fantasy"
 )
 
 func TestReadTextFileBoundaryCases(t *testing.T) {

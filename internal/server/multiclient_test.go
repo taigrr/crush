@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/proto"
-	"github.com/stretchr/testify/require"
 )
 
 // installSyntheticWorkspace creates a synthetic [backend.Workspace]

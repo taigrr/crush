@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/agent/prompt"
 	"github.com/taigrr/crush/internal/config"
-	"github.com/stretchr/testify/require"
 )
 
 // TestSystemPrompts_NoPanic verifies that all system prompt templates
@@ -62,7 +62,8 @@ func TestSystemPrompts_NoPanic(t *testing.T) {
 
 	t.Run("agentic_fetch", func(t *testing.T) {
 		t.Parallel()
-		p, err := prompt.NewPrompt("agentic_fetch", string(agenticFetchPromptTmpl),
+		p, err := prompt.NewPrompt(
+			"agentic_fetch", string(agenticFetchPromptTmpl),
 			prompt.WithTimeFunc(fixedTime),
 			prompt.WithPlatform("linux"),
 			prompt.WithWorkingDir(workingDir),

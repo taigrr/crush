@@ -8,15 +8,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/taigrr/fantasy"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/agent"
 	"github.com/taigrr/crush/internal/app"
 	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
+	"github.com/taigrr/fantasy"
 )
 
 // stubCoordinator is a minimal agent.Coordinator that only reports

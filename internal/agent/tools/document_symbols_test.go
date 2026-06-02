@@ -60,7 +60,8 @@ func TestFormatDocumentSymbols(t *testing.T) {
 		{
 			name: "hierarchical class with methods indents children",
 			results: []protocol.DocumentSymbolResult{
-				ptrSym(mkSym("Service", protocol.Class, 4,
+				ptrSym(mkSym(
+					"Service", protocol.Class, 4,
 					mkSym("Run", protocol.Method, 5),
 					mkSym("Stop", protocol.Method, 12),
 				)),

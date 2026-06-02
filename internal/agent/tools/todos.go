@@ -5,8 +5,8 @@ import (
 	_ "embed"
 	"fmt"
 
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/fantasy"
 )
 
 //go:embed todos.md

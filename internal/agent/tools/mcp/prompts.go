@@ -5,9 +5,9 @@ import (
 	"iter"
 	"log/slog"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/csync"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type Prompt = mcp.Prompt

@@ -3,10 +3,10 @@ package chat
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
-	"github.com/stretchr/testify/require"
 )
 
 // renderCountingItem wraps a real chat item and counts Render calls

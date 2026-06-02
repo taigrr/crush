@@ -14,10 +14,10 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/commands"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/util"
-	uv "github.com/charmbracelet/ultraviolet"
 )
 
 // ArgumentsID is the identifier for the arguments dialog.

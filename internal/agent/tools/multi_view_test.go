@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/taigrr/fantasy"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/fantasy"
 )
 
 // fakeViewTool emulates the single-file view tool: returns canned content
@@ -25,8 +25,9 @@ type fakeViewResponse struct {
 	err     error
 }
 
-func (f *fakeViewTool) Info() fantasy.ToolInfo                  { return fantasy.ToolInfo{Name: ViewToolName} }
-func (f *fakeViewTool) ProviderOptions() fantasy.ProviderOptions { return fantasy.ProviderOptions{} }
+func (f *fakeViewTool) Info() fantasy.ToolInfo { return fantasy.ToolInfo{Name: ViewToolName} }
+
+func (f *fakeViewTool) ProviderOptions() fantasy.ProviderOptions   { return fantasy.ProviderOptions{} }
 func (f *fakeViewTool) SetProviderOptions(fantasy.ProviderOptions) {}
 
 func (f *fakeViewTool) Run(_ context.Context, call fantasy.ToolCall) (fantasy.ToolResponse, error) {

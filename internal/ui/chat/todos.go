@@ -6,11 +6,11 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/styles"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // -----------------------------------------------------------------------------

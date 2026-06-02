@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/taigrr/crush/internal/env"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/env"
 )
 
 var errDockerUnavailable = errors.New("docker unavailable")

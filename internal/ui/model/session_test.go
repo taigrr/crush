@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/ui/styles"
-	"github.com/stretchr/testify/require"
 )
 
 func TestFileList(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/diff"
 	"github.com/taigrr/crush/internal/fsext"
 	"github.com/taigrr/crush/internal/history"
@@ -17,7 +18,6 @@ import (
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/taigrr/crush/internal/ui/util"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // loadSessionMsg is a message indicating that a session and its files have

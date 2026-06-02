@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/taigrr/fantasy"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/fantasy"
 )
 
 // whitelistDockerTools contains Docker MCP tools that don't require permission.

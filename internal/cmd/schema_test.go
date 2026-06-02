@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/taigrr/crush/internal/config"
 	"github.com/invopop/jsonschema"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/config"
 )
 
 func TestSchemaNoBrokenRefs(t *testing.T) {

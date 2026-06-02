@@ -72,9 +72,7 @@ type Event struct {
 	States []*SkillState
 }
 
-var (
-	broker = pubsub.NewBroker[Event]()
-)
+var broker = pubsub.NewBroker[Event]()
 
 // SubscribeEvents returns a channel that receives events when skill discovery state changes.
 func SubscribeEvents(ctx context.Context) <-chan pubsub.Event[Event] {
@@ -115,8 +113,6 @@ func SetLatestStates(states []*SkillState) {
 	latestStates = cloneStates(states)
 	latestStatesMu.Unlock()
 }
-
-
 
 // Validate checks if the skill meets spec requirements.
 func (s *Skill) Validate() error {

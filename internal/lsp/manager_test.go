@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/taigrr/crush/internal/csync"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/csync"
 )
 
 func TestUnavailableBackoff(t *testing.T) {

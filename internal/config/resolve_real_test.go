@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/taigrr/crush/internal/env"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/env"
 )
 
 // These tests exercise the full shell-expansion path (no mocks,

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/pubsub"
 )
 
 // TestSetupSubscriber_NormalFlow verifies that events published to the source
