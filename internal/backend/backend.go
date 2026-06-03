@@ -671,3 +671,4 @@ func getGitBranch(dir string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+

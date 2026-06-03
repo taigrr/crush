@@ -68,6 +68,12 @@ func (c *Client) Path() string {
 	return c.path
 }
 
+// ClientID returns the per-process client ID minted in [NewClient].
+// The server uses it as a presence/coordination handle.
+func (c *Client) ClientID() string {
+	return c.clientID
+}
+
 // GetGlobalConfig retrieves the server's configuration.
 func (c *Client) GetGlobalConfig(ctx context.Context) (*config.Config, error) {
 	var cfg config.Config

@@ -31,6 +31,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/lock"
 	crushlog "github.com/taigrr/crush/internal/log"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/server"
@@ -389,7 +390,7 @@ func spawnAndWaitReady(cmd *cobra.Command, hostURL *url.URL) error {
 	if err != nil {
 		return err
 	}
-	release, err := acquireSpawnLock(filepath.Join(chDir, "start.lock"))
+	release, err := lock.File(cmd.Context(), filepath.Join(chDir, "start.lock"))
 	if err != nil {
 		// If the lock itself is unavailable, fall back to the
 		// unsynchronized path rather than blocking the user.

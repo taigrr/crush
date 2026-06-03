@@ -148,3 +148,4 @@ func TestRunCompleteToProto_Error(t *testing.T) {
 	require.Equal(t, "context canceled", decoded.Payload.Error)
 	require.True(t, decoded.Payload.Cancelled)
 }
+
