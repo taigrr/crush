@@ -16,7 +16,7 @@ func TestServiceCreateSnapshot(t *testing.T) {
 	t.Parallel()
 
 	// Create temp dir for project
-	projectDir := t.TempDir()
+	projectDir := newProjectDir(t)
 
 	// Create a test file
 	testFile := filepath.Join(projectDir, "test.txt")

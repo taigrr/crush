@@ -14,7 +14,7 @@ func TestInitRepo(t *testing.T) {
 
 	t.Run("creates new repo", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		repo, err := checkpoint.InitRepo(projectDir, nil)
 		require.NoError(t, err)
@@ -34,7 +34,7 @@ func TestInitRepo(t *testing.T) {
 
 	t.Run("reopens existing repo", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create repo.
 		repo1, err := checkpoint.InitRepo(projectDir, nil)
@@ -64,7 +64,7 @@ func TestCreateSnapshot(t *testing.T) {
 
 	t.Run("creates snapshot of files", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create some files.
 		err := os.WriteFile(filepath.Join(projectDir, "main.go"), []byte("package main"), 0o644)
@@ -88,7 +88,7 @@ func TestCreateSnapshot(t *testing.T) {
 
 	t.Run("excludes node_modules by default", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create a file and node_modules.
 		err := os.WriteFile(filepath.Join(projectDir, "index.js"), []byte("// code"), 0o644)
@@ -121,7 +121,7 @@ func TestCreateSnapshot(t *testing.T) {
 
 	t.Run("excludes .git directory", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create file and .git dir.
 		err := os.WriteFile(filepath.Join(projectDir, "file.txt"), []byte("content"), 0o644)
@@ -151,7 +151,7 @@ func TestCreateSnapshot(t *testing.T) {
 
 	t.Run("preserves executable permissions", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create executable file.
 		scriptPath := filepath.Join(projectDir, "run.sh")
@@ -177,7 +177,7 @@ func TestCreateSnapshot(t *testing.T) {
 
 	t.Run("handles empty directories", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create file and empty dir.
 		err := os.WriteFile(filepath.Join(projectDir, "file.txt"), []byte("content"), 0o644)
@@ -208,7 +208,7 @@ func TestRestoreSnapshot(t *testing.T) {
 
 	t.Run("restores files correctly", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create initial files.
 		err := os.WriteFile(filepath.Join(projectDir, "main.go"), []byte("package main\n\nfunc main() {}"), 0o644)
@@ -232,7 +232,7 @@ func TestRestoreSnapshot(t *testing.T) {
 
 	t.Run("removes files not in snapshot", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create file.
 		err := os.WriteFile(filepath.Join(projectDir, "keep.txt"), []byte("keep"), 0o644)
@@ -261,7 +261,7 @@ func TestRestoreSnapshot(t *testing.T) {
 
 	t.Run("preserves excluded directories during restore", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create file and node_modules.
 		err := os.WriteFile(filepath.Join(projectDir, "index.js"), []byte("// v1"), 0o644)
@@ -303,7 +303,7 @@ func TestSnapshotRefs(t *testing.T) {
 
 	t.Run("creates and retrieves snapshot ref", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		err := os.WriteFile(filepath.Join(projectDir, "file.txt"), []byte("content"), 0o644)
 		require.NoError(t, err)
@@ -326,7 +326,7 @@ func TestSnapshotRefs(t *testing.T) {
 
 	t.Run("lists session snapshots", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		err := os.WriteFile(filepath.Join(projectDir, "file.txt"), []byte("content"), 0o644)
 		require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestSnapshotRefs(t *testing.T) {
 
 	t.Run("deletes snapshot ref", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		err := os.WriteFile(filepath.Join(projectDir, "file.txt"), []byte("content"), 0o644)
 		require.NoError(t, err)
@@ -381,7 +381,7 @@ func TestDiff(t *testing.T) {
 
 	t.Run("shows diff between snapshots", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create initial file.
 		err := os.WriteFile(filepath.Join(projectDir, "main.go"), []byte("package main\n"), 0o644)
@@ -409,7 +409,7 @@ func TestDiff(t *testing.T) {
 
 	t.Run("empty diff for same commit", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		err := os.WriteFile(filepath.Join(projectDir, "file.txt"), []byte("content"), 0o644)
 		require.NoError(t, err)
@@ -431,7 +431,7 @@ func TestCustomExclusions(t *testing.T) {
 
 	t.Run("respects custom exclusions", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create files.
 		err := os.WriteFile(filepath.Join(projectDir, "keep.txt"), []byte("keep"), 0o644)
@@ -465,7 +465,7 @@ func TestCustomExclusions(t *testing.T) {
 
 	t.Run("supports doublestar patterns", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create nested structure.
 		subDir := filepath.Join(projectDir, "src", "cache")
@@ -506,7 +506,7 @@ func TestSymlinks(t *testing.T) {
 
 	t.Run("handles symlinks", func(t *testing.T) {
 		t.Parallel()
-		projectDir := t.TempDir()
+		projectDir := newProjectDir(t)
 
 		// Create file and symlink.
 		targetPath := filepath.Join(projectDir, "target.txt")
@@ -539,7 +539,7 @@ func TestSymlinks(t *testing.T) {
 func TestRepoAccessors(t *testing.T) {
 	t.Parallel()
 
-	projectDir := t.TempDir()
+	projectDir := newProjectDir(t)
 	repo, err := checkpoint.InitRepo(projectDir, nil)
 	require.NoError(t, err)
 
@@ -551,7 +551,7 @@ func TestGC(t *testing.T) {
 	t.Parallel()
 
 	// GC is currently a no-op, but should not error.
-	projectDir := t.TempDir()
+	projectDir := newProjectDir(t)
 	repo, err := checkpoint.InitRepo(projectDir, nil)
 	require.NoError(t, err)
 
