@@ -60,8 +60,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
 	github.com/swaggo/swag v1.16.6
-	github.com/taigrr/catwalk v0.43.0-fork
-	github.com/taigrr/fantasy v0.24.0
+	github.com/taigrr/catwalk v0.44.0-fork
+	github.com/taigrr/fantasy v0.25.0-fork
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/zeebo/xxh3 v1.1.0
@@ -232,7 +232,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/taigrr/catwalk => /Users/tai/code/foss/catwalk
-
-replace github.com/taigrr/fantasy => /Users/tai/code/foss/fantasy
