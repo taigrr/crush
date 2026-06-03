@@ -158,10 +158,12 @@ func bashDescription(attribution *config.Attribution, modelName string) string {
 	return out.String()
 }
 
-func blockFuncs() []shell.BlockFunc {
-	return []shell.BlockFunc{
-		shell.CommandsBlocker(sysadminCommands),
-
+func blockFuncs(allowSysadmin bool) []shell.BlockFunc {
+	funcs := []shell.BlockFunc{}
+	if !allowSysadmin {
+		funcs = append(funcs, shell.CommandsBlocker(sysadminCommands))
+	}
+	return append(funcs,
 		// System package managers
 		shell.ArgumentsBlocker("apk", []string{"add"}, nil),
 		shell.ArgumentsBlocker("apt", []string{"install"}, nil),
@@ -187,7 +189,7 @@ func blockFuncs() []shell.BlockFunc {
 
 		// `go test -exec` can run arbitrary commands
 		shell.ArgumentsBlocker("go", []string{"test"}, []string{"-exec"}),
-	}
+	)
 }
 
 func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attribution *config.Attribution, modelName string) fantasy.AgentTool {
@@ -247,7 +249,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				bgManager := shell.GetBackgroundShellManager()
 				bgManager.Cleanup()
 				// Use background context so it continues after tool returns
-				bgShell, err := bgManager.Start(context.Background(), execWorkingDir, blockFuncs(), params.Command, params.Description)
+				bgShell, err := bgManager.Start(context.Background(), execWorkingDir, blockFuncs(permissions.SysadminMode()), params.Command, params.Description)
 				if err != nil {
 					return fantasy.ToolResponse{}, fmt.Errorf("error starting background shell: %w", err)
 				}
@@ -302,7 +304,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 			// Start with detached context so it can survive if moved to background
 			bgManager := shell.GetBackgroundShellManager()
 			bgManager.Cleanup()
-			bgShell, err := bgManager.Start(context.Background(), execWorkingDir, blockFuncs(), params.Command, params.Description)
+			bgShell, err := bgManager.Start(context.Background(), execWorkingDir, blockFuncs(permissions.SysadminMode()), params.Command, params.Description)
 			if err != nil {
 				return fantasy.ToolResponse{}, fmt.Errorf("error starting shell: %w", err)
 			}

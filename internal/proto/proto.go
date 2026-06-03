@@ -198,6 +198,13 @@ type PermissionSkipRequest struct {
 	Skip bool `json:"skip"`
 }
 
+// PermissionSysadminRequest represents a request to toggle ephemeral
+// sysadmin mode (allowing the bash tool's sysadmin command filter to be
+// bypassed).
+type PermissionSysadminRequest struct {
+	Sysadmin bool `json:"sysadmin"`
+}
+
 // LSPEventType represents the type of LSP event.
 type LSPEventType string
 

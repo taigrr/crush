@@ -37,6 +37,12 @@ func (m *mockBashPermissionService) SkipRequests() bool {
 	return false
 }
 
+func (m *mockBashPermissionService) SetSysadminMode(enabled bool) {}
+
+func (m *mockBashPermissionService) SysadminMode() bool {
+	return false
+}
+
 func (m *mockBashPermissionService) SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[permission.PermissionNotification] {
 	return make(<-chan pubsub.Event[permission.PermissionNotification])
 }
@@ -105,6 +111,12 @@ func (m *recordingPermissionService) AutoApproveSession(sessionID string) {}
 func (m *recordingPermissionService) SetSkipRequests(skip bool) {}
 
 func (m *recordingPermissionService) SkipRequests() bool {
+	return false
+}
+
+func (m *recordingPermissionService) SetSysadminMode(enabled bool) {}
+
+func (m *recordingPermissionService) SysadminMode() bool {
 	return false
 }
 

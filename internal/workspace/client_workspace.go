@@ -368,6 +368,18 @@ func (w *ClientWorkspace) PermissionSetSkipRequests(skip bool) {
 	_ = w.client.SetPermissionsSkipRequests(context.Background(), w.workspaceID(), skip)
 }
 
+func (w *ClientWorkspace) PermissionSysadminMode() bool {
+	enabled, err := w.client.GetPermissionsSysadminMode(context.Background(), w.workspaceID())
+	if err != nil {
+		return false
+	}
+	return enabled
+}
+
+func (w *ClientWorkspace) PermissionSetSysadminMode(enabled bool) {
+	_ = w.client.SetPermissionsSysadminMode(context.Background(), w.workspaceID(), enabled)
+}
+
 // -- FileTracker --
 
 func (w *ClientWorkspace) FileTrackerRecordRead(ctx context.Context, sessionID, path string) {

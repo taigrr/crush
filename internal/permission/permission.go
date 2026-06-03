@@ -81,6 +81,11 @@ type Service interface {
 	AutoApproveSession(sessionID string)
 	SetSkipRequests(skip bool)
 	SkipRequests() bool
+	// SetSysadminMode toggles ephemeral sysadmin mode. When enabled, the
+	// bash tool's sysadmin command filter becomes a no-op so commands
+	// like curl, ssh, sudo, etc. are allowed.
+	SetSysadminMode(enabled bool)
+	SysadminMode() bool
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[PermissionNotification]
 }
 
@@ -102,6 +107,7 @@ type permissionService struct {
 	autoApproveSessions   map[string]bool
 	autoApproveSessionsMu sync.RWMutex
 	skip                  atomic.Bool
+	sysadmin              atomic.Bool
 	allowedTools          []string
 
 	// used to make sure we only process one request at a time
@@ -293,6 +299,14 @@ func (s *permissionService) SetSkipRequests(skip bool) {
 
 func (s *permissionService) SkipRequests() bool {
 	return s.skip.Load()
+}
+
+func (s *permissionService) SetSysadminMode(enabled bool) {
+	s.sysadmin.Store(enabled)
+}
+
+func (s *permissionService) SysadminMode() bool {
+	return s.sysadmin.Load()
 }
 
 func NewPermissionService(workingDir string, skip bool, allowedTools []string) Service {

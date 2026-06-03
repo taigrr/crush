@@ -236,6 +236,12 @@ func (m *mockViewPermissionService) SubscribeNotifications(ctx context.Context) 
 	return make(<-chan pubsub.Event[permission.PermissionNotification])
 }
 
+func (m *mockViewPermissionService) SetSysadminMode(enabled bool) {}
+
+func (m *mockViewPermissionService) SysadminMode() bool {
+	return false
+}
+
 type mockFileTracker struct{}
 
 func (m mockFileTracker) RecordRead(ctx context.Context, sessionID, path string) {}

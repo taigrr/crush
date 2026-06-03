@@ -525,6 +525,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	commands = append(
 		commands,
 		NewCommandItem(c.com.Styles, "toggle_yolo", "Toggle Yolo Mode", "ctrl+y", ActionToggleYoloMode{}),
+		NewCommandItem(c.com.Styles, "toggle_sysadmin", c.sysadminLabel(), "", ActionToggleSysadminMode{}),
 		NewCommandItem(c.com.Styles, "toggle_help", "Toggle Help", "ctrl+g", ActionToggleHelp{}),
 		NewCommandItem(c.com.Styles, "init", "Initialize Project", "", ActionInitializeProject{}),
 	)
@@ -601,4 +602,13 @@ func (c *Commands) StartLoading() tea.Cmd {
 // StopLoading implements [LoadingDialog].
 func (c *Commands) StopLoading() {
 	c.loading = false
+}
+
+// sysadminLabel returns the command palette label for the sysadmin mode
+// toggle, reflecting current state.
+func (c *Commands) sysadminLabel() string {
+	if c.com.Workspace.PermissionSysadminMode() {
+		return "Disable Sysadmin Mode"
+	}
+	return "Enable Sysadmin Mode"
 }

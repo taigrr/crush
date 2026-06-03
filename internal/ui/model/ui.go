@@ -1501,6 +1501,15 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		m.com.Workspace.PermissionSetSkipRequests(yolo)
 		m.setEditorPrompt(yolo)
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionToggleSysadminMode:
+		enabled := !m.com.Workspace.PermissionSysadminMode()
+		m.com.Workspace.PermissionSetSysadminMode(enabled)
+		status := "disabled"
+		if enabled {
+			status = "enabled"
+		}
+		cmds = append(cmds, util.ReportInfo("Sysadmin mode "+status))
+		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionSelectNotificationStyle:
 		cfg := m.com.Config()
 		if cfg != nil && cfg.Options != nil {

@@ -650,6 +650,36 @@ func (c *Client) GetPermissionsSkipRequests(ctx context.Context, id string) (boo
 	return skip.Skip, nil
 }
 
+// SetPermissionsSysadminMode toggles ephemeral sysadmin mode for a workspace.
+func (c *Client) SetPermissionsSysadminMode(ctx context.Context, id string, enabled bool) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/permissions/sysadmin", id), nil, jsonBody(proto.PermissionSysadminRequest{Sysadmin: enabled}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return fmt.Errorf("failed to set permissions sysadmin mode: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to set permissions sysadmin mode: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
+// GetPermissionsSysadminMode retrieves the sysadmin mode flag for a workspace.
+func (c *Client) GetPermissionsSysadminMode(ctx context.Context, id string) (bool, error) {
+	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/permissions/sysadmin", id), nil, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to get permissions sysadmin mode: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("failed to get permissions sysadmin mode: status code %d", rsp.StatusCode)
+	}
+	var req proto.PermissionSysadminRequest
+	if err := json.NewDecoder(rsp.Body).Decode(&req); err != nil {
+		return false, fmt.Errorf("failed to decode permissions sysadmin mode: %w", err)
+	}
+	return req.Sysadmin, nil
+}
+
 // GetConfig retrieves the workspace-specific configuration.
 func (c *Client) GetConfig(ctx context.Context, id string) (*config.Config, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/config", id), nil, nil)

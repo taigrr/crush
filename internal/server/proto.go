@@ -1155,6 +1155,54 @@ func (c *controllerV1) handleGetWorkspacePermissionsSkip(w http.ResponseWriter, 
 	jsonEncode(w, proto.PermissionSkipRequest{Skip: skip})
 }
 
+// handlePostWorkspacePermissionsSysadmin toggles ephemeral sysadmin mode.
+//
+//	@Summary		Set sysadmin mode
+//	@Tags			permissions
+//	@Accept			json
+//	@Param			id		path	string							true	"Workspace ID"
+//	@Param			request	body	proto.PermissionSysadminRequest	true	"Sysadmin mode request"
+//	@Success		200
+//	@Failure		400	{object}	proto.Error
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/permissions/sysadmin [post]
+func (c *controllerV1) handlePostWorkspacePermissionsSysadmin(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req proto.PermissionSysadminRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+
+	if err := c.backend.SetPermissionsSysadmin(id, req.Sysadmin); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+}
+
+// handleGetWorkspacePermissionsSysadmin returns whether sysadmin mode is on.
+//
+//	@Summary		Get sysadmin mode status
+//	@Tags			permissions
+//	@Produce		json
+//	@Param			id	path		string							true	"Workspace ID"
+//	@Success		200	{object}	proto.PermissionSysadminRequest
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/permissions/sysadmin [get]
+func (c *controllerV1) handleGetWorkspacePermissionsSysadmin(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	enabled, err := c.backend.GetPermissionsSysadmin(id)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, proto.PermissionSysadminRequest{Sysadmin: enabled})
+}
+
 // handleError maps backend errors to HTTP status codes and writes the
 // JSON error response.
 func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err error) {

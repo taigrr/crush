@@ -58,3 +58,24 @@ func (b *Backend) GetPermissionsSkip(workspaceID string) (bool, error) {
 
 	return ws.Permissions.SkipRequests(), nil
 }
+
+// SetPermissionsSysadmin toggles ephemeral sysadmin mode for a workspace.
+func (b *Backend) SetPermissionsSysadmin(workspaceID string, enabled bool) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+
+	ws.Permissions.SetSysadminMode(enabled)
+	return nil
+}
+
+// GetPermissionsSysadmin returns whether ephemeral sysadmin mode is on.
+func (b *Backend) GetPermissionsSysadmin(workspaceID string) (bool, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return false, err
+	}
+
+	return ws.Permissions.SysadminMode(), nil
+}
