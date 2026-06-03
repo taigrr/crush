@@ -273,4 +273,4 @@ func worktreeItems(styles *styles.Styles, worktrees []*worktree.Worktree) []list
 }
 
 // Finished implements list.Item.
-func (w *worktreeItem) Finished() bool { return true }
+func (i *worktreeItem) Finished() bool { return true }

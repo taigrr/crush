@@ -304,4 +304,4 @@ func branchItems(styles *styles.Styles, branches []string) []list.FilterableItem
 }
 
 // Finished implements list.Item.
-func (b *branchItem) Finished() bool { return true }
+func (i *branchItem) Finished() bool { return true }

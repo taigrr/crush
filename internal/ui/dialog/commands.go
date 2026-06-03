@@ -590,15 +590,15 @@ func (c *Commands) SetMCPPrompts(mcpPrompts []commands.MCPPrompt) {
 }
 
 // StartLoading implements [LoadingDialog].
-func (a *Commands) StartLoading() tea.Cmd {
-	if a.loading {
+func (c *Commands) StartLoading() tea.Cmd {
+	if c.loading {
 		return nil
 	}
-	a.loading = true
-	return a.spinner.Tick
+	c.loading = true
+	return c.spinner.Tick
 }
 
 // StopLoading implements [LoadingDialog].
-func (a *Commands) StopLoading() {
-	a.loading = false
+func (c *Commands) StopLoading() {
+	c.loading = false
 }

@@ -318,9 +318,6 @@ func connectToServer(cmd *cobra.Command, opts ...func(*proto.Workspace)) (*clien
 		return nil, nil, nil, fmt.Errorf("failed to create workspace: %v", err)
 	}
 
-	if shouldEnableMetrics(ws.Config) {
-	}
-
 	if ws.Config != nil {
 		logFile := filepath.Join(ws.Config.Options.DataDirectory, "logs", "crush.log")
 		crushlog.Setup(logFile, debug)

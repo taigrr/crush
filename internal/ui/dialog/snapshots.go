@@ -249,4 +249,4 @@ func snapshotItems(styles *styles.Styles, snapshots []*checkpoint.Snapshot) []li
 }
 
 // Finished implements list.Item.
-func (s *snapshotItem) Finished() bool { return true }
+func (i *snapshotItem) Finished() bool { return true }

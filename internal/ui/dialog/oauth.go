@@ -179,7 +179,7 @@ func (m *OAuth) HandleMsg(msg tea.Msg) Action {
 	return nil
 }
 
-// View renders the device flow dialog.
+// Draw renders the device flow dialog.
 func (m *OAuth) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	var (
 		t           = m.com.Styles
@@ -343,22 +343,22 @@ func (m *OAuth) ShortHelp() []key.Binding {
 	}
 }
 
-func (d *OAuth) copyCode() tea.Cmd {
-	if d.State != OAuthStateDisplay {
+func (m *OAuth) copyCode() tea.Cmd {
+	if m.State != OAuthStateDisplay {
 		return nil
 	}
-	return common.CopyToClipboard(d.userCode, "Code copied to clipboard")
+	return common.CopyToClipboard(m.userCode, "Code copied to clipboard")
 }
 
-func (d *OAuth) copyCodeAndOpenURL() tea.Cmd {
-	if d.State != OAuthStateDisplay {
+func (m *OAuth) copyCodeAndOpenURL() tea.Cmd {
+	if m.State != OAuthStateDisplay {
 		return nil
 	}
 	return common.CopyToClipboardWithCallback(
-		d.userCode,
+		m.userCode,
 		"Code copied and URL opened",
 		func() tea.Msg {
-			if err := browser.OpenURL(d.verificationURL); err != nil {
+			if err := browser.OpenURL(m.verificationURL); err != nil {
 				return ActionOAuthErrored{fmt.Errorf("failed to open browser: %w", err)}
 			}
 			return nil
