@@ -15,6 +15,7 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/filepathext"
 	"github.com/taigrr/crush/internal/home"
+	"github.com/taigrr/crush/internal/procedures"
 	"github.com/taigrr/crush/internal/shell"
 	"github.com/taigrr/crush/internal/skills"
 )
@@ -39,6 +40,7 @@ type PromptDat struct {
 	GitStatus     string
 	ContextFiles  []ContextFile
 	AvailSkillXML string
+	Procedures    []string // Names of available procedures.
 }
 
 type ContextFile struct {
@@ -220,6 +222,14 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 	for _, contextFiles := range files {
 		data.ContextFiles = append(data.ContextFiles, contextFiles...)
 	}
+
+	// Discover available procedures.
+	if procs, err := procedures.List(); err == nil && len(procs) > 0 {
+		for _, proc := range procs {
+			data.Procedures = append(data.Procedures, proc.Name)
+		}
+	}
+
 	return data, nil
 }
 

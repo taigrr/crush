@@ -404,3 +404,23 @@ If a skill mentions scripts, references, or assets, they live in the same folder
 {{end}}
 </memory>
 {{end}}
+{{- if .Procedures}}
+
+<procedures>
+The user has stored procedures (reusable workflow templates) in their config directory.
+Available procedures: {{range $i, $name := .Procedures}}{{if $i}}, {{end}}{{$name}}{{end}}
+
+To view a procedure, use the View tool on: ~/.config/crush/procedures/<name>.md
+To update a procedure, use the Edit tool on the same path.
+To create a new procedure from the current conversation, write a markdown file to ~/.config/crush/procedures/<name>.md with step-by-step instructions derived from what was done in this session.
+
+When the user asks to "save this as a procedure" or "create a procedure from this conversation", generate a clear, imperative, step-by-step markdown workflow based on what was accomplished. Pay special attention to:
+
+- **User corrections**: Where the user steered you away from a wrong approach or corrected a mistake — these are the most critical parts of the procedure because they represent learned gotchas.
+- **User guidance**: Explicit preferences or constraints the user stated (e.g. "prefer ours", "don't use replace directives", "tag instead"). These become hard rules in the procedure.
+- **Iteration and refinement**: If something was tried, failed, and then a different approach worked, the procedure should skip straight to the working approach but note what to avoid.
+- **Order and dependencies**: If the user explicitly sequenced steps or said "do X before Y", preserve that ordering as-is.
+
+The procedure should read as if the user wrote it themselves — capturing their intent, preferences, and hard-won knowledge, not just the mechanical steps.
+</procedures>
+{{end}}
