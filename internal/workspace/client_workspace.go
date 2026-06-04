@@ -1174,3 +1174,22 @@ func (w *ClientWorkspace) ReadSkill(ctx context.Context, skillID string) ([]byte
 		Builtin:     resp.Result.Builtin,
 	}, nil
 }
+
+func (w *ClientWorkspace) ListMilestones(ctx context.Context, sessionID string) ([]Milestone, error) {
+	milestones, err := w.client.ListMilestones(ctx, w.workspaceID(), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Milestone, len(milestones))
+	for i, m := range milestones {
+		result[i] = Milestone{
+			ID:           m.ID,
+			SessionID:    m.SessionID,
+			TurnNumber:   m.TurnNumber,
+			ShortSummary: m.ShortSummary,
+			FullSummary:  m.FullSummary,
+			CreatedAt:    m.CreatedAt,
+		}
+	}
+	return result, nil
+}

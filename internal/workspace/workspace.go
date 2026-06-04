@@ -59,6 +59,16 @@ type AgentModel struct {
 	ModelCfg   config.SelectedModel
 }
 
+// Milestone holds milestone information exposed to the UI.
+type Milestone struct {
+	ID           string
+	SessionID    string
+	TurnNumber   int64
+	ShortSummary string
+	FullSummary  string
+	CreatedAt    int64
+}
+
 // Workspace is the main abstraction consumed by the TUI and CLI. It
 // groups every operation a frontend needs to perform against a running
 // workspace, regardless of whether the workspace is in-process or
@@ -197,6 +207,9 @@ type Workspace interface {
 
 	// Forks
 	ForkConversation(ctx context.Context, params fork.ForkParams) (*fork.ForkResult, error)
+
+	// Milestones
+	ListMilestones(ctx context.Context, sessionID string) ([]Milestone, error)
 
 	// Garbage Collection
 	SnapshotGC(ctx context.Context) (int64, error)

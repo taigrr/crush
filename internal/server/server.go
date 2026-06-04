@@ -194,6 +194,7 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("GET /v1/workspaces/{id}/snapshots/{snapid}", c.handleGetWorkspaceSnapshot)
 	mux.HandleFunc("POST /v1/workspaces/{id}/snapshots/{snapid}/restore", c.handlePostWorkspaceSnapshotRestore)
 	mux.HandleFunc("GET /v1/workspaces/{id}/snapshots/{snapid}/diff", c.handleGetWorkspaceSnapshotDiff)
+	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/milestones", c.handleGetWorkspaceMilestones)
 	mux.HandleFunc("GET /v1/workspaces/{id}/worktrees/enabled", c.handleGetWorkspaceWorktreesEnabled)
 	mux.HandleFunc("GET /v1/workspaces/{id}/worktrees", c.handleGetAllWorkspaceWorktrees)
 	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/worktrees", c.handleGetWorkspaceWorktrees)
