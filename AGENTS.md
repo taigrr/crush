@@ -86,6 +86,9 @@ internal/
 - **Builtin skills**: `internal/skills/builtin/` contains skills like
   `crush-config`, `crush-hooks`, and `jq`. When adding or changing config
   options in `internal/config/`, update the `crush-config` skill to match.
+- **Help menu**: When adding a new global keybinding, always add it to
+  `FullHelp()` in `internal/ui/model/ui.go` so it appears in the Ctrl+G
+  help overlay.
 
 ## Build/Test/Lint Commands
 

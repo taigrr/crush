@@ -386,3 +386,53 @@ When multiple hooks match, their decisions are aggregated:
 - `CRUSH_SKILLS_DIR` - Override default skills directory
 - `CRUSH_DISABLE_PROVIDER_AUTO_UPDATE` - Disable automatic provider updates
 - `CRUSH_DISABLE_DEFAULT_PROVIDERS` - Disable default provider configurations
+
+## Procedures
+
+Procedures are reusable workflow templates stored as markdown files in
+`$XDG_CONFIG_HOME/crush/procedures/` (typically `~/.config/crush/procedures/`).
+
+They can be created from existing conversations or written manually. Crush
+discovers all `.md` files in the procedures directory automatically.
+
+### Directory Structure
+
+```
+~/.config/crush/procedures/
+├── refactor-large-components.md
+├── upstream-merge-workflow.md
+└── deploy-and-verify.md
+```
+
+### Creating Procedures
+
+Procedures are created in two ways:
+
+1. **From a conversation**: Tell Crush to "save this as a procedure" and it
+   will use the session milestones (periodic 5-8 word summaries generated
+   every 10 turns) to construct a reusable workflow template.
+2. **Manually**: Create a `.md` file in the procedures directory. Use
+   imperative, step-by-step instructions.
+
+### Updating Procedures
+
+Tell Crush to "update procedure X based on this conversation" and the
+current milestones + conversation context will be used to refine it.
+
+### Viewing Procedures
+
+- Use the View tool on files in `~/.config/crush/procedures/`.
+- Ask Crush to "show me procedure X" and it will display the contents.
+- Edit with the Edit tool or by prompting corrections.
+
+## Milestones
+
+Milestones are periodic summaries generated every 10 user messages by a
+background agent (using the small model). They appear in the Milestones
+dialog (Ctrl+Q or command palette). Each milestone has:
+
+- A 5-8 word short summary (displayed in the list).
+- A 2-3 sentence full summary (used as context for procedure generation
+  and future milestone summarization).
+
+Milestones persist in the session database and survive restarts.
