@@ -35,6 +35,7 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/milestone"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/stringext"
@@ -152,6 +153,7 @@ type sessionAgent struct {
 	sessions             session.Service
 	messages             message.Service
 	checkpoints          checkpoint.Service
+	milestones           milestone.Service
 	disableAutoSummarize bool
 	isYolo               bool
 	notify               pubsub.Publisher[notify.Notification]
@@ -173,6 +175,7 @@ type SessionAgentOptions struct {
 	Sessions             session.Service
 	Messages             message.Service
 	Checkpoints          checkpoint.Service
+	Milestones           milestone.Service
 	Tools                []fantasy.AgentTool
 	Notify               pubsub.Publisher[notify.Notification]
 	RunComplete          pubsub.Publisher[notify.RunComplete]
@@ -190,6 +193,7 @@ func NewSessionAgent(
 		sessions:             opts.Sessions,
 		messages:             opts.Messages,
 		checkpoints:          opts.Checkpoints,
+		milestones:           opts.Milestones,
 		disableAutoSummarize: opts.DisableAutoSummarize,
 		tools:                csync.NewSliceFrom(opts.Tools),
 		isYolo:               opts.IsYolo,
@@ -300,6 +304,33 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		wg.Go(func() {
 			a.generateTitle(titleCtx, call.SessionID, prompt)
 		})
+	}
+
+	// Generate a milestone every milestoneInterval turns (total messages,
+	// regardless of role). If no milestones exist yet and we're past the
+	// interval, backfill from the beginning of the conversation.
+	turnCount := len(msgs) + 1 // +1 for the prompt we're about to add.
+	if !a.isSubAgent && a.milestones != nil {
+		needsMilestone := shouldGenerateMilestone(turnCount)
+		if !needsMilestone && turnCount > milestoneInterval {
+			if count, err := a.milestones.Count(ctx, call.SessionID); err == nil && count == 0 {
+				// Backfill all missing milestones from the start.
+				milestoneCtx := ctx
+				milestoneMsgs := msgs
+				wg.Go(func() {
+					a.backfillMilestones(milestoneCtx, call.SessionID, milestoneMsgs, call.Prompt)
+				})
+				needsMilestone = false
+			}
+		}
+		if needsMilestone {
+			milestoneCtx := ctx
+			milestoneTurn := turnCount
+			milestoneMsgs := msgs
+			wg.Go(func() {
+				a.generateMilestone(milestoneCtx, call.SessionID, milestoneTurn, milestoneMsgs, call.Prompt)
+			})
+		}
 	}
 	defer wg.Wait()
 
@@ -899,7 +930,15 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 		return err
 	}
 
-	summaryPromptText := buildSummaryPrompt(currentSession.Todos)
+	// Fetch milestones to include in summarization context.
+	var sessionMilestones []milestone.Milestone
+	if a.milestones != nil {
+		if ms, err := a.milestones.List(ctx, sessionID); err == nil {
+			sessionMilestones = ms
+		}
+	}
+
+	summaryPromptText := buildSummaryPrompt(currentSession.Todos, sessionMilestones)
 
 	resp, err := agent.Stream(genCtx, fantasy.AgentStreamCall{
 		Prompt:          summaryPromptText,
@@ -1744,9 +1783,18 @@ func (a *sessionAgent) workaroundProviderMediaLimitations(messages []fantasy.Mes
 }
 
 // buildSummaryPrompt constructs the prompt text for session summarization.
-func buildSummaryPrompt(todos []session.Todo) string {
+func buildSummaryPrompt(todos []session.Todo, milestones []milestone.Milestone) string {
 	var sb strings.Builder
 	sb.WriteString("Provide a detailed summary of our conversation above.")
+
+	if len(milestones) > 0 {
+		sb.WriteString("\n\n## Session Milestones (key events so far)\n\n")
+		for _, m := range milestones {
+			fmt.Fprintf(&sb, "- **%s** (turn %d): %s\n", m.ShortSummary, m.TurnNumber, m.FullSummary)
+		}
+		sb.WriteString("\nUse these milestones to identify the most important work. Prioritize summarizing these outcomes.")
+	}
+
 	if len(todos) > 0 {
 		sb.WriteString("\n\n## Current Todo List\n\n")
 		for _, t := range todos {
