@@ -58,8 +58,7 @@ type CreateSessionParams struct {
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
-	row := q.queryRow(
-		ctx, q.createSessionStmt, createSession,
+	row := q.queryRow(ctx, q.createSessionStmt, createSession,
 		arg.ID,
 		arg.ParentSessionID,
 		arg.Title,
@@ -300,8 +299,7 @@ type UpdateSessionParams struct {
 }
 
 func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) (Session, error) {
-	row := q.queryRow(
-		ctx, q.updateSessionStmt, updateSession,
+	row := q.queryRow(ctx, q.updateSessionStmt, updateSession,
 		arg.Title,
 		arg.PromptTokens,
 		arg.CompletionTokens,
@@ -350,8 +348,7 @@ type UpdateSessionTitleAndUsageParams struct {
 }
 
 func (q *Queries) UpdateSessionTitleAndUsage(ctx context.Context, arg UpdateSessionTitleAndUsageParams) error {
-	_, err := q.exec(
-		ctx, q.updateSessionTitleAndUsageStmt, updateSessionTitleAndUsage,
+	_, err := q.exec(ctx, q.updateSessionTitleAndUsageStmt, updateSessionTitleAndUsage,
 		arg.Title,
 		arg.PromptTokens,
 		arg.CompletionTokens,

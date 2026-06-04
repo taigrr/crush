@@ -41,8 +41,7 @@ type CreateSnapshotParams struct {
 }
 
 func (q *Queries) CreateSnapshot(ctx context.Context, arg CreateSnapshotParams) error {
-	_, err := q.exec(
-		ctx, q.createSnapshotStmt, createSnapshot,
+	_, err := q.exec(ctx, q.createSnapshotStmt, createSnapshot,
 		arg.ID,
 		arg.SessionID,
 		arg.MessageID,

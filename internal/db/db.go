@@ -27,11 +27,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.archiveSessionStmt, err = db.PrepareContext(ctx, archiveSession); err != nil {
 		return nil, fmt.Errorf("error preparing query ArchiveSession: %w", err)
 	}
+	if q.countMilestonesBySessionStmt, err = db.PrepareContext(ctx, countMilestonesBySession); err != nil {
+		return nil, fmt.Errorf("error preparing query CountMilestonesBySession: %w", err)
+	}
 	if q.createFileStmt, err = db.PrepareContext(ctx, createFile); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFile: %w", err)
 	}
 	if q.createMessageStmt, err = db.PrepareContext(ctx, createMessage); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateMessage: %w", err)
+	}
+	if q.createMilestoneStmt, err = db.PrepareContext(ctx, createMilestone); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateMilestone: %w", err)
 	}
 	if q.createSessionStmt, err = db.PrepareContext(ctx, createSession); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateSession: %w", err)
@@ -50,6 +56,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deleteMessageStmt, err = db.PrepareContext(ctx, deleteMessage); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteMessage: %w", err)
+	}
+	if q.deleteMilestonesBySessionStmt, err = db.PrepareContext(ctx, deleteMilestonesBySession); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteMilestonesBySession: %w", err)
 	}
 	if q.deleteSessionStmt, err = db.PrepareContext(ctx, deleteSession); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteSession: %w", err)
@@ -92,6 +101,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getLastSessionStmt, err = db.PrepareContext(ctx, getLastSession); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLastSession: %w", err)
+	}
+	if q.getLatestMilestoneStmt, err = db.PrepareContext(ctx, getLatestMilestone); err != nil {
+		return nil, fmt.Errorf("error preparing query GetLatestMilestone: %w", err)
 	}
 	if q.getMessageStmt, err = db.PrepareContext(ctx, getMessage); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMessage: %w", err)
@@ -156,6 +168,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listMessagesBySessionStmt, err = db.PrepareContext(ctx, listMessagesBySession); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMessagesBySession: %w", err)
 	}
+	if q.listMilestonesBySessionStmt, err = db.PrepareContext(ctx, listMilestonesBySession); err != nil {
+		return nil, fmt.Errorf("error preparing query ListMilestonesBySession: %w", err)
+	}
 	if q.listNewFilesStmt, err = db.PrepareContext(ctx, listNewFiles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListNewFiles: %w", err)
 	}
@@ -211,6 +226,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing archiveSessionStmt: %w", cerr)
 		}
 	}
+	if q.countMilestonesBySessionStmt != nil {
+		if cerr := q.countMilestonesBySessionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countMilestonesBySessionStmt: %w", cerr)
+		}
+	}
 	if q.createFileStmt != nil {
 		if cerr := q.createFileStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createFileStmt: %w", cerr)
@@ -219,6 +239,11 @@ func (q *Queries) Close() error {
 	if q.createMessageStmt != nil {
 		if cerr := q.createMessageStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createMessageStmt: %w", cerr)
+		}
+	}
+	if q.createMilestoneStmt != nil {
+		if cerr := q.createMilestoneStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createMilestoneStmt: %w", cerr)
 		}
 	}
 	if q.createSessionStmt != nil {
@@ -249,6 +274,11 @@ func (q *Queries) Close() error {
 	if q.deleteMessageStmt != nil {
 		if cerr := q.deleteMessageStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteMessageStmt: %w", cerr)
+		}
+	}
+	if q.deleteMilestonesBySessionStmt != nil {
+		if cerr := q.deleteMilestonesBySessionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteMilestonesBySessionStmt: %w", cerr)
 		}
 	}
 	if q.deleteSessionStmt != nil {
@@ -319,6 +349,11 @@ func (q *Queries) Close() error {
 	if q.getLastSessionStmt != nil {
 		if cerr := q.getLastSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getLastSessionStmt: %w", cerr)
+		}
+	}
+	if q.getLatestMilestoneStmt != nil {
+		if cerr := q.getLatestMilestoneStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getLatestMilestoneStmt: %w", cerr)
 		}
 	}
 	if q.getMessageStmt != nil {
@@ -424,6 +459,11 @@ func (q *Queries) Close() error {
 	if q.listMessagesBySessionStmt != nil {
 		if cerr := q.listMessagesBySessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMessagesBySessionStmt: %w", cerr)
+		}
+	}
+	if q.listMilestonesBySessionStmt != nil {
+		if cerr := q.listMilestonesBySessionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listMilestonesBySessionStmt: %w", cerr)
 		}
 	}
 	if q.listNewFilesStmt != nil {
@@ -541,14 +581,17 @@ type Queries struct {
 	db                             DBTX
 	tx                             *sql.Tx
 	archiveSessionStmt             *sql.Stmt
+	countMilestonesBySessionStmt   *sql.Stmt
 	createFileStmt                 *sql.Stmt
 	createMessageStmt              *sql.Stmt
+	createMilestoneStmt            *sql.Stmt
 	createSessionStmt              *sql.Stmt
 	createSnapshotStmt             *sql.Stmt
 	createWorktreeStmt             *sql.Stmt
 	deactivateSessionWorktreesStmt *sql.Stmt
 	deleteFileStmt                 *sql.Stmt
 	deleteMessageStmt              *sql.Stmt
+	deleteMilestonesBySessionStmt  *sql.Stmt
 	deleteSessionStmt              *sql.Stmt
 	deleteSessionFilesStmt         *sql.Stmt
 	deleteSessionMessagesStmt      *sql.Stmt
@@ -563,6 +606,7 @@ type Queries struct {
 	getFileReadStmt                *sql.Stmt
 	getHourDayHeatmapStmt          *sql.Stmt
 	getLastSessionStmt             *sql.Stmt
+	getLatestMilestoneStmt         *sql.Stmt
 	getMessageStmt                 *sql.Stmt
 	getRecentActivityStmt          *sql.Stmt
 	getSessionByIDStmt             *sql.Stmt
@@ -584,6 +628,7 @@ type Queries struct {
 	listFilesBySessionStmt         *sql.Stmt
 	listLatestSessionFilesStmt     *sql.Stmt
 	listMessagesBySessionStmt      *sql.Stmt
+	listMilestonesBySessionStmt    *sql.Stmt
 	listNewFilesStmt               *sql.Stmt
 	listSessionReadFilesStmt       *sql.Stmt
 	listSessionsStmt               *sql.Stmt
@@ -606,14 +651,17 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		db:                             tx,
 		tx:                             tx,
 		archiveSessionStmt:             q.archiveSessionStmt,
+		countMilestonesBySessionStmt:   q.countMilestonesBySessionStmt,
 		createFileStmt:                 q.createFileStmt,
 		createMessageStmt:              q.createMessageStmt,
+		createMilestoneStmt:            q.createMilestoneStmt,
 		createSessionStmt:              q.createSessionStmt,
 		createSnapshotStmt:             q.createSnapshotStmt,
 		createWorktreeStmt:             q.createWorktreeStmt,
 		deactivateSessionWorktreesStmt: q.deactivateSessionWorktreesStmt,
 		deleteFileStmt:                 q.deleteFileStmt,
 		deleteMessageStmt:              q.deleteMessageStmt,
+		deleteMilestonesBySessionStmt:  q.deleteMilestonesBySessionStmt,
 		deleteSessionStmt:              q.deleteSessionStmt,
 		deleteSessionFilesStmt:         q.deleteSessionFilesStmt,
 		deleteSessionMessagesStmt:      q.deleteSessionMessagesStmt,
@@ -628,6 +676,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFileReadStmt:                q.getFileReadStmt,
 		getHourDayHeatmapStmt:          q.getHourDayHeatmapStmt,
 		getLastSessionStmt:             q.getLastSessionStmt,
+		getLatestMilestoneStmt:         q.getLatestMilestoneStmt,
 		getMessageStmt:                 q.getMessageStmt,
 		getRecentActivityStmt:          q.getRecentActivityStmt,
 		getSessionByIDStmt:             q.getSessionByIDStmt,
@@ -649,6 +698,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listFilesBySessionStmt:         q.listFilesBySessionStmt,
 		listLatestSessionFilesStmt:     q.listLatestSessionFilesStmt,
 		listMessagesBySessionStmt:      q.listMessagesBySessionStmt,
+		listMilestonesBySessionStmt:    q.listMilestonesBySessionStmt,
 		listNewFilesStmt:               q.listNewFilesStmt,
 		listSessionReadFilesStmt:       q.listSessionReadFilesStmt,
 		listSessionsStmt:               q.listSessionsStmt,

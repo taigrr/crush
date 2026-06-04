@@ -10,14 +10,17 @@ import (
 
 type Querier interface {
 	ArchiveSession(ctx context.Context, id string) error
+	CountMilestonesBySession(ctx context.Context, sessionID string) (int64, error)
 	CreateFile(ctx context.Context, arg CreateFileParams) (File, error)
 	CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error)
+	CreateMilestone(ctx context.Context, arg CreateMilestoneParams) (Milestone, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateSnapshot(ctx context.Context, arg CreateSnapshotParams) error
 	CreateWorktree(ctx context.Context, arg CreateWorktreeParams) error
 	DeactivateSessionWorktrees(ctx context.Context, sessionID string) error
 	DeleteFile(ctx context.Context, id string) error
 	DeleteMessage(ctx context.Context, id string) error
+	DeleteMilestonesBySession(ctx context.Context, sessionID string) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteSessionFiles(ctx context.Context, sessionID string) error
 	DeleteSessionMessages(ctx context.Context, sessionID string) error
@@ -32,6 +35,7 @@ type Querier interface {
 	GetFileRead(ctx context.Context, arg GetFileReadParams) (ReadFile, error)
 	GetHourDayHeatmap(ctx context.Context) ([]GetHourDayHeatmapRow, error)
 	GetLastSession(ctx context.Context) (Session, error)
+	GetLatestMilestone(ctx context.Context, sessionID string) (Milestone, error)
 	GetMessage(ctx context.Context, id string) (Message, error)
 	GetRecentActivity(ctx context.Context) ([]GetRecentActivityRow, error)
 	GetSessionByID(ctx context.Context, id string) (Session, error)
@@ -53,6 +57,7 @@ type Querier interface {
 	ListFilesBySession(ctx context.Context, sessionID string) ([]File, error)
 	ListLatestSessionFiles(ctx context.Context, sessionID string) ([]File, error)
 	ListMessagesBySession(ctx context.Context, sessionID string) ([]Message, error)
+	ListMilestonesBySession(ctx context.Context, sessionID string) ([]Milestone, error)
 	ListNewFiles(ctx context.Context) ([]File, error)
 	ListSessionReadFiles(ctx context.Context, sessionID string) ([]ReadFile, error)
 	ListSessions(ctx context.Context) ([]Session, error)

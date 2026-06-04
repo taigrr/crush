@@ -31,6 +31,15 @@ type Message struct {
 	IsSummaryMessage int64          `json:"is_summary_message"`
 }
 
+type Milestone struct {
+	ID           string `json:"id"`
+	SessionID    string `json:"session_id"`
+	TurnNumber   int64  `json:"turn_number"`
+	ShortSummary string `json:"short_summary"`
+	FullSummary  string `json:"full_summary"`
+	CreatedAt    int64  `json:"created_at"`
+}
+
 type ReadFile struct {
 	SessionID string `json:"session_id"`
 	Path      string `json:"path"`
