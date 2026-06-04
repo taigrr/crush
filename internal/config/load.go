@@ -1081,14 +1081,29 @@ func GlobalSkillsDirs() []string {
 }
 
 // ProjectSkillsDir returns the default project directories for which Crush
-// will look for skills.
+// will look for skills. In addition to the working directory, it also
+// checks the git working tree root so that monorepo-level skills are
+// discovered when the user is inside a subdirectory.
 func ProjectSkillsDir(workingDir string) []string {
-	return []string{
+	dirs := []string{
 		filepath.Join(workingDir, ".agents/skills"),
 		filepath.Join(workingDir, ".crush/skills"),
 		filepath.Join(workingDir, ".claude/skills"),
 		filepath.Join(workingDir, ".cursor/skills"),
 	}
+
+	// When the working directory is inside a git repository, also look at
+	// the repository root so monorepo-level .agents/skills are found.
+	if root := worktreeRoot(workingDir); root != "" && root != workingDir {
+		dirs = append(dirs,
+			filepath.Join(root, ".agents/skills"),
+			filepath.Join(root, ".crush/skills"),
+			filepath.Join(root, ".claude/skills"),
+			filepath.Join(root, ".cursor/skills"),
+		)
+	}
+
+	return dirs
 }
 
 func isAppleTerminal() bool { return os.Getenv("TERM_PROGRAM") == "Apple_Terminal" }
