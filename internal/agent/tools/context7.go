@@ -41,7 +41,7 @@ type context7SearchResult struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description"`
-	TrustScore  int    `json:"trustScore"`
+	TrustScore  float64 `json:"trustScore"`
 	TotalTokens int    `json:"totalTokens"`
 	State       string `json:"state"`
 }
@@ -78,7 +78,7 @@ func NewContext7Tool(httpClient *http.Client) fantasy.AgentTool {
 					return fantasy.NewTextResponse(fmt.Sprintf("No context7 library found for %q", params.Library)), nil
 				}
 				libraryID = match.ID
-				resolutionNote = fmt.Sprintf("# Resolved %q to %s (%s, trust=%d)\n\n", params.Library, match.ID, match.Title, match.TrustScore)
+				resolutionNote = fmt.Sprintf("# Resolved %q to %s (%s, trust=%.1f)\n\n", params.Library, match.ID, match.Title, match.TrustScore)
 			}
 
 			docs, err := context7Query(ctx, httpClient, libraryID, params.Query)

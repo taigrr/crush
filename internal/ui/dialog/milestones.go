@@ -58,7 +58,7 @@ func NewMilestones(com *common.Common, sessionID string) (*Milestones, error) {
 	m.list.Focus()
 	if len(milestones) > 0 {
 		m.list.SetSelected(len(milestones) - 1)
-		m.list.ScrollToBottom()
+		m.list.ScrollToSelected()
 	}
 
 	m.keyMap.Next = key.NewBinding(
@@ -102,7 +102,6 @@ func (m *Milestones) HandleMsg(msg tea.Msg) Action {
 				return ActionScrollToTurn{TurnNumber: int(item.milestone.TurnNumber)}
 			}
 		case key.Matches(msg, m.keyMap.Previous):
-			m.list.Focus()
 			if m.list.IsSelectedFirst() {
 				m.list.SelectLast()
 			} else {
@@ -110,7 +109,6 @@ func (m *Milestones) HandleMsg(msg tea.Msg) Action {
 			}
 			m.list.ScrollToSelected()
 		case key.Matches(msg, m.keyMap.Next):
-			m.list.Focus()
 			if m.list.IsSelectedLast() {
 				m.list.SelectFirst()
 			} else {
@@ -200,14 +198,16 @@ func (i *milestoneItem) ID() string {
 func (i *milestoneItem) SetMatch(m fuzzy.Match) {
 	i.cache = nil
 	i.m = m
+	i.Bump()
 }
 
 // SetFocused sets the focus state of the milestone item.
 func (i *milestoneItem) SetFocused(focused bool) {
 	if i.focused != focused {
 		i.cache = nil
+		i.focused = focused
+		i.Bump()
 	}
-	i.focused = focused
 }
 
 // Render returns the string representation of the milestone item.

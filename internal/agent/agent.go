@@ -306,12 +306,21 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		})
 	}
 
-	// Generate a milestone every milestoneInterval turns (total messages,
-	// regardless of role). If no milestones exist yet and we're past the
-	// interval, backfill from the beginning of the conversation.
+	// Generate a milestone every milestoneInterval messages (total messages
+	// regardless of role — user, assistant, tool calls all count). Since a
+	// single Run() can produce many messages before the next Run(), we check
+	// whether we've crossed any milestone boundary since the last generated
+	// milestone rather than testing for exact multiples.
 	turnCount := len(msgs) + 1 // +1 for the prompt we're about to add.
 	if !a.isSubAgent && a.milestones != nil {
-		needsMilestone := shouldGenerateMilestone(turnCount)
+		var lastTurn int64
+		if latest, err := a.milestones.Latest(ctx, call.SessionID); err == nil {
+			lastTurn = latest.TurnNumber
+		}
+		// Calculate the next milestone boundary after the last one.
+		nextMilestoneTurn := ((lastTurn / int64(milestoneInterval)) + 1) * int64(milestoneInterval)
+		needsMilestone := int64(turnCount) >= nextMilestoneTurn
+
 		if !needsMilestone && turnCount > milestoneInterval {
 			if count, err := a.milestones.Count(ctx, call.SessionID); err == nil && count == 0 {
 				// Backfill all missing milestones from the start.
