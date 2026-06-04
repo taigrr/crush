@@ -535,6 +535,11 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		commands = append(commands, NewCommandItem(c.com.Styles, "snapshots", "View Snapshots", "", ActionOpenSnapshotsDialog{SessionID: c.sessionID}))
 	}
 
+	// Add milestones command if there's an active session.
+	if c.hasSession {
+		commands = append(commands, NewCommandItem(c.com.Styles, "milestones", "View Milestones", "ctrl+q", ActionOpenDialog{DialogID: MilestonesID}))
+	}
+
 	// Add worktree commands if enabled.
 	// "Manage Worktrees" is always available to view/delete existing worktrees.
 	// "Create Worktree" requires a session since worktrees are tied to sessions.

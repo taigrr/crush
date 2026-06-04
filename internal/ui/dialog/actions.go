@@ -192,6 +192,11 @@ type ActionCmd struct {
 	Cmd tea.Cmd
 }
 
+// ActionScrollToTurn is a message to scroll the chat to a specific turn.
+type ActionScrollToTurn struct {
+	TurnNumber int
+}
+
 // ActionFilePickerSelected is a message indicating a file has been selected in
 // the file picker dialog.
 type ActionFilePickerSelected struct {

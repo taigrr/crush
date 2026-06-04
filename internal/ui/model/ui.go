@@ -1488,6 +1488,20 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		m.dialog.CloseDialog(dialog.SessionsID)
 		cmds = append(cmds, m.loadSession(msg.Session.ID))
 
+	// Milestones dialog messages.
+	case dialog.ActionScrollToTurn:
+		m.dialog.CloseDialog(dialog.MilestonesID)
+		// TurnNumber is 1-based index into session messages; map to chat
+		// list index (0-based). Clamp to valid range.
+		idx := max(0, msg.TurnNumber-1)
+		if idx >= m.chat.Len() {
+			idx = m.chat.Len() - 1
+		}
+		m.chat.SetSelected(idx)
+		if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
 	// Open dialog message.
 	case dialog.ActionOpenDialog:
 		m.dialog.CloseDialog(dialog.CommandsID)
@@ -2028,6 +2042,13 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		case key.Matches(msg, m.keyMap.Sessions):
 			if cmd := m.openSessionsDialog(); cmd != nil {
 				cmds = append(cmds, cmd)
+			}
+			return true
+		case key.Matches(msg, m.keyMap.Milestones):
+			if m.hasSession() {
+				if cmd := m.openMilestonesDialog(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
 			return true
 		case key.Matches(msg, m.keyMap.ToggleYolo):
@@ -2704,6 +2725,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 			commands,
 			k.Models,
 			k.Sessions,
+			k.Milestones,
 			k.ToggleYolo,
 		)
 		if hasSession {
@@ -3629,6 +3651,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openFilesDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.MilestonesID:
+		if cmd := m.openMilestonesDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.QuitID:
 		if cmd := m.openQuitDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -3763,6 +3789,27 @@ func (m *UI) openSessionsDialog() tea.Cmd {
 	}
 
 	m.dialog.OpenDialog(dialog)
+	return nil
+}
+
+// openMilestonesDialog opens the milestones dialog.
+func (m *UI) openMilestonesDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.MilestonesID) {
+		m.dialog.BringToFront(dialog.MilestonesID)
+		return nil
+	}
+
+	sessionID := ""
+	if m.session != nil {
+		sessionID = m.session.ID
+	}
+
+	d, err := dialog.NewMilestones(m.com, sessionID)
+	if err != nil {
+		return util.ReportError(err)
+	}
+
+	m.dialog.OpenDialog(d)
 	return nil
 }
 
