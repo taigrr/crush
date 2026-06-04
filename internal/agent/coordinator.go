@@ -30,6 +30,7 @@ import (
 	"github.com/taigrr/crush/internal/log"
 	"github.com/taigrr/crush/internal/lsp"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/milestone"
 	"github.com/taigrr/crush/internal/oauth/copilot"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/pubsub"
@@ -103,6 +104,7 @@ type coordinator struct {
 	permissions permission.Service
 	history     history.Service
 	filetracker filetracker.Service
+	milestones  milestone.Service
 	lspManager  *lsp.Manager
 	notify      pubsub.Publisher[notify.Notification]
 	editor      editor.Bridge
@@ -128,6 +130,7 @@ func NewCoordinator(
 	permissions permission.Service,
 	history history.Service,
 	filetracker filetracker.Service,
+	milestones milestone.Service,
 	lspManager *lsp.Manager,
 	notify pubsub.Publisher[notify.Notification],
 	runComplete pubsub.Publisher[notify.RunComplete],
@@ -158,6 +161,7 @@ func NewCoordinator(
 		permissions:  permissions,
 		history:      history,
 		filetracker:  filetracker,
+		milestones:   milestones,
 		lspManager:   lspManager,
 		notify:       notify,
 		editor:       editorBridge,
@@ -523,6 +527,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		Sessions:             c.sessions,
 		Messages:             c.messages,
 		Checkpoints:          c.checkpoints,
+		Milestones:           c.milestones,
 		Tools:                nil,
 		Notify:               c.notify,
 		RunComplete:          c.runComplete,

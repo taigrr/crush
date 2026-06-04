@@ -35,6 +35,7 @@ import (
 	"github.com/taigrr/crush/internal/log"
 	"github.com/taigrr/crush/internal/lsp"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/milestone"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
@@ -64,6 +65,7 @@ type App struct {
 	Checkpoints checkpoint.Service
 	Worktrees   worktree.Service
 	Forks       fork.Service
+	Milestones  milestone.Service
 
 	AgentCoordinator agent.Coordinator
 
@@ -171,6 +173,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		Checkpoints: checkpoints,
 		Worktrees:   worktrees,
 		Forks:       forks,
+		Milestones:  milestone.NewService(conn, q),
 		LSPManager:  lsp.NewManager(store),
 		Skills:      skillsMgr,
 		Editor:      editorBridge,
@@ -672,6 +675,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		app.Permissions,
 		app.History,
 		app.FileTracker,
+		app.Milestones,
 		app.LSPManager,
 		app.agentNotifications,
 		app.runCompletions,
