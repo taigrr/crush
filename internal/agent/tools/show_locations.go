@@ -32,12 +32,9 @@ type ShowLocationsItem struct {
 	Type     string `json:"type,omitempty" description:"N=note (default), I=info, W=warning, E=error"`
 }
 
-// NewShowLocationsTool returns the show_locations tool, backed by the
-// supplied bridge.
-func NewShowLocationsTool(bridge editor.Bridge) fantasy.AgentTool {
-	if bridge == nil {
-		bridge = editor.Noop{}
-	}
+// NewShowLocationsTool returns the show_locations tool. The editor
+// bridge is resolved per-turn from ctx (WithEditorBridge).
+func NewShowLocationsTool() fantasy.AgentTool {
 	return fantasy.NewAgentTool(
 		ShowLocationsToolName,
 		showLocationsDescription,
@@ -45,6 +42,7 @@ func NewShowLocationsTool(bridge editor.Bridge) fantasy.AgentTool {
 			if len(params.Items) == 0 {
 				return fantasy.NewTextErrorResponse("show_locations requires at least one item"), nil
 			}
+			bridge := EditorBridgeFromContext(ctx)
 			items := make([]editor.Location, len(params.Items))
 			for i, it := range params.Items {
 				items[i] = editor.Location{

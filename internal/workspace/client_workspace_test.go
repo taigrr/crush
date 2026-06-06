@@ -55,13 +55,9 @@ func TestProtoToMessageToolResult(t *testing.T) {
 }
 
 // TestTranslateEvent_Skills verifies that an incoming proto.SkillEvent
-// is converted into pubsub.Event[skills.Event] and that the
-// client-process skill cache is updated as a side effect.
+// is converted into pubsub.Event[skills.Event].
 func TestTranslateEvent_Skills(t *testing.T) {
-	prev := skills.GetLatestStates()
-	t.Cleanup(func() { skills.SetLatestStates(prev) })
-
-	skills.SetLatestStates(nil)
+	t.Parallel()
 
 	_ = NewClientWorkspace(nil, proto.Workspace{})
 	ev := pubsub.Event[proto.SkillEvent]{

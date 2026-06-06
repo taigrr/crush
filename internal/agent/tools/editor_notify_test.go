@@ -111,17 +111,18 @@ func TestNotifyEditor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := tt.bridge()
-			notifyEditor(t.Context(), b, tt.path, tt.oldContent, tt.newContent)
+			ctx := WithEditorBridge(t.Context(), b)
+			notifyEditor(ctx, tt.path, tt.oldContent, tt.newContent)
 			require.Equal(t, tt.wantFlash, b.flashCalls)
 			require.Equal(t, tt.wantNotify, b.notifyCalls)
 		})
 	}
 }
 
-// nil bridge must not panic (covers the early-return guard).
-func TestNotifyEditor_NilBridge(t *testing.T) {
+// no bridge in context must not panic (covers the Noop fallback).
+func TestNotifyEditor_NoBridge(t *testing.T) {
 	t.Parallel()
 	require.NotPanics(t, func() {
-		notifyEditor(t.Context(), nil, "/tmp/x.go", "old", "new")
+		notifyEditor(t.Context(), "/tmp/x.go", "old", "new")
 	})
 }

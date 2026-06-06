@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/taigrr/crush/internal/agent"
+	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
@@ -34,6 +35,11 @@ func (b *Backend) SendMessage(ctx context.Context, workspaceID string, msg proto
 	if msg.RunID != "" {
 		ctx = agent.WithRunID(ctx, msg.RunID)
 	}
+	// Route the originating client's editor bridge to the tools for this
+	// turn. The coordinator is shared across all clients on the
+	// workspace, so per-client editor targeting must flow through the
+	// request context rather than coordinator state.
+	ctx = tools.WithEditorBridge(ctx, b.clientBridge(ws, msg.ClientID))
 	_, err = ws.AgentCoordinator.Run(ctx, msg.SessionID, msg.Prompt, proto.AttachmentsToMessage(msg.Attachments)...)
 	return err
 }

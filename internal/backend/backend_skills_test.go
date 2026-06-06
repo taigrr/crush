@@ -122,6 +122,61 @@ func TestBackend_WorkspaceSkillsIsolation(t *testing.T) {
 		"workspace B's Manager.States() leaked workspace A's republish")
 }
 
+// TestBackend_SkillsGetStates_PerWorkspace verifies that the
+// SkillsGetStates HTTP-backed accessor returns the requesting
+// workspace's own Manager snapshot, keyed by workspace ID — not a
+// process-global cache (which regressed to always-empty when
+// WithGlobalMirror went unused).
+func TestBackend_SkillsGetStates_PerWorkspace(t *testing.T) {
+	hostHome := t.TempDir()
+	t.Setenv("HOME", hostHome)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(hostHome, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(hostHome, ".local", "share"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(hostHome, ".cache"))
+	t.Setenv("CRUSH_SKILLS_DIR", t.TempDir())
+
+	wdA := t.TempDir()
+	wdB := t.TempDir()
+	writeSkill(t, wdA, "wsa-only-skill", "Workspace A only skill.")
+	writeSkill(t, wdB, "wsb-only-skill", "Workspace B only skill.")
+
+	srvCfg, err := config.Init(wdA, "", false)
+	require.NoError(t, err)
+	b := backend.New(t.Context(), srvCfg, nil)
+
+	cidA := uuid.New().String()
+	cidB := uuid.New().String()
+
+	wsA, _, err := b.CreateWorkspace(proto.Workspace{
+		ClientID: cidA, Path: wdA, DataDir: filepath.Join(wdA, ".crush"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = b.DeleteWorkspace(wsA.ID, cidA) })
+
+	wsB, _, err := b.CreateWorkspace(proto.Workspace{
+		ClientID: cidB, Path: wdB, DataDir: filepath.Join(wdB, ".crush"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = b.DeleteWorkspace(wsB.ID, cidB) })
+
+	// The accessor must return each workspace's own discovery, selected
+	// by the workspace ID argument.
+	statesA := b.SkillsGetStates(wsA.ID)
+	require.True(t, containsSkillName(statesA, "wsa-only-skill"),
+		"SkillsGetStates(A) missing workspace A's own skill (regressed to empty global?)")
+	require.False(t, containsSkillName(statesA, "wsb-only-skill"),
+		"SkillsGetStates(A) leaked workspace B's skill")
+
+	statesB := b.SkillsGetStates(wsB.ID)
+	require.True(t, containsSkillName(statesB, "wsb-only-skill"),
+		"SkillsGetStates(B) missing workspace B's own skill")
+	require.False(t, containsSkillName(statesB, "wsa-only-skill"),
+		"SkillsGetStates(B) leaked workspace A's skill")
+
+	// Unknown workspace IDs must return nil, never panic.
+	require.Nil(t, b.SkillsGetStates("does-not-exist"))
+}
+
 func writeSkill(t *testing.T, workingDir, name, desc string) {
 	t.Helper()
 	skillDir := filepath.Join(workingDir, ".agents", "skills", name)

@@ -83,10 +83,14 @@ func TestEditorContextTool(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tool := NewEditorContextTool(tt.bridge)
+			tool := NewEditorContextTool()
 			require.Equal(t, EditorContextToolName, tool.Info().Name)
 
-			resp, err := tool.Run(t.Context(), fantasy.ToolCall{Input: "{}"})
+			ctx := t.Context()
+			if tt.bridge != nil {
+				ctx = WithEditorBridge(ctx, tt.bridge)
+			}
+			resp, err := tool.Run(ctx, fantasy.ToolCall{Input: "{}"})
 			require.NoError(t, err)
 			require.Equal(t, tt.wantIsErr, resp.IsError, "unexpected IsError state for response %q", resp.Content)
 			require.True(t, strings.Contains(resp.Content, tt.wantSubstr),
@@ -139,10 +143,10 @@ func TestShowLocationsTool(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tool := NewShowLocationsTool(tt.bridge)
+			tool := NewShowLocationsTool()
 			require.Equal(t, ShowLocationsToolName, tool.Info().Name)
 
-			resp, err := tool.Run(t.Context(), fantasy.ToolCall{Input: tt.input})
+			resp, err := tool.Run(WithEditorBridge(t.Context(), tt.bridge), fantasy.ToolCall{Input: tt.input})
 			require.NoError(t, err)
 			require.Equal(t, tt.want.isErr, resp.IsError, "response: %q", resp.Content)
 			require.True(t, strings.Contains(resp.Content, tt.want.substr),
@@ -155,10 +159,10 @@ func TestShowLocationsTool(t *testing.T) {
 	}
 }
 
-// Sanity check that nil bridge is safe in show_locations too.
-func TestShowLocationsTool_NilBridge(t *testing.T) {
+// Sanity check that a missing bridge in context is safe in show_locations too.
+func TestShowLocationsTool_NoBridge(t *testing.T) {
 	t.Parallel()
-	tool := NewShowLocationsTool(nil)
+	tool := NewShowLocationsTool()
 	resp, err := tool.Run(t.Context(), fantasy.ToolCall{
 		Input: `{"items":[{"filename":"a.go","lnum":1,"note":"why"}]}`,
 	})

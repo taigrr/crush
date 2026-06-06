@@ -312,9 +312,3 @@ func parseMilestoneResponse(text string) (short, full string) {
 
 	return short, full
 }
-
-// shouldGenerateMilestone returns true if we should trigger a milestone
-// generation at this turn count (total messages of any role).
-func shouldGenerateMilestone(turnCount int) bool {
-	return turnCount > 0 && turnCount%milestoneInterval == 0
-}

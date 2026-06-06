@@ -163,7 +163,8 @@ func blockFuncs(allowSysadmin bool) []shell.BlockFunc {
 	if !allowSysadmin {
 		funcs = append(funcs, shell.CommandsBlocker(sysadminCommands))
 	}
-	return append(funcs,
+	return append(
+		funcs,
 		// System package managers
 		shell.ArgumentsBlocker("apk", []string{"add"}, nil),
 		shell.ArgumentsBlocker("apt", []string{"install"}, nil),

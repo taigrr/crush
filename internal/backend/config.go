@@ -296,12 +296,3 @@ func (b *Backend) GetMCPPrompt(workspaceID, clientID, promptID string, args map[
 	}
 	return commands.GetMCPPrompt(ws.Cfg, clientID, promptID, args)
 }
-
-// GetWorkingDir returns the working directory for a workspace.
-func (b *Backend) GetWorkingDir(workspaceID string) (string, error) {
-	ws, err := b.GetWorkspace(workspaceID)
-	if err != nil {
-		return "", err
-	}
-	return ws.Cfg.WorkingDir(), nil
-}

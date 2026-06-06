@@ -235,8 +235,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		return nil, nil
 	}
 
-	// Copy mutable fields under lock to avoid races with SetTools/SetModels.
-	agentTools := a.tools.Copy()
+	// Copy mutable fields under lock to avoid races with
+	// SetTools/SetModels, then drop tools that opt out of this turn's
+	// context (e.g. editor tools when the initiating client has no
+	// attached editor).
+	agentTools := tools.FilterAvailableTools(ctx, a.tools.Copy())
 	largeModel := a.largeModel.Get()
 	systemPrompt := a.systemPrompt.Get()
 	promptPrefix := a.systemPromptPrefix.Get()
@@ -468,8 +471,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				prepared.Messages[i].ProviderOptions = nil
 			}
 
-			// Use latest tools (updated by SetTools when MCP tools change).
-			prepared.Tools = a.tools.Copy()
+			// Use latest tools (updated by SetTools when MCP tools
+			// change), filtered to those available for this turn's
+			// context.
+			prepared.Tools = tools.FilterAvailableTools(ctx, a.tools.Copy())
 
 			// Take is atomic Get+Delete; using Get then Del would drop any
 			// enqueue that lands between the two calls.

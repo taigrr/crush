@@ -74,15 +74,6 @@ func (s *Server) SetLogger(logger *slog.Logger) {
 	s.logger = logger
 }
 
-// DefaultServer returns a new [Server] with the default address.
-func DefaultServer(cfg *config.ConfigStore) *Server {
-	hostURL, err := ParseHostURL(DefaultHost())
-	if err != nil {
-		panic("invalid default host")
-	}
-	return NewServer(cfg, hostURL.Scheme, hostURL.Host)
-}
-
 // NewServer creates a new [Server] with the given network and address.
 func NewServer(cfg *config.ConfigStore, network, address string) *Server {
 	s := new(Server)
@@ -255,16 +246,6 @@ func (s *Server) Close() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	defer func() { s.closeListener() }()
 	return s.h.Shutdown(ctx)
-}
-
-func (s *Server) logDebug(r *http.Request, msg string, args ...any) {
-	if s.logger != nil {
-		s.logger.With(
-			slog.String("method", r.Method),
-			slog.String("url", r.URL.String()),
-			slog.String("remote_addr", r.RemoteAddr),
-		).Debug(msg, args...)
-	}
 }
 
 func (s *Server) logError(r *http.Request, msg string, args ...any) {

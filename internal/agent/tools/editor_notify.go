@@ -8,10 +8,14 @@ import (
 )
 
 // notifyEditor fires the editor.Bridge hooks after Crush successfully
-// writes a file. It is best-effort: any error is logged at debug level
-// and never propagated to the agent. Safe to call with a nil bridge.
-func notifyEditor(ctx context.Context, bridge editor.Bridge, path, oldContent, newContent string) {
-	if bridge == nil || !bridge.Available() {
+// writes a file. The bridge is resolved from ctx (WithEditorBridge), so
+// the notification targets the editor of the client that initiated the
+// current turn. It is best-effort: any error is logged at debug level
+// and never propagated to the agent. Safe to call when no bridge is
+// attached (resolves to editor.Noop).
+func notifyEditor(ctx context.Context, path, oldContent, newContent string) {
+	bridge := EditorBridgeFromContext(ctx)
+	if !bridge.Available() {
 		return
 	}
 

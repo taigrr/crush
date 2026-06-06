@@ -289,7 +289,3 @@ func getGitRecentCommits(ctx context.Context, sh *shell.Shell) (string, error) {
 	out = strings.TrimSpace(out)
 	return fmt.Sprintf("Recent commits:\n%s\n", out), nil
 }
-
-func (p *Prompt) Name() string {
-	return p.name
-}

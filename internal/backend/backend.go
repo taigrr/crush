@@ -20,6 +20,8 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/db"
+	"github.com/taigrr/crush/internal/editor"
+	editornvim "github.com/taigrr/crush/internal/editor/nvim"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/util"
@@ -86,6 +88,25 @@ type clientState struct {
 	streams          int
 	holdTimer        *time.Timer
 	currentSessionID string
+
+	// env is the client's process environment ("KEY=VALUE" form),
+	// captured when the client first registers. Used to detect a
+	// per-client editor (e.g. Neovim via $NVIM).
+	env []string
+	// bridge is the client's editor bridge, built lazily from env on
+	// first use and cached. Always non-nil once bridgeOnce has run;
+	// resolves to editor.Noop when no editor is attached.
+	bridge     editor.Bridge
+	bridgeOnce bool
+}
+
+// closeBridge releases the client's editor bridge if one was built.
+// Callers must hold ws.clientsMu.
+func (cs *clientState) closeBridge() {
+	if cs.bridge != nil {
+		_ = cs.bridge.Close()
+		cs.bridge = nil
+	}
 }
 
 // Workspace represents a running [app.App] workspace with its
@@ -192,7 +213,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		if existingID, ok := b.pathIndex[key]; ok {
 			if ws, found := b.workspaces.Get(existingID); found {
 				logFirstWinsMismatch(ws, args)
-				b.registerClient(ws, clientID)
+				b.registerClient(ws, clientID, args.Env)
 				b.mu.Unlock()
 				return ws, workspaceToProto(ws), nil
 			}
@@ -253,7 +274,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		if existingID, ok := b.pathIndex[key]; ok {
 			if existing, found := b.workspaces.Get(existingID); found {
 				logFirstWinsMismatch(existing, args)
-				b.registerClient(existing, clientID)
+				b.registerClient(existing, clientID, args.Env)
 				b.mu.Unlock()
 				ws.invokeShutdown()
 				return existing, workspaceToProto(existing), nil
@@ -265,7 +286,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	if !args.Isolated {
 		b.pathIndex[key] = id
 	}
-	b.registerClient(ws, clientID)
+	b.registerClient(ws, clientID, args.Env)
 	b.mu.Unlock()
 
 	if args.Version != "" && args.Version != version.Version {
@@ -336,18 +357,65 @@ func (b *Backend) releaseHold(workspaceID, clientID string) error {
 }
 
 // registerClient installs (idempotently) the given client's claim on
-// the workspace and starts a grace timer if the entry is fresh.
-func (b *Backend) registerClient(ws *Workspace, clientID string) {
+// the workspace and starts a grace timer if the entry is fresh. env is
+// the client's process environment, retained so the client's editor
+// bridge can be built lazily on first use.
+func (b *Backend) registerClient(ws *Workspace, clientID string, env []string) {
 	ws.clientsMu.Lock()
 	defer ws.clientsMu.Unlock()
 	if _, ok := ws.clients[clientID]; ok {
 		return
 	}
-	cs := &clientState{}
+	cs := &clientState{env: env}
 	cs.holdTimer = time.AfterFunc(b.createGrace, func() {
 		b.expireHold(ws, clientID, cs)
 	})
 	ws.clients[clientID] = cs
+}
+
+// clientBridge returns the editor bridge for the named client on the
+// workspace, building it lazily from the client's captured environment
+// on first use. Always returns a non-nil bridge (editor.Noop when the
+// client has no attached editor or is unknown).
+func (b *Backend) clientBridge(ws *Workspace, clientID string) editor.Bridge {
+	ws.clientsMu.Lock()
+	cs, ok := ws.clients[clientID]
+	if !ok {
+		ws.clientsMu.Unlock()
+		return editor.Noop{}
+	}
+	if cs.bridgeOnce {
+		bridge := cs.bridge
+		ws.clientsMu.Unlock()
+		return bridge
+	}
+	env := cs.env
+	ws.clientsMu.Unlock()
+
+	// Dial outside the lock: connecting to the editor performs IO and
+	// must not block other clients touching the workspace.
+	var bridge editor.Bridge = editor.Noop{}
+	if b, ok := editornvim.NewFromEnv(env); ok {
+		bridge = b
+		slog.Info("Editor bridge connected", "client", clientID, "editor", "neovim")
+	}
+
+	ws.clientsMu.Lock()
+	defer ws.clientsMu.Unlock()
+	// Re-check: the client may have detached (and been removed) while we
+	// dialed, or another caller may have won the race.
+	cs, ok = ws.clients[clientID]
+	if !ok {
+		_ = bridge.Close()
+		return editor.Noop{}
+	}
+	if cs.bridgeOnce {
+		_ = bridge.Close()
+		return cs.bridge
+	}
+	cs.bridge = bridge
+	cs.bridgeOnce = true
+	return bridge
 }
 
 func (b *Backend) expireHold(ws *Workspace, clientID string, timer *clientState) {
@@ -358,6 +426,7 @@ func (b *Backend) expireHold(ws *Workspace, clientID string, timer *clientState)
 		return
 	}
 	cs.holdTimer = nil
+	cs.closeBridge()
 	delete(ws.clients, clientID)
 	teardown := len(ws.clients) == 0
 	ws.clientsMu.Unlock()
@@ -379,6 +448,7 @@ func (b *Backend) releaseHoldLocked(ws *Workspace, clientID string) {
 	}
 	teardown := false
 	if cs.streams == 0 {
+		cs.closeBridge()
 		delete(ws.clients, clientID)
 		teardown = len(ws.clients) == 0
 	}
@@ -400,6 +470,7 @@ func (b *Backend) detachStream(ws *Workspace, clientID string) {
 	}
 	teardown := false
 	if cs.streams == 0 && cs.holdTimer == nil {
+		cs.closeBridge()
 		delete(ws.clients, clientID)
 		teardown = len(ws.clients) == 0
 	}
@@ -671,4 +742,3 @@ func getGitBranch(dir string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
-

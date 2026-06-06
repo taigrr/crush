@@ -27,7 +27,7 @@ func RegisterClientForTesting(b *Backend, ws *Workspace, clientID string) error 
 	if _, err := validateClientID(clientID); err != nil {
 		return err
 	}
-	b.registerClient(ws, clientID)
+	b.registerClient(ws, clientID, nil)
 	return nil
 }
 

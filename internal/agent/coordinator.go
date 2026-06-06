@@ -23,7 +23,6 @@ import (
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/config"
-	"github.com/taigrr/crush/internal/editor"
 	"github.com/taigrr/crush/internal/filetracker"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/hooks"
@@ -107,7 +106,6 @@ type coordinator struct {
 	milestones  milestone.Service
 	lspManager  *lsp.Manager
 	notify      pubsub.Publisher[notify.Notification]
-	editor      editor.Bridge
 	runComplete pubsub.Publisher[notify.RunComplete]
 
 	currentAgent SessionAgent
@@ -135,7 +133,6 @@ func NewCoordinator(
 	notify pubsub.Publisher[notify.Notification],
 	runComplete pubsub.Publisher[notify.RunComplete],
 	skillsMgr *skills.Manager,
-	editorBridge editor.Bridge,
 ) (Coordinator, error) {
 	// Skills are pre-discovered by the caller (see app.New /
 	// backend.CreateWorkspace) and passed in via the manager. If no
@@ -150,9 +147,6 @@ func NewCoordinator(
 	}
 	skillTracker := skills.NewTracker(activeSkills)
 
-	if editorBridge == nil {
-		editorBridge = editor.Noop{}
-	}
 	c := &coordinator{
 		cfg:          cfg,
 		sessions:     sessions,
@@ -164,7 +158,6 @@ func NewCoordinator(
 		milestones:   milestones,
 		lspManager:   lspManager,
 		notify:       notify,
-		editor:       editorBridge,
 		runComplete:  runComplete,
 		agents:       make(map[string]SessionAgent),
 		allSkills:    allSkills,
@@ -596,8 +589,8 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewJobOutputTool(),
 		tools.NewJobKillTool(),
 		tools.NewDownloadTool(c.permissions, c.cfg.WorkingDir, nil),
-		tools.NewEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir, c.editor),
-		tools.NewMultiEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir, c.editor),
+		tools.NewEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir),
+		tools.NewMultiEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir),
 		tools.NewFetchTool(c.permissions, c.cfg.WorkingDir, nil),
 		tools.NewGlobTool(c.cfg.WorkingDir),
 		tools.NewGrepTool(c.cfg.WorkingDir, c.cfg.Config().Tools.Grep),
@@ -613,18 +606,20 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		allTools,
 		viewTool,
 		tools.NewMultiViewTool(viewTool),
-		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir, c.editor),
+		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir),
 	)
 
-	// Editor bridge tools — only registered when an editor is actually
-	// attached, so the model never sees them in non-editor sessions.
-	if c.editor != nil && c.editor.Available() {
-		allTools = append(
-			allTools,
-			tools.NewEditorContextTool(c.editor),
-			tools.NewShowLocationsTool(c.editor),
-		)
-	}
+	// Editor bridge tools. The bridge is resolved per-turn from the
+	// request context (the originating client's editor), so these are
+	// gated on per-turn availability rather than registered statically:
+	// the agent drops them for turns whose initiating client has no
+	// attached editor, while still exposing them to editor clients on
+	// the same shared coordinator.
+	allTools = append(
+		allTools,
+		tools.WithContextGate(tools.NewEditorContextTool(), tools.EditorAttached),
+		tools.WithContextGate(tools.NewShowLocationsTool(), tools.EditorAttached),
+	)
 
 	// Add LSP tools if user has configured LSPs or auto_lsp is enabled (nil or true).
 	if len(c.cfg.Config().LSP) > 0 || c.cfg.Config().Options.AutoLSP == nil || *c.cfg.Config().Options.AutoLSP {
@@ -634,7 +629,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 			tools.NewReferencesTool(c.lspManager),
 			tools.NewDefinitionTool(c.lspManager),
 			tools.NewDocumentSymbolsTool(c.lspManager, c.cfg.WorkingDir),
-			tools.NewRenameTool(c.lspManager, c.permissions, c.cfg.WorkingDir, c.editor),
+			tools.NewRenameTool(c.lspManager, c.permissions, c.cfg.WorkingDir),
 			tools.NewLSPRestartTool(c.lspManager),
 		)
 	}

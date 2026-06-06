@@ -51,11 +51,6 @@ func GetLSPStates() map[string]LSPClientInfo {
 	return lspStates.Copy()
 }
 
-// GetLSPState returns the state of a specific LSP client
-func GetLSPState(name string) (LSPClientInfo, bool) {
-	return lspStates.Get(name)
-}
-
 // updateLSPState updates the state of an LSP client and publishes an event
 func updateLSPState(name string, state lsp.ServerState, err error, client *lsp.Client, diagnosticCount int) {
 	info := LSPClientInfo{

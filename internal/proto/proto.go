@@ -128,7 +128,11 @@ func (a AgentInfo) IsZero() bool {
 // remains correct only when no other turns are in flight for the
 // same session.
 type AgentMessage struct {
-	SessionID   string       `json:"session_id"`
+	SessionID string `json:"session_id"`
+	// ClientID identifies the client that initiated the turn. The
+	// server uses it to route per-client resources (notably the editor
+	// bridge) to the right client. Empty means "no specific client".
+	ClientID    string       `json:"client_id,omitempty"`
 	RunID       string       `json:"run_id,omitempty"`
 	Prompt      string       `json:"prompt"`
 	Attachments []Attachment `json:"attachments,omitempty"`

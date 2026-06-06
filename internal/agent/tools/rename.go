@@ -15,7 +15,6 @@ import (
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 	"github.com/taigrr/fantasy"
 
-	"github.com/taigrr/crush/internal/editor"
 	"github.com/taigrr/crush/internal/fsext"
 	"github.com/taigrr/crush/internal/lsp"
 	lsputil "github.com/taigrr/crush/internal/lsp/util"
@@ -43,10 +42,11 @@ type RenamePermissionsParams struct {
 	Files   []string `json:"files"`
 }
 
-// NewRenameTool returns the lsp_rename tool. The bridge is optional and
-// used to flash highlights and silence the W11 prompt on every modified
-// file once the rename is applied.
-func NewRenameTool(lspManager *lsp.Manager, permissions permission.Service, workingDir WorkingDirFunc, bridge editor.Bridge) fantasy.AgentTool {
+// NewRenameTool returns the lsp_rename tool. The editor bridge is
+// resolved per-turn from ctx (WithEditorBridge) and used to flash
+// highlights and silence the W11 prompt on every modified file once the
+// rename is applied.
+func NewRenameTool(lspManager *lsp.Manager, permissions permission.Service, workingDir WorkingDirFunc) fantasy.AgentTool {
 	return fantasy.NewAgentTool(
 		RenameToolName,
 		renameDescription,
@@ -141,7 +141,7 @@ func NewRenameTool(lspManager *lsp.Manager, permissions permission.Service, work
 
 			// Best-effort editor sync: flash + checktime per touched file
 			// so the user's nvim picks the changes up silently.
-			if bridge != nil && bridge.Available() {
+			if bridge := EditorBridgeFromContext(ctx); bridge.Available() {
 				for _, p := range files {
 					if err := bridge.NotifyFileChanged(ctx, p); err != nil {
 						slog.Debug("Editor notify failed", "path", p, "error", err)

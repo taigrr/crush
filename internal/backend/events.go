@@ -110,6 +110,10 @@ func (b *Backend) MCPRefreshResources(ctx context.Context, _ string, name string
 }
 
 // SkillsGetStates returns the current state of all discovered skills.
-func (b *Backend) SkillsGetStates(_ string) []*skills.SkillState {
-	return skills.GetLatestStates()
+func (b *Backend) SkillsGetStates(workspaceID string) []*skills.SkillState {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil || ws.Skills == nil {
+		return nil
+	}
+	return ws.Skills.States()
 }

@@ -33,22 +33,11 @@ type Manager struct {
 	resolvedPaths []string
 	workingDir    string
 
-	broker       *pubsub.Broker[Event]
-	globalMirror bool
+	broker *pubsub.Broker[Event]
 }
 
 // ManagerOption configures a Manager at construction time.
 type ManagerOption func(*Manager)
-
-// WithGlobalMirror causes the manager to forward SetLatestStates and
-// PublishStates calls to the package-level cache and broker. Only safe
-// when the process hosts at most one Manager (e.g. local mode or the
-// client process).
-func WithGlobalMirror() ManagerOption {
-	return func(m *Manager) {
-		m.globalMirror = true
-	}
-}
 
 // WithResolvedPaths stores the expanded skills directory paths that
 // were used during discovery. Catalog and ReadContent use these for
@@ -79,9 +68,6 @@ func NewManager(allSkills, activeSkills []*Skill, states []*SkillState, opts ...
 	}
 	for _, opt := range opts {
 		opt(m)
-	}
-	if m.globalMirror {
-		SetLatestStates(states)
 	}
 	return m
 }
@@ -125,28 +111,18 @@ func (m *Manager) SetLatestStates(states []*SkillState) {
 	m.mu.Lock()
 	m.states = cloneStates(states)
 	m.mu.Unlock()
-	if m.globalMirror {
-		SetLatestStates(states)
-	}
 }
 
 // PublishStates updates the manager's cached snapshot and publishes a
 // discovery event to subscribers. Callers should not call
 // SetLatestStates separately — PublishStates is the single mutation
-// point, keeping Manager.States(), workspaceToProto, and (when
-// WithGlobalMirror is set) skills.GetLatestStates consistent with what
-// subscribers observe.
+// point, keeping Manager.States() and workspaceToProto consistent with
+// what subscribers observe.
 func (m *Manager) PublishStates(states []*SkillState) {
 	m.mu.Lock()
 	m.states = cloneStates(states)
 	m.mu.Unlock()
-	if m.globalMirror {
-		SetLatestStates(states)
-	}
 	m.broker.Publish(pubsub.UpdatedEvent, Event{States: cloneStates(states)})
-	if m.globalMirror {
-		PublishStates(states)
-	}
 }
 
 // SubscribeEvents returns a channel of discovery events for the

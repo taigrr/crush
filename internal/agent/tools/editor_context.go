@@ -21,17 +21,16 @@ var editorContextDescription string
 // truth, all state is pulled at call time.
 type EditorContextParams struct{}
 
-// NewEditorContextTool returns the editor_context tool, backed by the
-// supplied bridge. When the bridge is unavailable the tool surfaces a
-// clear error so the model can adapt rather than retry blindly.
-func NewEditorContextTool(bridge editor.Bridge) fantasy.AgentTool {
-	if bridge == nil {
-		bridge = editor.Noop{}
-	}
+// NewEditorContextTool returns the editor_context tool. The editor
+// bridge is resolved per-turn from ctx (WithEditorBridge); when no
+// editor is attached the tool surfaces a clear error so the model can
+// adapt rather than retry blindly.
+func NewEditorContextTool() fantasy.AgentTool {
 	return fantasy.NewAgentTool(
 		EditorContextToolName,
 		editorContextDescription,
 		func(ctx context.Context, _ EditorContextParams, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			bridge := EditorBridgeFromContext(ctx)
 			ec, err := bridge.Context(ctx)
 			if err != nil {
 				if errors.Is(err, editor.ErrUnavailable) {

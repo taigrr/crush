@@ -16,7 +16,7 @@ package nvim
 import (
 	"context"
 	"fmt"
-	"os"
+	"strings"
 	"sync"
 
 	gonvim "github.com/neovim/go-client/nvim"
@@ -28,15 +28,29 @@ import (
 // $NVIM is preferred; $NVIM_LISTEN_ADDRESS is the legacy name.
 var envVars = []string{"NVIM", "NVIM_LISTEN_ADDRESS"}
 
-// detectAddress returns the first non-empty value of the known env vars,
-// or "" if none are set.
-func detectAddress() string {
+// detectAddressFrom returns the first non-empty value of the known env
+// vars as resolved by getenv, or "" if none are set.
+func detectAddressFrom(getenv func(string) string) string {
 	for _, v := range envVars {
-		if addr := os.Getenv(v); addr != "" {
+		if addr := getenv(v); addr != "" {
 			return addr
 		}
 	}
 	return ""
+}
+
+// envLookup builds a getenv-style lookup over a "KEY=VALUE" slice (the
+// form carried by proto.Workspace.Env / os.Environ).
+func envLookup(env []string) func(string) string {
+	return func(key string) string {
+		prefix := key + "="
+		for _, kv := range env {
+			if strings.HasPrefix(kv, prefix) {
+				return kv[len(prefix):]
+			}
+		}
+		return ""
+	}
 }
 
 // Bridge is a Neovim-backed editor.Bridge.
@@ -47,12 +61,21 @@ type Bridge struct {
 	closed bool
 }
 
-// New attempts to dial the parent Neovim instance. If no $NVIM env var is
-// present it returns (nil, false) so the caller can substitute editor.Noop.
-// Dial errors return (nil, false) as well: we never want a misbehaving
-// editor connection to block Crush from starting.
-func New() (*Bridge, bool) {
-	addr := detectAddress()
+// NewFromEnv attempts to dial the Neovim instance described by the given
+// "KEY=VALUE" environment slice (the per-client environment carried in
+// proto.Workspace.Env). This lets a long-lived Crush server attach to
+// the editor of the client that opened each workspace, rather than its
+// own process environment. If no $NVIM/$NVIM_LISTEN_ADDRESS is present,
+// or the dial fails, it returns (nil, false) so the caller can
+// substitute editor.Noop; we never want a misbehaving editor connection
+// to block Crush from starting.
+func NewFromEnv(env []string) (*Bridge, bool) {
+	return newWithAddr(detectAddressFrom(envLookup(env)))
+}
+
+// newWithAddr builds and dials a bridge for addr, returning (nil, false)
+// when addr is empty or the dial fails.
+func newWithAddr(addr string) (*Bridge, bool) {
 	if addr == "" {
 		return nil, false
 	}

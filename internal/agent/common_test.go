@@ -169,15 +169,15 @@ func coderAgent(r *vcr.Recorder, env fakeEnv, large, small fantasy.LanguageModel
 	allTools := []fantasy.AgentTool{
 		tools.NewBashTool(env.permissions, wdFunc, cfg.Config().Options.Attribution, modelName),
 		tools.NewDownloadTool(env.permissions, wdFunc, r.GetDefaultClient()),
-		tools.NewEditTool(nil, env.permissions, env.history, *env.filetracker, wdFunc, nil),
-		tools.NewMultiEditTool(nil, env.permissions, env.history, *env.filetracker, wdFunc, nil),
+		tools.NewEditTool(nil, env.permissions, env.history, *env.filetracker, wdFunc),
+		tools.NewMultiEditTool(nil, env.permissions, env.history, *env.filetracker, wdFunc),
 		tools.NewFetchTool(env.permissions, wdFunc, r.GetDefaultClient()),
 		tools.NewGlobTool(wdFunc),
 		tools.NewGrepTool(wdFunc, cfg.Config().Tools.Grep),
 		tools.NewLsTool(env.permissions, wdFunc, cfg.Config().Tools.Ls),
 		tools.NewSourcegraphTool(r.GetDefaultClient()),
 		tools.NewViewTool(nil, env.permissions, *env.filetracker, nil, wdFunc),
-		tools.NewWriteTool(nil, env.permissions, env.history, *env.filetracker, wdFunc, nil),
+		tools.NewWriteTool(nil, env.permissions, env.history, *env.filetracker, wdFunc),
 	}
 
 	return testSessionAgent(env, large, small, systemPrompt, allTools...), nil

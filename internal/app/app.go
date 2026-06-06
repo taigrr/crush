@@ -26,8 +26,6 @@ import (
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/db"
-	"github.com/taigrr/crush/internal/editor"
-	editornvim "github.com/taigrr/crush/internal/editor/nvim"
 	"github.com/taigrr/crush/internal/filetracker"
 	"github.com/taigrr/crush/internal/fork"
 	"github.com/taigrr/crush/internal/format"
@@ -73,11 +71,6 @@ type App struct {
 
 	Skills *skills.Manager
 
-	// Editor is the bridge to an external editor (currently Neovim) when
-	// Crush was launched from inside one. Always non-nil; defaults to a
-	// Noop bridge when no editor is detected.
-	Editor editor.Bridge
-
 	config *config.ConfigStore
 
 	dbConn *sql.DB
@@ -103,7 +96,6 @@ type App struct {
 // New initializes a new application instance. skillsMgr carries the
 // per-workspace skill discovery results computed by the caller; the
 // caller is responsible for constructing it (typically via
-// skills.NewManager + skills.DiscoverFromConfig).
 func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr *skills.Manager) (*App, error) {
 	q := db.New(conn)
 	sessions := session.NewService(q, conn)
@@ -156,14 +148,6 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	// Initialize fork service.
 	forks := fork.NewService(q, conn, sessions, messages, checkpoints, worktrees)
 
-	// Detect an attached editor (e.g. Neovim via $NVIM). Falls back to a
-	// Noop bridge so call sites never need a nil check.
-	var editorBridge editor.Bridge = editor.Noop{}
-	if b, ok := editornvim.New(); ok {
-		editorBridge = b
-		slog.Info("Editor bridge connected", "editor", "neovim")
-	}
-
 	app := &App{
 		Sessions:    sessions,
 		Messages:    messages,
@@ -176,7 +160,6 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		Milestones:  milestone.NewService(conn, q),
 		LSPManager:  lsp.NewManager(store),
 		Skills:      skillsMgr,
-		Editor:      editorBridge,
 
 		globalCtx: ctx,
 
@@ -204,7 +187,6 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		app.cleanupFuncs,
 		func(context.Context) error { return db.Release(dataDir) },
 		func(ctx context.Context) error { return mcp.Close(ctx) },
-		func(context.Context) error { return app.Editor.Close() },
 	)
 
 	// TODO: remove the concept of agent config, most likely.
@@ -680,7 +662,6 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		app.agentNotifications,
 		app.runCompletions,
 		app.Skills,
-		app.Editor,
 	)
 	if err != nil {
 		slog.Error("Failed to create coder agent", "err", err)

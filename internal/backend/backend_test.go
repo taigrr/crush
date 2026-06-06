@@ -105,8 +105,8 @@ func TestRegisterClient_Idempotent(t *testing.T) {
 	ws, _ := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid)
-	b.registerClient(ws, cid)
+	b.registerClient(ws, cid, nil)
+	b.registerClient(ws, cid, nil)
 
 	ws.clientsMu.Lock()
 	defer ws.clientsMu.Unlock()
@@ -122,7 +122,7 @@ func TestAttachClient_ConsumesHold(t *testing.T) {
 	ws, shutdowns := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid)
+	b.registerClient(ws, cid, nil)
 	require.NoError(t, b.AttachClient(ws.ID, cid))
 
 	ws.clientsMu.Lock()
@@ -183,7 +183,7 @@ func TestDetachClient_LastStreamTearsDown(t *testing.T) {
 	ws, wsShutdowns := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid)
+	b.registerClient(ws, cid, nil)
 	require.NoError(t, b.AttachClient(ws.ID, cid))
 	b.DetachClient(ws.ID, cid)
 
@@ -200,7 +200,7 @@ func TestHoldExpiry_TearsDown(t *testing.T) {
 	ws, wsShutdowns := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid)
+	b.registerClient(ws, cid, nil)
 
 	require.Eventually(t, func() bool {
 		return wsShutdowns.Load() == 1 && srvShutdowns.Load() == 1
@@ -214,7 +214,7 @@ func TestReleaseHold_NoStreams(t *testing.T) {
 	ws, shutdowns := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid)
+	b.registerClient(ws, cid, nil)
 	require.NoError(t, b.releaseHold(ws.ID, cid))
 
 	require.Equal(t, int32(1), shutdowns.Load())
@@ -230,7 +230,7 @@ func TestReleaseHold_WithActiveStream(t *testing.T) {
 	ws, shutdowns := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid)
+	b.registerClient(ws, cid, nil)
 	require.NoError(t, b.AttachClient(ws.ID, cid))
 	require.NoError(t, b.releaseHold(ws.ID, cid))
 
@@ -270,9 +270,9 @@ func TestRefcountWithSecondClient(t *testing.T) {
 
 	cidA := newClientID(t)
 	cidB := newClientID(t)
-	b.registerClient(ws, cidA)
+	b.registerClient(ws, cidA, nil)
 	require.NoError(t, b.AttachClient(ws.ID, cidA))
-	b.registerClient(ws, cidB)
+	b.registerClient(ws, cidB, nil)
 	require.NoError(t, b.AttachClient(ws.ID, cidB))
 
 	b.DetachClient(ws.ID, cidA)
@@ -319,7 +319,7 @@ func TestHoldExpiry_RaceWithAttach(t *testing.T) {
 		ws, shutdowns := insertTestWorkspace(t, b, "/tmp/race")
 
 		cid := newClientID(t)
-		b.registerClient(ws, cid)
+		b.registerClient(ws, cid, nil)
 		// Attach concurrently with the very short grace timer.
 		errCh := make(chan error, 1)
 		go func() { errCh <- b.AttachClient(ws.ID, cid) }()
@@ -363,7 +363,7 @@ func TestConcurrentAttachDetach(t *testing.T) {
 	ws, _ := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid)
+	b.registerClient(ws, cid, nil)
 	require.NoError(t, b.AttachClient(ws.ID, cid)) // ensure refcount stays > 0.
 
 	const n = 50
@@ -841,7 +841,7 @@ func TestExplicitDeleteThenAttach(t *testing.T) {
 
 	cid := newClientID(t)
 	// Real hold via registerClient (mirrors CreateWorkspace).
-	b.registerClient(ws, cid)
+	b.registerClient(ws, cid, nil)
 	ws.clientsMu.Lock()
 	require.Contains(t, ws.clients, cid)
 	require.NotNil(t, ws.clients[cid].holdTimer, "hold must be live")
@@ -1061,7 +1061,7 @@ func TestSetCurrentSession_RejectsHoldOnly(t *testing.T) {
 	ws, _ := insertTestWorkspace(t, b, "/tmp/current-session-hold")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid)
+	b.registerClient(ws, cid, nil)
 
 	require.ErrorIs(t, b.SetCurrentSession(ws.ID, cid, "S1"), ErrClientNotAttached)
 
@@ -1200,7 +1200,7 @@ func TestAttachedClients_BasicLifecycle(t *testing.T) {
 	// currentSessionID empty by construction, and SetCurrentSession
 	// rejects hold-only writers — so the contract holds two ways.
 	cidHold := newClientID(t)
-	b.registerClient(ws, cidHold)
+	b.registerClient(ws, cidHold, nil)
 	t.Cleanup(func() { _ = b.releaseHold(ws.ID, cidHold) })
 	n, _ = b.AttachedClients(ws.ID, "S1")
 	require.Equal(t, 1, n, "hold-only client must not contribute")

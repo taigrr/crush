@@ -15,7 +15,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
-	"github.com/taigrr/crush/internal/server"
 )
 
 // DummyHost is used to satisfy the http.Client's requirement for a URL.
@@ -28,15 +27,6 @@ type Client struct {
 	network  string
 	addr     string
 	clientID string
-}
-
-// DefaultClient creates a new [Client] connected to the default server address.
-func DefaultClient(path string) (*Client, error) {
-	host, err := server.ParseHostURL(server.DefaultHost())
-	if err != nil {
-		return nil, err
-	}
-	return NewClient(path, host.Scheme, host.Host)
 }
 
 // NewClient creates a new [Client] connected to the server at the given

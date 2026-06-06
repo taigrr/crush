@@ -8,30 +8,27 @@ import (
 	"github.com/taigrr/crush/internal/editor"
 )
 
-func TestNew_NoEnv_ReturnsNotOK(t *testing.T) {
-	t.Setenv("NVIM", "")
-	t.Setenv("NVIM_LISTEN_ADDRESS", "")
-	b, ok := New()
+func TestEnvLookup_Precedence(t *testing.T) {
+	env := []string{"FOO=bar", "NVIM_LISTEN_ADDRESS=/tmp/legacy", "NVIM=/tmp/preferred"}
+	require.Equal(t, "/tmp/preferred", detectAddressFrom(envLookup(env)))
+
+	env = []string{"NVIM_LISTEN_ADDRESS=/tmp/legacy"}
+	require.Equal(t, "/tmp/legacy", detectAddressFrom(envLookup(env)))
+
+	require.Equal(t, "", detectAddressFrom(envLookup([]string{"FOO=bar"})))
+	require.Equal(t, "", detectAddressFrom(envLookup(nil)))
+}
+
+func TestNewFromEnv_NoEnv_ReturnsNotOK(t *testing.T) {
+	b, ok := NewFromEnv([]string{"FOO=bar"})
 	require.False(t, ok)
 	require.Nil(t, b)
 }
 
-func TestNew_BadAddress_ReturnsNotOK(t *testing.T) {
-	// Point at a path that cannot exist; Dial must fail and New returns (nil, false).
-	t.Setenv("NVIM", "/tmp/neocrush-bridge-test-does-not-exist-")
-	t.Setenv("NVIM_LISTEN_ADDRESS", "")
-	b, ok := New()
+func TestNewFromEnv_BadAddress_ReturnsNotOK(t *testing.T) {
+	b, ok := NewFromEnv([]string{"NVIM=/tmp/neocrush-bridge-test-does-not-exist-"})
 	require.False(t, ok)
 	require.Nil(t, b)
-}
-
-func TestDetectAddress_Precedence(t *testing.T) {
-	t.Setenv("NVIM", "/tmp/preferred")
-	t.Setenv("NVIM_LISTEN_ADDRESS", "/tmp/legacy")
-	require.Equal(t, "/tmp/preferred", detectAddress())
-
-	t.Setenv("NVIM", "")
-	require.Equal(t, "/tmp/legacy", detectAddress())
 }
 
 // Confirm Noop satisfies the interface and matches our error contract.

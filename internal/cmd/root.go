@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -36,7 +35,6 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/server"
 	"github.com/taigrr/crush/internal/session"
-	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/anim"
 	"github.com/taigrr/crush/internal/ui/common"
 	ui "github.com/taigrr/crush/internal/ui/model"
@@ -235,27 +233,6 @@ func setupWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error) {
 	return setupClientServerWorkspace(cmd)
 }
 
-// localSkillsDiscoveryConfig adapts a *config.ConfigStore to the inputs
-// skills.DiscoverFromConfig expects.
-func localSkillsDiscoveryConfig(store *config.ConfigStore) skills.DiscoveryConfig {
-	opts := store.Config().Options
-	var paths, disabled []string
-	if opts != nil {
-		paths = opts.SkillsPaths
-		disabled = opts.DisabledSkills
-	}
-	var resolver func(string) (string, error)
-	if r := store.Resolver(); r != nil {
-		resolver = r.ResolveValue
-	}
-	return skills.DiscoveryConfig{
-		SkillsPaths:    paths,
-		DisabledSkills: disabled,
-		WorkingDir:     store.WorkingDir(),
-		Resolver:       resolver,
-	}
-}
-
 // setupClientServerWorkspace connects to a server process and wraps the
 // result in a ClientWorkspace.
 func setupClientServerWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error) {
@@ -356,13 +333,12 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 		}
 
 		if needsStart {
-			// Remove any stale socket before starting a new server.
-			// The socket might exist without a running server (e.g., after a crash).
-			_ = os.Remove(hostURL.Host)
-			if err := startDetachedServer(cmd, hostURL); err != nil {
-				return err
-			}
-			if err := waitForServerReady(cmd.Context(), hostURL); err != nil {
+			// Serialize spawn across concurrent clients: spawnAndWaitReady
+			// holds an exclusive lock for the spawn+readiness window and
+			// re-probes inside it, so a client that lost the race skips
+			// its own spawn and uses the now-running server. Stale-socket
+			// removal happens inside the lock too.
+			if err := spawnAndWaitReady(cmd, hostURL); err != nil {
 				return fmt.Errorf("failed to initialize crush server: %v", err)
 			}
 			return nil
@@ -395,6 +371,7 @@ func spawnAndWaitReady(cmd *cobra.Command, hostURL *url.URL) error {
 		// If the lock itself is unavailable, fall back to the
 		// unsynchronized path rather than blocking the user.
 		slog.Warn("Failed to acquire spawn lock, proceeding without single-flight", "error", err)
+		removeStaleSocket(hostURL)
 		if err := startDetachedServer(cmd, hostURL); err != nil {
 			return err
 		}
@@ -412,10 +389,24 @@ func spawnAndWaitReady(cmd *cobra.Command, hostURL *url.URL) error {
 		return nil
 	}
 
+	// No responsive server and we hold the lock: any socket on disk is
+	// stale (e.g. left by a crashed server). Remove it before binding.
+	removeStaleSocket(hostURL)
 	if err := startDetachedServer(cmd, hostURL); err != nil {
 		return err
 	}
 	return waitForServerReady(cmd.Context(), hostURL)
+}
+
+// removeStaleSocket best-effort removes a unix-socket file so a fresh
+// server can bind. No-op for non-socket schemes and missing files.
+func removeStaleSocket(hostURL *url.URL) {
+	if hostURL.Scheme != "unix" {
+		return
+	}
+	if err := os.Remove(hostURL.Host); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		slog.Warn("Failed to remove stale server socket", "path", hostURL.Host, "error", err)
+	}
 }
 
 // quickHealthProbe issues a single readiness request with the caller's
@@ -652,19 +643,6 @@ func startDetachedServer(cmd *cobra.Command, hostURL *url.URL) error {
 	}
 
 	return nil
-}
-
-func shouldEnableMetrics(cfg *config.Config) bool {
-	if v, _ := strconv.ParseBool(os.Getenv("CRUSH_DISABLE_METRICS")); v {
-		return false
-	}
-	if v, _ := strconv.ParseBool(os.Getenv("DO_NOT_TRACK")); v {
-		return false
-	}
-	if cfg.Options.DisableMetrics {
-		return false
-	}
-	return true
 }
 
 func MaybePrependStdin(prompt string) (string, error) {

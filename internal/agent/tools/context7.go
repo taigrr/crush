@@ -38,12 +38,12 @@ type Context7Params struct {
 // Trimmed: the API returns more, but the model only needs identity +
 // signal of relevance.
 type context7SearchResult struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	ID          string  `json:"id"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
 	TrustScore  float64 `json:"trustScore"`
-	TotalTokens int    `json:"totalTokens"`
-	State       string `json:"state"`
+	TotalTokens int     `json:"totalTokens"`
+	State       string  `json:"state"`
 }
 
 type context7SearchResponse struct {

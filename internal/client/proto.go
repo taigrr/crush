@@ -438,6 +438,7 @@ func (c *Client) UpdateAgent(ctx context.Context, id string) error {
 func (c *Client) SendMessage(ctx context.Context, id string, sessionID, runID, prompt string, attachments ...message.Attachment) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent", id), nil, jsonBody(proto.AgentMessage{
 		SessionID:   sessionID,
+		ClientID:    c.clientID,
 		RunID:       runID,
 		Prompt:      prompt,
 		Attachments: proto.AttachmentsFromMessage(attachments),
