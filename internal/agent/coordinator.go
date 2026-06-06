@@ -936,7 +936,7 @@ func (c *coordinator) buildAzureProvider(baseURL, apiKey string, headers map[str
 	return azure.New(opts...)
 }
 
-func (c *coordinator) buildBedrockProvider(apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
+func (c *coordinator) buildBedrockProvider(apiKey string, headers map[string]string, providerID, modelID string) (fantasy.Provider, error) {
 	var opts []bedrock.Option
 	if c.cfg.Config().Options.Debug {
 		httpClient := log.NewHTTPClient()
@@ -955,9 +955,12 @@ func (c *coordinator) buildBedrockProvider(apiKey string, headers map[string]str
 		// Skip, let the SDK do authentication.
 	}
 
-	// Region selection (eu-west-1 vs us-east-1) is handled by the
-	// AWS_REGION env var or AWS profile config; the fork's bedrock
-	// option set does not currently expose WithRegion.
+	// GPT-5.5 on Bedrock is only available in us-east-2, so force the
+	// region for that model regardless of the ambient AWS configuration.
+	// Other models continue to use AWS_REGION or the AWS profile config.
+	if modelID == "openai.gpt-5.5" {
+		opts = append(opts, bedrock.WithRegion("us-east-2"))
+	}
 	_ = providerID
 
 	return bedrock.New(opts...)
@@ -1042,7 +1045,7 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 	case azure.Name:
 		return c.buildAzureProvider(baseURL, apiKey, headers, providerCfg.ExtraParams)
 	case bedrock.Name:
-		return c.buildBedrockProvider(apiKey, headers, providerCfg.ID)
+		return c.buildBedrockProvider(apiKey, headers, providerCfg.ID, model.Model)
 	case google.Name:
 		return c.buildGoogleProvider(baseURL, apiKey, headers)
 	case "google-vertex":
