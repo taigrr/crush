@@ -280,8 +280,12 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 		if !hasReasoningEffort && model.ModelCfg.ReasoningEffort != "" && model.CatwalkCfg.CanReason {
 			mergedOptions["reasoning_effort"] = model.ModelCfg.ReasoningEffort
 		}
-		if openai.IsResponsesModel(model.CatwalkCfg.ID) {
-			if openai.IsResponsesReasoningModel(model.CatwalkCfg.ID) {
+		modelIDForResponses := model.CatwalkCfg.ID
+		if !openai.IsResponsesModel(modelIDForResponses) {
+			modelIDForResponses = strings.TrimPrefix(modelIDForResponses, "openai.")
+		}
+		if openai.IsResponsesModel(modelIDForResponses) {
+			if openai.IsResponsesReasoningModel(modelIDForResponses) {
 				mergedOptions["reasoning_summary"] = "auto"
 				mergedOptions["include"] = []openai.IncludeType{openai.IncludeReasoningEncryptedContent}
 			}
@@ -689,6 +693,10 @@ func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[st
 	opts := []openai.Option{
 		openai.WithAPIKey(apiKey),
 		openai.WithUseResponsesAPI(),
+		openai.WithResponsesAPIFunc(func(modelID string) bool {
+			return openai.IsResponsesModel(modelID) ||
+				openai.IsResponsesModel(strings.TrimPrefix(modelID, "openai."))
+		}),
 	}
 	if c.cfg.Config().Options.Debug {
 		httpClient := log.NewHTTPClient()
