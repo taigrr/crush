@@ -370,8 +370,12 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 		if !hasReasoningEffort && shouldSetEffort {
 			mergedOptions["reasoning_effort"] = model.ModelCfg.ReasoningEffort
 		}
-		if openai.IsResponsesModel(model.CatwalkCfg.ID) {
-			if openai.IsResponsesReasoningModel(model.CatwalkCfg.ID) {
+		modelIDForResponses := model.CatwalkCfg.ID
+		if !openai.IsResponsesModel(modelIDForResponses) {
+			modelIDForResponses = strings.TrimPrefix(modelIDForResponses, "openai.")
+		}
+		if openai.IsResponsesModel(modelIDForResponses) {
+			if openai.IsResponsesReasoningModel(modelIDForResponses) {
 				mergedOptions["reasoning_summary"] = "auto"
 				mergedOptions["include"] = []openai.IncludeType{openai.IncludeReasoningEncryptedContent}
 			}
@@ -834,6 +838,10 @@ func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[st
 	opts := []openai.Option{
 		openai.WithAPIKey(apiKey),
 		openai.WithUseResponsesAPI(),
+		openai.WithResponsesAPIFunc(func(modelID string) bool {
+			return openai.IsResponsesModel(modelID) ||
+				openai.IsResponsesModel(strings.TrimPrefix(modelID, "openai."))
+		}),
 	}
 	if c.cfg.Config().Options.Debug {
 		httpClient := log.NewHTTPClient()
@@ -936,16 +944,7 @@ func (c *coordinator) buildAzureProvider(baseURL, apiKey string, headers map[str
 	return azure.New(opts...)
 }
 
-func (c *coordinator) buildBedrockProvider(apiKey string, headers map[string]string, providerID, modelID string) (fantasy.Provider, error) {
-	// OpenAI models on Bedrock (e.g. GPT-5.5) are not served by the
-	// Anthropic-style bedrock-runtime API that fantasy's bedrock provider
-	// speaks. They use the OpenAI-compatible bedrock-mantle endpoint with
-	// the Responses API. GPT-5.5 is only available in us-east-2, so we pin
-	// the region into the endpoint and route it through the OpenAI provider.
-	if modelID == "openai.gpt-5.5" {
-		return c.buildBedrockOpenAIProvider(apiKey, headers, "us-east-2")
-	}
-
+func (c *coordinator) buildBedrockProvider(apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
 	var opts []bedrock.Option
 	if c.cfg.Config().Options.Debug {
 		httpClient := log.NewHTTPClient()
@@ -967,17 +966,6 @@ func (c *coordinator) buildBedrockProvider(apiKey string, headers map[string]str
 	_ = providerID
 
 	return bedrock.New(opts...)
-}
-
-// buildBedrockOpenAIProvider builds an OpenAI Responses API provider pointed at
-// the Bedrock mantle endpoint for the given region, authenticating with the
-// Bedrock bearer token.
-func (c *coordinator) buildBedrockOpenAIProvider(apiKey string, headers map[string]string, region string) (fantasy.Provider, error) {
-	if apiKey == "" {
-		apiKey = os.Getenv("AWS_BEARER_TOKEN_BEDROCK")
-	}
-	baseURL := fmt.Sprintf("https://bedrock-mantle.%s.api.aws/openai/v1", region)
-	return c.buildOpenaiProvider(baseURL, apiKey, headers)
 }
 
 func (c *coordinator) buildGoogleProvider(baseURL, apiKey string, headers map[string]string) (fantasy.Provider, error) {
@@ -1059,7 +1047,7 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 	case azure.Name:
 		return c.buildAzureProvider(baseURL, apiKey, headers, providerCfg.ExtraParams)
 	case bedrock.Name:
-		return c.buildBedrockProvider(apiKey, headers, providerCfg.ID, model.Model)
+		return c.buildBedrockProvider(apiKey, headers, providerCfg.ID)
 	case google.Name:
 		return c.buildGoogleProvider(baseURL, apiKey, headers)
 	case "google-vertex":

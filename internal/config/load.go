@@ -310,6 +310,21 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 				}
 				continue
 			}
+		case catwalk.InferenceProviderBedrockOpenAI:
+			// The Bedrock mantle (OpenAI-compatible) endpoint authenticates
+			// with a Bedrock API key via the Authorization header, not SigV4,
+			// so it requires AWS_BEARER_TOKEN_BEDROCK.
+			if prepared.APIKey == "" {
+				prepared.APIKey = env.Get("AWS_BEARER_TOKEN_BEDROCK")
+				prepared.APIKeyTemplate = prepared.APIKey
+			}
+			if prepared.APIKey == "" {
+				if configExists {
+					slog.Warn("Skipping Bedrock OpenAI provider due to missing AWS_BEARER_TOKEN_BEDROCK")
+					c.Providers.Del(string(p.ID))
+				}
+				continue
+			}
 		case catwalk.InferenceProvider("hyper"):
 			if apiKey := env.Get("HYPER_API_KEY"); apiKey != "" {
 				prepared.APIKey = apiKey
@@ -1095,7 +1110,8 @@ func ProjectSkillsDir(workingDir string) []string {
 	// When the working directory is inside a git repository, also look at
 	// the repository root so monorepo-level .agents/skills are found.
 	if root := worktreeRoot(workingDir); root != "" && root != workingDir {
-		dirs = append(dirs,
+		dirs = append(
+			dirs,
 			filepath.Join(root, ".agents/skills"),
 			filepath.Join(root, ".crush/skills"),
 			filepath.Join(root, ".claude/skills"),
