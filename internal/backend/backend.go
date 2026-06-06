@@ -395,8 +395,8 @@ func (b *Backend) clientBridge(ws *Workspace, clientID string) editor.Bridge {
 	// Dial outside the lock: connecting to the editor performs IO and
 	// must not block other clients touching the workspace.
 	var bridge editor.Bridge = editor.Noop{}
-	if b, ok := editornvim.NewFromEnv(env); ok {
-		bridge = b
+	if dialed, ok := editornvim.NewFromEnv(env); ok {
+		bridge = dialed
 		slog.Info("Editor bridge connected", "client", clientID, "editor", "neovim")
 	}
 
