@@ -232,3 +232,11 @@ func (b *Bridge) NotifyFileChanged(ctx context.Context, path string) error {
 	}
 	return b.callBridge(ctx, "file_changed", nil, path)
 }
+
+// SetWorkingDir implements editor.Bridge.
+func (b *Bridge) SetWorkingDir(ctx context.Context, path string) error {
+	if path == "" {
+		return nil
+	}
+	return b.callBridge(ctx, "set_cwd", nil, path)
+}

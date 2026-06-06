@@ -127,7 +127,7 @@ func (m *recordingPermissionService) SubscribeNotifications(ctx context.Context)
 func newBashToolForTest(workingDir string) fantasy.AgentTool {
 	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
-	return NewBashTool(permissions, func() string { return workingDir }, attribution, "test-model")
+	return NewBashTool(permissions, func(context.Context) string { return workingDir }, attribution, "test-model")
 }
 
 func newBashToolWithRecordingPerms(workingDir string, allow bool) (fantasy.AgentTool, *recordingPermissionService) {
@@ -136,7 +136,7 @@ func newBashToolWithRecordingPerms(workingDir string, allow bool) (fantasy.Agent
 		allow:  allow,
 	}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
-	return NewBashTool(perms, func() string { return workingDir }, attribution, "test-model"), perms
+	return NewBashTool(perms, func(context.Context) string { return workingDir }, attribution, "test-model"), perms
 }
 
 func TestBashTool_ChainedCommandsRequirePermission(t *testing.T) {

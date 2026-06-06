@@ -87,6 +87,12 @@ type Bridge interface {
 	// would otherwise appear when the user next focuses the buffer.
 	NotifyFileChanged(ctx context.Context, path string) error
 
+	// SetWorkingDir asks the editor to change its working directory to
+	// path (e.g. when Crush switches the active worktree). The editor
+	// decides the scope of the change (global vs tab/window). Best-effort:
+	// a failure must never propagate to the caller's primary operation.
+	SetWorkingDir(ctx context.Context, path string) error
+
 	// Close releases any resources (sockets, goroutines) held by the
 	// bridge. Idempotent.
 	Close() error
@@ -110,6 +116,9 @@ func (Noop) FlashEdit(context.Context, string, int, int) error { return nil }
 
 // NotifyFileChanged implements Bridge.
 func (Noop) NotifyFileChanged(context.Context, string) error { return nil }
+
+// SetWorkingDir implements Bridge.
+func (Noop) SetWorkingDir(context.Context, string) error { return nil }
 
 // Close implements Bridge.
 func (Noop) Close() error { return nil }

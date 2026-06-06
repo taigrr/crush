@@ -78,7 +78,7 @@ func NewDownloadTool(permissions permission.Service, workingDir WorkingDirFunc, 
 				return fantasy.NewTextErrorResponse("URL must start with http:// or https://"), nil
 			}
 
-			wd := workingDir()
+			wd := workingDir(ctx)
 			filePath := filepathext.SmartJoin(wd, params.FilePath)
 			relPath, _ := filepath.Rel(wd, filePath)
 			relPath = filepath.ToSlash(cmp.Or(relPath, filePath))

@@ -662,6 +662,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		app.agentNotifications,
 		app.runCompletions,
 		app.Skills,
+		app.Worktrees,
 	)
 	if err != nil {
 		slog.Error("Failed to create coder agent", "err", err)

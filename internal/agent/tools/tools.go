@@ -20,9 +20,12 @@ type (
 	modelNameKey        string
 )
 
-// WorkingDirFunc returns the current working directory. Tools use this to
-// support dynamic working directories (e.g., when worktrees are active).
-type WorkingDirFunc func() string
+// WorkingDirFunc returns the working directory for the current turn.
+// It takes a context so the resolver can pick a session-specific
+// directory (e.g. the session's active worktree) via the session ID
+// carried in ctx. Resolvers must tolerate a nil/empty session and fall
+// back to the workspace root.
+type WorkingDirFunc func(ctx context.Context) string
 
 const (
 	// SessionIDContextKey is the key for the session ID in the context.

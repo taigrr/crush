@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/fork"
@@ -262,7 +263,8 @@ func (c *Client) CreateWorktree(ctx context.Context, workspaceID, sessionID, nam
 
 // SwitchWorktree switches to a different worktree.
 func (c *Client) SwitchWorktree(ctx context.Context, workspaceID, sessionID, worktreeID string) error {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/worktrees/%s/switch", workspaceID, sessionID, worktreeID), nil, nil, nil)
+	q := url.Values{"client_id": []string{c.clientID}}
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/worktrees/%s/switch", workspaceID, sessionID, worktreeID), q, nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to switch worktree: %w", err)
 	}

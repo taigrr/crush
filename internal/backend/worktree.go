@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os/exec"
 	"strings"
 
@@ -81,8 +82,10 @@ func (b *Backend) CreateWorktree(ctx context.Context, workspaceID, sessionID, na
 	return ws.Worktrees.Create(ctx, sessionID, name, fromSnapshotID)
 }
 
-// SwitchWorktree switches to a different worktree.
-func (b *Backend) SwitchWorktree(ctx context.Context, workspaceID, sessionID, worktreeID string) error {
+// SwitchWorktree switches to a different worktree. clientID identifies
+// the calling client so its attached editor (if any) can follow the
+// switch by changing its working directory to the worktree path.
+func (b *Backend) SwitchWorktree(ctx context.Context, workspaceID, clientID, sessionID, worktreeID string) error {
 	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
 		return err
@@ -90,7 +93,19 @@ func (b *Backend) SwitchWorktree(ctx context.Context, workspaceID, sessionID, wo
 	if ws.Worktrees == nil || !ws.Worktrees.IsEnabled() {
 		return ErrWorktreesDisabled
 	}
-	return ws.Worktrees.Switch(ctx, sessionID, worktreeID)
+	if err := ws.Worktrees.Switch(ctx, sessionID, worktreeID); err != nil {
+		return err
+	}
+
+	// Best-effort: point the calling client's editor at the worktree.
+	if clientID != "" {
+		if wt, err := ws.Worktrees.Get(ctx, worktreeID); err == nil {
+			if err := b.clientBridge(ws, clientID).SetWorkingDir(ctx, wt.Path); err != nil {
+				slog.Debug("Editor set-working-dir failed", "path", wt.Path, "error", err)
+			}
+		}
+	}
+	return nil
 }
 
 // DeleteWorktree deletes a worktree.

@@ -76,7 +76,7 @@ func NewMultiEditTool(
 				return fantasy.NewTextErrorResponse("at least one edit operation is required"), nil
 			}
 
-			wd := workingDir()
+			wd := workingDir(ctx)
 			params.FilePath = filepathext.SmartJoin(wd, params.FilePath)
 
 			// Validate all edits before applying any

@@ -335,7 +335,8 @@ func (c *controllerV1) handlePostWorkspaceWorktreeSwitch(w http.ResponseWriter, 
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	wtid := r.PathValue("wtid")
-	if err := c.backend.SwitchWorktree(r.Context(), id, sid, wtid); err != nil {
+	clientID := r.URL.Query().Get("client_id")
+	if err := c.backend.SwitchWorktree(r.Context(), id, clientID, sid, wtid); err != nil {
 		c.handleError(w, r, err)
 		return
 	}

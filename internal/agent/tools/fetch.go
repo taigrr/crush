@@ -69,7 +69,7 @@ func NewFetchTool(permissions permission.Service, workingDir WorkingDirFunc, cli
 				ctx,
 				permission.CreatePermissionRequest{
 					SessionID:   sessionID,
-					Path:        workingDir(),
+					Path:        workingDir(ctx),
 					ToolCallID:  call.ID,
 					ToolName:    FetchToolName,
 					Action:      "fetch",

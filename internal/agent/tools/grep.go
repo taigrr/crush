@@ -134,7 +134,7 @@ func NewGrepTool(workingDir WorkingDirFunc, config config.ToolGrep) fantasy.Agen
 				searchPattern = escapeRegexPattern(params.Pattern)
 			}
 
-			searchPath := cmp.Or(params.Path, workingDir())
+			searchPath := cmp.Or(params.Path, workingDir(ctx))
 
 			searchCtx, cancel := context.WithTimeout(ctx, config.GetTimeout())
 			defer cancel()

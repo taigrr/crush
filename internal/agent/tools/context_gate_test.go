@@ -13,7 +13,7 @@ import (
 func TestFilterAvailableTools(t *testing.T) {
 	t.Parallel()
 
-	plain := NewGlobTool(func() string { return "." })
+	plain := NewGlobTool(func(context.Context) string { return "." })
 	gatedOn := WithContextGate(NewShowLocationsTool(), func(context.Context) bool { return true })
 	gatedOff := WithContextGate(NewEditorContextTool(), func(context.Context) bool { return false })
 
@@ -57,4 +57,5 @@ func (stubBridge) Context(context.Context) (editor.EditorContext, error) {
 func (stubBridge) ShowLocations(context.Context, string, []editor.Location) error { return nil }
 func (stubBridge) FlashEdit(context.Context, string, int, int) error              { return nil }
 func (stubBridge) NotifyFileChanged(context.Context, string) error                { return nil }
+func (stubBridge) SetWorkingDir(context.Context, string) error                   { return nil }
 func (stubBridge) Close() error                                                   { return nil }

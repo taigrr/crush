@@ -39,7 +39,7 @@ func NewDocumentSymbolsTool(lspManager *lsp.Manager, workingDir WorkingDirFunc) 
 				return fantasy.NewTextErrorResponse("no LSP clients available"), nil
 			}
 
-			absPath, err := filepath.Abs(filepathext.SmartJoin(workingDir(), params.FilePath))
+			absPath, err := filepath.Abs(filepathext.SmartJoin(workingDir(ctx), params.FilePath))
 			if err != nil {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("invalid path: %s", err)), nil
 			}

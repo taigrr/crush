@@ -30,6 +30,10 @@ var (
 	ErrInvalidName       = errors.New("invalid worktree name")
 	ErrNoActiveWorktree  = errors.New("no active worktree")
 	ErrWorktreesDisabled = errors.New("worktrees not enabled")
+	ErrNotGitRepo        = errors.New("worktrees require the project to be a git repository")
+	ErrWorktreeCreate    = errors.New("failed to create git worktree")
+	ErrWorktreeMerge     = errors.New("failed to merge worktree")
+	ErrDirtyWorkingTree  = errors.New("project working tree has uncommitted changes; commit or stash before merging")
 )
 
 // Service manages Crush worktrees.
@@ -165,25 +169,25 @@ func (s *service) Create(ctx context.Context, sessionID string, name string, fro
 		return nil, err
 	}
 
-	// Create worktree directory.
-	worktreePath := filepath.Join(s.worktreeDir, name)
-	if err := os.MkdirAll(worktreePath, 0o755); err != nil {
-		return nil, fmt.Errorf("create worktree dir: %w", err)
+	// Require a git repository: worktrees are real linked git worktrees
+	// of the user's project, not filesystem copies.
+	if !s.isGitRepo(ctx) {
+		return nil, ErrNotGitRepo
 	}
 
-	// If we have a snapshot, restore it to the worktree.
-	if fromSnapshotID != "" && s.checkpoints != nil && s.checkpoints.IsEnabled() {
-		if err := s.checkpoints.RestoreSnapshot(ctx, fromSnapshotID, worktreePath); err != nil {
-			// Clean up on failure.
-			os.RemoveAll(worktreePath)
-			return nil, fmt.Errorf("restore snapshot to worktree: %w", err)
-		}
-	} else {
-		// Copy current project state to worktree.
-		if err := copyDir(s.projectDir, worktreePath); err != nil {
-			os.RemoveAll(worktreePath)
-			return nil, fmt.Errorf("copy project to worktree: %w", err)
-		}
+	worktreePath := filepath.Join(s.worktreeDir, name)
+
+	// git worktree add creates the directory itself and refuses to run
+	// if it already exists, so make sure it is clear first.
+	if _, err := os.Stat(worktreePath); err == nil {
+		return nil, ErrWorktreeExists
+	}
+
+	// Create a real linked worktree on a new branch named after the
+	// worktree, based on the current HEAD. This shares the project's
+	// object store (no duplication) and never copies files by hand.
+	if out, err := s.git(ctx, s.projectDir, "worktree", "add", "-b", name, worktreePath, "HEAD"); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrWorktreeCreate, strings.TrimSpace(out))
 	}
 
 	// Deactivate other worktrees for this session.
@@ -214,7 +218,9 @@ func (s *service) Create(ctx context.Context, sessionID string, name string, fro
 		IsActive:       1,
 		CreatedAt:      now.UnixMilli(),
 	}); err != nil {
-		os.RemoveAll(worktreePath)
+		// Roll back the git worktree we just created so we don't leave
+		// an orphan on disk with no DB record.
+		s.removeGitWorktree(ctx, worktreePath)
 		return nil, fmt.Errorf("create worktree record: %w", err)
 	}
 
@@ -272,10 +278,10 @@ func (s *service) Delete(ctx context.Context, worktreeID string) error {
 		return err
 	}
 
-	// Remove filesystem.
-	if err := os.RemoveAll(worktree.Path); err != nil {
-		slog.Debug("Failed to remove worktree directory", "error", err, "path", worktree.Path)
-	}
+	// Remove the linked git worktree (deletes the directory and the
+	// repo's admin entry). Falls back to a plain directory removal if
+	// git can't manage it (e.g. a legacy copy-based worktree).
+	s.removeGitWorktree(ctx, worktree.Path)
 
 	// Delete database record.
 	if err := s.queries.DeleteWorktree(ctx, worktreeID); err != nil {
@@ -388,53 +394,111 @@ func (s *service) Merge(ctx context.Context, worktreeID, targetBranch string, re
 	if err != nil {
 		return err
 	}
-
-	// First, checkout the target branch.
-	checkoutCmd := exec.CommandContext(ctx, "git", "checkout", targetBranch)
-	checkoutCmd.Dir = s.projectDir
-	if out, err := checkoutCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("checkout target branch: %s: %w", string(out), err)
-	}
-
-	// Get the worktree branch name.
 	wtBranch := wt.Name
 
-	// Merge or rebase.
-	var mergeCmd *exec.Cmd
-	if rebase {
-		// For rebase, we rebase the worktree branch onto target.
-		// First switch to worktree branch, rebase onto target, then merge into target.
-		switchCmd := exec.CommandContext(ctx, "git", "checkout", wtBranch)
-		switchCmd.Dir = s.projectDir
-		if out, err := switchCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("checkout worktree branch: %s: %w", string(out), err)
-		}
-
-		rebaseCmd := exec.CommandContext(ctx, "git", "rebase", targetBranch)
-		rebaseCmd.Dir = s.projectDir
-		if out, err := rebaseCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("rebase onto target: %s: %w", string(out), err)
-		}
-
-		// Switch back to target and merge (fast-forward).
-		switchBackCmd := exec.CommandContext(ctx, "git", "checkout", targetBranch)
-		switchBackCmd.Dir = s.projectDir
-		if out, err := switchBackCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("checkout target after rebase: %s: %w", string(out), err)
-		}
-
-		mergeCmd = exec.CommandContext(ctx, "git", "merge", "--ff-only", wtBranch)
-	} else {
-		// Regular merge.
-		mergeCmd = exec.CommandContext(ctx, "git", "merge", wtBranch, "--no-edit")
+	// Never merge over uncommitted work in the user's main checkout:
+	// the merge below moves the main repo's HEAD, which would clobber a
+	// dirty tree. Fail loudly instead.
+	if dirty, err := s.isWorkingTreeDirty(ctx); err != nil {
+		return err
+	} else if dirty {
+		return ErrDirtyWorkingTree
 	}
 
-	mergeCmd.Dir = s.projectDir
-	if out, err := mergeCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("merge worktree: %s: %w", string(out), err)
+	// Remember the branch the user was on so we can restore it.
+	originalBranch, err := s.currentBranch(ctx)
+	if err != nil {
+		return err
+	}
+
+	if rebase {
+		// Rebase the feature branch onto target inside its own
+		// worktree, so we never check out wtBranch in the main repo
+		// (git forbids the same branch in two worktrees anyway).
+		if out, err := s.git(ctx, wt.Path, "rebase", targetBranch); err != nil {
+			return fmt.Errorf("%w: rebase: %s", ErrWorktreeMerge, strings.TrimSpace(out))
+		}
+	}
+
+	if out, err := s.git(ctx, s.projectDir, "checkout", targetBranch); err != nil {
+		return fmt.Errorf("%w: checkout target: %s", ErrWorktreeMerge, strings.TrimSpace(out))
+	}
+
+	mergeArgs := []string{"merge", "--no-edit", wtBranch}
+	if rebase {
+		// After a rebase the feature branch is ahead of target, so a
+		// fast-forward is both possible and the cleanest result.
+		mergeArgs = []string{"merge", "--ff-only", wtBranch}
+	}
+	if out, err := s.git(ctx, s.projectDir, mergeArgs...); err != nil {
+		// Best-effort restore so a failed merge doesn't strand the user
+		// on the target branch.
+		if originalBranch != "" && originalBranch != targetBranch {
+			_, _ = s.git(ctx, s.projectDir, "checkout", originalBranch)
+		}
+		return fmt.Errorf("%w: %s", ErrWorktreeMerge, strings.TrimSpace(out))
+	}
+
+	// Restore the user's original branch so the merge is transparent.
+	if originalBranch != "" && originalBranch != targetBranch {
+		if out, err := s.git(ctx, s.projectDir, "checkout", originalBranch); err != nil {
+			return fmt.Errorf("%w: restore branch: %s", ErrWorktreeMerge, strings.TrimSpace(out))
+		}
 	}
 
 	return nil
+}
+
+// git runs a git subcommand in dir and returns combined output.
+func (s *service) git(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// isGitRepo reports whether the project directory is inside a git work tree.
+func (s *service) isGitRepo(ctx context.Context) bool {
+	out, err := s.git(ctx, s.projectDir, "rev-parse", "--is-inside-work-tree")
+	return err == nil && strings.TrimSpace(out) == "true"
+}
+
+// isWorkingTreeDirty reports whether the project's main checkout has
+// uncommitted changes (staged, unstaged, or untracked).
+func (s *service) isWorkingTreeDirty(ctx context.Context) (bool, error) {
+	out, err := s.git(ctx, s.projectDir, "status", "--porcelain")
+	if err != nil {
+		return false, fmt.Errorf("%w: status: %s", ErrWorktreeMerge, strings.TrimSpace(out))
+	}
+	return strings.TrimSpace(out) != "", nil
+}
+
+// currentBranch returns the project's currently checked-out branch name,
+// or "" if detached/unknown.
+func (s *service) currentBranch(ctx context.Context) (string, error) {
+	out, err := s.git(ctx, s.projectDir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("%w: current branch: %s", ErrWorktreeMerge, strings.TrimSpace(out))
+	}
+	branch := strings.TrimSpace(out)
+	if branch == "HEAD" { // detached
+		return "", nil
+	}
+	return branch, nil
+}
+
+// removeGitWorktree removes a linked worktree via git, pruning admin
+// state. If git can't manage the path (e.g. a legacy copy-based
+// worktree), it falls back to removing the directory directly. All
+// failures are best-effort and logged at debug level.
+func (s *service) removeGitWorktree(ctx context.Context, path string) {
+	if out, err := s.git(ctx, s.projectDir, "worktree", "remove", "--force", path); err != nil {
+		slog.Debug("git worktree remove failed, falling back to rm", "path", path, "output", strings.TrimSpace(out), "error", err)
+		if rmErr := os.RemoveAll(path); rmErr != nil {
+			slog.Debug("Failed to remove worktree directory", "path", path, "error", rmErr)
+		}
+		_, _ = s.git(ctx, s.projectDir, "worktree", "prune")
+	}
 }
 
 // GenerateName generates a worktree name from a description.
@@ -599,68 +663,4 @@ func isValidWorktreeName(name string) bool {
 	// Only allow alphanumeric, hyphens, underscores, and forward slashes (for feat/xxx style).
 	matched, _ := regexp.MatchString(`^[a-zA-Z0-9][a-zA-Z0-9/_-]*$`, name)
 	return matched
-}
-
-// copyDir copies a directory recursively, excluding .git and .crush.
-func copyDir(src, dst string) error {
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		name := entry.Name()
-
-		// Skip .git and .crush.
-		if name == ".git" || name == ".crush" {
-			continue
-		}
-
-		// Skip common large directories.
-		if name == "node_modules" || name == "vendor" || name == ".venv" || name == "venv" {
-			continue
-		}
-
-		srcPath := filepath.Join(src, name)
-		dstPath := filepath.Join(dst, name)
-
-		if entry.IsDir() {
-			if err := os.MkdirAll(dstPath, 0o755); err != nil {
-				return err
-			}
-			if err := copyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-		} else {
-			if err := copyFile(srcPath, dstPath); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// copyFile copies a single file.
-func copyFile(src, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-
-	// Handle symlinks.
-	if info.Mode()&os.ModeSymlink != 0 {
-		target, err := os.Readlink(src)
-		if err != nil {
-			return err
-		}
-		return os.Symlink(target, dst)
-	}
-
-	content, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(dst, content, info.Mode())
 }

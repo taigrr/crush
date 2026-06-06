@@ -109,7 +109,7 @@ func NewViewTool(
 				return resp, err
 			}
 
-			wd := workingDir()
+			wd := workingDir(ctx)
 			// Handle relative paths
 			filePath := filepathext.SmartJoin(wd, params.FilePath)
 

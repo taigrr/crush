@@ -74,7 +74,7 @@ func NewEditTool(
 				return fantasy.NewTextErrorResponse("file_path is required"), nil
 			}
 
-			wd := workingDir()
+			wd := workingDir(ctx)
 			params.FilePath = filepathext.SmartJoin(wd, params.FilePath)
 
 			var response fantasy.ToolResponse

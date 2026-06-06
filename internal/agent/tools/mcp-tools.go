@@ -110,7 +110,7 @@ func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolRe
 			permission.CreatePermissionRequest{
 				SessionID:   sessionID,
 				ToolCallID:  params.ID,
-				Path:        m.workingDir(),
+				Path:        m.workingDir(ctx),
 				ToolName:    m.Info().Name,
 				Action:      "execute",
 				Description: permissionDescription,

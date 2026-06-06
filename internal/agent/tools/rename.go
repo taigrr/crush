@@ -117,7 +117,7 @@ func NewRenameTool(lspManager *lsp.Manager, permissions permission.Service, work
 
 			ok, err := permissions.Request(ctx, permission.CreatePermissionRequest{
 				SessionID:   sessionID,
-				Path:        fsext.PathOrPrefix(filepath.Dir(files[0]), workingDir()),
+				Path:        fsext.PathOrPrefix(filepath.Dir(files[0]), workingDir(ctx)),
 				ToolCallID:  call.ID,
 				ToolName:    RenameToolName,
 				Action:      "rename",

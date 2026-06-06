@@ -35,6 +35,7 @@ import (
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
+	"github.com/taigrr/crush/internal/worktree"
 	"github.com/taigrr/fantasy"
 	"golang.org/x/sync/errgroup"
 
@@ -105,6 +106,7 @@ type coordinator struct {
 	filetracker filetracker.Service
 	milestones  milestone.Service
 	lspManager  *lsp.Manager
+	worktrees   worktree.Service
 	notify      pubsub.Publisher[notify.Notification]
 	runComplete pubsub.Publisher[notify.RunComplete]
 
@@ -133,6 +135,7 @@ func NewCoordinator(
 	notify pubsub.Publisher[notify.Notification],
 	runComplete pubsub.Publisher[notify.RunComplete],
 	skillsMgr *skills.Manager,
+	worktrees worktree.Service,
 ) (Coordinator, error) {
 	// Skills are pre-discovered by the caller (see app.New /
 	// backend.CreateWorkspace) and passed in via the manager. If no
@@ -157,6 +160,7 @@ func NewCoordinator(
 		filetracker:  filetracker,
 		milestones:   milestones,
 		lspManager:   lspManager,
+		worktrees:    worktrees,
 		notify:       notify,
 		runComplete:  runComplete,
 		agents:       make(map[string]SessionAgent),
@@ -183,6 +187,28 @@ func NewCoordinator(
 	c.currentAgent = agent
 	c.agents[config.AgentCoder] = agent
 	return c, nil
+}
+
+// workingDir resolves the working directory for a turn. If the turn's
+// session has an active worktree, tools operate inside that worktree;
+// otherwise they fall back to the workspace root. The session ID is
+// read from ctx (set via tools.SessionIDContextKey), so a missing
+// session, a disabled worktree service, or a lookup error all
+// gracefully degrade to the workspace root.
+func (c *coordinator) workingDir(ctx context.Context) string {
+	root := c.cfg.WorkingDir()
+	if c.worktrees == nil || !c.worktrees.IsEnabled() {
+		return root
+	}
+	sessionID := tools.GetSessionFromContext(ctx)
+	if sessionID == "" {
+		return root
+	}
+	wt, err := c.worktrees.GetActive(ctx, sessionID)
+	if err != nil || wt == nil || wt.Path == "" {
+		return root
+	}
+	return wt.Path
 }
 
 // Run implements Coordinator.
@@ -583,30 +609,30 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 
 	allTools = append(
 		allTools,
-		tools.NewBashTool(c.permissions, c.cfg.WorkingDir, c.cfg.Config().Options.Attribution, modelName),
+		tools.NewBashTool(c.permissions, c.workingDir, c.cfg.Config().Options.Attribution, modelName),
 		tools.NewCrushInfoTool(c.cfg, c.lspManager, c.allSkills, c.activeSkills, c.skillTracker),
 		tools.NewCrushLogsTool(logFile),
 		tools.NewJobOutputTool(),
 		tools.NewJobKillTool(),
-		tools.NewDownloadTool(c.permissions, c.cfg.WorkingDir, nil),
-		tools.NewEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir),
-		tools.NewMultiEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir),
-		tools.NewFetchTool(c.permissions, c.cfg.WorkingDir, nil),
-		tools.NewGlobTool(c.cfg.WorkingDir),
-		tools.NewGrepTool(c.cfg.WorkingDir, c.cfg.Config().Tools.Grep),
-		tools.NewLsTool(c.permissions, c.cfg.WorkingDir, c.cfg.Config().Tools.Ls),
+		tools.NewDownloadTool(c.permissions, c.workingDir, nil),
+		tools.NewEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.workingDir),
+		tools.NewMultiEditTool(c.lspManager, c.permissions, c.history, c.filetracker, c.workingDir),
+		tools.NewFetchTool(c.permissions, c.workingDir, nil),
+		tools.NewGlobTool(c.workingDir),
+		tools.NewGrepTool(c.workingDir, c.cfg.Config().Tools.Grep),
+		tools.NewLsTool(c.permissions, c.workingDir, c.cfg.Config().Tools.Ls),
 		tools.NewSourcegraphTool(nil),
 		tools.NewContext7Tool(nil),
 		tools.NewSearchHistoryTool(c.messages, c.sessions),
 		tools.NewTodosTool(c.sessions),
 	)
 
-	viewTool := tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.skillTracker, c.cfg.WorkingDir, c.cfg.Config().Options.SkillsPaths...)
+	viewTool := tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.skillTracker, c.workingDir, c.cfg.Config().Options.SkillsPaths...)
 	allTools = append(
 		allTools,
 		viewTool,
 		tools.NewMultiViewTool(viewTool),
-		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir),
+		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.workingDir),
 	)
 
 	// Editor bridge tools. The bridge is resolved per-turn from the
@@ -628,8 +654,8 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 			tools.NewDiagnosticsTool(c.lspManager),
 			tools.NewReferencesTool(c.lspManager),
 			tools.NewDefinitionTool(c.lspManager),
-			tools.NewDocumentSymbolsTool(c.lspManager, c.cfg.WorkingDir),
-			tools.NewRenameTool(c.lspManager, c.permissions, c.cfg.WorkingDir),
+			tools.NewDocumentSymbolsTool(c.lspManager, c.workingDir),
+			tools.NewRenameTool(c.lspManager, c.permissions, c.workingDir),
 			tools.NewLSPRestartTool(c.lspManager),
 		)
 	}
@@ -649,7 +675,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		}
 	}
 
-	for _, tool := range tools.GetMCPTools(c.permissions, c.cfg, c.cfg.WorkingDir) {
+	for _, tool := range tools.GetMCPTools(c.permissions, c.cfg, c.workingDir) {
 		if agent.AllowedMCP == nil {
 			// No MCP restrictions
 			filteredTools = append(filteredTools, tool)

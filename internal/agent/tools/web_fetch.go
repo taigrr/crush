@@ -52,7 +52,7 @@ func NewWebFetchTool(workingDir WorkingDirFunc, client *http.Client) fantasy.Age
 			var result strings.Builder
 
 			if hasLargeContent {
-				tempFile, err := os.CreateTemp(workingDir(), "page-*.md")
+				tempFile, err := os.CreateTemp(workingDir(ctx), "page-*.md")
 				if err != nil {
 					return fantasy.NewTextErrorResponse(fmt.Sprintf("Failed to create temporary file: %s", err)), nil
 				}

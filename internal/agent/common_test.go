@@ -164,7 +164,7 @@ func coderAgent(r *vcr.Recorder, env fakeEnv, large, small fantasy.LanguageModel
 		modelName = model.Name
 	}
 
-	wdFunc := func() string { return env.workingDir }
+	wdFunc := func(context.Context) string { return env.workingDir }
 
 	allTools := []fantasy.AgentTool{
 		tools.NewBashTool(env.permissions, wdFunc, cfg.Config().Options.Attribution, modelName),

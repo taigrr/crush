@@ -57,7 +57,7 @@ func NewGlobTool(workingDir WorkingDirFunc) fantasy.AgentTool {
 				return fantasy.NewTextErrorResponse("pattern is required"), nil
 			}
 
-			searchPath := cmp.Or(params.Path, workingDir())
+			searchPath := cmp.Or(params.Path, workingDir(ctx))
 
 			files, truncated, err := globFiles(ctx, params.Pattern, searchPath, 100)
 			if err != nil {
