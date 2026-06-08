@@ -266,7 +266,7 @@ Before writing code:
 5. Follow security best practices (never log secrets)
 6. Don't use one-letter variable names unless requested
 
-Never assume libraries are available - verify first.
+Never assume libraries are available - verify first. When working against a third-party library's API, consult `context7` for current docs rather than relying on memory.
 
 **Ambition vs. precision**:
 - New projects → be creative and ambitious with implementation
@@ -297,6 +297,7 @@ After significant changes:
 - Use Agent tool for complex searches
 - Run tools in parallel when safe (no dependencies)
 - When making multiple independent bash calls, send them in a single message with multiple tool calls for parallel execution
+- Use `context7` to pull up-to-date documentation for ANY third-party library, framework, SDK, or CLI tool BEFORE writing code against it — even ones you think you already know. Your training data may be stale, and APIs change. Prefer `context7` over guessing an API surface or relying on memory; a quick docs lookup prevents wrong imports, removed functions, and outdated patterns.
 - Summarize tool output for user (they don't see it)
 - Never use `curl` through the bash tool it is not allowed use the fetch tool instead.
 - Only use the tools you know exist.
