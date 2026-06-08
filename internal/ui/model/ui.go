@@ -167,8 +167,9 @@ type (
 	}
 	// forkCompletedMsg is sent when a conversation fork completes.
 	forkCompletedMsg struct {
-		newSession session.Session
-		worktree   *worktree.Worktree
+		newSession  session.Session
+		worktree    *worktree.Worktree
+		prefillText string
 	}
 )
 
@@ -1003,6 +1004,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			infoText = fmt.Sprintf("Forked to session: %s (worktree: %s)", msg.newSession.Title, msg.worktree.Name)
 		}
 		cmds = append(cmds, m.loadSession(msg.newSession.ID), util.ReportInfo(infoText))
+		// Prepopulate the input bar with the fork-point message so the user
+		// can edit and re-send it.
+		if msg.prefillText != "" {
+			prevHeight := m.textarea.Height()
+			m.textarea.SetValue(msg.prefillText)
+			m.textarea.MoveToEnd()
+			cmds = append(cmds, m.updateTextareaWithPrevHeight(msg, prevHeight))
+		}
 	case dialog.ActionOpenForkDialog:
 		// Handle fork dialog action from user message key handler.
 		if cmd := m.openForkDialog(msg.SessionID, msg.MessageID); cmd != nil {
@@ -3963,8 +3972,9 @@ func (m *UI) forkConversation(sessionID, messageID, newTitle string, createWorkt
 
 		// Return a message to switch to the new session.
 		return forkCompletedMsg{
-			newSession: result.NewSession,
-			worktree:   result.Worktree,
+			newSession:  result.NewSession,
+			worktree:    result.Worktree,
+			prefillText: result.PrefillText,
 		}
 	}
 }

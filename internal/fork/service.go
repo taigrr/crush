@@ -68,6 +68,11 @@ type ForkResult struct {
 	// Worktree is the newly created worktree, if any.
 	Worktree *worktree.Worktree
 
+	// PrefillText is the text content of the fork-point message. It is NOT
+	// copied into the new session; instead the caller should prepopulate the
+	// input bar with it so the user can edit and re-send.
+	PrefillText string
+
 	// CreatedAt is when the fork was created.
 	CreatedAt time.Time
 }
@@ -155,8 +160,10 @@ func (s *service) Fork(ctx context.Context, params ForkParams) (*ForkResult, err
 		return nil, fmt.Errorf("create session: %w", err)
 	}
 
-	// Step 5: Copy messages up to and including the specified message.
-	idMapping, err := s.copyMessagesUpTo(ctx, params.SessionID, newSession.ID, params.MessageID)
+	// Step 5: Copy messages up to (but not including) the specified message.
+	// The fork-point message itself is not persisted; its text is returned
+	// as PrefillText so the UI can seed the input bar with it.
+	idMapping, prefillText, err := s.copyMessagesUpTo(ctx, params.SessionID, newSession.ID, params.MessageID)
 	if err != nil {
 		// Clean up on failure.
 		_ = s.sessions.Delete(ctx, newSession.ID)
@@ -187,6 +194,7 @@ func (s *service) Fork(ctx context.Context, params ForkParams) (*ForkResult, err
 	result := &ForkResult{
 		NewSession:     newSession,
 		SourceSnapshot: targetSnapshot,
+		PrefillText:    prefillText,
 		CreatedAt:      time.Now(),
 	}
 
@@ -226,19 +234,29 @@ func (s *service) GetForkHistory(ctx context.Context, snapshotID string) ([]sess
 	return nil, nil
 }
 
-// copyMessagesUpTo copies all messages from source session to target session,
-// up to and including the specified message. Returns a map of old message IDs
-// to new message IDs for updating references like SummaryMessageID.
-func (s *service) copyMessagesUpTo(ctx context.Context, sourceSessionID, targetSessionID, upToMessageID string) (map[string]string, error) {
+// copyMessagesUpTo copies messages from source session to target session, up
+// to but NOT including the specified message. It returns a map of old message
+// IDs to new message IDs (for updating references like SummaryMessageID) and
+// the text content of the fork-point message so the caller can prefill the
+// input bar with it instead of persisting it into the fork.
+func (s *service) copyMessagesUpTo(ctx context.Context, sourceSessionID, targetSessionID, upToMessageID string) (map[string]string, string, error) {
 	msgs, err := s.messages.List(ctx, sourceSessionID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Map old message IDs to new message IDs.
 	idMapping := make(map[string]string)
+	var prefillText string
 
 	for _, msg := range msgs {
+		// Stop before copying the target message. Its text is returned as
+		// prefill so the user can edit and re-send it in the new session.
+		if msg.ID == upToMessageID {
+			prefillText = msg.Content().String()
+			break
+		}
+
 		// Create a copy of the message in the new session, preserving all fields.
 		// Use CreateSilent to avoid publishing events - the UI will reload
 		// messages from DB when loading the forked session.
@@ -250,16 +268,11 @@ func (s *service) copyMessagesUpTo(ctx context.Context, sourceSessionID, targetS
 			IsSummaryMessage: msg.IsSummaryMessage,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("copy message %s: %w", msg.ID, err)
+			return nil, "", fmt.Errorf("copy message %s: %w", msg.ID, err)
 		}
 
 		idMapping[msg.ID] = newMsg.ID
-
-		// Stop after copying the target message.
-		if msg.ID == upToMessageID {
-			break
-		}
 	}
 
-	return idMapping, nil
+	return idMapping, prefillText, nil
 }
