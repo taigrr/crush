@@ -747,6 +747,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case pubsub.CreatedEvent:
 			cmds = append(cmds, m.appendSessionMessage(msg.Payload))
+			// Refresh prompt history once the user/shell message is
+			// actually persisted. Reloading here (rather than concurrently
+			// with the send) avoids a race where ListUserMessages reads the
+			// DB before the new message lands, which made the latest entry
+			// show up only after the next submission.
+			if msg.Payload.Role == message.User || msg.Payload.Role == message.Shell {
+				cmds = append(cmds, m.loadPromptHistory())
+			}
 		case pubsub.UpdatedEvent:
 			cmds = append(cmds, m.updateSessionMessage(msg.Payload))
 		case pubsub.DeletedEvent:
@@ -2214,7 +2222,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if command, ok := strings.CutPrefix(value, "!"); ok && command != "" {
 					m.randomizePlaceholders()
 					m.historyReset()
-					return tea.Batch(m.runShellCommand(command), m.loadPromptHistory())
+					return m.runShellCommand(command)
 				}
 
 				attachments := m.attachments.List()
@@ -2226,7 +2234,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				m.randomizePlaceholders()
 				m.historyReset()
 
-				return tea.Batch(m.sendMessage(value, attachments...), m.loadPromptHistory())
+				return m.sendMessage(value, attachments...)
 			case key.Matches(msg, m.keyMap.Chat.NewSession):
 				if !m.hasSession() {
 					break
