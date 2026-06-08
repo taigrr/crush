@@ -87,7 +87,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Models: key.NewBinding(
 			key.WithKeys("ctrl+m", "ctrl+l"),
-			key.WithHelp("ctrl+l", "models"),
+			key.WithHelp("ctrl+m", "models"),
 		),
 		Suspend: key.NewBinding(
 			key.WithKeys("ctrl+z"),
