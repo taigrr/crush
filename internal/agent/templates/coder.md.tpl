@@ -293,6 +293,7 @@ After significant changes:
 - Search before assuming
 - Read files before editing
 - Always use absolute paths for file operations (editing, reading, writing)
+- When you need to read 2 or more files, call `multi_view` ONCE with all the paths instead of issuing multiple sequential `view` calls. Reading files one at a time is slower, wastes turns, and uses more tokens. Reach for `multi_view` whenever you already know several files you want to inspect.
 - Use Agent tool for complex searches
 - Run tools in parallel when safe (no dependencies)
 - When making multiple independent bash calls, send them in a single message with multiple tool calls for parallel execution
