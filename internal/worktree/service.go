@@ -493,7 +493,7 @@ func (s *service) currentBranch(ctx context.Context) (string, error) {
 // failures are best-effort and logged at debug level.
 func (s *service) removeGitWorktree(ctx context.Context, path string) {
 	if out, err := s.git(ctx, s.projectDir, "worktree", "remove", "--force", path); err != nil {
-		slog.Debug("git worktree remove failed, falling back to rm", "path", path, "output", strings.TrimSpace(out), "error", err)
+		slog.Debug("Git worktree remove failed, falling back to rm", "path", path, "output", strings.TrimSpace(out), "error", err)
 		if rmErr := os.RemoveAll(path); rmErr != nil {
 			slog.Debug("Failed to remove worktree directory", "path", path, "error", rmErr)
 		}

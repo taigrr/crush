@@ -48,14 +48,8 @@ func NewShowLocationsTool() fantasy.AgentTool {
 				// Neovim's picker expects 1-indexed line/column. The model
 				// often omits these (defaulting to 0), so clamp to 1 to keep
 				// the entries valid and avoid nil/zero rendering errors.
-				line := it.Line
-				if line < 1 {
-					line = 1
-				}
-				col := it.Col
-				if col < 1 {
-					col = 1
-				}
+				line := max(it.Line, 1)
+				col := max(it.Col, 1)
 				items[i] = editor.Location{
 					Filename: it.Filename,
 					Line:     line,

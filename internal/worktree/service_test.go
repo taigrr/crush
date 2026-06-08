@@ -22,7 +22,7 @@ func newGitProject(t *testing.T) string {
 	dir := t.TempDir()
 
 	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(t.Context(), "git", args...)
 		cmd.Dir = dir
 		cmd.Env = append(
 			os.Environ(),
@@ -46,7 +46,7 @@ func newWorktreeService(t *testing.T, projectDir string) Service {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
-	_, err = conn.Exec(`
+	_, err = conn.ExecContext(t.Context(), `
 		CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY);
 		CREATE TABLE IF NOT EXISTS worktrees (
 			id TEXT PRIMARY KEY,
@@ -59,7 +59,7 @@ func newWorktreeService(t *testing.T, projectDir string) Service {
 		);
 	`)
 	require.NoError(t, err)
-	_, err = conn.Exec("INSERT INTO sessions (id) VALUES ('s1')")
+	_, err = conn.ExecContext(t.Context(), "INSERT INTO sessions (id) VALUES ('s1')")
 	require.NoError(t, err)
 
 	svc, err := NewService(ServiceConfig{Enabled: true, ProjectDir: projectDir}, db.New(conn), conn, nil)
@@ -89,12 +89,12 @@ func TestService_CreateUsesRealGitWorktree(t *testing.T) {
 	require.NoError(t, err)
 
 	// git worktree list (from the project) includes the new path.
-	out, err := exec.Command("git", "-C", projectDir, "worktree", "list").CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), "git", "-C", projectDir, "worktree", "list").CombinedOutput()
 	require.NoError(t, err)
 	require.Contains(t, string(out), wt.Path)
 
 	// A branch named after the worktree now exists.
-	branchOut, err := exec.Command("git", "-C", projectDir, "branch", "--list", "feature-x").CombinedOutput()
+	branchOut, err := exec.CommandContext(t.Context(), "git", "-C", projectDir, "branch", "--list", "feature-x").CombinedOutput()
 	require.NoError(t, err)
 	require.Contains(t, string(branchOut), "feature-x")
 }
@@ -121,7 +121,7 @@ func TestService_DeleteRemovesGitWorktree(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "worktree dir should be removed")
 
 	// git no longer tracks it.
-	out, err := exec.Command("git", "-C", projectDir, "worktree", "list").CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), "git", "-C", projectDir, "worktree", "list").CombinedOutput()
 	require.NoError(t, err)
 	require.NotContains(t, string(out), wt.Path)
 }
@@ -139,7 +139,7 @@ func TestService_MergeBringsWorktreeCommitIntoTarget(t *testing.T) {
 	newFile := filepath.Join(wt.Path, "feature.txt")
 	require.NoError(t, os.WriteFile(newFile, []byte("from worktree\n"), 0o644))
 	gitWT := func(args ...string) {
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(t.Context(), "git", args...)
 		cmd.Dir = wt.Path
 		cmd.Env = append(
 			os.Environ(),
@@ -160,7 +160,7 @@ func TestService_MergeBringsWorktreeCommitIntoTarget(t *testing.T) {
 	_, err = os.Stat(filepath.Join(projectDir, "feature.txt"))
 	require.NoError(t, err, "merge must bring the worktree commit into the main checkout")
 
-	branch, err := exec.Command("git", "-C", projectDir, "rev-parse", "--abbrev-ref", "HEAD").CombinedOutput()
+	branch, err := exec.CommandContext(t.Context(), "git", "-C", projectDir, "rev-parse", "--abbrev-ref", "HEAD").CombinedOutput()
 	require.NoError(t, err)
 	require.Equal(t, "main", string(trimNL(branch)))
 }

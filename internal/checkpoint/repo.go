@@ -348,8 +348,8 @@ func (r *Repo) ListSessionSnapshots(sessionID string) ([]string, error) {
 
 // GC runs garbage collection on the repository by shelling out to git gc.
 // This prunes unreachable objects and repacks the object store.
-func (r *Repo) GC() error {
-	cmd := exec.Command("git", "gc", "--prune=now", "--aggressive")
+func (r *Repo) GC(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "git", "gc", "--prune=now", "--aggressive")
 	cmd.Dir = r.gitDir
 	cmd.Env = append(os.Environ(), "GIT_DIR="+r.gitDir)
 	if output, err := cmd.CombinedOutput(); err != nil {

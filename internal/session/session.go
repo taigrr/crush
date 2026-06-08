@@ -313,7 +313,7 @@ func (s *service) clearEstimatedUsageState(sessionID string) {
 	s.estimatedUsageMu.Unlock()
 }
 
-func (s service) fromDBItem(item db.Session) Session {
+func (s *service) fromDBItem(item db.Session) Session {
 	todos, err := unmarshalTodos(item.Todos.String)
 	if err != nil {
 		slog.Error("Failed to unmarshal todos", "session_id", item.ID, "error", err)

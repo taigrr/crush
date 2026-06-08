@@ -34,7 +34,7 @@ func (f *fakeBridge) ShowLocations(_ context.Context, title string, items []edit
 }
 func (f *fakeBridge) FlashEdit(context.Context, string, int, int) error { return nil }
 func (f *fakeBridge) NotifyFileChanged(context.Context, string) error   { return nil }
-func (f *fakeBridge) SetWorkingDir(context.Context, string) error          { return nil }
+func (f *fakeBridge) SetWorkingDir(context.Context, string) error       { return nil }
 func (f *fakeBridge) Close() error                                      { return nil }
 
 func TestEditorContextTool(t *testing.T) {

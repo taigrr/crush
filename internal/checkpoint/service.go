@@ -489,7 +489,7 @@ func (s *service) GC(ctx context.Context) (int64, error) {
 	}
 
 	// Run git gc.
-	if err := s.repo.GC(); err != nil {
+	if err := s.repo.GC(ctx); err != nil {
 		return 0, fmt.Errorf("run GC: %w", err)
 	}
 

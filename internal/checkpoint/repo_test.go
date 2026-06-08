@@ -555,6 +555,6 @@ func TestGC(t *testing.T) {
 	repo, err := checkpoint.InitRepo(projectDir, nil)
 	require.NoError(t, err)
 
-	err = repo.GC()
+	err = repo.GC(t.Context())
 	require.NoError(t, err)
 }

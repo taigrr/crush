@@ -42,26 +42,31 @@ func TestCoordinatorWorkingDir(t *testing.T) {
 	}
 
 	t.Run("nil worktree service falls back to root", func(t *testing.T) {
+		t.Parallel()
 		c := &coordinator{cfg: cfg}
 		require.Equal(t, root, c.workingDir(ctxWithSession("s1")))
 	})
 
 	t.Run("disabled worktree service falls back to root", func(t *testing.T) {
+		t.Parallel()
 		c := &coordinator{cfg: cfg, worktrees: &fakeWorktrees{disable: true, enabled: "/wt"}}
 		require.Equal(t, root, c.workingDir(ctxWithSession("s1")))
 	})
 
 	t.Run("no session in context falls back to root", func(t *testing.T) {
+		t.Parallel()
 		c := &coordinator{cfg: cfg, worktrees: &fakeWorktrees{enabled: "/wt/feature"}}
 		require.Equal(t, root, c.workingDir(t.Context()))
 	})
 
 	t.Run("no active worktree falls back to root", func(t *testing.T) {
+		t.Parallel()
 		c := &coordinator{cfg: cfg, worktrees: &fakeWorktrees{}}
 		require.Equal(t, root, c.workingDir(ctxWithSession("s1")))
 	})
 
 	t.Run("active worktree path used for the session", func(t *testing.T) {
+		t.Parallel()
 		c := &coordinator{cfg: cfg, worktrees: &fakeWorktrees{enabled: "/wt/feature"}}
 		require.Equal(t, "/wt/feature", c.workingDir(ctxWithSession("s1")))
 	})

@@ -64,7 +64,6 @@ func Initialized() bool {
 
 func RecoverPanic(name string, cleanup func()) {
 	if r := recover(); r != nil {
-
 		// Create a timestamped panic log file
 		timestamp := time.Now().Format("20060102-150405")
 		filename := fmt.Sprintf("crush-panic-%s-%s.log", name, timestamp)

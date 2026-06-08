@@ -133,13 +133,13 @@ func (b *Backend) MergeWorktree(ctx context.Context, workspaceID, worktreeID, ta
 }
 
 // ListGitBranches returns all git branches in the workspace.
-func (b *Backend) ListGitBranches(_ context.Context, workspaceID string) ([]string, error) {
+func (b *Backend) ListGitBranches(ctx context.Context, workspaceID string) ([]string, error) {
 	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	// Run git branch to list all branches.
-	cmd := exec.Command("git", "branch", "--format=%(refname:short)")
+	cmd := exec.CommandContext(ctx, "git", "branch", "--format=%(refname:short)")
 	cmd.Dir = ws.Cfg.WorkingDir()
 	out, err := cmd.Output()
 	if err != nil {

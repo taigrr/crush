@@ -48,8 +48,8 @@ func TestFormatDocumentSymbols(t *testing.T) {
 		{
 			name: "flat list of top-level symbols",
 			results: []protocol.DocumentSymbolResult{
-				ptrSym(mkSym("Foo", protocol.Function, 9)),
-				ptrSym(mkSym("Bar", protocol.Class, 19)),
+				new(mkSym("Foo", protocol.Function, 9)),
+				new(mkSym("Bar", protocol.Class, 19)),
 			},
 			wantSubs: []string{
 				"2 top-level symbol",
@@ -60,7 +60,7 @@ func TestFormatDocumentSymbols(t *testing.T) {
 		{
 			name: "hierarchical class with methods indents children",
 			results: []protocol.DocumentSymbolResult{
-				ptrSym(mkSym(
+				new(mkSym(
 					"Service", protocol.Class, 4,
 					mkSym("Run", protocol.Method, 5),
 					mkSym("Stop", protocol.Method, 12),
@@ -101,4 +101,6 @@ func TestFormatDocumentSymbols(t *testing.T) {
 
 // ptrSym is a tiny helper that returns &v so we can place DocumentSymbols
 // directly into a []DocumentSymbolResult literal.
-func ptrSym(s protocol.DocumentSymbol) *protocol.DocumentSymbol { return &s }
+//
+//go:fix inline
+func ptrSym(s protocol.DocumentSymbol) *protocol.DocumentSymbol { return new(s) }

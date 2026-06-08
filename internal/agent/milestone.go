@@ -97,10 +97,7 @@ func (a *sessionAgent) backfillMilestones(ctx context.Context, sessionID string,
 	for turn := milestoneInterval; turn <= totalTurns; turn += milestoneInterval {
 		// Build prompt from messages in this chunk.
 		chunkStart := turn - milestoneInterval
-		chunkEnd := turn
-		if chunkEnd > len(msgs) {
-			chunkEnd = len(msgs)
-		}
+		chunkEnd := min(turn, len(msgs))
 		chunk := msgs[chunkStart:chunkEnd]
 
 		prompt := buildBackfillPrompt(chunk, priorSummary, turn)

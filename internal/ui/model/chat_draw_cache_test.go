@@ -296,10 +296,10 @@ func TestRenderedBounds_MatchesPrintStringTallyForZWJ(t *testing.T) {
 		// Tally width: rightmost non-empty cell + its width, per row.
 		gotW := 0
 		gotH := 0
-		for y := 0; y < 4; y++ {
+		for y := range 4 {
 			rowW := 0
 			rowHasContent := false
-			for x := 0; x < 64; x++ {
+			for x := range 64 {
 				cell := scr.CellAt(x, y)
 				if cell == nil || cell.IsZero() ||
 					cell.Content == " " && cell.Width == 1 &&

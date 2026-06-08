@@ -51,7 +51,7 @@ func (r *recordingBridge) NotifyFileChanged(_ context.Context, path string) erro
 }
 
 func (r *recordingBridge) SetWorkingDir(context.Context, string) error { return nil }
-func (r *recordingBridge) Close() error { return nil }
+func (r *recordingBridge) Close() error                                { return nil }
 
 func TestNotifyEditor(t *testing.T) {
 	t.Parallel()

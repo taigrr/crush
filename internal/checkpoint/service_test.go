@@ -28,7 +28,7 @@ func TestServiceCreateSnapshot(t *testing.T) {
 	defer conn.Close()
 
 	// Run migrations
-	_, err = conn.Exec(`
+	_, err = conn.ExecContext(t.Context(), `
 		CREATE TABLE IF NOT EXISTS sessions (
 			id TEXT PRIMARY KEY
 		);
@@ -51,9 +51,9 @@ func TestServiceCreateSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	// Insert test session and message
-	_, err = conn.Exec("INSERT INTO sessions (id) VALUES ('test-session')")
+	_, err = conn.ExecContext(t.Context(), "INSERT INTO sessions (id) VALUES ('test-session')")
 	require.NoError(t, err)
-	_, err = conn.Exec("INSERT INTO messages (id, session_id) VALUES ('test-msg', 'test-session')")
+	_, err = conn.ExecContext(t.Context(), "INSERT INTO messages (id, session_id) VALUES ('test-msg', 'test-session')")
 	require.NoError(t, err)
 
 	q := db.New(conn)

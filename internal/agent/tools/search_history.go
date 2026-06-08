@@ -142,14 +142,8 @@ func messageBody(m message.Message) string {
 // snippetAround extracts a window around the match index, with leading
 // and trailing ellipsis when we trimmed.
 func snippetAround(text string, idx, queryLen int) string {
-	start := idx - historySnippetWindow
-	if start < 0 {
-		start = 0
-	}
-	end := idx + queryLen + historySnippetWindow
-	if end > len(text) {
-		end = len(text)
-	}
+	start := max(idx-historySnippetWindow, 0)
+	end := min(idx+queryLen+historySnippetWindow, len(text))
 	prefix := ""
 	suffix := ""
 	if start > 0 {

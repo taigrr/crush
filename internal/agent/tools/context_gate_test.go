@@ -57,5 +57,5 @@ func (stubBridge) Context(context.Context) (editor.EditorContext, error) {
 func (stubBridge) ShowLocations(context.Context, string, []editor.Location) error { return nil }
 func (stubBridge) FlashEdit(context.Context, string, int, int) error              { return nil }
 func (stubBridge) NotifyFileChanged(context.Context, string) error                { return nil }
-func (stubBridge) SetWorkingDir(context.Context, string) error                   { return nil }
+func (stubBridge) SetWorkingDir(context.Context, string) error                    { return nil }
 func (stubBridge) Close() error                                                   { return nil }
