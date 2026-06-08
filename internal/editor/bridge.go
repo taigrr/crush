@@ -50,7 +50,7 @@ type EditorContext struct {
 type Location struct {
 	Filename string `json:"filename"`
 	Line     int    `json:"lnum"`
-	Col      int    `json:"col,omitempty"`
+	Col      int    `json:"col"`
 	Text     string `json:"text"`
 	Note     string `json:"note"`
 	Type     string `json:"type,omitempty"`
