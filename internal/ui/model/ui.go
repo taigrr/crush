@@ -2628,7 +2628,7 @@ func (m *UI) ShortHelp() []key.Binding {
 			cancelBinding := k.Chat.Cancel
 			if m.isCanceling {
 				cancelBinding.SetHelp("esc", "press again to cancel")
-			} else if m.com.Workspace.AgentQueuedPrompts(m.session.ID) > 0 {
+			} else if m.pillsExpanded && m.com.Workspace.AgentQueuedPrompts(m.session.ID) > 0 {
 				cancelBinding.SetHelp("esc", "clear queue")
 			}
 			binds = append(binds, cancelBinding)
@@ -2713,7 +2713,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 			cancelBinding := k.Chat.Cancel
 			if m.isCanceling {
 				cancelBinding.SetHelp("esc", "press again to cancel")
-			} else if m.com.Workspace.AgentQueuedPrompts(m.session.ID) > 0 {
+			} else if m.pillsExpanded && m.com.Workspace.AgentQueuedPrompts(m.session.ID) > 0 {
 				cancelBinding.SetHelp("esc", "clear queue")
 			}
 			binds = append(binds, []key.Binding{cancelBinding})
@@ -3616,8 +3616,10 @@ func (m *UI) cancelAgent() tea.Cmd {
 		return nil
 	}
 
-	// Check if there are queued prompts - if so, clear the queue.
-	if m.com.Workspace.AgentQueuedPrompts(m.session.ID) > 0 {
+	// Clear queued prompts only when the queue pills are expanded. When
+	// collapsed, Esc must not discard the queue; it falls through to the
+	// cancel flow instead.
+	if m.pillsExpanded && m.com.Workspace.AgentQueuedPrompts(m.session.ID) > 0 {
 		m.com.Workspace.AgentClearQueue(m.session.ID)
 		return nil
 	}
