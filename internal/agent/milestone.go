@@ -53,10 +53,7 @@ func (a *sessionAgent) generateMilestones(ctx context.Context, sessionID string,
 	for _, turn := range milestoneBoundaries(afterTurn, totalTurns) {
 		// Messages covered by this boundary: the milestoneInterval-sized
 		// window ending at this turn, clamped to the available messages.
-		chunkStart := int(turn) - milestoneInterval
-		if chunkStart < 0 {
-			chunkStart = 0
-		}
+		chunkStart := max(int(turn)-milestoneInterval, 0)
 		chunkEnd := min(int(turn), len(msgs))
 		if chunkStart > chunkEnd {
 			chunkStart = chunkEnd
