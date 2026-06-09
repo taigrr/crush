@@ -665,7 +665,7 @@ func (l *List) ScrollToSelected() {
 
 	startIdx, endIdx := l.VisibleItemIndices()
 	if l.selectedIdx < startIdx {
-		// Selected item is above the visible range
+		// Selected item is above the visible range.
 		l.offsetIdx = l.selectedIdx
 		l.offsetLine = 0
 	} else if l.selectedIdx > endIdx {
@@ -688,6 +688,27 @@ func (l *List) ScrollToSelected() {
 			// All items fit in the viewport
 			l.ScrollToTop()
 		}
+	}
+	// Always clamp afterwards so a previously-pinned offset (e.g. from a
+	// scroll computed when the list height was zero) gets corrected once
+	// the real size is known. This is what keeps the picker viewport full
+	// when an initial selection was at the bottom of a not-yet-sized list.
+	l.clampOffsetToFillViewport()
+}
+
+// clampOffsetToFillViewport pulls the scroll offset back if the current
+// position would leave whitespace at the bottom of the viewport while there
+// are earlier items that could fill it. Together with the regular up/down
+// branches in ScrollToSelected this guarantees the viewport is always full
+// whenever the list has enough content.
+func (l *List) clampOffsetToFillViewport() {
+	if len(l.items) == 0 || l.height <= 0 {
+		return
+	}
+	lastIdx, lastLine, _ := l.lastOffsetItem()
+	if l.offsetIdx > lastIdx || (l.offsetIdx == lastIdx && l.offsetLine > lastLine) {
+		l.offsetIdx = lastIdx
+		l.offsetLine = lastLine
 	}
 }
 

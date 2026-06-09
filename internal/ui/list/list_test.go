@@ -431,6 +431,40 @@ func (m *multiLineItem) Render(_ int) string {
 
 func (m *multiLineItem) Finished() bool { return true }
 
+// TestList_ScrollToSelected_FillsViewport guards against a bug where
+// scrolling up to a selected item put it at the top of the viewport even
+// when later items would have left blank space at the bottom. The picker
+// dialogs (theme, milestones, …) preselect the "current" item, so this
+// regressed as: only items from the selection onward were visible. The
+// fix clamps the offset so the viewport stays full whenever there's enough
+// content above to fill it.
+func TestList_ScrollToSelected_FillsViewport(t *testing.T) {
+	t.Parallel()
+
+	// Reproduce the picker flow: SetItems + SetSelected + ScrollToSelected
+	// run at dialog construction time when height is still 0, then
+	// SetSize + ScrollToSelected run inside Draw on every frame. Before the
+	// fix the construction call pinned offsetIdx to the selection and the
+	// later call couldn't recover because the (broken) viewport still
+	// contained the selection — so half the list stayed off-screen.
+	items := make([]Item, 9)
+	for i := range items {
+		items[i] = newMultiLineItem("item"+strconv.Itoa(i), 1)
+	}
+
+	l := NewList(items...)
+	l.SetSelected(5)
+	l.ScrollToSelected() // height==0; this is the trap.
+	l.SetSize(40, 8)
+	l.ScrollToSelected() // first frame; must rescue the viewport.
+
+	startIdx, endIdx := l.VisibleItemIndices()
+	require.LessOrEqual(t, startIdx, 1, "viewport should start no later than item 1 to fit 8 items")
+	require.GreaterOrEqual(t, endIdx, 7, "viewport should reach at least item 7 (8 items visible)")
+	require.GreaterOrEqual(t, endIdx-startIdx+1, 8, "viewport must be full (8 items) for a 9-item list")
+	require.True(t, 5 >= startIdx && 5 <= endIdx, "the selected item must remain in view")
+}
+
 // expectedRender computes what list.Render *should* produce from
 // first principles given the item heights, viewport, offsetIdx,
 // offsetLine, gap, and reverse settings. It mirrors the pre-F7
