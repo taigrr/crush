@@ -81,6 +81,34 @@ type quickStyleOpts struct {
 	syntaxNameClass       color.Color
 	syntaxNameDecorator   color.Color
 	syntaxLiteralString   color.Color
+
+	// Brand surfaces. All optional; when nil they cascade to the brand
+	// pair below. This lets community themes give the header / logo /
+	// gradients distinct colors without forcing every theme to specify them.
+	//
+	//   headerCharm     → "Charm™" label, Logo.Charm/SmallCharm/TitleColorA
+	//                      Default: secondary.
+	//   headerDiagonals → ╱ separators, Logo.Field/Version/SmallDiagonals/TitleColorB
+	//                      Default: primary.
+	//   logoGradFrom/To → header logo wordmark gradient + Logo.SmallGrad*
+	//                      Default: secondary → primary.
+	//   workingGradFrom/To → animated "thinking" indicator gradient
+	//                         Default: primary → secondary.
+	headerCharm     color.Color
+	headerDiagonals color.Color
+	logoGradFrom    color.Color
+	logoGradTo      color.Color
+	workingGradFrom color.Color
+	workingGradTo   color.Color
+}
+
+// orColor returns a if non-nil, otherwise b. Used to cascade optional brand
+// tokens to their default brand pair.
+func orColor(a, b color.Color) color.Color {
+	if a == nil {
+		return b
+	}
+	return a
 }
 
 // quickStyle builds the default Styles (that is, the default theme, Charmtone
@@ -96,11 +124,20 @@ func quickStyle(o quickStyleOpts) Styles {
 		s      Styles
 	)
 
+	// Cascade optional brand-surface tokens to the brand pair so themes
+	// that don't override stay visually identical.
+	headerCharm := orColor(o.headerCharm, o.secondary)
+	headerDiagonals := orColor(o.headerDiagonals, o.primary)
+	logoGradFrom := orColor(o.logoGradFrom, o.secondary)
+	logoGradTo := orColor(o.logoGradTo, o.primary)
+	workingGradFrom := orColor(o.workingGradFrom, o.primary)
+	workingGradTo := orColor(o.workingGradTo, o.secondary)
+
 	s.Background = o.bgBase
 
 	// Populate color fields
-	s.WorkingGradFromColor = o.primary
-	s.WorkingGradToColor = o.secondary
+	s.WorkingGradFromColor = workingGradFrom
+	s.WorkingGradToColor = workingGradTo
 	s.WorkingLabelColor = o.fgBase
 
 	s.TextInput = textinput.Styles{
@@ -601,8 +638,8 @@ func quickStyle(o quickStyleOpts) Styles {
 	// borders
 	s.ToolCallSuccess = lipgloss.NewStyle().Foreground(o.success).SetString(ToolSuccess)
 
-	s.Header.Charm = base.Foreground(o.secondary)
-	s.Header.Diagonals = base.Foreground(o.primary)
+	s.Header.Charm = base.Foreground(headerCharm)
+	s.Header.Diagonals = base.Foreground(headerDiagonals)
 	s.Header.Percentage = muted
 	s.Header.Hypercredit = base.Foreground(o.hypercredit)
 	s.Header.Keystroke = muted
@@ -611,8 +648,8 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.Header.Separator = subtle
 	s.Header.Wrapper = lipgloss.NewStyle().Foreground(o.fgBase)
 	s.Header.LogoGradCanvas = lipgloss.NewStyle()
-	s.Header.LogoGradFromColor = o.secondary
-	s.Header.LogoGradToColor = o.primary
+	s.Header.LogoGradFromColor = logoGradFrom
+	s.Header.LogoGradToColor = logoGradTo
 
 	s.CompactDetails.Title = base
 	s.CompactDetails.View = base.Padding(0, 1, 1, 1).Border(lipgloss.RoundedBorder()).BorderForeground(o.primary)
@@ -731,16 +768,16 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.Radio.Label = lipgloss.NewStyle().Foreground(o.fgSubtle)
 
 	// Logo
-	s.Logo.FieldColor = o.primary
-	s.Logo.TitleColorA = o.secondary
-	s.Logo.TitleColorB = o.primary
-	s.Logo.CharmColor = o.secondary
-	s.Logo.VersionColor = o.primary
-	s.Logo.SmallCharm = lipgloss.NewStyle().Foreground(o.secondary)
-	s.Logo.SmallDiagonals = lipgloss.NewStyle().Foreground(o.primary)
+	s.Logo.FieldColor = headerDiagonals
+	s.Logo.TitleColorA = headerCharm
+	s.Logo.TitleColorB = headerDiagonals
+	s.Logo.CharmColor = headerCharm
+	s.Logo.VersionColor = headerDiagonals
+	s.Logo.SmallCharm = lipgloss.NewStyle().Foreground(headerCharm)
+	s.Logo.SmallDiagonals = lipgloss.NewStyle().Foreground(headerDiagonals)
 	s.Logo.GradCanvas = lipgloss.NewStyle()
-	s.Logo.SmallGradFromColor = o.secondary
-	s.Logo.SmallGradToColor = o.primary
+	s.Logo.SmallGradFromColor = logoGradFrom
+	s.Logo.SmallGradToColor = logoGradTo
 
 	// Section
 	s.Section.Title = subtle
