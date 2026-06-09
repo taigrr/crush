@@ -192,7 +192,8 @@ reviewed.
     "tui": {
       "compact_mode": false,
       "diff_mode": "unified",
-      "transparent": false
+      "transparent": false,
+      "theme": "charmtone"
     },
     "auto_lsp": true,
     "debug": false,
@@ -210,6 +211,66 @@ reviewed.
 > `.agents/skills`, `.crush/skills`, `.claude/skills`, `.cursor/skills`
 
 Other options: `context_paths`, `progress`, `disable_notifications`, `disable_auto_summarize`, `disable_metrics`, `disable_provider_auto_update`, `disable_default_providers`, `data_directory`, `initialize_as`.
+
+## Themes
+
+`options.tui.theme` selects the UI color theme by name. Because local config
+overrides global, a theme can be set per-workspace (set it in a project
+`crush.json` to override the global one).
+
+Builtin themes: `charmtone` (default), `hypercrush`.
+
+User themes are Lua files in `$XDG_CONFIG_HOME/crush/themes/*.lua` (typically
+`~/.config/crush/themes/`). Each file returns a table with a `name`, an
+optional `is_dark` boolean (default `true`), and hex color fields. Omitted
+fields fall back to the default palette, so partial themes work. A theme
+whose `name` collides with a builtin is ignored.
+
+```lua
+-- ~/.config/crush/themes/midnight.lua
+return {
+  name = "Midnight",
+  is_dark = true,
+
+  -- brand
+  primary = "#7c6f9f",
+  secondary = "#f5e0dc",
+  accent = "#a6e3a1",
+  keyword = "#f38ba8",
+
+  -- foreground ramp
+  fg_base = "#cdd6f4",
+  fg_subtle = "#bac2de",
+  fg_more_subtle = "#a6adc8",
+  fg_most_subtle = "#6c7086",
+  on_primary = "#1e1e2e",
+
+  -- background ramp
+  bg_base = "#1e1e2e",
+  bg_least_visible = "#181825",
+  bg_less_visible = "#313244",
+  bg_most_visible = "#45475a",
+  separator = "#313244",
+
+  -- statuses
+  destructive = "#eba0ac",
+  error = "#f38ba8",
+  warning = "#fab387",
+  warning_subtle = "#f9e2af",
+  denied = "#eba0ac",
+  busy = "#f9e2af",
+  info = "#89b4fa",
+  info_more_subtle = "#74c7ec",
+  info_most_subtle = "#585b70",
+  success = "#a6e3a1",
+  success_more_subtle = "#94e2d5",
+  success_most_subtle = "#40a02b",
+}
+```
+
+Select a theme from the command palette ("Select Theme"). The picker shows a
+live preview as you move the selection; `enter` confirms and persists it,
+`esc` cancels and restores the previous theme.
 
 ## Snapshots
 
