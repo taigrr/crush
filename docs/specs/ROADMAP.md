@@ -318,29 +318,33 @@ progress bar in the fork UI. Pairs naturally with item 5.
 **Goal.** Replace the "agent busy" error when changing the model or reasoning
 mode mid-run with queuing: apply the change before the next user message.
 
-**Fix (shipped).** In `internal/ui/model/ui.go`, the busy branches of
-`ActionSelectModel` (`handleSelectModel`), `ActionSelectReasoningEffort`,
-and `ActionSelectContextMode` now call `queueSettingChange` instead of
-warning. Mechanics:
-- The requested action (the original dialog msg) is appended to
-  `m.pendingSettings`, the dialog is closed, and the user sees
-  "<change> queued; will apply when the agent finishes".
-- Note on the mutex: the intent was to block a goroutine on the agent's busy
-  mutex and wake when it unlocks. That mutex (`sessionMu` in
-  `internal/agent`) is **not reachable from the UI** — `AgentIsBusy()` is an
-  RPC (`client.GetAgentInfo`) and in client/server mode the agent runs in a
-  different process. The event-driven equivalent is used instead: the UI
-  already receives `notify.TypeAgentFinished` when a turn completes (that
-  event *is* the "mutex unlocked" signal, delivered over the existing
-  pubsub/RPC stream). `applyPendingSettings` is invoked from that handler —
-  no polling, no extra goroutine.
-- `applyPendingSettings` re-dispatches each queued action verbatim. Because
-  it flows back through the same handler, the normal confirmation
-  ("Large model changed to X", "Reasoning effort set to Y") fires naturally
-  at apply time. If the agent became busy again in between, the
-  re-dispatched action simply re-queues (self-healing).
+**Fix (shipped).** The wait lives **server-side**, on the real agent
+lifecycle — the UI just fires the RPC and shows a "queued" message.
+- `sessionAgent` gained an event-driven idle signal: `clearActiveRequest`
+  (called from every place that releases an active request) closes-and-
+  replaces an `idleCh`, and `WaitForIdle(ctx)` blocks on it until
+  `IsBusy()` is false (no polling). Covered by `internal/agent/idle_test.go`
+  (wake-on-clear, context cancel, concurrent waiters, all under `-race`).
+- `coordinator.UpdateModelsWhenIdle(ctx)` applies immediately when idle;
+  when busy it spawns a goroutine that `WaitForIdle`s (detached context,
+  bounded 30m) then applies — returning immediately so the RPC never hangs.
+- `app.UpdateAgentModel` now calls `UpdateModelsWhenIdle`, so the existing
+  `UpdateAgent` RPC path (`client.UpdateAgent` → `backend.UpdateAgent` →
+  `app.UpdateAgentModel`) defers on the server where the agent's mutex
+  actually lives.
+- UI handlers (`handleSelectModel`, `ActionSelectReasoningEffort`,
+  `ActionSelectContextMode`) no longer reject when busy: they write config +
+  fire the RPC and, if `isAgentBusy()`, show "<change> queued; applies when
+  the agent finishes". No UI-side polling or pending-action queue.
 
-**Files.** `internal/ui/model/ui.go`.
+Note: an earlier attempt queued on the UI side (polling `AgentIsBusy`); that
+was replaced — the UI can't reach the agent's mutex across the client/server
+RPC boundary, so the wait belongs on the server.
+
+**Files.** `internal/agent/agent.go`, `internal/agent/coordinator.go`,
+`internal/agent/idle_test.go`, `internal/app/app.go`,
+`internal/ui/model/ui.go` (plus test-mock updates for the new interface
+method).
 
 ---
 
