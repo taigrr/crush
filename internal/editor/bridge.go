@@ -48,12 +48,12 @@ type EditorContext struct {
 
 // Location is one entry rendered by Bridge.ShowLocations.
 type Location struct {
-	Filename string `json:"filename"`
-	Line     int    `json:"lnum"`
-	Col      int    `json:"col"`
-	Text     string `json:"text"`
-	Note     string `json:"note"`
-	Type     string `json:"type,omitempty"`
+	Filename string `json:"filename" msgpack:"filename"`
+	Line     int    `json:"lnum"     msgpack:"lnum"`
+	Col      int    `json:"col"      msgpack:"col"`
+	Text     string `json:"text"     msgpack:"text"`
+	Note     string `json:"note"     msgpack:"note"`
+	Type     string `json:"type,omitempty" msgpack:"type,omitempty"`
 }
 
 // Bridge is the abstraction Crush uses to talk to an external editor.
