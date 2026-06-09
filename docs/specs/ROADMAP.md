@@ -12,40 +12,55 @@ Status legend: `TODO` · `IN PROGRESS` · `BLOCKED` · `DONE`
 
 ---
 
-## 1. First-class theming support — `TODO`
+## 1. First-class theming support — `MOSTLY DONE`
 
-**Goal.** Every color used anywhere in the app is referenced through a
-semantically named theme token. No inline hex constants, no raw `charmtone.*`
-references leaking into consumers.
+**Goal.** User-selectable themes (builtins + a folder of Lua themes), live
+preview in a picker, esc-cancel / enter-confirm, and local config overriding
+global so themes can be set per-workspace. Stretch goal from the original
+spec: route every inline color through a semantic token.
 
-**Findings.**
-- A theme system already exists in `internal/ui/styles/`:
-  `themes.go` (theme definitions per provider), `quickstyle.go`
-  (`quickStyle`/`quickStyleOpts` builder, ~964 lines), `styles.go`
-  (`Styles` struct, 633 lines), `grad.go`.
-- Tokens are already semantic at the builder level (`primary`, `accent`,
-  `fgSubtle`, `bgLeastVisible`, `destructive`, `warning`, `success`, …).
-- Inline hex colors still exist in:
-  - `internal/ui/diffview/style.go`
-  - `internal/ui/styles/quickstyle.go`
-- `ThemeForProvider` only switches on `"hyper"` vs default — there is no
-  user-selectable theme yet.
+**Shipped.**
+- **Theme registry** (`internal/ui/styles/themes.go`): named builtins
+  (`charmtone`, `hypercrush`) with case-insensitive lookup, `BuiltinThemeInfos`,
+  `BuiltinThemeByName`, `IsBuiltinTheme`, and `ResolveTheme(name, dir,
+  provider)` which prefers builtins, then user Lua themes, then the
+  provider default.
+- **Lua loader** (`internal/ui/styles/lua.go`, gopher-lua): `LoadThemeFile`
+  and `LoadUserThemes` read `$config/crush/themes/*.lua`. Each file returns a
+  table with `name`, optional `is_dark`, and snake_case hex color fields;
+  omitted fields fall back to the default palette. Lua runs with no stdlib
+  (pure data, no fs/os access). Builtin-name collisions and dup names are
+  skipped; a bad theme doesn't break the picker.
+- **Config** (`options.tui.theme`, `internal/config/config.go`;
+  `GlobalThemesDir` in `load.go`). Local config overrides global, so a
+  project `crush.json` themes that workspace. Persisted via
+  `SetConfigField("options.tui.theme")` on confirm.
+- **Startup** (`internal/ui/common/common.go`): `DefaultCommon` resolves the
+  configured theme, falling back to the provider-derived default. Model
+  switches only auto-swap the provider theme when no explicit theme is set.
+- **Picker** (`internal/ui/dialog/theme.go`): filterable list of builtin +
+  user themes, "Select Theme" in the command palette.
+  `ActionPreviewTheme` applies the theme live as the selection moves;
+  `enter` (`ActionSelectTheme`) confirms + persists; `esc` restores the
+  styles captured when the picker opened.
+- **Schema** regenerated; `crush-config` skill documents the option and the
+  Lua format. Tests cover the loader and `ResolveTheme`.
 
-**Approach.**
-1. Audit every `#rrggbb` literal and every direct `charmtone.*` use outside
-   `themes.go`; route them through the `Styles` struct so consumers only
-   ever read semantic fields.
-2. Add any missing semantic tokens (e.g. diff add/remove/context,
-   syntax-highlight roles) to `quickStyleOpts` and `Styles`.
-3. Introduce a user-facing theme selection mechanism: a `theme` field in
-   `crush.json` and a registry of named themes, with `ThemeForProvider`
-   becoming a fallback rather than the only selector.
-4. Add a lint/test that fails on raw hex or `charmtone.` imports outside the
-   `styles` package.
+**Remaining (stretch — not blocking).** The inline-hex / raw `charmtone.*`
+audit from the original spec is NOT done: literals still live in
+`internal/ui/diffview/style.go` and `internal/ui/styles/quickstyle.go`, and
+there's no lint forbidding raw hex outside the `styles` package. User themes
+therefore can't yet recolor those specific surfaces. Track as a follow-up:
+1. Add missing semantic tokens (diff add/remove/context, syntax roles) to
+   `quickStyleOpts`/`Styles` and the `Palette`.
+2. Route the remaining literals through the `Styles` struct.
+3. Add a test/lint that fails on raw hex or `charmtone.` outside `styles`.
 
-**Files.** `internal/ui/styles/*`, `internal/ui/diffview/style.go`,
-`internal/config/config.go`, `internal/config/load.go`, plus consumers found
-by the audit. Update the `crush-config` skill for the new `theme` option.
+**Files.** `internal/ui/styles/{themes,lua}.go`,
+`internal/ui/dialog/{theme,actions,commands}.go`,
+`internal/ui/model/ui.go`, `internal/ui/common/common.go`,
+`internal/config/{config,load}.go`, `schema.json`,
+`internal/skills/builtin/crush-config/SKILL.md`.
 
 ---
 
