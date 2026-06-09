@@ -171,6 +171,11 @@ type (
 		worktree    *worktree.Worktree
 		prefillText string
 	}
+
+	// agentIdleForSettingsMsg is sent by the settings waiter once the agent
+	// is no longer busy, so any model/reasoning/context-mode changes that
+	// were requested mid-run can be applied.
+	agentIdleForSettingsMsg struct{}
 )
 
 // UI represents the main user interface model.
@@ -290,6 +295,13 @@ type UI struct {
 
 	// hyperCredits is the remaining Hyper credits, updated after each prompt.
 	hyperCredits *int
+
+	// pendingSettings holds model/reasoning/context-mode change actions that
+	// were requested while the agent was busy. They are applied once the
+	// agent goes idle. settingsWaiterActive guards a single in-flight waiter
+	// goroutine so we don't spawn one per queued change.
+	pendingSettings      []tea.Msg
+	settingsWaiterActive bool
 
 	// Prompt history for up/down navigation through previous messages.
 	promptHistory struct {
@@ -1001,6 +1013,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.updateTextareaWithPrevHeight(msg, prevHeight))
 	case hyperRefreshDoneMsg:
 		if cmd := m.handleSelectModel(msg.action); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case agentIdleForSettingsMsg:
+		if cmd := m.applyPendingSettings(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	case creditsUpdatedMsg:
@@ -1729,7 +1745,8 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		}
 	case dialog.ActionSelectReasoningEffort:
 		if m.isAgentBusy() {
-			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait..."))
+			m.dialog.CloseDialog(dialog.ReasoningID)
+			cmds = append(cmds, m.queueSettingChange(msg, "Reasoning effort change"))
 			break
 		}
 
@@ -1759,7 +1776,8 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		m.dialog.CloseDialog(dialog.ReasoningID)
 	case dialog.ActionSelectContextMode:
 		if m.isAgentBusy() {
-			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait..."))
+			m.dialog.CloseDialog(dialog.ContextModeID)
+			cmds = append(cmds, m.queueSettingChange(msg, "Context mode change"))
 			break
 		}
 
@@ -1921,7 +1939,8 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 
 	// we ignore dialogs with the oauth id as they need to be able to be dismissed
 	if m.isAgentBusy() && !m.dialog.ContainsDialog(dialog.OAuthID) {
-		return util.ReportWarn("Agent is busy, please wait...")
+		m.dialog.CloseDialog(dialog.ModelsID)
+		return m.queueSettingChange(msg, "Model change")
 	}
 
 	cfg := m.com.Config()
@@ -2007,6 +2026,50 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		cmds = append(cmds, m.fetchHyperCredits())
 	}
 
+	return tea.Batch(cmds...)
+}
+
+// queueSettingChange defers a model/reasoning/context-mode change that was
+// requested while the agent is busy. The action is re-dispatched verbatim
+// once the agent goes idle, so it flows through the same handler (and shows
+// the same confirmation) as an immediate change. Returns a command that
+// notifies the user the change is queued and, if not already running,
+// starts the idle waiter.
+func (m *UI) queueSettingChange(action tea.Msg, label string) tea.Cmd {
+	m.pendingSettings = append(m.pendingSettings, action)
+	cmds := []tea.Cmd{util.ReportInfo(label + " queued; will apply when the agent finishes")}
+	if !m.settingsWaiterActive {
+		m.settingsWaiterActive = true
+		cmds = append(cmds, m.waitForAgentIdle())
+	}
+	return tea.Batch(cmds...)
+}
+
+// waitForAgentIdle blocks in a goroutine until the agent is no longer busy,
+// then signals the UI to apply any queued setting changes. Only the
+// concurrency-safe workspace is touched off the main loop; no other model
+// state is read here.
+func (m *UI) waitForAgentIdle() tea.Cmd {
+	return func() tea.Msg {
+		for m.com.Workspace.AgentIsReady() && m.com.Workspace.AgentIsBusy() {
+			time.Sleep(150 * time.Millisecond)
+		}
+		return agentIdleForSettingsMsg{}
+	}
+}
+
+// applyPendingSettings re-dispatches the queued setting changes now that the
+// agent is (expected to be) idle. If the agent became busy again before this
+// ran, the re-dispatched actions simply re-queue themselves and the waiter
+// is restarted.
+func (m *UI) applyPendingSettings() tea.Cmd {
+	m.settingsWaiterActive = false
+	pending := m.pendingSettings
+	m.pendingSettings = nil
+	cmds := make([]tea.Cmd, 0, len(pending))
+	for _, action := range pending {
+		cmds = append(cmds, func() tea.Msg { return action })
+	}
 	return tea.Batch(cmds...)
 }
 
