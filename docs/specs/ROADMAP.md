@@ -49,7 +49,7 @@ by the audit. Update the `crush-config` skill for the new `theme` option.
 
 ---
 
-## 2. Neovim bridge — edits not flashing in — `TODO`
+## 2. Neovim bridge — edits not flashing in — `DONE`
 
 **Goal.** Fix the bridge bug so edit/location events render correctly in
 `neocrush.nvim`.
@@ -132,7 +132,7 @@ fantasy` or can be done via a Crush-side response transform.
 
 ---
 
-## 5. Fork copies the fork-point message (off-by-one) — `TODO`
+## 5. Fork copies the fork-point message (off-by-one) — `DONE`
 
 **Goal.** Forking from message *N* should copy messages `1..N-1` into the new
 session and **prepopulate the input bar** with message *N* (the most recent),
@@ -154,7 +154,7 @@ one."* That inclusive copy is the bug.
 
 ---
 
-## 6. Models underusing `multi_view` — `TODO`
+## 6. Models underusing `multi_view` — `DONE`
 
 **Goal.** Get the model to batch file reads via `multi_view` instead of
 sequential `view` calls.
@@ -171,7 +171,7 @@ sequential `view` calls.
 
 ---
 
-## 7. Models reluctant to use `context7` — `TODO`
+## 7. Models reluctant to use `context7` — `DONE`
 
 **Goal.** Surface the `context7` tool more prominently so the model reaches
 for up-to-date library docs.
@@ -314,7 +314,7 @@ mode mid-run with queuing: apply the change before the next user message.
 
 ---
 
-## 14. Message queueing fixes — `TODO`
+## 14. Message queueing fixes — `IN PROGRESS`
 
 **Goal.** (a) Ensure queued messages actually make it into the conversation.
 (b) Stop `Esc` from clearing queued messages — `Esc` should only clear a
@@ -353,6 +353,25 @@ queued message that is in the **expanded** state.
 
 **Files.** `internal/ui/model/ui.go`, `internal/ui/model/pills.go`,
 `internal/ui/dialog/commands.go`.
+
+---
+
+## 15. Bang-mode (shell) history lag — `DONE`
+
+**Goal.** Up-arrow history should include the most recent shell/user command
+immediately, not n-1.
+
+**Findings.** Submit handlers ran
+`tea.Batch(m.runShellCommand(command), m.loadPromptHistory())`
+(`internal/ui/model/ui.go`). `tea.Batch` executes both commands
+concurrently, so `loadPromptHistory` queried `ListUserMessages` before
+`AgentRunShellCommand` persisted the message — the new entry only appeared on
+the next reload. The plain message path had the same latent race.
+
+**Fix (shipped).** Reload history off the `pubsub.CreatedEvent` for `User`
+and `Shell` messages (fires after persistence); dropped the concurrent
+`loadPromptHistory()` from both submit batches. `historyReset()` still runs
+immediately so navigation starts clean.
 
 ---
 
