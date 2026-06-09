@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/charmbracelet/crush/internal/config/config",
+  "$id": "https://github.com/taigrr/crush/internal/config/config",
   "$ref": "#/$defs/Config",
   "$defs": {
     "Attribution": {
@@ -19,11 +19,6 @@
           "type": "boolean",
           "description": "Deprecated: use trailer_style instead",
           "deprecated": true
-        },
-        "generated_with": {
-          "type": "boolean",
-          "description": "Add Generated with Crush line to commit messages and issues and PRs",
-          "default": true
         }
       },
       "additionalProperties": false,
@@ -99,6 +94,14 @@
           },
           "type": "object",
           "description": "User-defined shell commands that fire on hook events (e.g. PreToolUse)"
+        },
+        "snapshots": {
+          "$ref": "#/$defs/SnapshotsConfig",
+          "description": "Filesystem snapshot configuration"
+        },
+        "worktree": {
+          "$ref": "#/$defs/WorktreeConfig",
+          "description": "Git worktree configuration"
         }
       },
       "additionalProperties": false,
@@ -347,6 +350,18 @@
         },
         "options": {
           "$ref": "#/$defs/ModelOptions"
+        },
+        "supports_1m_context": {
+          "type": "boolean"
+        },
+        "long_context_cost_per_1m_in": {
+          "type": "number"
+        },
+        "long_context_cost_per_1m_out": {
+          "type": "number"
+        },
+        "long_context_cost_per_1m_in_cached": {
+          "type": "number"
         }
       },
       "additionalProperties": false,
@@ -538,6 +553,24 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "PostCreateHook": {
+      "properties": {
+        "if_exists": {
+          "type": "string",
+          "description": "File to check for (e.g. bun.lockb)"
+        },
+        "run": {
+          "type": "string",
+          "description": "Command to run (e.g. bun i)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "if_exists",
+        "run"
+      ]
+    },
     "ProviderConfig": {
       "properties": {
         "id": {
@@ -654,6 +687,16 @@
           "type": "boolean",
           "description": "Enable thinking mode for Anthropic models that support reasoning"
         },
+        "context_mode": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "extended",
+            "dynamic"
+          ],
+          "description": "Context window mode: standard (default 200K), extended (1M), or dynamic (auto-switch)",
+          "default": "standard"
+        },
         "max_tokens": {
           "type": "integer",
           "maximum": 200000,
@@ -704,6 +747,24 @@
         "provider"
       ]
     },
+    "SnapshotsConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable automatic filesystem snapshots",
+          "default": true
+        },
+        "exclude": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Glob patterns to exclude from snapshots (e.g. node_modules)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "TUIOptions": {
       "properties": {
         "compact_mode": {
@@ -719,6 +780,10 @@
           ],
           "description": "Diff mode for the TUI interface"
         },
+        "theme": {
+          "type": "string",
+          "description": "UI color theme name (builtin or from themes/*.lua)"
+        },
         "completions": {
           "$ref": "#/$defs/Completions",
           "description": "Completions UI options"
@@ -726,6 +791,11 @@
         "transparent": {
           "type": "boolean",
           "description": "Enable transparent background for the TUI interface",
+          "default": false
+        },
+        "low_bandwidth": {
+          "type": "boolean",
+          "description": "Reduced-motion mode: simpler spinner and slower framerate",
           "default": false
         }
       },
@@ -795,6 +865,24 @@
         },
         "grep": {
           "$ref": "#/$defs/ToolGrep"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "WorktreeConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable Crush-managed git worktrees",
+          "default": true
+        },
+        "post_create": {
+          "items": {
+            "$ref": "#/$defs/PostCreateHook"
+          },
+          "type": "array",
+          "description": "Commands to run after creating a worktree"
         }
       },
       "additionalProperties": false,
