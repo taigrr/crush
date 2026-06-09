@@ -15,92 +15,55 @@ import (
 var milestonePrompt []byte
 
 // milestoneInterval is the number of turns (total messages regardless
-// of role) between milestone generation.
+// of role — user, assistant, tool calls all count) between milestones.
 const milestoneInterval = 10
 
-// generateMilestone runs the small model to produce a milestone summary
-// for the session. It is designed to run as a background goroutine,
-// similar to generateTitle.
-func (a *sessionAgent) generateMilestone(ctx context.Context, sessionID string, userMsgCount int, msgs []message.Message, latestPrompt string) {
-	if a.milestones == nil {
-		return
+// milestoneBoundaries returns the milestone turn numbers that should be
+// generated for the half-open range (afterTurn, totalTurns]. Boundaries
+// are exact multiples of milestoneInterval, so milestones land
+// consistently at turns 10, 20, 30, … regardless of how many messages a
+// single run emits. Returning every crossed boundary (rather than just
+// the latest) is what prevents large batches from being skipped when one
+// run jumps past several boundaries at once.
+func milestoneBoundaries(afterTurn int64, totalTurns int) []int64 {
+	var boundaries []int64
+	first := ((afterTurn / milestoneInterval) + 1) * milestoneInterval
+	for turn := first; turn <= int64(totalTurns); turn += milestoneInterval {
+		boundaries = append(boundaries, turn)
 	}
-
-	smallModel := a.smallModel.Get()
-	systemPromptPrefix := a.systemPromptPrefix.Get()
-
-	// Gather the prior milestone for context.
-	var priorSummary string
-	latest, err := a.milestones.Latest(ctx, sessionID)
-	if err == nil {
-		priorSummary = latest.FullSummary
-	}
-
-	// Build the prompt with messages since last milestone.
-	prompt := buildMilestonePrompt(msgs, latestPrompt, priorSummary, latest.TurnNumber)
-
-	agent := fantasy.NewAgent(
-		smallModel.Model,
-		fantasy.WithSystemPrompt(string(milestonePrompt)+"\n /no_think"),
-		fantasy.WithMaxOutputTokens(300),
-		fantasy.WithUserAgent(userAgent),
-	)
-
-	resp, err := agent.Stream(ctx, fantasy.AgentStreamCall{
-		Prompt: prompt,
-		PrepareStep: func(callCtx context.Context, opts fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
-			prepared.Messages = opts.Messages
-			if systemPromptPrefix != "" {
-				prepared.Messages = append([]fantasy.Message{
-					fantasy.NewSystemMessage(systemPromptPrefix),
-				}, prepared.Messages...)
-			}
-			return callCtx, prepared, nil
-		},
-	})
-	if err != nil {
-		slog.Error("Failed to generate milestone", "error", err, "session_id", sessionID)
-		return
-	}
-
-	if resp == nil || resp.Response.Content.Text() == "" {
-		slog.Debug("Empty milestone response", "session_id", sessionID)
-		return
-	}
-
-	short, full := parseMilestoneResponse(resp.Response.Content.Text())
-	if short == "" || full == "" {
-		slog.Debug("Could not parse milestone response", "session_id", sessionID, "text", resp.Response.Content.Text())
-		return
-	}
-
-	_, err = a.milestones.Create(ctx, sessionID, int64(userMsgCount), short, full)
-	if err != nil {
-		slog.Error("Failed to save milestone", "error", err, "session_id", sessionID)
-	}
+	return boundaries
 }
 
-// backfillMilestones generates milestones for every milestoneInterval
-// chunk from the beginning of the conversation. Each milestone is
-// generated sequentially so that later ones can reference the prior
-// summary for continuity.
-func (a *sessionAgent) backfillMilestones(ctx context.Context, sessionID string, msgs []message.Message, latestPrompt string) {
+// generateMilestones produces a milestone summary for every
+// milestoneInterval boundary in (afterTurn, totalTurns]. It is the single
+// entry point for both the initial backfill (afterTurn == 0) and
+// incremental generation. Because a single Run can emit many messages and
+// cross several boundaries at once, this loops over every crossed boundary
+// instead of generating a single milestone, so batches are never skipped.
+// Milestones are generated sequentially so each can reference the prior
+// summary for continuity. Designed to run as a background goroutine.
+func (a *sessionAgent) generateMilestones(ctx context.Context, sessionID string, afterTurn int64, totalTurns int, msgs []message.Message, priorSummary string) {
 	if a.milestones == nil {
 		return
 	}
 
-	totalTurns := len(msgs) + 1
 	smallModel := a.smallModel.Get()
 	systemPromptPrefix := a.systemPromptPrefix.Get()
 
-	var priorSummary string
-	for turn := milestoneInterval; turn <= totalTurns; turn += milestoneInterval {
-		// Build prompt from messages in this chunk.
-		chunkStart := turn - milestoneInterval
-		chunkEnd := min(turn, len(msgs))
+	for _, turn := range milestoneBoundaries(afterTurn, totalTurns) {
+		// Messages covered by this boundary: the milestoneInterval-sized
+		// window ending at this turn, clamped to the available messages.
+		chunkStart := int(turn) - milestoneInterval
+		if chunkStart < 0 {
+			chunkStart = 0
+		}
+		chunkEnd := min(int(turn), len(msgs))
+		if chunkStart > chunkEnd {
+			chunkStart = chunkEnd
+		}
 		chunk := msgs[chunkStart:chunkEnd]
 
-		prompt := buildBackfillPrompt(chunk, priorSummary, turn)
+		prompt := buildBackfillPrompt(chunk, priorSummary, int(turn))
 
 		agent := fantasy.NewAgent(
 			smallModel.Model,
@@ -122,66 +85,26 @@ func (a *sessionAgent) backfillMilestones(ctx context.Context, sessionID string,
 			},
 		})
 		if err != nil {
-			slog.Error("Failed to generate backfill milestone", "error", err, "session_id", sessionID, "turn", turn)
+			slog.Error("Failed to generate milestone", "error", err, "session_id", sessionID, "turn", turn)
 			return
 		}
 
 		if resp == nil || resp.Response.Content.Text() == "" {
+			slog.Debug("Empty milestone response", "session_id", sessionID, "turn", turn)
 			continue
 		}
 
 		short, full := parseMilestoneResponse(resp.Response.Content.Text())
 		if short == "" || full == "" {
+			slog.Debug("Could not parse milestone response", "session_id", sessionID, "turn", turn, "text", resp.Response.Content.Text())
 			continue
 		}
 
-		_, err = a.milestones.Create(ctx, sessionID, int64(turn), short, full)
-		if err != nil {
-			slog.Error("Failed to save backfill milestone", "error", err, "session_id", sessionID, "turn", turn)
+		if _, err := a.milestones.Create(ctx, sessionID, turn, short, full); err != nil {
+			slog.Error("Failed to save milestone", "error", err, "session_id", sessionID, "turn", turn)
 			return
 		}
 		priorSummary = full
-	}
-
-	// Also generate one for the current turn if it's not on the interval.
-	if totalTurns%milestoneInterval != 0 {
-		chunkStart := (totalTurns / milestoneInterval) * milestoneInterval
-		chunk := msgs[chunkStart:]
-
-		prompt := buildBackfillPrompt(chunk, priorSummary, totalTurns)
-
-		agent := fantasy.NewAgent(
-			smallModel.Model,
-			fantasy.WithSystemPrompt(string(milestonePrompt)+"\n /no_think"),
-			fantasy.WithMaxOutputTokens(300),
-			fantasy.WithUserAgent(userAgent),
-		)
-
-		resp, err := agent.Stream(ctx, fantasy.AgentStreamCall{
-			Prompt: prompt,
-			PrepareStep: func(callCtx context.Context, opts fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
-				prepared.Messages = opts.Messages
-				if systemPromptPrefix != "" {
-					prepared.Messages = append([]fantasy.Message{
-						fantasy.NewSystemMessage(systemPromptPrefix),
-					}, prepared.Messages...)
-				}
-				return callCtx, prepared, nil
-			},
-		})
-		if err != nil {
-			slog.Error("Failed to generate backfill milestone (trailing)", "error", err, "session_id", sessionID)
-			return
-		}
-
-		if resp != nil && resp.Response.Content.Text() != "" {
-			short, full := parseMilestoneResponse(resp.Response.Content.Text())
-			if short != "" && full != "" {
-				if _, err := a.milestones.Create(ctx, sessionID, int64(totalTurns), short, full); err != nil {
-					slog.Error("Failed to save trailing backfill milestone", "error", err, "session_id", sessionID)
-				}
-			}
-		}
 	}
 }
 
@@ -212,55 +135,6 @@ func buildBackfillPrompt(chunk []message.Message, priorSummary string, turn int)
 	}
 
 	fmt.Fprintf(&b, "This covers turns up to turn %d. Now generate the milestone summary.", turn)
-	return b.String()
-}
-
-// buildMilestonePrompt constructs the user prompt for milestone
-// generation including recent messages and prior context.
-func buildMilestonePrompt(msgs []message.Message, latestPrompt, priorSummary string, lastMilestoneTurn int64) string {
-	var b strings.Builder
-
-	if priorSummary != "" {
-		b.WriteString("## Previous Milestone Summary\n\n")
-		b.WriteString(priorSummary)
-		b.WriteString("\n\n")
-	}
-
-	b.WriteString("## Messages Since Last Milestone\n\n")
-
-	// Include the last milestoneInterval messages (any role).
-	var userCount int
-	startIdx := 0
-	if lastMilestoneTurn > 0 && len(msgs) > milestoneInterval {
-		startIdx = len(msgs) - milestoneInterval
-	}
-
-	for i := startIdx; i < len(msgs); i++ {
-		msg := msgs[i]
-		switch msg.Role {
-		case message.User:
-			userCount++
-			content := msg.Content().String()
-			if len(content) > 500 {
-				content = content[:500] + "..."
-			}
-			fmt.Fprintf(&b, "**User [%d]**: %s\n\n", userCount, content)
-		case message.Assistant:
-			content := msg.Content().String()
-			if len(content) > 500 {
-				content = content[:500] + "..."
-			}
-			b.WriteString("**Assistant**: ")
-			b.WriteString(content)
-			b.WriteString("\n\n")
-		}
-	}
-
-	b.WriteString("## Most Recent User Message\n\n")
-	b.WriteString(latestPrompt)
-	b.WriteString("\n\n")
-	b.WriteString("Now generate the milestone summary.")
-
 	return b.String()
 }
 
