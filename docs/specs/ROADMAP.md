@@ -313,21 +313,34 @@ progress bar in the fork UI. Pairs naturally with item 5.
 
 ---
 
-## 13. Queue model/reasoning changes while agent is busy — `TODO`
+## 13. Queue model/reasoning changes while agent is busy — `DONE`
 
 **Goal.** Replace the "agent busy" error when changing the model or reasoning
 mode mid-run with queuing: apply the change before the next user message.
 
-**Approach.**
-1. When a model/reasoning change is requested while busy, don't reject it.
-2. Spin off a goroutine that blocks on the agent's busy mutex; when it
-   unlocks, apply the setting.
-3. Emit the confirmation notification naturally at apply-time (when the mutex
-   releases and the change takes effect).
+**Fix (shipped).** In `internal/ui/model/ui.go`, the busy branches of
+`ActionSelectModel` (`handleSelectModel`), `ActionSelectReasoningEffort`,
+and `ActionSelectContextMode` now call `queueSettingChange` instead of
+warning. Mechanics:
+- The requested action (the original dialog msg) is appended to
+  `m.pendingSettings`, the dialog is closed, and the user sees
+  "<change> queued; will apply when the agent finishes".
+- Note on the mutex: the intent was to block a goroutine on the agent's busy
+  mutex and wake when it unlocks. That mutex (`sessionMu` in
+  `internal/agent`) is **not reachable from the UI** — `AgentIsBusy()` is an
+  RPC (`client.GetAgentInfo`) and in client/server mode the agent runs in a
+  different process. The event-driven equivalent is used instead: the UI
+  already receives `notify.TypeAgentFinished` when a turn completes (that
+  event *is* the "mutex unlocked" signal, delivered over the existing
+  pubsub/RPC stream). `applyPendingSettings` is invoked from that handler —
+  no polling, no extra goroutine.
+- `applyPendingSettings` re-dispatches each queued action verbatim. Because
+  it flows back through the same handler, the normal confirmation
+  ("Large model changed to X", "Reasoning effort set to Y") fires naturally
+  at apply time. If the agent became busy again in between, the
+  re-dispatched action simply re-queues (self-healing).
 
-**Files.** `internal/agent/agent.go`, `internal/agent/coordinator.go`
-(busy/mutex state), the settings dialog in `internal/ui/dialog/`,
-`internal/ui/model/ui.go`.
+**Files.** `internal/ui/model/ui.go`.
 
 ---
 
