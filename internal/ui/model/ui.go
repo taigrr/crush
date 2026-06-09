@@ -171,11 +171,6 @@ type (
 		worktree    *worktree.Worktree
 		prefillText string
 	}
-
-	// agentIdleForSettingsMsg is sent by the settings waiter once the agent
-	// is no longer busy, so any model/reasoning/context-mode changes that
-	// were requested mid-run can be applied.
-	agentIdleForSettingsMsg struct{}
 )
 
 // UI represents the main user interface model.
@@ -297,11 +292,9 @@ type UI struct {
 	hyperCredits *int
 
 	// pendingSettings holds model/reasoning/context-mode change actions that
-	// were requested while the agent was busy. They are applied once the
-	// agent goes idle. settingsWaiterActive guards a single in-flight waiter
-	// goroutine so we don't spawn one per queued change.
-	pendingSettings      []tea.Msg
-	settingsWaiterActive bool
+	// were requested while the agent was busy. They are re-dispatched once
+	// the agent's turn finishes (TypeAgentFinished).
+	pendingSettings []tea.Msg
 
 	// Prompt history for up/down navigation through previous messages.
 	promptHistory struct {
@@ -1013,10 +1006,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.updateTextareaWithPrevHeight(msg, prevHeight))
 	case hyperRefreshDoneMsg:
 		if cmd := m.handleSelectModel(msg.action); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-	case agentIdleForSettingsMsg:
-		if cmd := m.applyPendingSettings(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	case creditsUpdatedMsg:
@@ -2031,39 +2020,24 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 
 // queueSettingChange defers a model/reasoning/context-mode change that was
 // requested while the agent is busy. The action is re-dispatched verbatim
-// once the agent goes idle, so it flows through the same handler (and shows
-// the same confirmation) as an immediate change. Returns a command that
-// notifies the user the change is queued and, if not already running,
-// starts the idle waiter.
+// once the agent finishes its turn (see the TypeAgentFinished handler), so
+// it flows through the same handler (and shows the same confirmation) as an
+// immediate change. Returns a command that notifies the user the change is
+// queued.
 func (m *UI) queueSettingChange(action tea.Msg, label string) tea.Cmd {
 	m.pendingSettings = append(m.pendingSettings, action)
-	cmds := []tea.Cmd{util.ReportInfo(label + " queued; will apply when the agent finishes")}
-	if !m.settingsWaiterActive {
-		m.settingsWaiterActive = true
-		cmds = append(cmds, m.waitForAgentIdle())
-	}
-	return tea.Batch(cmds...)
+	return util.ReportInfo(label + " queued; will apply when the agent finishes")
 }
 
-// waitForAgentIdle blocks in a goroutine until the agent is no longer busy,
-// then signals the UI to apply any queued setting changes. Only the
-// concurrency-safe workspace is touched off the main loop; no other model
-// state is read here.
-func (m *UI) waitForAgentIdle() tea.Cmd {
-	return func() tea.Msg {
-		for m.com.Workspace.AgentIsReady() && m.com.Workspace.AgentIsBusy() {
-			time.Sleep(150 * time.Millisecond)
-		}
-		return agentIdleForSettingsMsg{}
-	}
-}
-
-// applyPendingSettings re-dispatches the queued setting changes now that the
-// agent is (expected to be) idle. If the agent became busy again before this
-// ran, the re-dispatched actions simply re-queue themselves and the waiter
-// is restarted.
+// applyPendingSettings re-dispatches the queued setting changes. It is
+// triggered by the agent-finished event (the event-driven analogue of the
+// busy mutex unlocking), so changes apply just before the next user
+// message. If the agent became busy again before this ran, the
+// re-dispatched actions simply re-queue themselves.
 func (m *UI) applyPendingSettings() tea.Cmd {
-	m.settingsWaiterActive = false
+	if len(m.pendingSettings) == 0 {
+		return nil
+	}
 	pending := m.pendingSettings
 	m.pendingSettings = nil
 	cmds := make([]tea.Cmd, 0, len(pending))
@@ -4113,6 +4087,13 @@ func (m *UI) handleAgentNotification(n notify.Notification) tea.Cmd {
 	switch n.Type {
 	case notify.TypeAgentFinished:
 		var cmds []tea.Cmd
+		// The agent's turn finished — apply any model/reasoning/context-mode
+		// changes that were queued while it was busy. This is the
+		// event-driven equivalent of waking when the busy mutex unlocks; the
+		// re-dispatched action shows its own confirmation naturally.
+		if cmd := m.applyPendingSettings(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		cmds = append(cmds, m.sendNotification(notification.Notification{
 			Title:   "Crush is waiting...",
 			Message: fmt.Sprintf("Agent's turn completed in \"%s\"", n.SessionTitle),
