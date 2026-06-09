@@ -74,6 +74,26 @@ func ThemeForProvider(providerID string) Styles {
 	}
 }
 
+// ResolveTheme returns the Styles for the named theme, searching builtins
+// first and then user Lua themes in themesDir. If name is empty or cannot be
+// resolved, it falls back to the provider-derived default theme.
+func ResolveTheme(name, themesDir, providerID string) Styles {
+	if normalizeThemeName(name) != "" {
+		if s, ok := BuiltinThemeByName(name); ok {
+			return s
+		}
+		if themesDir != "" {
+			themes, _ := LoadUserThemes(themesDir)
+			for _, t := range themes {
+				if normalizeThemeName(t.Name) == normalizeThemeName(name) {
+					return t.Styles
+				}
+			}
+		}
+	}
+	return ThemeForProvider(providerID)
+}
+
 // CharmtonePantera returns the Charmtone dark theme. It's the default style
 // for the UI.
 func CharmtonePantera() Styles {
