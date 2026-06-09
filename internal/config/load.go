@@ -948,10 +948,15 @@ func GlobalConfig() string {
 	return filepath.Join(home.Config(), appName, fmt.Sprintf("%s.json", appName))
 }
 
+// GlobalThemesDir returns the directory where user Lua theme files live,
+// alongside the global config file (e.g. ~/.config/crush/themes).
+func GlobalThemesDir() string {
+	return filepath.Join(filepath.Dir(GlobalConfig()), "themes")
+}
+
 // GlobalCacheDir returns the path to the global cache directory for the
 // application.
-func GlobalCacheDir() string {
-	if crushCache := os.Getenv("CRUSH_CACHE_DIR"); crushCache != "" {
+func GlobalCacheDir() string {	if crushCache := os.Getenv("CRUSH_CACHE_DIR"); crushCache != "" {
 		return crushCache
 	}
 	if xdgCacheHome := os.Getenv("XDG_CACHE_HOME"); xdgCacheHome != "" {

@@ -231,9 +231,11 @@ type LSPConfig struct {
 type TUIOptions struct {
 	CompactMode bool   `json:"compact_mode,omitempty" jsonschema:"description=Enable compact mode for the TUI interface,default=false"`
 	DiffMode    string `json:"diff_mode,omitempty" jsonschema:"description=Diff mode for the TUI interface,enum=unified,enum=split"`
-	// Here we can add themes later or any TUI related options
-	//
-
+	// Theme selects the UI color theme by name. Builtin themes ("charmtone",
+	// "hypercrush") and user themes from $config/crush/themes/*.lua are
+	// supported. Local config overrides global, so a theme can be set
+	// per-workspace. Empty falls back to the provider-derived default.
+	Theme string `json:"theme,omitempty" jsonschema:"description=UI color theme name (builtin or from themes/*.lua)"`
 	Completions Completions `json:"completions,omitzero" jsonschema:"description=Completions UI options"`
 	Transparent *bool       `json:"transparent,omitempty" jsonschema:"description=Enable transparent background for the TUI interface,default=false"`
 	// LowBandwidth, when true, swaps the animated spinner for a simple
