@@ -37,6 +37,12 @@ func normalizeThemeName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
 
+// NormalizeThemeName normalizes a theme name for case-insensitive,
+// whitespace-tolerant comparison.
+func NormalizeThemeName(name string) string {
+	return normalizeThemeName(name)
+}
+
 // BuiltinThemeInfos returns the builtin themes in display order.
 func BuiltinThemeInfos() []ThemeInfo {
 	infos := make([]ThemeInfo, 0, len(builtinThemeOrder))

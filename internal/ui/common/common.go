@@ -36,8 +36,10 @@ func (c *Common) Config() *config.Config {
 // or unresolved it falls back to the provider-derived default theme.
 func DefaultCommon(ws workspace.Workspace) *Common {
 	var themeName string
-	if cfg := ws.Config(); cfg != nil && cfg.Options != nil && cfg.Options.TUI != nil {
-		themeName = cfg.Options.TUI.Theme
+	if ws != nil {
+		if cfg := ws.Config(); cfg != nil && cfg.Options != nil && cfg.Options.TUI != nil {
+			themeName = cfg.Options.TUI.Theme
+		}
 	}
 	s := styles.ResolveTheme(themeName, config.GlobalThemesDir(), largeModelProviderID(ws))
 	return &Common{

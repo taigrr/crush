@@ -16,6 +16,7 @@ import (
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/common"
+	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/taigrr/crush/internal/ui/util"
 )
 
@@ -72,6 +73,17 @@ type (
 	// selected.
 	ActionSelectContextMode struct {
 		Mode config.ContextMode
+	}
+	// ActionPreviewTheme is emitted as the theme picker selection moves, so
+	// the UI can apply the theme live as a preview without persisting it.
+	ActionPreviewTheme struct {
+		Styles styles.Styles
+	}
+	// ActionSelectTheme is emitted when a theme is confirmed in the picker.
+	// The UI persists the name and keeps the (already-previewed) Styles.
+	ActionSelectTheme struct {
+		Name   string
+		Styles styles.Styles
 	}
 	ActionPermissionResponse struct {
 		Permission permission.PermissionRequest

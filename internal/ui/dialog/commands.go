@@ -475,6 +475,11 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	if c.windowWidth >= sidebarCompactModeBreakpoint && c.hasSession {
 		commands = append(commands, NewCommandItem(c.com.Styles, "toggle_sidebar", "Toggle Sidebar", "", ActionToggleCompactMode{}))
 	}
+
+	// Theme picker is always available.
+	commands = append(commands, NewCommandItem(c.com.Styles, "select_theme", "Select Theme", "", ActionOpenDialog{
+		DialogID: ThemeID,
+	}))
 	if c.hasSession {
 		cfgPrime := c.com.Config()
 		agentCfg := cfgPrime.Agents[config.AgentCoder]

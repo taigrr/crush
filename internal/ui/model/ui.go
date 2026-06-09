@@ -291,6 +291,10 @@ type UI struct {
 	// hyperCredits is the remaining Hyper credits, updated after each prompt.
 	hyperCredits *int
 
+	// themePreviewOriginal holds the styles captured when the theme picker
+	// opened, so canceling (esc) can restore them after live previews.
+	themePreviewOriginal *styles.Styles
+
 	// Prompt history for up/down navigation through previous messages.
 	promptHistory struct {
 		messages []string
@@ -1479,6 +1483,13 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			break
 		}
 
+		// If the theme picker is closing without a selection, restore the
+		// styles captured when it opened so live previews don't stick.
+		if m.themePreviewOriginal != nil && m.dialog.ContainsDialog(dialog.ThemeID) {
+			m.applyTheme(*m.themePreviewOriginal)
+			m.themePreviewOriginal = nil
+		}
+
 		if m.dialog.ContainsDialog(dialog.FilePickerID) {
 			defer fimage.ResetCache()
 		}
@@ -1791,6 +1802,23 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			return util.NewInfoMsg("Context mode set to " + common.FormatContextMode(string(msg.Mode)))
 		})
 		m.dialog.CloseDialog(dialog.ContextModeID)
+	case dialog.ActionPreviewTheme:
+		// Live preview as the picker selection moves; not persisted.
+		m.applyTheme(msg.Styles)
+	case dialog.ActionSelectTheme:
+		// Confirm: persist the name (local config overrides global, so this
+		// is also where per-workspace themes are written if a local config
+		// exists) and keep the already-previewed styles.
+		m.applyTheme(msg.Styles)
+		m.themePreviewOriginal = nil
+		name := msg.Name
+		cmds = append(cmds, func() tea.Msg {
+			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "options.tui.theme", name); err != nil {
+				return util.NewWarnMsg("Theme applied but not saved: " + err.Error())
+			}
+			return util.NewInfoMsg("Theme set to " + name)
+		})
+		m.dialog.CloseDialog(dialog.ThemeID)
 	case dialog.ActionPermissionResponse:
 		m.dialog.CloseDialog(dialog.PermissionsID)
 		switch msg.Action {
@@ -1964,9 +1992,15 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		cmds = append(cmds, util.ReportError(err))
 	} else {
 		if msg.ModelType == config.SelectedModelTypeLarge {
-			// Swap the theme live based on the newly selected large
-			// model's provider.
-			m.applyTheme(styles.ThemeForProvider(providerID))
+			// Swap the theme live based on the newly selected large model's
+			// provider, unless the user has pinned an explicit theme.
+			var themeName string
+			if cfg.Options != nil && cfg.Options.TUI != nil {
+				themeName = cfg.Options.TUI.Theme
+			}
+			if themeName == "" {
+				m.applyTheme(styles.ThemeForProvider(providerID))
+			}
 		}
 		if _, ok := cfg.Models[config.SelectedModelTypeSmall]; !ok {
 			// Ensure small model is set is unset.
@@ -3662,6 +3696,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openContextModeDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.ThemeID:
+		if cmd := m.openThemeDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.NotificationsID:
 		if cmd := m.openNotificationsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -3772,6 +3810,25 @@ func (m *UI) openContextModeDialog() tea.Cmd {
 	}
 
 	m.dialog.OpenDialog(contextModeDialog)
+	return nil
+}
+
+// openThemeDialog opens the theme picker dialog. It captures the current
+// styles so an esc/cancel can restore them after live previews.
+func (m *UI) openThemeDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.ThemeID) {
+		m.dialog.BringToFront(dialog.ThemeID)
+		return nil
+	}
+
+	themeDialog, err := dialog.NewTheme(m.com)
+	if err != nil {
+		return util.ReportError(err)
+	}
+
+	original := *m.com.Styles
+	m.themePreviewOriginal = &original
+	m.dialog.OpenDialog(themeDialog)
 	return nil
 }
 
