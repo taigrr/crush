@@ -252,32 +252,38 @@ embed. Revisit after items 1–9.
 
 ---
 
-## 11. Milestones skip messages / inconsistent — `TODO`
+## 11. Milestones skip messages / inconsistent — `DONE`
 
 **Goal.** Auto-generate a milestone every 10 messages, counting **all**
 messages (user, assistant, tool calls, system, etc.), with no skipped
 batches.
 
 **Findings.**
-- Trigger logic lives in `internal/agent/milestone.go`:
-  `nInterval = 10` ("number of turns regardless of role"), with
-  `generate…` (live) and `backfill…` (historical) paths.
-- Service/storage in `internal/milestone/milestone.go` (`Create`, `List`,
-  `Latest`, `Count`, keyed by `turnNumber`).
-- Inconsistency likely comes from how `turnNumber`/message count is computed
-  vs. what counts as a "turn" — large batches (multi-tool turns) can advance
-  the count past a 10-boundary without triggering, causing skips.
+- Trigger logic lives in `internal/agent/agent.go` (in the Run setup) and
+  `internal/agent/milestone.go`.
+- Root cause: the trigger only ran once per `Run()` at
+  `turnCount = len(msgs)+1` and generated a **single** milestone at that
+  turn. A single run emits many messages (assistant + tool calls), so when
+  a run jumped past several 10-boundaries at once only one milestone was
+  created (skipping the intermediate ones). `backfillMilestones` only ran
+  when `count == 0`, so it didn't help mid-conversation.
 
-**Approach.**
-1. Define the counter precisely as total persisted messages of any role.
-2. Trigger generation whenever the count crosses each multiple of 10, even
-   if a single turn jumps several messages (loop to fill all crossed
-   boundaries, like `backfill`).
-3. Make generation idempotent per boundary so retries don't duplicate.
-4. Add tests covering a turn that adds many messages at once.
+**Fix (shipped).**
+1. Added a pure, tested helper `milestoneBoundaries(afterTurn, totalTurns)`
+   returning every multiple-of-10 boundary in `(afterTurn, totalTurns]`.
+2. Unified `generateMilestone` + `backfillMilestones` into a single
+   `generateMilestones(...)` that loops over every crossed boundary,
+   chaining the prior summary for continuity. Milestones now land on exact
+   multiples of 10 (10, 20, 30, …), making generation consistent and
+   idempotent (re-running with the same `lastTurn` produces no new
+   boundaries).
+3. Removed the now-dead `buildMilestonePrompt` and the trailing
+   non-boundary milestone.
+4. Added `internal/agent/milestone_test.go` covering single-run multi-
+   boundary crossings and incremental generation.
 
-**Files.** `internal/agent/milestone.go`, `internal/milestone/milestone.go`,
-`internal/db/sql/` (milestone queries if the counting changes).
+**Files.** `internal/agent/agent.go`, `internal/agent/milestone.go`,
+`internal/agent/milestone_test.go`.
 
 ---
 
