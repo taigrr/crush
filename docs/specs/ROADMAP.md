@@ -314,7 +314,7 @@ mode mid-run with queuing: apply the change before the next user message.
 
 ---
 
-## 14. Message queueing fixes — `IN PROGRESS`
+## 14. Message queueing fixes — `DONE`
 
 **Goal.** (a) Ensure queued messages actually make it into the conversation.
 (b) Stop `Esc` from clearing queued messages — `Esc` should only clear a
@@ -323,36 +323,36 @@ queued message that is in the **expanded** state.
 **Findings.** Queue-related code spans `internal/ui/model/ui.go`,
 `internal/ui/model/pills.go` (queued-message pills), and
 `internal/ui/dialog/commands.go`. The agent-side queue lives in
-`internal/agent/agent.go` (`messageQueue`, `popQueuedCall`,
-`QueuedPrompts`, `ClearQueue`) with two drain paths: a mid-step drain in
-`PrepareStep` (`messageQueue.Take`, ~line 481) and a post-loop
-`popQueuedCall` restart (~line 862).
+`internal/agent/agent.go` (`messageQueue`, `enqueueCall`,
+`drainQueueForStep`, `QueuedPrompts`, `ClearQueue`).
 
 - **Esc behavior (b): FIXED.** `cancelAgent` now only clears the queue when
   `pillsExpanded`; help text gated to match (`internal/ui/model/ui.go`).
-- **Dropped messages (a): root cause identified, fix deferred.** In
-  `sessionAgent.Run`, the active request is released
-  (`activeRequests.Del`, agent.go:843) *before* `popQueuedCall`
-  (agent.go:862). Between those two lines the session reports
-  **not busy**, so a prompt submitted in that window skips the
-  `IsSessionBusy` enqueue guard (agent.go:225) and starts a second,
-  concurrent `Run` for the same session instead of being queued — racing
-  the pending restart and causing interleaved/lost turns. The enqueue
-  itself is atomic (`Update`/`Take`), so the bug is the
-  release-before-drain ordering, not the queue data structure.
+- **Dropped messages (a): already fixed upstream — verified.** My original
+  note flagged a release-before-drain window (active request deleted before
+  the queue was drained), but that referenced pre-refactor line numbers. The
+  current dispatch is fully serialized:
+  - Interactive prompts route `AgentRun` → `client.SendMessage` →
+    `backend.SendMessage` → `BeginAccepted` + `RunAccepted`, i.e. the
+    **accepted** dispatch path. In `sessionAgent.Run` that path takes the
+    per-session `sessionMu`, and the `IsSessionBusy` check + `enqueueCall`
+    + `activeRequests.Set` all happen **under that lock**
+    (agent.go:587-648). The post-loop handoff re-acquires `sessionMu`
+    before draining the queue (agent.go:1324), so there is no idle window
+    where a concurrent submit can bypass the queue.
+  - The only non-accepted (`accept == nil`) path is single-shot
+    `coordinator.Run` (e.g. `crush run` / `app.go:396`), which has no
+    concurrent submissions to drop.
+  - This was hardened by upstream commits `21390f52` (atomic queue
+    mutation so steering messages aren't dropped), `d7a814c5`,
+    `cbec4916`, `34995e93`, with coverage in
+    `internal/agent/queued_runid_test.go`,
+    `internal/agent/dispatch_cancel_test.go`, and
+    `internal/backend/accepted_run_integration_test.go`
+    (uses a `gatedStreamModel` to hold a run active and enqueue behind it).
 
-**Approach.**
-1. (b) DONE — Esc only clears an expanded queue.
-2. (a) Close the release-before-drain window: pop/drain the queue while the
-   session still reads busy (reorder so `popQueuedCall` runs before
-   `activeRequests.Del`, or hold a reservation across the handoff), keeping
-   the notify-after-release ordering documented at agent.go:839-842. Add a
-   concurrency test that submits a prompt in the release→pop window and
-   asserts it lands in the same session as a queued turn, not a concurrent
-   `Run`.
-
-**Files.** `internal/ui/model/ui.go`, `internal/ui/model/pills.go`,
-`internal/ui/dialog/commands.go`.
+**Files.** `internal/ui/model/ui.go` (Esc gating). No further agent change
+required.
 
 ---
 
