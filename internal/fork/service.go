@@ -36,6 +36,37 @@ type Service interface {
 
 	// GetForkHistory returns all sessions that were forked from a given snapshot.
 	GetForkHistory(ctx context.Context, snapshotID string) ([]session.Session, error)
+
+	// SubscribeProgress returns a channel of progress updates emitted while
+	// forks run. Forking is a blocking RPC; these events let the UI show a
+	// live progress bar instead of appearing frozen.
+	SubscribeProgress(ctx context.Context) <-chan pubsub.Event[ForkProgress]
+}
+
+// ForkStage identifies a phase of the fork operation.
+type ForkStage string
+
+const (
+	ForkStageStart             ForkStage = "starting"
+	ForkStageCopyingMessages   ForkStage = "copying messages"
+	ForkStageRestoringSnapshot ForkStage = "restoring snapshot"
+	ForkStageCreatingWorktree  ForkStage = "creating worktree"
+	ForkStageDone              ForkStage = "done"
+)
+
+// ForkProgress is a progress update emitted while a fork runs.
+type ForkProgress struct {
+	// SourceSessionID is the session being forked from. The UI correlates
+	// progress to the in-flight fork by this ID.
+	SourceSessionID string `json:"source_session_id"`
+	// Stage is a human-readable phase label.
+	Stage string `json:"stage"`
+	// Detail is optional extra context (e.g. a worktree name).
+	Detail string `json:"detail,omitempty"`
+	// Percent is the overall completion fraction in [0,1].
+	Percent float64 `json:"percent"`
+	// Done is true on the terminal progress event.
+	Done bool `json:"done,omitempty"`
 }
 
 // ForkParams contains parameters for forking a conversation.
@@ -81,6 +112,7 @@ type ForkResult struct {
 type service struct {
 	*pubsub.Broker[ForkResult]
 
+	progress    *pubsub.Broker[ForkProgress]
 	queries     *db.Queries
 	conn        *sql.DB
 	sessions    session.Service
@@ -100,6 +132,7 @@ func NewService(
 ) Service {
 	return &service{
 		Broker:      pubsub.NewBroker[ForkResult](),
+		progress:    pubsub.NewBroker[ForkProgress](),
 		queries:     queries,
 		conn:        conn,
 		sessions:    sessions,
@@ -109,7 +142,27 @@ func NewService(
 	}
 }
 
+// SubscribeProgress implements Service.
+func (s *service) SubscribeProgress(ctx context.Context) <-chan pubsub.Event[ForkProgress] {
+	return s.progress.Subscribe(ctx)
+}
+
+// emitProgress publishes a best-effort progress update for the given source
+// session. Progress is purely advisory for the UI, so a dropped event under
+// back-pressure is harmless.
+func (s *service) emitProgress(sourceSessionID string, stage ForkStage, percent float64, detail string) {
+	s.progress.Publish(pubsub.UpdatedEvent, ForkProgress{
+		SourceSessionID: sourceSessionID,
+		Stage:           string(stage),
+		Detail:          detail,
+		Percent:         percent,
+		Done:            stage == ForkStageDone,
+	})
+}
+
 func (s *service) Fork(ctx context.Context, params ForkParams) (*ForkResult, error) {
+	s.emitProgress(params.SessionID, ForkStageStart, 0.05, "")
+
 	// Step 1: Get the snapshot for the target message (if snapshots enabled).
 	var targetSnapshot *checkpoint.Snapshot
 	if s.checkpoints != nil && s.checkpoints.IsEnabled() {
@@ -163,6 +216,7 @@ func (s *service) Fork(ctx context.Context, params ForkParams) (*ForkResult, err
 	// Step 5: Copy messages up to (but not including) the specified message.
 	// The fork-point message itself is not persisted; its text is returned
 	// as PrefillText so the UI can seed the input bar with it.
+	s.emitProgress(params.SessionID, ForkStageCopyingMessages, 0.35, "")
 	idMapping, prefillText, err := s.copyMessagesUpTo(ctx, params.SessionID, newSession.ID, params.MessageID)
 	if err != nil {
 		// Clean up on failure.
@@ -201,6 +255,7 @@ func (s *service) Fork(ctx context.Context, params ForkParams) (*ForkResult, err
 	// Step 8: Handle worktree creation or filesystem restore.
 	if params.CreateWorktree && s.worktrees != nil && s.worktrees.IsEnabled() {
 		// Create a worktree with the target snapshot state.
+		s.emitProgress(params.SessionID, ForkStageCreatingWorktree, 0.6, params.WorktreeName)
 		snapshotID := ""
 		if targetSnapshot != nil {
 			snapshotID = targetSnapshot.ID
@@ -215,6 +270,7 @@ func (s *service) Fork(ctx context.Context, params ForkParams) (*ForkResult, err
 		}
 	} else if targetSnapshot != nil {
 		// No worktree requested - restore the target snapshot to current directory.
+		s.emitProgress(params.SessionID, ForkStageRestoringSnapshot, 0.6, "")
 		if err := s.checkpoints.RestoreSnapshot(ctx, targetSnapshot.ID, ""); err != nil {
 			slog.Warn("Failed to restore snapshot for fork",
 				"snapshot_id", targetSnapshot.ID,
@@ -223,6 +279,7 @@ func (s *service) Fork(ctx context.Context, params ForkParams) (*ForkResult, err
 		}
 	}
 
+	s.emitProgress(params.SessionID, ForkStageDone, 1.0, "")
 	s.Publish(pubsub.CreatedEvent, *result)
 
 	return result, nil
