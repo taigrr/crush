@@ -56,6 +56,31 @@ type Palette struct {
 	Success           string
 	SuccessMoreSubtle string
 	SuccessMostSubtle string
+
+	// Diff view.
+	DiffAddFg        string
+	DiffAddBg        string
+	DiffAddBgEmph    string
+	DiffRemoveFg     string
+	DiffRemoveBg     string
+	DiffRemoveBgEmph string
+
+	// Brand accent for the Hypercredit icon/count.
+	Hypercredit string
+
+	// Syntax highlighting roles.
+	SyntaxLink            string
+	SyntaxImage           string
+	SyntaxCommentPreproc  string
+	SyntaxKeywordReserved string
+	SyntaxKeywordType     string
+	SyntaxOperator        string
+	SyntaxNameBuiltin     string
+	SyntaxNameTag         string
+	SyntaxNameAttribute   string
+	SyntaxNameClass       string
+	SyntaxNameDecorator   string
+	SyntaxLiteralString   string
 }
 
 // toStyles builds a Styles from the palette. Empty fields fall back to the
@@ -95,6 +120,28 @@ func (p Palette) toStyles() Styles {
 		success:           c(p.Success, def.Success),
 		successMoreSubtle: c(p.SuccessMoreSubtle, def.SuccessMoreSubtle),
 		successMostSubtle: c(p.SuccessMostSubtle, def.SuccessMostSubtle),
+
+		diffAddFg:        c(p.DiffAddFg, def.DiffAddFg),
+		diffAddBg:        c(p.DiffAddBg, def.DiffAddBg),
+		diffAddBgEmph:    c(p.DiffAddBgEmph, def.DiffAddBgEmph),
+		diffRemoveFg:     c(p.DiffRemoveFg, def.DiffRemoveFg),
+		diffRemoveBg:     c(p.DiffRemoveBg, def.DiffRemoveBg),
+		diffRemoveBgEmph: c(p.DiffRemoveBgEmph, def.DiffRemoveBgEmph),
+
+		hypercredit: c(p.Hypercredit, def.Hypercredit),
+
+		syntaxLink:            c(p.SyntaxLink, def.SyntaxLink),
+		syntaxImage:           c(p.SyntaxImage, def.SyntaxImage),
+		syntaxCommentPreproc:  c(p.SyntaxCommentPreproc, def.SyntaxCommentPreproc),
+		syntaxKeywordReserved: c(p.SyntaxKeywordReserved, def.SyntaxKeywordReserved),
+		syntaxKeywordType:     c(p.SyntaxKeywordType, def.SyntaxKeywordType),
+		syntaxOperator:        c(p.SyntaxOperator, def.SyntaxOperator),
+		syntaxNameBuiltin:     c(p.SyntaxNameBuiltin, def.SyntaxNameBuiltin),
+		syntaxNameTag:         c(p.SyntaxNameTag, def.SyntaxNameTag),
+		syntaxNameAttribute:   c(p.SyntaxNameAttribute, def.SyntaxNameAttribute),
+		syntaxNameClass:       c(p.SyntaxNameClass, def.SyntaxNameClass),
+		syntaxNameDecorator:   c(p.SyntaxNameDecorator, def.SyntaxNameDecorator),
+		syntaxLiteralString:   c(p.SyntaxLiteralString, def.SyntaxLiteralString),
 	})
 }
 
@@ -128,6 +175,28 @@ func defaultPalette() Palette {
 		Success:           charmtone.Julep.Hex(),
 		SuccessMoreSubtle: charmtone.Bok.Hex(),
 		SuccessMostSubtle: charmtone.Guac.Hex(),
+
+		DiffAddFg:        "#629657",
+		DiffAddBg:        "#323931",
+		DiffAddBgEmph:    "#2b322a",
+		DiffRemoveFg:     "#a45c59",
+		DiffRemoveBg:     "#383030",
+		DiffRemoveBgEmph: "#312929",
+
+		Hypercredit: charmtone.Dolly.Hex(),
+
+		SyntaxLink:            charmtone.Zinc.Hex(),
+		SyntaxImage:           charmtone.Cheeky.Hex(),
+		SyntaxCommentPreproc:  charmtone.Bengal.Hex(),
+		SyntaxKeywordReserved: charmtone.Pony.Hex(),
+		SyntaxKeywordType:     charmtone.Guppy.Hex(),
+		SyntaxOperator:        charmtone.Salmon.Hex(),
+		SyntaxNameBuiltin:     charmtone.Cheeky.Hex(),
+		SyntaxNameTag:         charmtone.Mauve.Hex(),
+		SyntaxNameAttribute:   charmtone.Hazy.Hex(),
+		SyntaxNameClass:       charmtone.Salt.Hex(),
+		SyntaxNameDecorator:   charmtone.Citron.Hex(),
+		SyntaxLiteralString:   charmtone.Cumin.Hex(),
 	}
 }
 
@@ -261,6 +330,28 @@ func LoadThemeFile(path string) (UserTheme, error) {
 		Success:           str("success"),
 		SuccessMoreSubtle: str("success_more_subtle"),
 		SuccessMostSubtle: str("success_most_subtle"),
+
+		DiffAddFg:        str("diff_add_fg"),
+		DiffAddBg:        str("diff_add_bg"),
+		DiffAddBgEmph:    str("diff_add_bg_emph"),
+		DiffRemoveFg:     str("diff_remove_fg"),
+		DiffRemoveBg:     str("diff_remove_bg"),
+		DiffRemoveBgEmph: str("diff_remove_bg_emph"),
+
+		Hypercredit: str("hypercredit"),
+
+		SyntaxLink:            str("syntax_link"),
+		SyntaxImage:           str("syntax_image"),
+		SyntaxCommentPreproc:  str("syntax_comment_preproc"),
+		SyntaxKeywordReserved: str("syntax_keyword_reserved"),
+		SyntaxKeywordType:     str("syntax_keyword_type"),
+		SyntaxOperator:        str("syntax_operator"),
+		SyntaxNameBuiltin:     str("syntax_name_builtin"),
+		SyntaxNameTag:         str("syntax_name_tag"),
+		SyntaxNameAttribute:   str("syntax_name_attribute"),
+		SyntaxNameClass:       str("syntax_name_class"),
+		SyntaxNameDecorator:   str("syntax_name_decorator"),
+		SyntaxLiteralString:   str("syntax_literal_string"),
 	}
 
 	return UserTheme{

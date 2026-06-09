@@ -3,6 +3,7 @@ package styles
 import (
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/exp/charmtone"
 )
 
@@ -135,6 +136,28 @@ func CharmtonePantera() Styles {
 		success:           charmtone.Julep,
 		successMoreSubtle: charmtone.Bok,
 		successMostSubtle: charmtone.Guac,
+
+		diffAddFg:        lipgloss.Color("#629657"),
+		diffAddBg:        lipgloss.Color("#323931"),
+		diffAddBgEmph:    lipgloss.Color("#2b322a"),
+		diffRemoveFg:     lipgloss.Color("#a45c59"),
+		diffRemoveBg:     lipgloss.Color("#383030"),
+		diffRemoveBgEmph: lipgloss.Color("#312929"),
+
+		hypercredit: charmtone.Dolly,
+
+		syntaxLink:            charmtone.Zinc,
+		syntaxImage:           charmtone.Cheeky,
+		syntaxCommentPreproc:  charmtone.Bengal,
+		syntaxKeywordReserved: charmtone.Pony,
+		syntaxKeywordType:     charmtone.Guppy,
+		syntaxOperator:        charmtone.Salmon,
+		syntaxNameBuiltin:     charmtone.Cheeky,
+		syntaxNameTag:         charmtone.Mauve,
+		syntaxNameAttribute:   charmtone.Hazy,
+		syntaxNameClass:       charmtone.Salt,
+		syntaxNameDecorator:   charmtone.Citron,
+		syntaxLiteralString:   charmtone.Cumin,
 	})
 }
 
@@ -171,5 +194,27 @@ func HypercrushObsidiana() Styles {
 		success:           charmtone.Julep,
 		successMoreSubtle: charmtone.Bok,
 		successMostSubtle: charmtone.Guac,
+
+		diffAddFg:        lipgloss.Color("#629657"),
+		diffAddBg:        lipgloss.Color("#323931"),
+		diffAddBgEmph:    lipgloss.Color("#2b322a"),
+		diffRemoveFg:     lipgloss.Color("#a45c59"),
+		diffRemoveBg:     lipgloss.Color("#383030"),
+		diffRemoveBgEmph: lipgloss.Color("#312929"),
+
+		hypercredit: charmtone.Dolly,
+
+		syntaxLink:            charmtone.Zinc,
+		syntaxImage:           charmtone.Cheeky,
+		syntaxCommentPreproc:  charmtone.Bengal,
+		syntaxKeywordReserved: charmtone.Pony,
+		syntaxKeywordType:     charmtone.Guppy,
+		syntaxOperator:        charmtone.Salmon,
+		syntaxNameBuiltin:     charmtone.Cheeky,
+		syntaxNameTag:         charmtone.Mauve,
+		syntaxNameAttribute:   charmtone.Hazy,
+		syntaxNameClass:       charmtone.Salt,
+		syntaxNameDecorator:   charmtone.Citron,
+		syntaxLiteralString:   charmtone.Cumin,
 	})
 }

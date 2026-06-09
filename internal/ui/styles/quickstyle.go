@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2/ansi"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/exp/charmtone"
 	"github.com/taigrr/crush/internal/ui/diffview"
 )
 
@@ -55,6 +54,33 @@ type quickStyleOpts struct {
 	success           color.Color
 	successMoreSubtle color.Color
 	successMostSubtle color.Color
+
+	// Diff view. Add/remove get a foreground (line number + symbol), an
+	// emphasis background (line-number gutter) and a body background (code).
+	diffAddFg        color.Color
+	diffAddBg        color.Color // code/symbol background
+	diffAddBgEmph    color.Color // line-number gutter background
+	diffRemoveFg     color.Color
+	diffRemoveBg     color.Color
+	diffRemoveBgEmph color.Color
+
+	// Brand accent used for the Hypercredit icon/count.
+	hypercredit color.Color
+
+	// Syntax highlighting roles (chroma) and markdown link/image colors that
+	// don't map cleanly onto the status/foreground ramps.
+	syntaxLink            color.Color
+	syntaxImage           color.Color
+	syntaxCommentPreproc  color.Color
+	syntaxKeywordReserved color.Color
+	syntaxKeywordType     color.Color
+	syntaxOperator        color.Color
+	syntaxNameBuiltin     color.Color
+	syntaxNameTag         color.Color
+	syntaxNameAttribute   color.Color
+	syntaxNameClass       color.Color
+	syntaxNameDecorator   color.Color
+	syntaxLiteralString   color.Color
 }
 
 // quickStyle builds the default Styles (that is, the default theme, Charmtone
@@ -208,7 +234,7 @@ func quickStyle(o quickStyleOpts) Styles {
 			Unticked:       "[ ] ",
 		},
 		Link: ansi.StylePrimitive{
-			Color:     hex(charmtone.Zinc),
+			Color:     hex(o.syntaxLink),
 			Underline: new(true),
 		},
 		LinkText: ansi.StylePrimitive{
@@ -216,7 +242,7 @@ func quickStyle(o quickStyleOpts) Styles {
 			Bold:  new(true),
 		},
 		Image: ansi.StylePrimitive{
-			Color:     hex(charmtone.Cheeky),
+			Color:     hex(o.syntaxImage),
 			Underline: new(true),
 		},
 		ImageText: ansi.StylePrimitive{
@@ -250,22 +276,22 @@ func quickStyle(o quickStyleOpts) Styles {
 					Color: hex(o.fgMostSubtle),
 				},
 				CommentPreproc: ansi.StylePrimitive{
-					Color: hex(charmtone.Bengal),
+					Color: hex(o.syntaxCommentPreproc),
 				},
 				Keyword: ansi.StylePrimitive{
 					Color: hex(o.info),
 				},
 				KeywordReserved: ansi.StylePrimitive{
-					Color: hex(charmtone.Pony),
+					Color: hex(o.syntaxKeywordReserved),
 				},
 				KeywordNamespace: ansi.StylePrimitive{
-					Color: hex(charmtone.Pony),
+					Color: hex(o.syntaxKeywordReserved),
 				},
 				KeywordType: ansi.StylePrimitive{
-					Color: hex(charmtone.Guppy),
+					Color: hex(o.syntaxKeywordType),
 				},
 				Operator: ansi.StylePrimitive{
-					Color: hex(charmtone.Salmon),
+					Color: hex(o.syntaxOperator),
 				},
 				Punctuation: ansi.StylePrimitive{
 					Color: hex(o.warningSubtle),
@@ -274,21 +300,21 @@ func quickStyle(o quickStyleOpts) Styles {
 					Color: hex(o.fgSubtle),
 				},
 				NameBuiltin: ansi.StylePrimitive{
-					Color: hex(charmtone.Cheeky),
+					Color: hex(o.syntaxNameBuiltin),
 				},
 				NameTag: ansi.StylePrimitive{
-					Color: hex(charmtone.Mauve),
+					Color: hex(o.syntaxNameTag),
 				},
 				NameAttribute: ansi.StylePrimitive{
-					Color: hex(charmtone.Hazy),
+					Color: hex(o.syntaxNameAttribute),
 				},
 				NameClass: ansi.StylePrimitive{
-					Color:     hex(charmtone.Salt),
+					Color:     hex(o.syntaxNameClass),
 					Underline: new(true),
 					Bold:      new(true),
 				},
 				NameDecorator: ansi.StylePrimitive{
-					Color: hex(charmtone.Citron),
+					Color: hex(o.syntaxNameDecorator),
 				},
 				NameFunction: ansi.StylePrimitive{
 					Color: hex(o.successMostSubtle),
@@ -297,7 +323,7 @@ func quickStyle(o quickStyleOpts) Styles {
 					Color: hex(o.success),
 				},
 				LiteralString: ansi.StylePrimitive{
-					Color: hex(charmtone.Cumin),
+					Color: hex(o.syntaxLiteralString),
 				},
 				LiteralStringEscape: ansi.StylePrimitive{
 					Color: hex(o.successMoreSubtle),
@@ -530,23 +556,23 @@ func quickStyle(o quickStyleOpts) Styles {
 		},
 		InsertLine: diffview.LineStyle{
 			LineNumber: lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#629657")).
-				Background(lipgloss.Color("#2b322a")),
+				Foreground(o.diffAddFg).
+				Background(o.diffAddBgEmph),
 			Symbol: lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#629657")).
-				Background(lipgloss.Color("#323931")),
+				Foreground(o.diffAddFg).
+				Background(o.diffAddBg),
 			Code: lipgloss.NewStyle().
-				Background(lipgloss.Color("#323931")),
+				Background(o.diffAddBg),
 		},
 		DeleteLine: diffview.LineStyle{
 			LineNumber: lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#a45c59")).
-				Background(lipgloss.Color("#312929")),
+				Foreground(o.diffRemoveFg).
+				Background(o.diffRemoveBgEmph),
 			Symbol: lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#a45c59")).
-				Background(lipgloss.Color("#383030")),
+				Foreground(o.diffRemoveFg).
+				Background(o.diffRemoveBg),
 			Code: lipgloss.NewStyle().
-				Background(lipgloss.Color("#383030")),
+				Background(o.diffRemoveBg),
 		},
 		Filename: diffview.LineStyle{
 			LineNumber: lipgloss.NewStyle().
@@ -578,7 +604,7 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.Header.Charm = base.Foreground(o.secondary)
 	s.Header.Diagonals = base.Foreground(o.primary)
 	s.Header.Percentage = muted
-	s.Header.Hypercredit = base.Foreground(charmtone.Dolly)
+	s.Header.Hypercredit = base.Foreground(o.hypercredit)
 	s.Header.Keystroke = muted
 	s.Header.KeystrokeTip = subtle
 	s.Header.WorkingDir = muted
@@ -769,7 +795,7 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.ModelInfo.TokenPercentage = lipgloss.NewStyle().Foreground(o.fgMoreSubtle)
 	s.ModelInfo.EstimatedUsagePrefix = s.ModelInfo.TokenPercentage
 	s.ModelInfo.Cost = lipgloss.NewStyle().Foreground(o.fgMoreSubtle)
-	s.ModelInfo.HypercreditIcon = lipgloss.NewStyle().Foreground(charmtone.Dolly)
+	s.ModelInfo.HypercreditIcon = lipgloss.NewStyle().Foreground(o.hypercredit)
 	s.ModelInfo.HypercreditText = lipgloss.NewStyle().Foreground(o.fgMoreSubtle)
 
 	// ResourceGroup
