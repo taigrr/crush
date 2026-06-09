@@ -304,6 +304,78 @@ func GruvboxDark() Styles {
 	})
 }
 
+// Cyberpunk returns the Cyberpunk theme — toxic green on black with neon
+// cyan, electric yellow, and hot red accents. Adapted from cyberpunk.vim.
+// https://github.com/taigrr/cyberpunk.vim
+func Cyberpunk() Styles {
+	return quickStyle(quickStyleOpts{
+		// Brand: toxic green primary, electric yellow secondary, neon
+		// cyan accent, hot red keyword.
+		primary:   lipgloss.Color("#408000"),
+		secondary: lipgloss.Color("#ffd302"),
+		accent:    lipgloss.Color("#0eeafa"),
+		keyword:   lipgloss.Color("#ff0000"),
+
+		fgBase:       lipgloss.Color("#408000"),
+		fgSubtle:     lipgloss.Color("#cdb1ad"),
+		fgMoreSubtle: lipgloss.Color("#888888"),
+		fgMostSubtle: lipgloss.Color("#444444"),
+
+		onPrimary: lipgloss.Color("#000000"),
+
+		bgBase:         lipgloss.Color("#000000"),
+		bgLeastVisible: lipgloss.Color("#0a0a0a"),
+		bgLessVisible:  lipgloss.Color("#1a1a1a"),
+		bgMostVisible:  lipgloss.Color("#333333"),
+		separator:      lipgloss.Color("#1a1a1a"),
+
+		destructive:       lipgloss.Color("#ff0000"),
+		error:             lipgloss.Color("#ff0000"),
+		warning:           lipgloss.Color("#ffd302"),
+		warningSubtle:     lipgloss.Color("#cdb1ad"),
+		denied:            lipgloss.Color("#ff0000"),
+		busy:              lipgloss.Color("#ffd302"),
+		info:              lipgloss.Color("#0197dd"),
+		infoMoreSubtle:    lipgloss.Color("#0eeafa"),
+		infoMostSubtle:    lipgloss.Color("#0c35bf"),
+		success:           lipgloss.Color("#408000"),
+		successMoreSubtle: lipgloss.Color("#0eeafa"),
+		successMostSubtle: lipgloss.Color("#003300"),
+
+		// Diff colors come straight from cyberpunk.vim's DiffAdd / DiffDelete.
+		diffAddFg:        lipgloss.Color("#408000"),
+		diffAddBg:        lipgloss.Color("#003300"),
+		diffAddBgEmph:    lipgloss.Color("#002200"),
+		diffRemoveFg:     lipgloss.Color("#ff0000"),
+		diffRemoveBg:     lipgloss.Color("#330000"),
+		diffRemoveBgEmph: lipgloss.Color("#220000"),
+
+		hypercredit: lipgloss.Color("#0eeafa"),
+
+		syntaxLink:            lipgloss.Color("#0eeafa"),
+		syntaxImage:           lipgloss.Color("#cdb1ad"),
+		syntaxCommentPreproc:  lipgloss.Color("#0eeafa"), // PreProc
+		syntaxKeywordReserved: lipgloss.Color("#ffd302"), // Statement
+		syntaxKeywordType:     lipgloss.Color("#ffd302"), // Type
+		syntaxOperator:        lipgloss.Color("#ff0000"), // Operator
+		syntaxNameBuiltin:     lipgloss.Color("#0197dd"), // Identifier
+		syntaxNameTag:         lipgloss.Color("#ffd302"),
+		syntaxNameAttribute:   lipgloss.Color("#0197dd"),
+		syntaxNameClass:       lipgloss.Color("#ffd302"),
+		syntaxNameDecorator:   lipgloss.Color("#0eeafa"),
+		syntaxLiteralString:   lipgloss.Color("#0197dd"), // Constant
+
+		// Brand surfaces: cyan↔yellow neon glow for the header gradient,
+		// green↔cyan for the working indicator.
+		headerCharm:     lipgloss.Color("#0eeafa"),
+		headerDiagonals: lipgloss.Color("#ffd302"),
+		logoGradFrom:    lipgloss.Color("#0eeafa"),
+		logoGradTo:      lipgloss.Color("#ffd302"),
+		workingGradFrom: lipgloss.Color("#408000"),
+		workingGradTo:   lipgloss.Color("#0eeafa"),
+	})
+}
+
 // RosePine returns the Rose Pine "main" dark theme.
 // https://rosepinetheme.com
 func RosePine() Styles {

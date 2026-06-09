@@ -33,6 +33,7 @@ var builtinThemes = map[string]builtinTheme{
 	"nord":             {isDark: true, build: Nord},
 	"gruvbox-dark":     {isDark: true, build: GruvboxDark},
 	"rose-pine":        {isDark: true, build: RosePine},
+	"cyberpunk":        {isDark: true, build: Cyberpunk},
 }
 
 // builtinThemeOrder controls the display order in the theme picker.
@@ -45,6 +46,7 @@ var builtinThemeOrder = []string{
 	"nord",
 	"gruvbox-dark",
 	"rose-pine",
+	"cyberpunk",
 }
 
 // normalizeThemeName lowercases and trims a theme name so lookups are

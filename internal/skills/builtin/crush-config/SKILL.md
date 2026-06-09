@@ -219,7 +219,8 @@ overrides global, a theme can be set per-workspace (set it in a project
 `crush.json` to override the global one).
 
 Builtin themes: `charmtone` (default), `hypercrush`, `tokyo-night`,
-`catppuccin-mocha`, `dracula`, `nord`, `gruvbox-dark`, `rose-pine`.
+`catppuccin-mocha`, `dracula`, `nord`, `gruvbox-dark`, `rose-pine`,
+`cyberpunk`.
 
 User themes are Lua files in `$XDG_CONFIG_HOME/crush/themes/*.lua` (typically
 `~/.config/crush/themes/`). Each file returns a table with a `name`, an
