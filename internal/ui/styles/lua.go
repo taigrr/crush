@@ -81,6 +81,16 @@ type Palette struct {
 	SyntaxNameClass       string
 	SyntaxNameDecorator   string
 	SyntaxLiteralString   string
+
+	// Brand surfaces (optional). When empty, these cascade to the brand
+	// pair (secondary/primary) so themes that don't override stay
+	// visually consistent.
+	HeaderCharm     string
+	HeaderDiagonals string
+	LogoGradFrom    string
+	LogoGradTo      string
+	WorkingGradFrom string
+	WorkingGradTo   string
 }
 
 // toStyles builds a Styles from the palette. Empty fields fall back to the
@@ -142,7 +152,24 @@ func (p Palette) toStyles() Styles {
 		syntaxNameClass:       c(p.SyntaxNameClass, def.SyntaxNameClass),
 		syntaxNameDecorator:   c(p.SyntaxNameDecorator, def.SyntaxNameDecorator),
 		syntaxLiteralString:   c(p.SyntaxLiteralString, def.SyntaxLiteralString),
+
+		// Optional brand surfaces — leave nil when the theme didn't set
+		// them so quickStyle's cascade picks up the brand pair.
+		headerCharm:     optColor(p.HeaderCharm),
+		headerDiagonals: optColor(p.HeaderDiagonals),
+		logoGradFrom:    optColor(p.LogoGradFrom),
+		logoGradTo:      optColor(p.LogoGradTo),
+		workingGradFrom: optColor(p.WorkingGradFrom),
+		workingGradTo:   optColor(p.WorkingGradTo),
 	})
+}
+
+// optColor returns nil for empty input so quickStyle's cascade kicks in.
+func optColor(v string) color.Color {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return lipgloss.Color(v)
 }
 
 // defaultPalette returns the Charmtone Pantera palette as hex strings, used
@@ -352,6 +379,13 @@ func LoadThemeFile(path string) (UserTheme, error) {
 		SyntaxNameClass:       str("syntax_name_class"),
 		SyntaxNameDecorator:   str("syntax_name_decorator"),
 		SyntaxLiteralString:   str("syntax_literal_string"),
+
+		HeaderCharm:     str("header_charm"),
+		HeaderDiagonals: str("header_diagonals"),
+		LogoGradFrom:    str("logo_grad_from"),
+		LogoGradTo:      str("logo_grad_to"),
+		WorkingGradFrom: str("working_grad_from"),
+		WorkingGradTo:   str("working_grad_to"),
 	}
 
 	return UserTheme{
