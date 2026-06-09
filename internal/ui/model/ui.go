@@ -171,6 +171,12 @@ type (
 		worktree    *worktree.Worktree
 		prefillText string
 	}
+
+	// forkFailedMsg is sent when a conversation fork fails, so the progress
+	// dialog can be closed and the error surfaced.
+	forkFailedMsg struct {
+		err error
+	}
 )
 
 // UI represents the main user interface model.
@@ -777,6 +783,15 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.renderPills()
 	case pubsub.Event[history.File]:
 		cmds = append(cmds, m.handleFileEvent(msg.Payload))
+	case pubsub.Event[fork.ForkProgress]:
+		// Drive the fork progress dialog's bar. The terminal Done event is
+		// handled by forkCompletedMsg (which closes the dialog), so we only
+		// update the in-flight bar here.
+		if d := m.dialog.Dialog(dialog.ForkProgressID); d != nil {
+			if fp, ok := d.(*dialog.ForkProgress); ok {
+				fp.SetProgress(msg.Payload.Stage, msg.Payload.Percent)
+			}
+		}
 	case pubsub.Event[workspace.LSPEvent]:
 		m.lspStates = m.com.Workspace.LSPGetStates()
 	case pubsub.Event[skills.Event]:
@@ -1010,7 +1025,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case creditsUpdatedMsg:
 		m.hyperCredits = &msg.credits
 	case forkCompletedMsg:
-		// Switch to the newly forked session.
+		// Fork finished — close the progress dialog and switch to the new
+		// session.
+		m.dialog.CloseDialog(dialog.ForkProgressID)
 		infoText := fmt.Sprintf("Forked to session: %s", msg.newSession.Title)
 		if msg.worktree != nil {
 			infoText = fmt.Sprintf("Forked to session: %s (worktree: %s)", msg.newSession.Title, msg.worktree.Name)
@@ -1024,6 +1041,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textarea.MoveToEnd()
 			cmds = append(cmds, m.updateTextareaWithPrevHeight(msg, prevHeight))
 		}
+	case forkFailedMsg:
+		// Fork failed — close the progress dialog and surface the error.
+		m.dialog.CloseDialog(dialog.ForkProgressID)
+		cmds = append(cmds, util.ReportError(msg.err))
 	case dialog.ActionOpenForkDialog:
 		// Handle fork dialog action from user message key handler.
 		if cmd := m.openForkDialog(msg.SessionID, msg.MessageID); cmd != nil {
@@ -1716,6 +1737,10 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		}
 	case dialog.ActionForkConversation:
 		m.dialog.CloseDialog(dialog.ForkID)
+		// Show a progress dialog while the (blocking) fork RPC runs so the
+		// UI doesn't appear frozen; it's driven by streamed ForkProgress
+		// events and closed on completion.
+		m.dialog.OpenDialog(dialog.NewForkProgress(m.com))
 		cmds = append(cmds, m.forkConversation(msg.SessionID, msg.MessageID, msg.NewSessionTitle, msg.CreateWorktree))
 	case dialog.ActionOpenMergeWorktreeDialog:
 		m.dialog.CloseDialog(dialog.WorktreesID)
@@ -4035,7 +4060,7 @@ func (m *UI) forkConversation(sessionID, messageID, newTitle string, createWorkt
 			Title:          newTitle,
 		})
 		if err != nil {
-			return util.ReportError(fmt.Errorf("fork failed: %w", err))()
+			return forkFailedMsg{err: fmt.Errorf("fork failed: %w", err)}
 		}
 
 		// Return a message to switch to the new session.

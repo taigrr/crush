@@ -60,7 +60,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
 	github.com/swaggo/swag v1.16.6
-	github.com/taigrr/catwalk v0.48.0-fork
+	github.com/taigrr/catwalk v0.48.1-fork
 	github.com/taigrr/fantasy v0.25.0-fork
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
@@ -111,6 +111,7 @@ require (
 	github.com/buger/jsonparser v1.2.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/anthropic-sdk-go v0.0.0-20260223140439-63879b0b8dab // indirect
+	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/x/etag v0.2.0 // indirect
 	github.com/charmbracelet/x/json v0.2.0 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
