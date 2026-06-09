@@ -110,25 +110,36 @@ warrants its own spec (`docs/specs/WEBSOCKET_TRANSPORT.md`) before coding.
 
 ---
 
-## 4. Bedrock/Mantle 200-with-error handling — `TODO`
+## 4. Bedrock/Mantle 200-with-error handling — `DONE`
 
 **Goal.** Detect provider errors that arrive with HTTP 200 so Crush doesn't
 enter a wedged state.
 
 **Findings.** Mantle on Bedrock returns its error body with a `200 OK`
-status code. The fantasy/provider layer treats 200 as success, so the error
-payload is parsed as a normal (empty/garbage) response.
+status code. The mantle endpoint is OpenAI-compatible and routes through
+`buildOpenaiCompatProvider`. On a 200 the SDK parses the body as a
+successful (but empty) response, leaving Crush with no content and no
+error. Researched shape: Bedrock Mantle returns the OpenAI error envelope
+`{"error":{"message",...,"code"}}` (and in-stream SSE error chunks) with
+200.
 
-**Approach.**
-1. Add a Bedrock/Mantle response interceptor that inspects the body even on
-   200 and detects the known error envelope shape.
-2. Promote it to a real error so the agent surfaces it and can retry/abort.
-3. Add a unit test with a captured 200-error body fixture.
+**Fix (shipped).**
+- Added `mantleErrorTransport` (an `http.RoundTripper`) in
+  `internal/agent/mantle.go`. For Mantle 200 responses with an
+  `application/json` body, it detects the OpenAI error envelope
+  (`error` object present, no `choices`) and rewrites the status to the
+  embedded code (clamped to 400-599) or `502 Bad Gateway`, so the provider
+  SDK raises a real error. The body is preserved for the caller. Streaming
+  (SSE) responses are left untouched.
+- Wired into `buildOpenaiCompatProvider` only when
+  `providerID == bedrock-mantle`, wrapping the existing transport.
+- Tests in `internal/agent/mantle_test.go` cover envelope detection
+  (numeric/string/missing codes, error-with-choices, non-JSON, SSE) and
+  the RoundTripper (status rewrite, body preservation, success/SSE
+  pass-through).
 
-**Files.** `internal/config/{load,config}.go` (provider wiring),
-`internal/agent/{agent,coordinator}.go`, and the fantasy provider hook point
-for Bedrock. Investigate whether the fix belongs upstream in `charm.land/
-fantasy` or can be done via a Crush-side response transform.
+**Files.** `internal/agent/mantle.go`, `internal/agent/mantle_test.go`,
+`internal/agent/coordinator.go`.
 
 ---
 
