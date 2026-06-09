@@ -25,6 +25,14 @@ func TestBuiltinThemeRegistry(t *testing.T) {
 
 	require.True(t, IsBuiltinTheme("hypercrush"))
 	require.False(t, IsBuiltinTheme("midnight"))
+
+	// Every advertised builtin must actually build (smoke test catches a
+	// new entry forgotten in the registry map vs. order slice).
+	for _, info := range infos {
+		s, ok := BuiltinThemeByName(info.Name)
+		require.True(t, ok, "BuiltinThemeByName missing for %q", info.Name)
+		require.NotNil(t, s.Background, "%q builtin produced empty Styles", info.Name)
+	}
 }
 
 func TestResolveTheme(t *testing.T) {

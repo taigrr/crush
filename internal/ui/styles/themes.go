@@ -25,12 +25,27 @@ type builtinTheme struct {
 // builtinThemes maps theme names to their builders. Names are matched
 // case-insensitively (see normalizeThemeName).
 var builtinThemes = map[string]builtinTheme{
-	"charmtone":  {isDark: true, build: CharmtonePantera},
-	"hypercrush": {isDark: true, build: HypercrushObsidiana},
+	"charmtone":        {isDark: true, build: CharmtonePantera},
+	"hypercrush":       {isDark: true, build: HypercrushObsidiana},
+	"tokyo-night":      {isDark: true, build: TokyoNight},
+	"catppuccin-mocha": {isDark: true, build: CatppuccinMocha},
+	"dracula":          {isDark: true, build: Dracula},
+	"nord":             {isDark: true, build: Nord},
+	"gruvbox-dark":     {isDark: true, build: GruvboxDark},
+	"rose-pine":        {isDark: true, build: RosePine},
 }
 
 // builtinThemeOrder controls the display order in the theme picker.
-var builtinThemeOrder = []string{"charmtone", "hypercrush"}
+var builtinThemeOrder = []string{
+	"charmtone",
+	"hypercrush",
+	"tokyo-night",
+	"catppuccin-mocha",
+	"dracula",
+	"nord",
+	"gruvbox-dark",
+	"rose-pine",
+}
 
 // normalizeThemeName lowercases and trims a theme name so lookups are
 // case-insensitive and whitespace-tolerant.
