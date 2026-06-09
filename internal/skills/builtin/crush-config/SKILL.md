@@ -265,6 +265,31 @@ return {
   success = "#a6e3a1",
   success_more_subtle = "#94e2d5",
   success_most_subtle = "#40a02b",
+
+  -- diff view (add/remove: fg, code bg, line-number gutter bg)
+  diff_add_fg = "#a6e3a1",
+  diff_add_bg = "#26332b",
+  diff_add_bg_emph = "#1f2a23",
+  diff_remove_fg = "#f38ba8",
+  diff_remove_bg = "#3a2b30",
+  diff_remove_bg_emph = "#2f2227",
+
+  -- brand accent for the Hypercredit icon/count
+  hypercredit = "#f5e0dc",
+
+  -- syntax highlighting roles
+  syntax_link = "#89b4fa",
+  syntax_image = "#f5c2e7",
+  syntax_comment_preproc = "#f9e2af",
+  syntax_keyword_reserved = "#cba6f7",
+  syntax_keyword_type = "#94e2d5",
+  syntax_operator = "#f38ba8",
+  syntax_name_builtin = "#f5c2e7",
+  syntax_name_tag = "#cba6f7",
+  syntax_name_attribute = "#fab387",
+  syntax_name_class = "#f9e2af",
+  syntax_name_decorator = "#f9e2af",
+  syntax_literal_string = "#a6e3a1",
 }
 ```
 

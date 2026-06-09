@@ -12,7 +12,7 @@ Status legend: `TODO` · `IN PROGRESS` · `BLOCKED` · `DONE`
 
 ---
 
-## 1. First-class theming support — `MOSTLY DONE`
+## 1. First-class theming support — `DONE`
 
 **Goal.** User-selectable themes (builtins + a folder of Lua themes), live
 preview in a picker, esc-cancel / enter-confirm, and local config overriding
@@ -46,18 +46,26 @@ spec: route every inline color through a semantic token.
 - **Schema** regenerated; `crush-config` skill documents the option and the
   Lua format. Tests cover the loader and `ResolveTheme`.
 
-**Remaining (stretch — not blocking).** The inline-hex / raw `charmtone.*`
-audit from the original spec is NOT done: literals still live in
-`internal/ui/diffview/style.go` and `internal/ui/styles/quickstyle.go`, and
-there's no lint forbidding raw hex outside the `styles` package. User themes
-therefore can't yet recolor those specific surfaces. Track as a follow-up:
-1. Add missing semantic tokens (diff add/remove/context, syntax roles) to
-   `quickStyleOpts`/`Styles` and the `Palette`.
-2. Route the remaining literals through the `Styles` struct.
-3. Add a test/lint that fails on raw hex or `charmtone.` outside `styles`.
+**Token extraction (done).** Every color in the themed TUI now flows through
+the theme:
+- `quickstyle.go` has zero raw hex / `charmtone.*` — diff add/remove colors,
+  the Hypercredit accent, and all syntax-highlight roles (link, image,
+  comment-preproc, keyword reserved/type, operator, name builtin/tag/
+  attribute/class/decorator, literal string) are `quickStyleOpts` tokens,
+  defaulted in both builtin themes and exposed as `Palette`/Lua fields
+  (`diff_add_fg`, `syntax_keyword_type`, …).
+- The last themed-surface leak (`api_key_input.go` error prompt) now reads
+  the theme's error color.
+- `internal/ui/styles/lint_test.go` walks `internal/ui` (excluding `styles/`
+  theme defs and the standalone `diffview/` library) and fails on any raw
+  hex literal or `charmtone.` reference, preventing regressions. Golden
+  tests confirm the extraction is byte-identical (no visual change).
+- Out of scope by design: `internal/cmd/*` (one-off CLI output, not themed)
+  and `internal/ui/diffview/style.go` (library defaults Crush always
+  overrides via `s.Diff`).
 
-**Files.** `internal/ui/styles/{themes,lua}.go`,
-`internal/ui/dialog/{theme,actions,commands}.go`,
+**Files.** `internal/ui/styles/{themes,lua,quickstyle,lint_test}.go`,
+`internal/ui/dialog/{theme,actions,commands,api_key_input}.go`,
 `internal/ui/model/ui.go`, `internal/ui/common/common.go`,
 `internal/config/{config,load}.go`, `schema.json`,
 `internal/skills/builtin/crush-config/SKILL.md`.
