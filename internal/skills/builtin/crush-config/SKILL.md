@@ -218,7 +218,8 @@ Other options: `context_paths`, `progress`, `disable_notifications`, `disable_au
 overrides global, a theme can be set per-workspace (set it in a project
 `crush.json` to override the global one).
 
-Builtin themes: `charmtone` (default), `hypercrush`.
+Builtin themes: `charmtone` (default), `hypercrush`, `tokyo-night`,
+`catppuccin-mocha`, `dracula`, `nord`, `gruvbox-dark`, `rose-pine`.
 
 User themes are Lua files in `$XDG_CONFIG_HOME/crush/themes/*.lua` (typically
 `~/.config/crush/themes/`). Each file returns a table with a `name`, an
@@ -290,6 +291,19 @@ return {
   syntax_name_class = "#f9e2af",
   syntax_name_decorator = "#f9e2af",
   syntax_literal_string = "#a6e3a1",
+
+  -- brand surfaces (optional). When omitted these cascade to the brand
+  -- pair (secondary/primary) so most themes don't need to set them.
+  --   header_charm     → "Charm™" label, logo "CRUSH" wordmark, version.
+  --   header_diagonals → ╱ separators, sidebar logo accents.
+  --   logo_grad_*      → header logo wordmark gradient.
+  --   working_grad_*   → animated "thinking" indicator gradient.
+  header_charm = "#f5c2e7",
+  header_diagonals = "#cba6f7",
+  logo_grad_from = "#f5c2e7",
+  logo_grad_to = "#cba6f7",
+  working_grad_from = "#cba6f7",
+  working_grad_to = "#f5c2e7",
 }
 ```
 
