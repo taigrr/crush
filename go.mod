@@ -64,6 +64,7 @@ require (
 	github.com/taigrr/fantasy v0.25.0-fork
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
+	github.com/yuin/gopher-lua v1.1.2
 	github.com/zeebo/xxh3 v1.1.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/net v0.55.0
