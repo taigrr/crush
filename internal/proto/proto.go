@@ -57,6 +57,17 @@ type RunComplete struct {
 	Cancelled bool   `json:"cancelled,omitempty"`
 }
 
+// ForkProgress is a progress update emitted while a conversation fork runs.
+// Forking is a blocking RPC; these events drive a live progress bar in the
+// client so the UI does not appear frozen.
+type ForkProgress struct {
+	SourceSessionID string  `json:"source_session_id"`
+	Stage           string  `json:"stage"`
+	Detail          string  `json:"detail,omitempty"`
+	Percent         float64 `json:"percent"`
+	Done            bool    `json:"done,omitempty"`
+}
+
 // SkillInfo describes a visible skill exposed to a frontend.
 type SkillInfo struct {
 	ID            string `json:"id"`

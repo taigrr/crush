@@ -10,6 +10,7 @@ import (
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/app"
 	"github.com/taigrr/crush/internal/backend"
+	"github.com/taigrr/crush/internal/fork"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/permission"
@@ -116,6 +117,17 @@ func wrapEvent(ev any) *pubsub.Payload {
 		return envelope(pubsub.PayloadTypeSkillsEvent, pubsub.Event[proto.SkillsEvent]{
 			Type:    e.Type,
 			Payload: skillsEventToProto(e.Payload),
+		})
+	case pubsub.Event[fork.ForkProgress]:
+		return envelope(pubsub.PayloadTypeForkProgress, pubsub.Event[proto.ForkProgress]{
+			Type: e.Type,
+			Payload: proto.ForkProgress{
+				SourceSessionID: e.Payload.SourceSessionID,
+				Stage:           e.Payload.Stage,
+				Detail:          e.Payload.Detail,
+				Percent:         e.Payload.Percent,
+				Done:            e.Payload.Done,
+			},
 		})
 	case pubsub.Event[proto.ConfigChanged]:
 		return envelope(pubsub.PayloadTypeConfigChanged, e)

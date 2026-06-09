@@ -28,6 +28,7 @@ const (
 	PayloadTypeSkillsEvent            PayloadType = "skills_event"
 	PayloadTypeConfigChanged          PayloadType = "config_changed"
 	PayloadTypeRunComplete            PayloadType = "run_complete"
+	PayloadTypeForkProgress           PayloadType = "fork_progress"
 )
 
 // Payload wraps a discriminated JSON payload with a type tag.

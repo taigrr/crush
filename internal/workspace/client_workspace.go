@@ -994,6 +994,17 @@ func translateEvent(ev any) tea.Msg {
 				Cancelled: e.Payload.Cancelled,
 			},
 		}
+	case pubsub.Event[proto.ForkProgress]:
+		return pubsub.Event[fork.ForkProgress]{
+			Type: e.Type,
+			Payload: fork.ForkProgress{
+				SourceSessionID: e.Payload.SourceSessionID,
+				Stage:           e.Payload.Stage,
+				Detail:          e.Payload.Detail,
+				Percent:         e.Payload.Percent,
+				Done:            e.Payload.Done,
+			},
+		}
 	default:
 		slog.Warn("Unknown event type in translateEvent", "type", fmt.Sprintf("%T", ev))
 		return nil
