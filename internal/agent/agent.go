@@ -147,6 +147,7 @@ type SessionAgent interface {
 	IsSessionBusy(sessionID string) bool
 	IsExtendedContext(sessionID string) bool
 	IsBusy() bool
+	WaitForIdle(ctx context.Context) error
 	QueuedPrompts(sessionID string) int
 	QueuedPromptsList(sessionID string) []string
 	ClearQueue(sessionID string)
@@ -206,6 +207,12 @@ type sessionAgent struct {
 	// dispatchMu so two goroutines can't race to lock different mutex
 	// instances for the same session.
 	dispatchMuCreate sync.Mutex
+
+	// idleMu guards idleCh. idleCh is closed-and-replaced every time an
+	// active request is cleared, giving WaitForIdle an event-driven wakeup
+	// (no polling) when the agent may have transitioned to idle.
+	idleMu sync.Mutex
+	idleCh chan struct{}
 	// acceptedMu serializes increments/decrements of acceptedRuns and
 	// the assignment of accept sequence numbers from acceptSeqGen. It
 	// is separate from dispatchMu so AcceptedRun.Close (which may run
@@ -261,6 +268,7 @@ func NewSessionAgent(
 		dispatchMu:           csync.NewMap[string, *sync.Mutex](),
 		acceptedRuns:         csync.NewMap[string, int](),
 		cancelMark:           csync.NewMap[string, uint64](),
+		idleCh:               make(chan struct{}),
 	}
 }
 
@@ -645,7 +653,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		mu.Unlock()
 
 		defer cancel()
-		defer a.activeRequests.Del(call.SessionID)
+		defer a.clearActiveRequest(call.SessionID)
 	} else if a.IsSessionBusy(call.SessionID) {
 		// Queue the message if busy. Strip OnComplete: the caller that
 		// supplied the hook (typically coordinator.Run) has its own
@@ -798,7 +806,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		a.activeRequests.Set(call.SessionID, cancel)
 
 		defer cancel()
-		defer a.activeRequests.Del(call.SessionID)
+		defer a.clearActiveRequest(call.SessionID)
 	}
 	// skipRunComplete is set just before the queued-recursion path so
 	// the outer Run doesn't publish a RunComplete that would race
@@ -1272,7 +1280,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	}
 
 	if shouldSummarize {
-		a.activeRequests.Del(call.SessionID)
+		a.clearActiveRequest(call.SessionID)
 		if summarizeErr := a.Summarize(genCtx, call.SessionID, call.ProviderOptions); summarizeErr != nil {
 			return nil, summarizeErr
 		}
@@ -1289,7 +1297,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// TUI handlers poll IsSessionBusy() and only re-evaluate when a
 	// tea.Msg arrives, so the cleanup must precede the notify or
 	// subscribers see stale busy state at the moment of receipt.
-	a.activeRequests.Del(call.SessionID)
+	a.clearActiveRequest(call.SessionID)
 	cancel()
 
 	// Send notification that agent has finished its turn (skip for
@@ -1453,7 +1461,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 
 	genCtx, cancel := context.WithCancel(ctx)
 	a.activeRequests.Set(sessionID, cancel)
-	defer a.activeRequests.Del(sessionID)
+	defer a.clearActiveRequest(sessionID)
 	defer cancel()
 	defer func() {
 		if flushErr := a.messages.FlushAll(ctx); flushErr != nil {
@@ -1565,7 +1573,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 
 	// Release the active request before processing queued messages so that
 	// Run() does not see the session as busy.
-	a.activeRequests.Del(sessionID)
+	a.clearActiveRequest(sessionID)
 	cancel()
 
 	// Process any messages that were queued while summarizing.
@@ -2190,6 +2198,37 @@ func (a *sessionAgent) IsBusy() bool {
 func (a *sessionAgent) IsSessionBusy(sessionID string) bool {
 	_, busy := a.activeRequests.Get(sessionID)
 	return busy
+}
+
+// clearActiveRequest removes the session's active request and signals any
+// WaitForIdle waiters. Every place that releases an active request must go
+// through here so the idle wakeup is never missed.
+func (a *sessionAgent) clearActiveRequest(sessionID string) {
+	a.activeRequests.Del(sessionID)
+	a.idleMu.Lock()
+	close(a.idleCh)
+	a.idleCh = make(chan struct{})
+	a.idleMu.Unlock()
+}
+
+// WaitForIdle blocks until the agent has no active requests or ctx is done.
+// It is event-driven: each cleared active request closes the current idle
+// channel, waking the waiter to re-check. Returns ctx.Err() if the context
+// is canceled first.
+func (a *sessionAgent) WaitForIdle(ctx context.Context) error {
+	for {
+		if !a.IsBusy() {
+			return nil
+		}
+		a.idleMu.Lock()
+		ch := a.idleCh
+		a.idleMu.Unlock()
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 func (a *sessionAgent) QueuedPrompts(sessionID string) int {

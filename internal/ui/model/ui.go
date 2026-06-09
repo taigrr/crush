@@ -291,11 +291,6 @@ type UI struct {
 	// hyperCredits is the remaining Hyper credits, updated after each prompt.
 	hyperCredits *int
 
-	// pendingSettings holds model/reasoning/context-mode change actions that
-	// were requested while the agent was busy. They are re-dispatched once
-	// the agent's turn finishes (TypeAgentFinished).
-	pendingSettings []tea.Msg
-
 	// Prompt history for up/down navigation through previous messages.
 	promptHistory struct {
 		messages []string
@@ -1733,12 +1728,6 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 	case dialog.ActionSelectReasoningEffort:
-		if m.isAgentBusy() {
-			m.dialog.CloseDialog(dialog.ReasoningID)
-			cmds = append(cmds, m.queueSettingChange(msg, "Reasoning effort change"))
-			break
-		}
-
 		cfg := m.com.Config()
 		if cfg == nil {
 			cmds = append(cmds, util.ReportError(errors.New("configuration not found")))
@@ -1758,18 +1747,19 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			break
 		}
 
+		// If the agent is busy the server queues the live apply until it
+		// finishes (see app.UpdateAgentModel -> UpdateModelsWhenIdle), so
+		// fire the RPC regardless and tell the user when it will take effect.
+		queued := m.isAgentBusy()
 		cmds = append(cmds, func() tea.Msg {
 			m.com.Workspace.UpdateAgentModel(context.TODO())
+			if queued {
+				return util.NewInfoMsg("Reasoning effort change queued; applies when the agent finishes")
+			}
 			return util.NewInfoMsg("Reasoning effort set to " + msg.Effort)
 		})
 		m.dialog.CloseDialog(dialog.ReasoningID)
 	case dialog.ActionSelectContextMode:
-		if m.isAgentBusy() {
-			m.dialog.CloseDialog(dialog.ContextModeID)
-			cmds = append(cmds, m.queueSettingChange(msg, "Context mode change"))
-			break
-		}
-
 		cfg := m.com.Config()
 		if cfg == nil {
 			cmds = append(cmds, util.ReportError(errors.New("configuration not found")))
@@ -1789,10 +1779,14 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			break
 		}
 
+		queued := m.isAgentBusy()
 		cmds = append(cmds, func() tea.Msg {
 			if err := m.com.Workspace.UpdateAgentModel(context.TODO()); err != nil {
 				slog.Error("Failed to update agent model after context mode change", "error", err)
 				return util.NewWarnMsg("Context mode saved but agent update failed: " + err.Error())
+			}
+			if queued {
+				return util.NewInfoMsg("Context mode change queued; applies when the agent finishes")
 			}
 			return util.NewInfoMsg("Context mode set to " + common.FormatContextMode(string(msg.Mode)))
 		})
@@ -1926,11 +1920,10 @@ func (m *UI) fetchHyperCredits() tea.Cmd {
 func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 	var cmds []tea.Cmd
 
-	// we ignore dialogs with the oauth id as they need to be able to be dismissed
-	if m.isAgentBusy() && !m.dialog.ContainsDialog(dialog.OAuthID) {
-		m.dialog.CloseDialog(dialog.ModelsID)
-		return m.queueSettingChange(msg, "Model change")
-	}
+	// No busy guard: the config write below is immediate and the live model
+	// apply is deferred server-side until the agent finishes its turn (see
+	// app.UpdateAgentModel -> UpdateModelsWhenIdle), so changing the model
+	// mid-run no longer errors with "agent busy".
 
 	cfg := m.com.Config()
 	if cfg == nil {
@@ -2015,35 +2008,6 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		cmds = append(cmds, m.fetchHyperCredits())
 	}
 
-	return tea.Batch(cmds...)
-}
-
-// queueSettingChange defers a model/reasoning/context-mode change that was
-// requested while the agent is busy. The action is re-dispatched verbatim
-// once the agent finishes its turn (see the TypeAgentFinished handler), so
-// it flows through the same handler (and shows the same confirmation) as an
-// immediate change. Returns a command that notifies the user the change is
-// queued.
-func (m *UI) queueSettingChange(action tea.Msg, label string) tea.Cmd {
-	m.pendingSettings = append(m.pendingSettings, action)
-	return util.ReportInfo(label + " queued; will apply when the agent finishes")
-}
-
-// applyPendingSettings re-dispatches the queued setting changes. It is
-// triggered by the agent-finished event (the event-driven analogue of the
-// busy mutex unlocking), so changes apply just before the next user
-// message. If the agent became busy again before this ran, the
-// re-dispatched actions simply re-queue themselves.
-func (m *UI) applyPendingSettings() tea.Cmd {
-	if len(m.pendingSettings) == 0 {
-		return nil
-	}
-	pending := m.pendingSettings
-	m.pendingSettings = nil
-	cmds := make([]tea.Cmd, 0, len(pending))
-	for _, action := range pending {
-		cmds = append(cmds, func() tea.Msg { return action })
-	}
 	return tea.Batch(cmds...)
 }
 
@@ -4087,13 +4051,6 @@ func (m *UI) handleAgentNotification(n notify.Notification) tea.Cmd {
 	switch n.Type {
 	case notify.TypeAgentFinished:
 		var cmds []tea.Cmd
-		// The agent's turn finished — apply any model/reasoning/context-mode
-		// changes that were queued while it was busy. This is the
-		// event-driven equivalent of waking when the busy mutex unlocks; the
-		// re-dispatched action shows its own confirmation naturally.
-		if cmd := m.applyPendingSettings(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
 		cmds = append(cmds, m.sendNotification(notification.Notification{
 			Title:   "Crush is waiting...",
 			Message: fmt.Sprintf("Agent's turn completed in \"%s\"", n.SessionTitle),

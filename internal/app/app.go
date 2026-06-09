@@ -476,7 +476,12 @@ func (app *App) UpdateAgentModel(ctx context.Context) error {
 	if app.AgentCoordinator == nil {
 		return fmt.Errorf("agent configuration is missing")
 	}
-	return app.AgentCoordinator.UpdateModels(ctx)
+	// Apply when idle: if the agent is mid-run, a server-side goroutine
+	// blocks until it finishes and then applies, so the model/reasoning
+	// change takes effect before the next user message instead of erroring
+	// with "agent busy". Returns immediately so the RPC doesn't hang.
+	_, err := app.AgentCoordinator.UpdateModelsWhenIdle(ctx)
+	return err
 }
 
 // overrideModelsForNonInteractive parses the model strings and temporarily

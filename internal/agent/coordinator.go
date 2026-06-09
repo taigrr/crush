@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/agent/hyper"
@@ -103,6 +104,7 @@ type Coordinator interface {
 	Summarize(context.Context, string) error
 	Model() Model
 	UpdateModels(ctx context.Context) error
+	UpdateModelsWhenIdle(ctx context.Context) (deferred bool, err error)
 }
 
 type coordinator struct {
@@ -1173,6 +1175,32 @@ func (c *coordinator) UpdateModels(ctx context.Context) error {
 	}
 	c.currentAgent.SetTools(tools)
 	return nil
+}
+
+// UpdateModelsWhenIdle applies the latest model/tool configuration. If the
+// agent is busy, the apply is deferred: a goroutine blocks (event-driven, no
+// polling) until the agent finishes its current turn, then applies. The call
+// returns immediately so the RPC handler does not hang. It reports whether
+// the apply was deferred so callers can tell the user it was queued.
+func (c *coordinator) UpdateModelsWhenIdle(ctx context.Context) (deferred bool, err error) {
+	if !c.currentAgent.IsBusy() {
+		return false, c.UpdateModels(ctx)
+	}
+	go func() {
+		// Detach from the request context, which is canceled when the RPC
+		// returns; bound the wait so a stuck session can't leak the
+		// goroutine forever.
+		waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		if waitErr := c.currentAgent.WaitForIdle(waitCtx); waitErr != nil {
+			slog.Warn("Gave up waiting for agent idle before applying model change", "error", waitErr)
+			return
+		}
+		if updErr := c.UpdateModels(context.Background()); updErr != nil {
+			slog.Error("Failed to apply queued model change", "error", updErr)
+		}
+	}()
+	return true, nil
 }
 
 func (c *coordinator) QueuedPrompts(sessionID string) int {

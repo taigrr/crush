@@ -40,6 +40,7 @@ func (m *mockSessionAgent) CancelAll()                                  {}
 func (m *mockSessionAgent) IsSessionBusy(sessionID string) bool         { return false }
 func (m *mockSessionAgent) IsExtendedContext(sessionID string) bool     { return false }
 func (m *mockSessionAgent) IsBusy() bool                                { return false }
+func (m *mockSessionAgent) WaitForIdle(ctx context.Context) error       { return nil }
 func (m *mockSessionAgent) QueuedPrompts(sessionID string) int          { return 0 }
 func (m *mockSessionAgent) QueuedPromptsList(sessionID string) []string { return nil }
 func (m *mockSessionAgent) ClearQueue(sessionID string)                 {}

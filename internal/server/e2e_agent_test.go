@@ -220,6 +220,7 @@ func (c *scriptedCoordinator) ClearQueue(string)                       {}
 func (c *scriptedCoordinator) Summarize(context.Context, string) error { return nil }
 func (c *scriptedCoordinator) Model() agent.Model                      { return agent.Model{} }
 func (c *scriptedCoordinator) UpdateModels(context.Context) error      { return nil }
+func (c *scriptedCoordinator) UpdateModelsWhenIdle(context.Context) (bool, error) { return false, nil }
 func (c *scriptedCoordinator) IsExtendedContext(string) bool           { return false }
 
 // agentE2EHarness extends the SSE harness with a scripted coordinator

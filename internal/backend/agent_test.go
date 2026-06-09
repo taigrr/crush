@@ -58,6 +58,9 @@ func (c *blockingCoordinator) Summarize(context.Context, string) error          
 func (c *blockingCoordinator) Model() agent.Model                                { return agent.Model{} }
 func (c *blockingCoordinator) UpdateModels(context.Context) error                { return nil }
 func (c *blockingCoordinator) IsExtendedContext(string) bool                     { return false }
+func (c *blockingCoordinator) UpdateModelsWhenIdle(context.Context) (bool, error) {
+	return false, nil
+}
 
 // insertAgentWorkspace installs a synthetic workspace with the given
 // coordinator (or none) and a workspace run context, mirroring the

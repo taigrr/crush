@@ -36,18 +36,19 @@ func (c *errorCoordinator) RunAccepted(ctx context.Context, accept *agent.Accept
 	return nil, c.err
 }
 
-func (c *errorCoordinator) BeginAccepted(sessionID string) *agent.AcceptedRun { return nil }
-func (c *errorCoordinator) Cancel(string)                                     {}
-func (c *errorCoordinator) CancelAll()                                        {}
-func (c *errorCoordinator) IsBusy() bool                                      { return false }
-func (c *errorCoordinator) IsSessionBusy(string) bool                         { return false }
-func (c *errorCoordinator) QueuedPrompts(string) int                          { return 0 }
-func (c *errorCoordinator) QueuedPromptsList(string) []string                 { return nil }
-func (c *errorCoordinator) ClearQueue(string)                                 {}
-func (c *errorCoordinator) Summarize(context.Context, string) error           { return nil }
-func (c *errorCoordinator) Model() agent.Model                                { return agent.Model{} }
-func (c *errorCoordinator) UpdateModels(context.Context) error                { return nil }
-func (c *errorCoordinator) IsExtendedContext(string) bool                     { return false }
+func (c *errorCoordinator) BeginAccepted(sessionID string) *agent.AcceptedRun  { return nil }
+func (c *errorCoordinator) Cancel(string)                                      {}
+func (c *errorCoordinator) CancelAll()                                         {}
+func (c *errorCoordinator) IsBusy() bool                                       { return false }
+func (c *errorCoordinator) IsSessionBusy(string) bool                          { return false }
+func (c *errorCoordinator) QueuedPrompts(string) int                           { return 0 }
+func (c *errorCoordinator) QueuedPromptsList(string) []string                  { return nil }
+func (c *errorCoordinator) ClearQueue(string)                                  {}
+func (c *errorCoordinator) Summarize(context.Context, string) error            { return nil }
+func (c *errorCoordinator) Model() agent.Model                                 { return agent.Model{} }
+func (c *errorCoordinator) UpdateModels(context.Context) error                 { return nil }
+func (c *errorCoordinator) UpdateModelsWhenIdle(context.Context) (bool, error) { return false, nil }
+func (c *errorCoordinator) IsExtendedContext(string) bool                      { return false }
 
 // insertRunCompleteWorkspace installs a workspace backed by a real
 // app.App (so the runCompletions broker exists) with the given
