@@ -935,6 +935,15 @@ func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers 
 	if httpClient == nil && c.cfg.Config().Options.Debug {
 		httpClient = log.NewHTTPClient()
 	}
+	// Bedrock Mantle returns OpenAI-style error envelopes with HTTP 200,
+	// which the SDK would otherwise parse as an empty (successful) response.
+	// Wrap the transport so those errors are surfaced with a real status.
+	if providerID == string(catwalk.InferenceProviderBedrockMantle) {
+		if httpClient == nil {
+			httpClient = &http.Client{}
+		}
+		httpClient.Transport = &mantleErrorTransport{base: httpClient.Transport}
+	}
 	if httpClient != nil {
 		opts = append(opts, openaicompat.WithHTTPClient(httpClient))
 	}
