@@ -144,7 +144,7 @@ func (d *DockerMCPToolRenderContext) RenderTool(sty *styles.Styles, width int, o
 
 	// Handle image content.
 	if opts.Result.Data != "" && strings.HasPrefix(opts.Result.MIMEType, "image/") {
-		parts = append(parts, "", toolOutputImageContent(sty, opts.Result.Data, opts.Result.MIMEType))
+		parts = append(parts, "", toolOutputImageContent(sty, opts.ToolCall.ID, opts.Result.Data, opts.Result.MIMEType, opts.ImageConfig))
 	}
 
 	if len(parts) == 0 {

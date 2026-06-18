@@ -1,8 +1,14 @@
 package chat
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"path/filepath"
 	"strings"
 	"time"
@@ -19,9 +25,11 @@ import (
 	"github.com/charmbracelet/crush/internal/stringext"
 	"github.com/charmbracelet/crush/internal/ui/anim"
 	"github.com/charmbracelet/crush/internal/ui/common"
+	fimage "github.com/charmbracelet/crush/internal/ui/image"
 	"github.com/charmbracelet/crush/internal/ui/list"
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/x/ansi"
+	_ "golang.org/x/image/webp" // WebP decoding.
 )
 
 // responseContextHeight limits the number of lines displayed in tool output.
@@ -29,6 +37,11 @@ const responseContextHeight = 10
 
 // toolBodyLeftPaddingTotal represents the padding that should be applied to each tool body
 const toolBodyLeftPaddingTotal = 2
+
+const (
+	defaultImageCols = 60
+	defaultImageRows = 20
+)
 
 // ToolStatus represents the current state of a tool call.
 type ToolStatus int
@@ -52,6 +65,8 @@ type ToolMessageItem interface {
 	SetMessageID(id string)
 	SetStatus(status ToolStatus)
 	Status() ToolStatus
+	SetImageConfig(cfg *ImageConfig)
+	TransmitImage() tea.Cmd
 }
 
 // Compactable is an interface for tool items that can render in a compacted mode.
@@ -98,6 +113,17 @@ type ToolRenderOpts struct {
 	Compact         bool
 	IsSpinning      bool
 	Status          ToolStatus
+	ImageConfig     *ImageConfig
+}
+
+// ImageConfig holds configuration for inline image rendering.
+type ImageConfig struct {
+	Encoding   fimage.Encoding
+	CellWidth  int
+	CellHeight int
+	Tmux       bool
+	MaxCols    int
+	MaxRows    int
 }
 
 // IsPending returns true if the tool call is still pending (not finished and
@@ -158,6 +184,9 @@ type baseToolMessageItem struct {
 	sty             *styles.Styles
 	anim            *anim.Anim
 	expandedContent bool
+
+	// imageConfig holds configuration for inline image rendering.
+	imageConfig *ImageConfig
 }
 
 var _ Expandable = (*baseToolMessageItem)(nil)
@@ -333,6 +362,7 @@ func (t *baseToolMessageItem) RawRender(width int) string {
 			Compact:         t.isCompact,
 			IsSpinning:      t.isSpinning(),
 			Status:          t.computeStatus(),
+			ImageConfig:     t.imageConfig,
 		})
 
 		// Prepend hook indicator if hooks ran for this tool call.
@@ -433,6 +463,45 @@ func (t *baseToolMessageItem) SetStatus(status ToolStatus) {
 // Status returns the current tool status.
 func (t *baseToolMessageItem) Status() ToolStatus {
 	return t.status
+}
+
+// SetImageConfig sets the image rendering configuration.
+func (t *baseToolMessageItem) SetImageConfig(cfg *ImageConfig) {
+	t.imageConfig = cfg
+}
+
+// TransmitImage transmits the image data to the terminal if the result contains
+// an image and the terminal supports inline image rendering.
+func (t *baseToolMessageItem) TransmitImage() tea.Cmd {
+	if t.result == nil || t.imageConfig == nil {
+		return nil
+	}
+	if t.result.Data == "" || !strings.HasPrefix(t.result.MIMEType, "image/") {
+		return nil
+	}
+	if t.imageConfig.Encoding != fimage.EncodingKitty {
+		return nil
+	}
+
+	data, err := base64.StdEncoding.DecodeString(t.result.Data)
+	if err != nil {
+		return nil
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil
+	}
+
+	cols, rows := imageRenderDims(t.imageConfig)
+
+	id := t.toolCall.ID
+	cs := fimage.CellSize{
+		Width:  t.imageConfig.CellWidth,
+		Height: t.imageConfig.CellHeight,
+	}
+
+	return t.imageConfig.Encoding.Transmit(id, img, cs, cols, rows, t.imageConfig.Tmux)
 }
 
 // computeStatus computes the effective status considering the result.
@@ -699,10 +768,40 @@ func toolOutputCodeContent(sty *styles.Styles, path, content string, offset, wid
 	return sty.Tool.Body.Render(strings.Join(out, "\n"))
 }
 
-// toolOutputImageContent renders image data with size info.
-func toolOutputImageContent(sty *styles.Styles, data, mediaType string) string {
+// imageRenderDims returns the column/row budget for inline image rendering.
+// Transmit and render must use identical dimensions, else the cache key never
+// matches and the image falls back to a chip.
+func imageRenderDims(cfg *ImageConfig) (cols, rows int) {
+	cols, rows = cfg.MaxCols, cfg.MaxRows
+	if cols <= 0 {
+		cols = defaultImageCols
+	}
+	if rows <= 0 {
+		rows = defaultImageRows
+	}
+	return cols, rows
+}
+
+// toolOutputImageContent renders image data inline when supported, otherwise
+// as a text summary.
+func toolOutputImageContent(sty *styles.Styles, toolCallID, data, mediaType string, imgCfg *ImageConfig) string {
 	dataSize := len(data) * 3 / 4
 	sizeStr := formatSize(dataSize)
+
+	if imgCfg != nil && imgCfg.Encoding == fimage.EncodingKitty {
+		cols, rows := imageRenderDims(imgCfg)
+
+		if fimage.HasTransmitted(toolCallID, cols, rows) {
+			imgRender := imgCfg.Encoding.Render(toolCallID, cols, rows)
+			infoLine := fmt.Sprintf(
+				"%s %s %s",
+				sty.Tool.MediaType.Render(mediaType),
+				sty.Tool.ResourceLoadedIndicator.Render(styles.ArrowRightIcon),
+				sty.Tool.ResourceSize.Render(sizeStr),
+			)
+			return sty.Tool.Body.Render(imgRender + "\n" + infoLine)
+		}
+	}
 
 	return sty.Tool.Body.Render(fmt.Sprintf(
 		"%s %s %s %s",

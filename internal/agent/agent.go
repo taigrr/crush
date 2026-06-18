@@ -166,6 +166,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (*fantasy
 		return nil, ErrSessionMissing
 	}
 
+	call.Attachments = normalizeImageAttachments(call.Attachments)
+
 	// Queue the message if busy
 	if a.IsSessionBusy(call.SessionID) {
 		existing, ok := a.messageQueue.Get(call.SessionID)
