@@ -28,7 +28,6 @@ func normalizeImageAttachments(attachments []message.Attachment) []message.Attac
 		}
 
 		data, err := shrinkImage(att.Content)
-
 		if err != nil {
 			slog.Warn("Failed to shrink oversized image attachment, sending as-is", "file", att.FileName, "bytes", len(att.Content), "error", err)
 			continue
