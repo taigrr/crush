@@ -46,14 +46,20 @@ type blobCacheEntry struct {
 }
 
 // Repo manages Crush's private git repository for snapshots.
-// It uses go-git with a custom GIT_DIR (.crush/git) while operating
-// on the user's project directory as the work tree.
+// It uses go-git with a custom GIT_DIR rooted under the canonical
+// project root (.crush/git) while operating on a configurable work
+// tree. The work tree is normally the same as the project root, but
+// when Crush is run from inside a linked worktree under
+// `.crush/worktrees/<name>/` the work tree is that linked worktree
+// while the gitDir continues to point at the project root's
+// `.crush/git/` so all snapshots accumulate in a single repository.
 type Repo struct {
-	repo       *git.Repository
-	gitDir     string // .crush/git
-	projectDir string // User's project root
-	config     *Config
-	ignorer    gitignore.Matcher
+	repo        *git.Repository
+	gitDir      string // <projectRoot>/.crush/git
+	projectRoot string // Canonical project root (where .crush/ lives)
+	workTree    string // Directory whose contents are snapshotted
+	config      *Config
+	ignorer     gitignore.Matcher
 
 	// blobCache maps relative file paths to their last known state.
 	// Used to skip re-reading and re-compressing unchanged files.
@@ -92,24 +98,47 @@ func DefaultConfig() *Config {
 	}
 }
 
-// InitRepo initializes or opens the Crush git repo at .crush/git/.
-// If the repo doesn't exist, it creates a new one.
+// InitRepo initializes or opens the Crush git repo at
+// `<projectDir>/.crush/git/`, snapshotting projectDir itself as the
+// work tree. This is the simple case where the user is operating
+// directly in the project root. Use [InitRepoAt] when the work tree is
+// distinct from the project root (e.g. when Crush is launched from
+// inside a linked worktree).
 func InitRepo(projectDir string, cfg *Config) (*Repo, error) {
+	return InitRepoAt(projectDir, projectDir, cfg)
+}
+
+// InitRepoAt initializes or opens the Crush git repo at
+// `<projectRoot>/.crush/git/` and configures it to snapshot workTree.
+// projectRoot must be the canonical project root (the main git working
+// tree root), and workTree must be inside (or equal to) projectRoot.
+// This split lets all snapshots taken from any linked worktree under
+// `.crush/worktrees/` accumulate in a single private repository.
+func InitRepoAt(projectRoot, workTree string, cfg *Config) (*Repo, error) {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
 
-	// Don't snapshot if the project dir is the user's home directory or
-	// if there's no .git directory (not a project).
+	// Refuse to snapshot the user's home directory.
 	homeDir, _ := os.UserHomeDir()
-	if homeDir != "" && projectDir == homeDir {
+	if homeDir != "" && projectRoot == homeDir {
 		return nil, fmt.Errorf("refusing to snapshot home directory")
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, ".git")); err != nil {
+	// projectRoot must be a git repository (regular or linked).
+	if _, err := os.Stat(filepath.Join(projectRoot, ".git")); err != nil {
 		return nil, fmt.Errorf("not a git repository: %w", err)
 	}
+	// workTree must exist (and is typically also a git checkout, but we
+	// don't enforce that — a linked worktree's `.git` is a file, not a
+	// directory, and the snapshot machinery doesn't care either way).
+	if workTree == "" {
+		workTree = projectRoot
+	}
+	if _, err := os.Stat(workTree); err != nil {
+		return nil, fmt.Errorf("work tree not accessible: %w", err)
+	}
 
-	crushDir := filepath.Join(projectDir, ".crush")
+	crushDir := filepath.Join(projectRoot, ".crush")
 	gitDir := filepath.Join(crushDir, "git")
 
 	// Ensure .crush directory exists.
@@ -138,20 +167,21 @@ func InitRepo(projectDir string, cfg *Config) (*Repo, error) {
 		}
 	}
 
-	// Load .gitignore patterns from the project directory.
+	// Load .gitignore patterns from the work tree.
 	var ignorer gitignore.Matcher
-	projectFS := osfs.New(projectDir)
-	patterns, err := gitignore.ReadPatterns(projectFS, nil)
+	workTreeFS := osfs.New(workTree)
+	patterns, err := gitignore.ReadPatterns(workTreeFS, nil)
 	if err == nil && len(patterns) > 0 {
 		ignorer = gitignore.NewMatcher(patterns)
 	}
 
 	return &Repo{
-		repo:       repo,
-		gitDir:     gitDir,
-		projectDir: projectDir,
-		config:     cfg,
-		ignorer:    ignorer,
+		repo:        repo,
+		gitDir:      gitDir,
+		projectRoot: projectRoot,
+		workTree:    workTree,
+		config:      cfg,
+		ignorer:     ignorer,
 	}, nil
 }
 
@@ -167,8 +197,8 @@ func (r *Repo) CreateSnapshotCtx(ctx context.Context, description string) (strin
 		return "", ErrRepoNotInitialized
 	}
 
-	// Build tree from project directory.
-	treeHash, err := r.buildTree(ctx, r.projectDir, "")
+	// Build tree from the configured work tree.
+	treeHash, err := r.buildTree(ctx, r.workTree, "")
 	if err != nil {
 		return "", fmt.Errorf("build tree: %w", err)
 	}
@@ -248,7 +278,7 @@ func (r *Repo) RestoreSnapshot(commitHash string, targetDir string) error {
 	}
 
 	if targetDir == "" {
-		targetDir = r.projectDir
+		targetDir = r.workTree
 	}
 
 	// Get commit.
@@ -484,7 +514,7 @@ func (r *Repo) buildTree(ctx context.Context, dir string, relPath string) (plumb
 func (r *Repo) addBlob(path string, isSymlink bool) (plumbing.Hash, error) {
 	// For regular files, check the mtime cache.
 	if !isSymlink {
-		relPath, _ := filepath.Rel(r.projectDir, path)
+		relPath, _ := filepath.Rel(r.workTree, path)
 		if relPath != "" {
 			info, err := os.Stat(path)
 			if err == nil {
@@ -534,7 +564,7 @@ func (r *Repo) addBlob(path string, isSymlink bool) (plumbing.Hash, error) {
 
 	// Update the cache.
 	if !isSymlink {
-		relPath, _ := filepath.Rel(r.projectDir, path)
+		relPath, _ := filepath.Rel(r.workTree, path)
 		if relPath != "" {
 			if info, err := os.Stat(path); err == nil {
 				if r.blobCache == nil {
@@ -692,9 +722,18 @@ func (r *Repo) restoreTree(tree *object.Tree, targetDir string, relPath string) 
 	return nil
 }
 
-// ProjectDir returns the project directory this repo operates on.
+// ProjectDir returns the work tree this repo snapshots. The name is
+// preserved for backwards compatibility; for the canonical project
+// root (where `.crush/` lives) use [Repo.ProjectRoot].
 func (r *Repo) ProjectDir() string {
-	return r.projectDir
+	return r.workTree
+}
+
+// ProjectRoot returns the canonical project root (the directory whose
+// `.crush/git/` is this repo's gitDir). May differ from [Repo.ProjectDir]
+// when Crush is operating from inside a linked worktree.
+func (r *Repo) ProjectRoot() string {
+	return r.projectRoot
 }
 
 // GitDir returns the git directory path.

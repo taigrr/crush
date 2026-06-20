@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -16,8 +17,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/app"
 	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/worktree"
 )
 
 // newTestBackend returns a Backend whose teardown path skips any
@@ -105,8 +108,8 @@ func TestRegisterClient_Idempotent(t *testing.T) {
 	ws, _ := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid, nil)
-	b.registerClient(ws, cid, nil)
+	b.registerClient(ws, cid, nil, "")
+	b.registerClient(ws, cid, nil, "")
 
 	ws.clientsMu.Lock()
 	defer ws.clientsMu.Unlock()
@@ -122,7 +125,7 @@ func TestAttachClient_ConsumesHold(t *testing.T) {
 	ws, shutdowns := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid, nil)
+	b.registerClient(ws, cid, nil, "")
 	require.NoError(t, b.AttachClient(ws.ID, cid))
 
 	ws.clientsMu.Lock()
@@ -183,7 +186,7 @@ func TestDetachClient_LastStreamTearsDown(t *testing.T) {
 	ws, wsShutdowns := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid, nil)
+	b.registerClient(ws, cid, nil, "")
 	require.NoError(t, b.AttachClient(ws.ID, cid))
 	b.DetachClient(ws.ID, cid)
 
@@ -200,7 +203,7 @@ func TestHoldExpiry_TearsDown(t *testing.T) {
 	ws, wsShutdowns := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid, nil)
+	b.registerClient(ws, cid, nil, "")
 
 	require.Eventually(t, func() bool {
 		return wsShutdowns.Load() == 1 && srvShutdowns.Load() == 1
@@ -214,7 +217,7 @@ func TestReleaseHold_NoStreams(t *testing.T) {
 	ws, shutdowns := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid, nil)
+	b.registerClient(ws, cid, nil, "")
 	require.NoError(t, b.releaseHold(ws.ID, cid))
 
 	require.Equal(t, int32(1), shutdowns.Load())
@@ -230,7 +233,7 @@ func TestReleaseHold_WithActiveStream(t *testing.T) {
 	ws, shutdowns := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid, nil)
+	b.registerClient(ws, cid, nil, "")
 	require.NoError(t, b.AttachClient(ws.ID, cid))
 	require.NoError(t, b.releaseHold(ws.ID, cid))
 
@@ -270,9 +273,9 @@ func TestRefcountWithSecondClient(t *testing.T) {
 
 	cidA := newClientID(t)
 	cidB := newClientID(t)
-	b.registerClient(ws, cidA, nil)
+	b.registerClient(ws, cidA, nil, "")
 	require.NoError(t, b.AttachClient(ws.ID, cidA))
-	b.registerClient(ws, cidB, nil)
+	b.registerClient(ws, cidB, nil, "")
 	require.NoError(t, b.AttachClient(ws.ID, cidB))
 
 	b.DetachClient(ws.ID, cidA)
@@ -319,7 +322,7 @@ func TestHoldExpiry_RaceWithAttach(t *testing.T) {
 		ws, shutdowns := insertTestWorkspace(t, b, "/tmp/race")
 
 		cid := newClientID(t)
-		b.registerClient(ws, cid, nil)
+		b.registerClient(ws, cid, nil, "")
 		// Attach concurrently with the very short grace timer.
 		errCh := make(chan error, 1)
 		go func() { errCh <- b.AttachClient(ws.ID, cid) }()
@@ -363,7 +366,7 @@ func TestConcurrentAttachDetach(t *testing.T) {
 	ws, _ := insertTestWorkspace(t, b, "/tmp/a")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid, nil)
+	b.registerClient(ws, cid, nil, "")
 	require.NoError(t, b.AttachClient(ws.ID, cid)) // ensure refcount stays > 0.
 
 	const n = 50
@@ -841,7 +844,7 @@ func TestExplicitDeleteThenAttach(t *testing.T) {
 
 	cid := newClientID(t)
 	// Real hold via registerClient (mirrors CreateWorkspace).
-	b.registerClient(ws, cid, nil)
+	b.registerClient(ws, cid, nil, "")
 	ws.clientsMu.Lock()
 	require.Contains(t, ws.clients, cid)
 	require.NotNil(t, ws.clients[cid].holdTimer, "hold must be live")
@@ -1061,7 +1064,7 @@ func TestSetCurrentSession_RejectsHoldOnly(t *testing.T) {
 	ws, _ := insertTestWorkspace(t, b, "/tmp/current-session-hold")
 
 	cid := newClientID(t)
-	b.registerClient(ws, cid, nil)
+	b.registerClient(ws, cid, nil, "")
 
 	require.ErrorIs(t, b.SetCurrentSession(ws.ID, cid, "S1"), ErrClientNotAttached)
 
@@ -1200,7 +1203,7 @@ func TestAttachedClients_BasicLifecycle(t *testing.T) {
 	// currentSessionID empty by construction, and SetCurrentSession
 	// rejects hold-only writers — so the contract holds two ways.
 	cidHold := newClientID(t)
-	b.registerClient(ws, cidHold, nil)
+	b.registerClient(ws, cidHold, nil, "")
 	t.Cleanup(func() { _ = b.releaseHold(ws.ID, cidHold) })
 	n, _ = b.AttachedClients(ws.ID, "S1")
 	require.Equal(t, 1, n, "hold-only client must not contribute")
@@ -1238,4 +1241,184 @@ func TestAttachedClients_UnknownWorkspace(t *testing.T) {
 	b, _ := newTestBackend(t)
 	_, err := b.AttachedClients("00000000-0000-0000-0000-000000000000", "S1")
 	require.ErrorIs(t, err, ErrWorkspaceNotFound)
+}
+
+// TestPathDedupe_LinkedWorktreeSharesProjectWorkspace verifies that a
+// client invoking Crush from inside a linked worktree under
+// `.crush/worktrees/<name>/` collapses to the same workspace as a
+// client invoking from the project root. Without this, both clients
+// would spin up their own *App and race on the shared on-disk state
+// (`.crush/git/` and `.crush/worktrees/`). The dedup happens via
+// `config.ProjectRoot`, which uses `git rev-parse --git-common-dir`
+// to walk back to the main repository's working tree root.
+func TestPathDedupe_LinkedWorktreeSharesProjectWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git linked worktrees behave differently on windows test runners")
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	// Build a real git project with a real linked worktree so
+	// `git rev-parse --git-common-dir` works as it would in production.
+	projectDir := t.TempDir()
+	gitRun := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test")
+		out, err := cmd.CombinedOutput()
+		require.NoErrorf(t, err, "git %v: %s", args, out)
+	}
+	gitRun(projectDir, "init", "-b", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "README.md"), []byte("hi\n"), 0o644))
+	gitRun(projectDir, "add", ".")
+	gitRun(projectDir, "commit", "-m", "init")
+	wtPath := filepath.Join(projectDir, ".crush", "worktrees", "feat-x")
+	require.NoError(t, os.MkdirAll(filepath.Dir(wtPath), 0o755))
+	gitRun(projectDir, "worktree", "add", "-b", "feat-x", wtPath, "HEAD")
+
+	dataDir := t.TempDir()
+	b := New(context.Background(), nil, func() {})
+	b.SetCreateGrace(2 * time.Second)
+	t.Cleanup(func() { drainBackend(t, b) })
+
+	wsA, _, err := b.CreateWorkspace(protoWS(projectDir, dataDir, uuid.New().String()))
+	require.NoError(t, err)
+	wsB, _, err := b.CreateWorkspace(protoWS(wtPath, dataDir, uuid.New().String()))
+	require.NoError(t, err)
+	require.Equal(t, wsA.ID, wsB.ID,
+		"client invoked from a linked worktree must share the project's workspace")
+	require.Equal(t, wsA.Path, wsB.Path,
+		"workspace path must be the canonical project root, not the per-client cwd")
+}
+
+// fakeWorktreeService is a tiny Service stub used to verify
+// auto-switch behavior in SetCurrentSession without spinning up a
+// real git project. Only the methods touched by
+// maybeSyncSessionWorktree need real implementations.
+type fakeWorktreeService struct {
+	worktree.Service // panics on any method we forgot to stub
+
+	mu              sync.Mutex
+	byPath          map[string]*worktree.Worktree
+	activeBySession map[string]string
+	switchCalls     []switchCall
+	switchErr       error
+}
+
+type switchCall struct {
+	sessionID, worktreeID string
+}
+
+func (f *fakeWorktreeService) IsEnabled() bool { return true }
+
+func (f *fakeWorktreeService) GetByPath(_ context.Context, p string) (*worktree.Worktree, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for prefix, wt := range f.byPath {
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
+			return wt, nil
+		}
+	}
+	return nil, worktree.ErrWorktreeNotFound
+}
+
+func (f *fakeWorktreeService) GetActive(_ context.Context, sessionID string) (*worktree.Worktree, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	id, ok := f.activeBySession[sessionID]
+	if !ok {
+		return nil, worktree.ErrNoActiveWorktree
+	}
+	for _, wt := range f.byPath {
+		if wt.ID == id {
+			return wt, nil
+		}
+	}
+	return nil, worktree.ErrWorktreeNotFound
+}
+
+func (f *fakeWorktreeService) Switch(_ context.Context, sessionID, worktreeID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.switchCalls = append(f.switchCalls, switchCall{sessionID, worktreeID})
+	if f.switchErr != nil {
+		return f.switchErr
+	}
+	if f.activeBySession == nil {
+		f.activeBySession = map[string]string{}
+	}
+	f.activeBySession[sessionID] = worktreeID
+	return nil
+}
+
+func (f *fakeWorktreeService) calls() []switchCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]switchCall(nil), f.switchCalls...)
+}
+
+// TestSetCurrentSession_AutoSwitchesWorktreeFromCwd verifies the UX
+// nicety: when a client whose cwd lives inside a managed worktree
+// activates a session, the worktree is auto-set as the session's
+// active worktree. Failures in the auto-switch do not affect the
+// SetCurrentSession write.
+func TestSetCurrentSession_AutoSwitchesWorktreeFromCwd(t *testing.T) {
+	t.Parallel()
+
+	wt := &worktree.Worktree{ID: "wt-1", Name: "feat-x", Path: "/proj/.crush/worktrees/feat-x", SessionID: "S1"}
+	fake := &fakeWorktreeService{byPath: map[string]*worktree.Worktree{wt.Path: wt}}
+
+	b, _ := newTestBackend(t)
+	ws, _ := insertTestWorkspace(t, b, "/proj")
+	ws.App = &app.App{Worktrees: fake}
+	ws.ctx = context.Background()
+
+	cid := newClientID(t)
+	require.NoError(t, b.AttachClient(ws.ID, cid))
+	// Re-register with cwd inside the linked worktree (AttachClient
+	// goes through registerClient with empty cwd; in production cwd
+	// is captured at CreateWorkspace, so we patch it directly).
+	ws.clientsMu.Lock()
+	ws.clients[cid].cwd = "/proj/.crush/worktrees/feat-x/sub"
+	ws.clientsMu.Unlock()
+
+	require.NoError(t, b.SetCurrentSession(ws.ID, cid, "S1"))
+
+	require.Eventually(t, func() bool {
+		return len(fake.calls()) == 1
+	}, 2*time.Second, 10*time.Millisecond, "Switch should fire once")
+
+	got := fake.calls()
+	require.Equal(t, switchCall{sessionID: "S1", worktreeID: "wt-1"}, got[0])
+}
+
+// TestSetCurrentSession_NoAutoSwitchAtProjectRoot verifies that a
+// client whose cwd is *not* inside any managed worktree (e.g. the
+// project root itself) leaves the session's worktree state alone.
+func TestSetCurrentSession_NoAutoSwitchAtProjectRoot(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeWorktreeService{byPath: map[string]*worktree.Worktree{}}
+
+	b, _ := newTestBackend(t)
+	ws, _ := insertTestWorkspace(t, b, "/proj")
+	ws.App = &app.App{Worktrees: fake}
+	ws.ctx = context.Background()
+
+	cid := newClientID(t)
+	require.NoError(t, b.AttachClient(ws.ID, cid))
+	ws.clientsMu.Lock()
+	ws.clients[cid].cwd = "/proj"
+	ws.clientsMu.Unlock()
+
+	require.NoError(t, b.SetCurrentSession(ws.ID, cid, "S1"))
+
+	// Give any goroutine a moment to misbehave.
+	time.Sleep(50 * time.Millisecond)
+	require.Empty(t, fake.calls(), "no managed worktree contains cwd; Switch must not fire")
 }

@@ -108,9 +108,23 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		allowedTools = cfg.Permissions.AllowedTools
 	}
 
+	// Resolve the canonical project root. When Crush is launched from
+	// inside a linked worktree under `.crush/worktrees/<name>/`, the
+	// cwd reported by store.WorkingDir() is the worktree, not the
+	// project. ProjectRoot uses `git rev-parse --git-common-dir` to
+	// always return the main repo's working tree root, so `.crush/`,
+	// the snapshot repo, and managed worktrees stay co-located at the
+	// project root rather than nesting inside each linked worktree.
+	// Per spec §8, snapshots walk the project directory (linked
+	// worktrees inside .crush/ are excluded), so the work tree is
+	// always the project root regardless of which cwd the user
+	// invoked Crush from.
+	workingDir := store.WorkingDir()
+	projectRoot := config.ProjectRoot(workingDir)
+
 	// Initialize checkpoint service for filesystem snapshots.
 	checkpointCfg := checkpoint.ServiceConfig{
-		ProjectDir: store.WorkingDir(),
+		ProjectDir: projectRoot,
 		Enabled:    cfg.Snapshots.IsEnabled(),
 	}
 	if cfg.Snapshots != nil {
@@ -133,7 +147,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 
 	// Initialize worktree service.
 	worktreeCfg := worktree.ServiceConfig{
-		ProjectDir: store.WorkingDir(),
+		ProjectDir: projectRoot,
 		Enabled:    cfg.Worktree.IsEnabled(),
 	}
 	if cfg.Worktree != nil {

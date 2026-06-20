@@ -59,6 +59,15 @@ type Service interface {
 	// GetActive returns the active worktree for a session.
 	GetActive(ctx context.Context, sessionID string) (*Worktree, error)
 
+	// GetByPath returns the managed worktree whose Path equals the
+	// given filesystem path or contains it as a subdirectory. Returns
+	// [ErrWorktreeNotFound] when path lies outside any managed
+	// worktree (e.g. the project root itself, or an unrelated
+	// directory). Path comparison is done after [filepath.Abs] +
+	// [filepath.EvalSymlinks] on both sides so symlinked launches
+	// still resolve correctly.
+	GetByPath(ctx context.Context, path string) (*Worktree, error)
+
 	// List lists all worktrees for a session.
 	List(ctx context.Context, sessionID string) ([]*Worktree, error)
 
@@ -102,7 +111,12 @@ type service struct {
 	queries     *db.Queries
 	conn        *sql.DB
 	checkpoints checkpoint.Service
-	projectDir  string
+	// projectRoot is the canonical project root — the directory whose
+	// `.crush/worktrees/` we manage and whose `.git` is the main
+	// repository. When Crush is launched from inside a linked
+	// worktree, projectRoot is the *parent* repo, not the linked
+	// worktree. All `git worktree` invocations target this root.
+	projectRoot string
 	worktreeDir string
 	hooks       []config.PostCreateHook
 	enabled     bool
@@ -110,6 +124,9 @@ type service struct {
 
 // ServiceConfig holds configuration for the worktree service.
 type ServiceConfig struct {
+	// ProjectDir is the canonical project root. Worktrees are managed
+	// under `<ProjectDir>/.crush/worktrees/`. Pass the main git working
+	// tree root here, not a linked worktree path.
 	ProjectDir      string
 	Enabled         bool
 	PostCreateHooks []config.PostCreateHook
@@ -130,7 +147,7 @@ func NewService(cfg ServiceConfig, queries *db.Queries, conn *sql.DB, checkpoint
 		queries:     queries,
 		conn:        conn,
 		checkpoints: checkpoints,
-		projectDir:  cfg.ProjectDir,
+		projectRoot: cfg.ProjectDir,
 		worktreeDir: worktreeDir,
 		hooks:       cfg.PostCreateHooks,
 		enabled:     cfg.Enabled,
@@ -186,7 +203,7 @@ func (s *service) Create(ctx context.Context, sessionID string, name string, fro
 	// Create a real linked worktree on a new branch named after the
 	// worktree, based on the current HEAD. This shares the project's
 	// object store (no duplication) and never copies files by hand.
-	if out, err := s.git(ctx, s.projectDir, "worktree", "add", "-b", name, worktreePath, "HEAD"); err != nil {
+	if out, err := s.git(ctx, s.projectRoot, "worktree", "add", "-b", name, worktreePath, "HEAD"); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrWorktreeCreate, strings.TrimSpace(out))
 	}
 
@@ -344,6 +361,49 @@ func (s *service) GetActive(ctx context.Context, sessionID string) (*Worktree, e
 	return dbRowToWorktree(row), nil
 }
 
+func (s *service) GetByPath(ctx context.Context, path string) (*Worktree, error) {
+	if !s.enabled {
+		return nil, ErrWorktreesDisabled
+	}
+	if path == "" {
+		return nil, ErrWorktreeNotFound
+	}
+
+	resolved, err := canonicalizePath(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve path: %w", err)
+	}
+
+	all, err := s.ListAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Prefer the longest match so nested worktrees (if a user ever
+	// creates `feat/a` and `feat/a/sub`) resolve to the deepest one
+	// containing the cwd. Equal-length matches are unique by
+	// construction (Path is unique in the DB).
+	var best *Worktree
+	bestLen := 0
+	for _, wt := range all {
+		wtPath, err := canonicalizePath(wt.Path)
+		if err != nil {
+			continue
+		}
+		if !pathContainsOrEqual(wtPath, resolved) {
+			continue
+		}
+		if len(wtPath) > bestLen {
+			best = wt
+			bestLen = len(wtPath)
+		}
+	}
+	if best == nil {
+		return nil, ErrWorktreeNotFound
+	}
+	return best, nil
+}
+
 func (s *service) List(ctx context.Context, sessionID string) ([]*Worktree, error) {
 	if !s.enabled {
 		return nil, nil
@@ -420,7 +480,7 @@ func (s *service) Merge(ctx context.Context, worktreeID, targetBranch string, re
 		}
 	}
 
-	if out, err := s.git(ctx, s.projectDir, "checkout", targetBranch); err != nil {
+	if out, err := s.git(ctx, s.projectRoot, "checkout", targetBranch); err != nil {
 		return fmt.Errorf("%w: checkout target: %s", ErrWorktreeMerge, strings.TrimSpace(out))
 	}
 
@@ -430,18 +490,18 @@ func (s *service) Merge(ctx context.Context, worktreeID, targetBranch string, re
 		// fast-forward is both possible and the cleanest result.
 		mergeArgs = []string{"merge", "--ff-only", wtBranch}
 	}
-	if out, err := s.git(ctx, s.projectDir, mergeArgs...); err != nil {
+	if out, err := s.git(ctx, s.projectRoot, mergeArgs...); err != nil {
 		// Best-effort restore so a failed merge doesn't strand the user
 		// on the target branch.
 		if originalBranch != "" && originalBranch != targetBranch {
-			_, _ = s.git(ctx, s.projectDir, "checkout", originalBranch)
+			_, _ = s.git(ctx, s.projectRoot, "checkout", originalBranch)
 		}
 		return fmt.Errorf("%w: %s", ErrWorktreeMerge, strings.TrimSpace(out))
 	}
 
 	// Restore the user's original branch so the merge is transparent.
 	if originalBranch != "" && originalBranch != targetBranch {
-		if out, err := s.git(ctx, s.projectDir, "checkout", originalBranch); err != nil {
+		if out, err := s.git(ctx, s.projectRoot, "checkout", originalBranch); err != nil {
 			return fmt.Errorf("%w: restore branch: %s", ErrWorktreeMerge, strings.TrimSpace(out))
 		}
 	}
@@ -459,14 +519,14 @@ func (s *service) git(ctx context.Context, dir string, args ...string) (string, 
 
 // isGitRepo reports whether the project directory is inside a git work tree.
 func (s *service) isGitRepo(ctx context.Context) bool {
-	out, err := s.git(ctx, s.projectDir, "rev-parse", "--is-inside-work-tree")
+	out, err := s.git(ctx, s.projectRoot, "rev-parse", "--is-inside-work-tree")
 	return err == nil && strings.TrimSpace(out) == "true"
 }
 
 // isWorkingTreeDirty reports whether the project's main checkout has
 // uncommitted changes (staged, unstaged, or untracked).
 func (s *service) isWorkingTreeDirty(ctx context.Context) (bool, error) {
-	out, err := s.git(ctx, s.projectDir, "status", "--porcelain")
+	out, err := s.git(ctx, s.projectRoot, "status", "--porcelain")
 	if err != nil {
 		return false, fmt.Errorf("%w: status: %s", ErrWorktreeMerge, strings.TrimSpace(out))
 	}
@@ -476,7 +536,7 @@ func (s *service) isWorkingTreeDirty(ctx context.Context) (bool, error) {
 // currentBranch returns the project's currently checked-out branch name,
 // or "" if detached/unknown.
 func (s *service) currentBranch(ctx context.Context) (string, error) {
-	out, err := s.git(ctx, s.projectDir, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := s.git(ctx, s.projectRoot, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("%w: current branch: %s", ErrWorktreeMerge, strings.TrimSpace(out))
 	}
@@ -492,12 +552,12 @@ func (s *service) currentBranch(ctx context.Context) (string, error) {
 // worktree), it falls back to removing the directory directly. All
 // failures are best-effort and logged at debug level.
 func (s *service) removeGitWorktree(ctx context.Context, path string) {
-	if out, err := s.git(ctx, s.projectDir, "worktree", "remove", "--force", path); err != nil {
+	if out, err := s.git(ctx, s.projectRoot, "worktree", "remove", "--force", path); err != nil {
 		slog.Debug("Git worktree remove failed, falling back to rm", "path", path, "output", strings.TrimSpace(out), "error", err)
 		if rmErr := os.RemoveAll(path); rmErr != nil {
 			slog.Debug("Failed to remove worktree directory", "path", path, "error", rmErr)
 		}
-		_, _ = s.git(ctx, s.projectDir, "worktree", "prune")
+		_, _ = s.git(ctx, s.projectRoot, "worktree", "prune")
 	}
 }
 
@@ -663,4 +723,40 @@ func isValidWorktreeName(name string) bool {
 	// Only allow alphanumeric, hyphens, underscores, and forward slashes (for feat/xxx style).
 	matched, _ := regexp.MatchString(`^[a-zA-Z0-9][a-zA-Z0-9/_-]*$`, name)
 	return matched
+}
+
+// canonicalizePath returns an absolute, symlink-resolved form of path.
+// EvalSymlinks failures (e.g. the path no longer exists) fall back to
+// the absolute form so a stale DB row pointing at a deleted worktree
+// still produces a stable comparable key.
+func canonicalizePath(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	}
+	return abs, nil
+}
+
+// pathContainsOrEqual reports whether parent equals child, or child
+// is a descendant of parent. Both inputs must already be cleaned
+// absolute paths; on Windows comparisons are case-insensitive.
+func pathContainsOrEqual(parent, child string) bool {
+	if parent == child {
+		return true
+	}
+	rel, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	// `..` (or starting with `..`) means child escapes parent.
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return true
 }

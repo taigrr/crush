@@ -187,3 +187,83 @@ func trimNL(b []byte) []byte {
 	}
 	return b
 }
+
+// TestService_FromLinkedWorktreeStaysAtProjectRoot verifies that when a
+// worktree service is constructed with the canonical project root as
+// ProjectDir, managed worktrees land under <projectRoot>/.crush/worktrees/
+// even when discovery happens from inside an already-existing linked
+// worktree. This is the regression test for the "worktree creation
+// nested inside another worktree" bug.
+func TestService_FromLinkedWorktreeStaysAtProjectRoot(t *testing.T) {
+	t.Parallel()
+	projectDir := newGitProject(t)
+	svc := newWorktreeService(t, projectDir)
+	ctx := context.Background()
+
+	first, err := svc.Create(ctx, "s1", "feature-a", "")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(projectDir, ".crush", "worktrees", "feature-a"), first.Path)
+
+	// Simulate the user `cd`-ing into the linked worktree and launching
+	// Crush there: the canonical project root must still be projectDir.
+	resolvedProject, err := filepath.EvalSymlinks(projectDir)
+	require.NoError(t, err)
+	require.Equal(t, resolvedProject, configProjectRoot(t, first.Path))
+
+	// A second worktree created with the project root as ProjectDir is
+	// a sibling of the first, not nested inside it.
+	second, err := svc.Create(ctx, "s1", "feature-b", "")
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(projectDir, ".crush", "worktrees", "feature-b"), second.Path)
+
+	nested := filepath.Join(first.Path, ".crush", "worktrees")
+	_, err = os.Stat(nested)
+	require.True(t, os.IsNotExist(err), "must not nest worktrees inside another worktree, got %s", nested)
+}
+
+// configProjectRoot is a thin shim so the test does not import
+// internal/config (avoids a dependency cycle in tests).
+func configProjectRoot(t *testing.T, dir string) string {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	require.NoError(t, err)
+	return filepath.Dir(string(trimNL(out)))
+}
+
+// TestService_GetByPath_FindsContainingWorktree covers the path
+// lookup used to auto-switch a session's active worktree based on the
+// client's cwd. Three cases:
+//   - exact match (cwd == worktree path)
+//   - subdirectory inside a worktree
+//   - cwd outside any managed worktree
+func TestService_GetByPath_FindsContainingWorktree(t *testing.T) {
+	t.Parallel()
+	projectDir := newGitProject(t)
+	svc := newWorktreeService(t, projectDir)
+	ctx := context.Background()
+
+	wt, err := svc.Create(ctx, "s1", "feat-q", "")
+	require.NoError(t, err)
+
+	// Exact match.
+	got, err := svc.GetByPath(ctx, wt.Path)
+	require.NoError(t, err)
+	require.Equal(t, wt.ID, got.ID)
+
+	// Subdirectory inside the worktree.
+	sub := filepath.Join(wt.Path, "sub")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	got, err = svc.GetByPath(ctx, sub)
+	require.NoError(t, err)
+	require.Equal(t, wt.ID, got.ID)
+
+	// Project root itself is *not* under a managed worktree.
+	_, err = svc.GetByPath(ctx, projectDir)
+	require.ErrorIs(t, err, ErrWorktreeNotFound)
+
+	// Empty path is rejected.
+	_, err = svc.GetByPath(ctx, "")
+	require.ErrorIs(t, err, ErrWorktreeNotFound)
+}

@@ -110,6 +110,14 @@ type service struct {
 
 // ServiceConfig holds configuration for the snapshot service.
 type ServiceConfig struct {
+	// ProjectDir is the canonical project root: the directory under
+	// which `.crush/` lives. The private snapshot repo is stored at
+	// `<ProjectDir>/.crush/git/`, and the work tree walked on each
+	// snapshot is ProjectDir itself (linked worktrees nested under
+	// `.crush/worktrees/` are excluded from the walk so they do not
+	// snapshot themselves). This matches the spec's "walk project
+	// directory" model and ensures one canonical snapshot history per
+	// project regardless of which cwd the user invoked Crush from.
 	ProjectDir       string
 	Enabled          bool
 	Exclude          []string
@@ -132,7 +140,7 @@ func NewService(cfg ServiceConfig, queries *db.Queries, conn *sql.DB) (Service, 
 		repoCfg = DefaultConfig()
 	}
 
-	repo, err := InitRepo(cfg.ProjectDir, repoCfg)
+	repo, err := InitRepoAt(cfg.ProjectDir, cfg.ProjectDir, repoCfg)
 	if err != nil {
 		return nil, fmt.Errorf("init checkpoint repo: %w", err)
 	}

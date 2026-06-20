@@ -558,3 +558,43 @@ func TestGC(t *testing.T) {
 	err = repo.GC(t.Context())
 	require.NoError(t, err)
 }
+
+// TestInitRepoAt_GitDirAtProjectRootWorkTreeAtLinked verifies the split
+// between projectRoot (where .crush/git/ lives) and workTree (whose
+// contents are snapshotted). This is the regression test for the
+// "snapshots stored in the wrong location" bug: when Crush is run from
+// inside a linked worktree, snapshots must accumulate in the *project
+// root*'s private repo, not nest a new one inside the worktree.
+func TestInitRepoAt_GitDirAtProjectRootWorkTreeAtLinked(t *testing.T) {
+	t.Parallel()
+	projectDir := newProjectDir(t)
+	// Simulate a linked worktree directory: a sibling under
+	// .crush/worktrees/<name>/ that has its own `.git` *file*.
+	linkedWT := filepath.Join(projectDir, ".crush", "worktrees", "feat-x")
+	require.NoError(t, os.MkdirAll(linkedWT, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(linkedWT, ".git"),
+		[]byte("gitdir: "+filepath.Join(projectDir, ".git", "worktrees", "feat-x")+"\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(linkedWT, "hello.txt"), []byte("hi\n"), 0o644))
+
+	repo, err := checkpoint.InitRepoAt(projectDir, linkedWT, nil)
+	require.NoError(t, err)
+	require.NotNil(t, repo)
+
+	// Snapshot repo lives at the project root, not nested under the worktree.
+	require.DirExists(t, filepath.Join(projectDir, ".crush", "git"))
+	require.NoDirExists(t, filepath.Join(linkedWT, ".crush", "git"))
+
+	// The repo's reported work tree is the linked worktree, but the
+	// project root reflects the canonical root.
+	require.Equal(t, linkedWT, repo.ProjectDir())
+	require.Equal(t, projectDir, repo.ProjectRoot())
+
+	// Creating a snapshot succeeds and walks the linked worktree's contents.
+	hash, err := repo.CreateSnapshotRef("session-1", "msg-1", "first")
+	require.NoError(t, err)
+	require.NotEmpty(t, hash)
+
+	got, err := repo.GetSnapshotRef("session-1", "msg-1")
+	require.NoError(t, err)
+	require.Equal(t, hash, got)
+}

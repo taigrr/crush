@@ -1026,28 +1026,82 @@ func isInsideWorktree() bool {
 	return err == nil && strings.TrimSpace(string(bts)) == "true"
 }
 
-// worktreeRoot returns the absolute path of the git working tree root for
-// dir, or the empty string if dir is not inside a working tree (bare
-// repositories, missing git binary, plain directories, or any other
-// failure mode). Linked worktrees and submodules each report their own
-// top-level, which is what callers want when bounding lookups.
+// worktreeRoot returns the absolute path of the *main* git working tree
+// root for dir, or the empty string when dir is not inside a working tree
+// (bare repositories, missing git binary, plain directories, or any other
+// failure mode).
+//
+// When dir lives inside a linked worktree (e.g. one Crush created under
+// .crush/worktrees/<name>/), `git rev-parse --show-toplevel` would report
+// the linked worktree's own top-level, which means callers would treat
+// the linked worktree as the project root and store `.crush/`,
+// snapshots, and managed worktrees nested inside it. To get the
+// canonical project root we use `--git-common-dir`, which always points
+// at the main repository's `.git/` regardless of which worktree we are
+// in; its parent directory is the main worktree root.
 func worktreeRoot(dir string) string {
-	cmd := exec.CommandContext(
-		context.Background(),
-		"git", "rev-parse", "--show-toplevel",
-	)
+	out, err := gitRevParse(dir, "--path-format=absolute", "--git-common-dir")
+	if err != nil || out == "" {
+		// Fall back to --show-toplevel for older git versions or
+		// unusual setups (submodules without a common dir, etc.).
+		out2, err2 := gitRevParse(dir, "--show-toplevel")
+		if err2 != nil || out2 == "" {
+			return ""
+		}
+		abs, err := filepath.Abs(out2)
+		if err != nil {
+			return ""
+		}
+		return abs
+	}
+	// `--git-common-dir` returns the main repo's git dir
+	// (typically `<root>/.git`). Strip the trailing `.git` segment to
+	// get the project root. For bare repos or worktrees pointing at a
+	// gitdir file, fall back to --show-toplevel.
+	gitDir := out
+	parent := filepath.Dir(gitDir)
+	base := filepath.Base(gitDir)
+	if base != ".git" {
+		// Not a standard layout; try --show-toplevel as a fallback so
+		// we still return *something* sensible.
+		if out2, err2 := gitRevParse(dir, "--show-toplevel"); err2 == nil && out2 != "" {
+			if abs, err := filepath.Abs(out2); err == nil {
+				return abs
+			}
+		}
+		return ""
+	}
+	abs, err := filepath.Abs(parent)
+	if err != nil {
+		return ""
+	}
+	return abs
+}
+
+// gitRevParse runs `git rev-parse <args...>` with cwd=dir and returns
+// the trimmed stdout. Any non-zero exit produces an error.
+func gitRevParse(dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(context.Background(), "git", append([]string{"rev-parse"}, args...)...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		return ""
+		return "", err
 	}
-	root := strings.TrimSpace(string(out))
-	if root == "" {
-		return ""
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ProjectRoot returns the canonical project root for dir: the main git
+// working tree root when dir is inside a git repository (including any
+// linked worktree managed by Crush), or dir itself otherwise. This is
+// the directory under which `.crush/` (database, private snapshot repo,
+// managed worktrees) lives.
+func ProjectRoot(dir string) string {
+	if root := worktreeRoot(dir); root != "" {
+		return root
 	}
-	abs, err := filepath.Abs(root)
+	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return ""
+		return dir
 	}
 	return abs
 }

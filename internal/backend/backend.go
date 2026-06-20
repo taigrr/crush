@@ -94,6 +94,13 @@ type clientState struct {
 	// captured when the client first registers. Used to detect a
 	// per-client editor (e.g. Neovim via $NVIM).
 	env []string
+	// cwd is the client's original working directory at registration
+	// time, captured before workspace dedup collapses it to the
+	// project root. Used to auto-detect which managed worktree (if
+	// any) the client is operating from when [Backend.SetCurrentSession]
+	// fires, so the session's active worktree follows the user's cwd
+	// without an explicit `/worktree switch`.
+	cwd string
 	// bridge is the client's editor bridge, built lazily from env on
 	// first use and cached. Always non-nil once bridgeOnce has run;
 	// resolves to editor.Noop when no editor is attached.
@@ -265,7 +272,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		if existingID, ok := b.pathIndex[key]; ok {
 			if ws, found := b.workspaces.Get(existingID); found {
 				logFirstWinsMismatch(ws, args)
-				b.registerClient(ws, clientID, args.Env)
+				b.registerClient(ws, clientID, args.Env, args.Path)
 				b.mu.Unlock()
 				return ws, workspaceToProto(ws), nil
 			}
@@ -275,7 +282,14 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	b.mu.Unlock()
 
 	id := uuid.New().String()
-	cfg, err := config.Init(args.Path, args.DataDir, args.Debug)
+	// Use the canonical project root (key) as the workspace's working
+	// directory for config loading, app initialization, and downstream
+	// path consumers (snapshot restore target, agent default cwd, git
+	// branch display). args.Path is the original client cwd, which may
+	// be a subdirectory or a linked worktree under the project root;
+	// preserving it here would cause two clients in the same project
+	// to diverge on `.crush/` location, snapshot work tree, and so on.
+	cfg, err := config.Init(key, args.DataDir, args.Debug)
 	if err != nil {
 		return nil, proto.Workspace{}, fmt.Errorf("failed to initialize config: %w", err)
 	}
@@ -312,7 +326,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	ws := &Workspace{
 		App:          appWorkspace,
 		ID:           id,
-		Path:         args.Path,
+		Path:         key,
 		Cfg:          cfg,
 		Env:          args.Env,
 		Skills:       skillsMgr,
@@ -329,7 +343,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		if existingID, ok := b.pathIndex[key]; ok {
 			if existing, found := b.workspaces.Get(existingID); found {
 				logFirstWinsMismatch(existing, args)
-				b.registerClient(existing, clientID, args.Env)
+				b.registerClient(existing, clientID, args.Env, args.Path)
 				b.mu.Unlock()
 				ws.invokeShutdown()
 				return existing, workspaceToProto(existing), nil
@@ -341,7 +355,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	if !args.Isolated {
 		b.pathIndex[key] = id
 	}
-	b.registerClient(ws, clientID, args.Env)
+	b.registerClient(ws, clientID, args.Env, args.Path)
 	b.mu.Unlock()
 
 	if args.Version != "" && args.Version != version.Version {
@@ -414,14 +428,16 @@ func (b *Backend) releaseHold(workspaceID, clientID string) error {
 // registerClient installs (idempotently) the given client's claim on
 // the workspace and starts a grace timer if the entry is fresh. env is
 // the client's process environment, retained so the client's editor
-// bridge can be built lazily on first use.
-func (b *Backend) registerClient(ws *Workspace, clientID string, env []string) {
+// bridge can be built lazily on first use. cwd is the client's
+// original working directory, retained for active-worktree
+// auto-detection on SetCurrentSession.
+func (b *Backend) registerClient(ws *Workspace, clientID string, env []string, cwd string) {
 	ws.clientsMu.Lock()
 	defer ws.clientsMu.Unlock()
 	if _, ok := ws.clients[clientID]; ok {
 		return
 	}
-	cs := &clientState{env: env}
+	cs := &clientState{env: env, cwd: cwd}
 	cs.holdTimer = time.AfterFunc(b.createGrace, func() {
 		b.expireHold(ws, clientID, cs)
 	})
@@ -586,17 +602,67 @@ func (b *Backend) SetCurrentSession(workspaceID, clientID, sessionID string) err
 		return ErrWorkspaceNotFound
 	}
 	ws.clientsMu.Lock()
-	defer ws.clientsMu.Unlock()
 	cs, ok := ws.clients[clientID]
 	if !ok || cs.streams == 0 {
 		// No entry, or hold-only (no live stream): refuse the
 		// write. The presence record this is meant to feed
 		// should only reflect clients that can actually observe
 		// session events.
+		ws.clientsMu.Unlock()
 		return ErrClientNotAttached
 	}
 	cs.currentSessionID = sessionID
+	cwd := cs.cwd
+	ws.clientsMu.Unlock()
+
+	// Best-effort: if the client's cwd lies inside a managed
+	// worktree, switch the session's active worktree to match. This
+	// makes the session's worktree state follow `cd` without an
+	// explicit `/worktree switch`. Failures here never prevent the
+	// SetCurrentSession write from succeeding; they're advisory and
+	// surface as debug logs only.
+	if sessionID != "" && cwd != "" && ws.Worktrees != nil && ws.Worktrees.IsEnabled() {
+		go b.maybeSyncSessionWorktree(ws, clientID, sessionID, cwd)
+	}
 	return nil
+}
+
+// maybeSyncSessionWorktree looks up the managed worktree (if any)
+// containing cwd and ensures it is the active worktree for sessionID.
+// Runs off the request goroutine because Switch may shell out to git
+// for restore hooks. All errors are logged at debug level only — this
+// is a UX nicety, not a correctness path.
+func (b *Backend) maybeSyncSessionWorktree(ws *Workspace, clientID, sessionID, cwd string) {
+	ctx, cancel := context.WithTimeout(ws.ctx, 5*time.Second)
+	defer cancel()
+
+	wt, err := ws.Worktrees.GetByPath(ctx, cwd)
+	if err != nil {
+		// Not inside a managed worktree (or path resolution failed):
+		// nothing to do.
+		return
+	}
+
+	active, err := ws.Worktrees.GetActive(ctx, sessionID)
+	if err == nil && active != nil && active.ID == wt.ID {
+		return
+	}
+
+	if err := ws.Worktrees.Switch(ctx, sessionID, wt.ID); err != nil {
+		slog.Debug("Auto-switch session worktree from cwd failed",
+			"workspace", ws.ID,
+			"client", clientID,
+			"session", sessionID,
+			"cwd", cwd,
+			"worktree", wt.Name,
+			"error", err)
+		return
+	}
+	slog.Debug("Auto-switched session worktree to match client cwd",
+		"workspace", ws.ID,
+		"session", sessionID,
+		"worktree", wt.Name,
+		"path", wt.Path)
 }
 
 // AttachedClients returns the number of clients currently viewing
@@ -662,16 +728,26 @@ func (b *Backend) Shutdown() {
 }
 
 // resolveWorkspaceKey returns a stable canonical form of path suitable
-// for use as a dedup key.
+// for use as a dedup key. Two clients invoking Crush from anywhere
+// inside the same project (the main working tree or any linked
+// worktree under `.crush/worktrees/`) must collapse to the same key
+// so they share a single server-side workspace and thus a single
+// `*App` writing to `.crush/git/` and `.crush/worktrees/`. Without
+// this, two clients would each spin up their own checkpoint and
+// worktree services racing on the same on-disk state. The dedup is
+// done by walking up to the canonical project root via
+// `config.ProjectRoot` (which uses `git rev-parse --git-common-dir`
+// when available); for non-git directories the absolute resolved cwd
+// is used as a sensible fallback.
 func resolveWorkspaceKey(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
 	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved, nil
+		abs = resolved
 	}
-	return abs, nil
+	return config.ProjectRoot(abs), nil
 }
 
 // validateClientID returns the trimmed UUID string or an error if the
