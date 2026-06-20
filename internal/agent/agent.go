@@ -579,8 +579,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		return nil, err
 	}
 
-	call.Attachments = normalizeImageAttachments(call.Attachments)
-
 	// genCtx/cancel are the run context and its cancel func. For the
 	// accepted (fire-and-forget) dispatch path they are created under
 	// dispatchMu below so a concurrent Cancel can observe the
@@ -714,6 +712,24 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session messages: %w", err)
 	}
+
+	// Enforce the model's per-image and aggregate image limits before
+	// the user message is persisted or sent. Oversized current-message
+	// images are downscaled (proportionally, so multiple images stay
+	// readable) to fit the budget left by images already in the thread;
+	// if the turn cannot be made to fit, refuse it with a user-facing
+	// error rather than letting it become an unrecoverable provider API
+	// failure.
+	fitted, err := fitImageAttachments(
+		largeModel.ModelCfg.Provider,
+		largeModel.CatwalkCfg.SupportsImages,
+		msgs,
+		call.Attachments,
+	)
+	if err != nil {
+		return nil, err
+	}
+	call.Attachments = fitted
 
 	var wg sync.WaitGroup
 	// Generate a title on the first message, then refresh it once the
