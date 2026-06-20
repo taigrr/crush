@@ -956,7 +956,8 @@ func GlobalThemesDir() string {
 
 // GlobalCacheDir returns the path to the global cache directory for the
 // application.
-func GlobalCacheDir() string {	if crushCache := os.Getenv("CRUSH_CACHE_DIR"); crushCache != "" {
+func GlobalCacheDir() string {
+	if crushCache := os.Getenv("CRUSH_CACHE_DIR"); crushCache != "" {
 		return crushCache
 	}
 	if xdgCacheHome := os.Getenv("XDG_CACHE_HOME"); xdgCacheHome != "" {
