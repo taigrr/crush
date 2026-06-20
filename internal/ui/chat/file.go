@@ -71,7 +71,7 @@ func (v *ViewToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 
 	// Handle image content.
 	if opts.Result.Data != "" && strings.HasPrefix(opts.Result.MIMEType, "image/") {
-		body := toolOutputImageContent(sty, opts.Result.Data, opts.Result.MIMEType)
+		body := toolOutputImageContent(sty, opts.ToolCall.ID, opts.Result.Data, opts.Result.MIMEType, opts.ImageConfig)
 		return joinToolParts(header, body)
 	}
 

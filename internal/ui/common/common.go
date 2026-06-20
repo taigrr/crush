@@ -17,6 +17,11 @@ import (
 // MaxAttachmentSize defines the maximum allowed size for file attachments (5 MB).
 const MaxAttachmentSize = int64(5 * 1024 * 1024)
 
+// MaxImageAttachmentSize is the upper bound for image attachments before
+// downscaling. Images above MaxAttachmentSize are accepted and shrunk to fit
+// provider limits; this only guards against loading absurdly large files.
+const MaxImageAttachmentSize = int64(50 * 1024 * 1024)
+
 // AllowedImageTypes defines the permitted image file types.
 var AllowedImageTypes = []string{".jpg", ".jpeg", ".png"}
 

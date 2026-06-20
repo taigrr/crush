@@ -1,7 +1,13 @@
 package chat
 
 import (
+	"bytes"
 	"encoding/xml"
+	"image"
+	_ "image/gif"  // GIF decoding.
+	_ "image/jpeg" // JPEG decoding.
+	_ "image/png"  // PNG decoding.
+	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,8 +16,10 @@ import (
 	"github.com/taigrr/crush/internal/ui/attachments"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/dialog"
+	fimage "github.com/taigrr/crush/internal/ui/image"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
+	_ "golang.org/x/image/webp" // WebP decoding.
 )
 
 // skillInvocation represents the XML structure for a loaded skill.
@@ -32,6 +40,7 @@ type UserMessageItem struct {
 	attachments *attachments.Renderer
 	message     *message.Message
 	sty         *styles.Styles
+	imageConfig *ImageConfig
 }
 
 // NewUserMessageItem creates a new UserMessageItem.
@@ -160,16 +169,107 @@ func (m *UserMessageItem) ID() string {
 	return m.message.ID
 }
 
-// renderAttachments renders attachments.
+// renderAttachments renders attachments. If inline image rendering is supported,
+// images are rendered inline; otherwise they are shown as filename chips.
 func (m *UserMessageItem) renderAttachments(width int) string {
-	var attachments []message.Attachment
-	for _, at := range m.message.BinaryContent() {
-		attachments = append(attachments, message.Attachment{
+	binaryContents := m.message.BinaryContent()
+	if len(binaryContents) == 0 {
+		return ""
+	}
+
+	var parts []string
+
+	if m.imageConfig != nil && m.imageConfig.Encoding == fimage.EncodingKitty {
+		for _, bc := range binaryContents {
+			if !strings.HasPrefix(bc.MIMEType, "image/") {
+				continue
+			}
+			cols, rows := imageRenderDims(m.imageConfig)
+
+			if fimage.HasTransmitted(bc.Path, cols, rows) {
+				imgRender := m.imageConfig.Encoding.Render(bc.Path, cols, rows)
+				parts = append(parts, imgRender)
+			}
+		}
+	}
+
+	var attachmentList []message.Attachment
+	for _, at := range binaryContents {
+		attachmentList = append(attachmentList, message.Attachment{
 			FileName: at.Path,
 			MimeType: at.MIMEType,
 		})
 	}
-	return m.attachments.Render(attachments, false, width)
+	chips := m.attachments.Render(attachmentList, false, width)
+	if chips != "" {
+		parts = append(parts, chips)
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+// SetImageConfig sets the image rendering configuration.
+func (m *UserMessageItem) SetImageConfig(cfg *ImageConfig) {
+	m.imageConfig = cfg
+}
+
+// TransmitImages transmits any image attachments to the terminal for inline
+// rendering. Returns a tea.Cmd if images need to be transmitted.
+func (m *UserMessageItem) TransmitImages() tea.Cmd {
+	if m.imageConfig == nil || m.imageConfig.Encoding != fimage.EncodingKitty {
+		return nil
+	}
+
+	var cmds []tea.Cmd
+	for _, bc := range m.message.BinaryContent() {
+		if !strings.HasPrefix(bc.MIMEType, "image/") {
+			continue
+		}
+
+		cols, rows := imageRenderDims(m.imageConfig)
+
+		if fimage.HasTransmitted(bc.Path, cols, rows) {
+			continue
+		}
+
+		var img image.Image
+		var err error
+		if len(bc.Data) > 0 {
+			img, _, err = image.Decode(bytes.NewReader(bc.Data))
+		} else if bc.Path != "" {
+			img, err = loadImageFromFile(bc.Path)
+		}
+		if err != nil || img == nil {
+			continue
+		}
+
+		cs := fimage.CellSize{
+			Width:  m.imageConfig.CellWidth,
+			Height: m.imageConfig.CellHeight,
+		}
+
+		cmd := m.imageConfig.Encoding.Transmit(bc.Path, img, cs, cols, rows, m.imageConfig.Tmux)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+// loadImageFromFile loads an image from a file path.
+func loadImageFromFile(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	img, _, err := image.Decode(f)
+	return img, err
 }
 
 // HandleKeyEvent implements KeyEventHandler.

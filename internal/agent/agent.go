@@ -579,6 +579,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		return nil, err
 	}
 
+	call.Attachments = normalizeImageAttachments(call.Attachments)
+
 	// genCtx/cancel are the run context and its cancel func. For the
 	// accepted (fire-and-forget) dispatch path they are created under
 	// dispatchMu below so a concurrent Cancel can observe the

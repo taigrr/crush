@@ -64,7 +64,7 @@ func (g *GenericToolRenderContext) RenderTool(sty *styles.Styles, width int, opt
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
 
 	if opts.Result.Data != "" && strings.HasPrefix(opts.Result.MIMEType, "image/") {
-		body := sty.Tool.Body.Render(toolOutputImageContent(sty, opts.Result.Data, opts.Result.MIMEType))
+		body := toolOutputImageContent(sty, opts.ToolCall.ID, opts.Result.Data, opts.Result.MIMEType, opts.ImageConfig)
 		return joinToolParts(header, body)
 	}
 

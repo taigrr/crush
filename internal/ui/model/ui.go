@@ -1128,6 +1128,7 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 
 	// Add messages to chat with linked tool results
 	items := make([]chat.MessageItem, 0, len(msgs)*2)
+	imgCfg := m.imageConfig()
 	for _, msg := range msgPtrs {
 		switch msg.Role {
 		case message.User:
@@ -1144,8 +1145,24 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 		}
 	}
 
+	for _, item := range items {
+		if toolItem, ok := item.(chat.ToolMessageItem); ok {
+			toolItem.SetImageConfig(imgCfg)
+			if cmd := toolItem.TransmitImage(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if userItem, ok := item.(*chat.UserMessageItem); ok {
+			userItem.SetImageConfig(imgCfg)
+			if cmd := userItem.TransmitImages(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+	}
+
 	// Load nested tool calls for agent/agentic_fetch tools.
-	m.loadNestedToolCalls(items)
+	nestedCmds := m.loadNestedToolCalls(items)
+	cmds = append(cmds, nestedCmds...)
 
 	// If the user switches between sessions while the agent is working we want
 	// to make sure the animations are shown.
@@ -1166,7 +1183,10 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 }
 
 // loadNestedToolCalls recursively loads nested tool calls for agent/agentic_fetch tools.
-func (m *UI) loadNestedToolCalls(items []chat.MessageItem) {
+func (m *UI) loadNestedToolCalls(items []chat.MessageItem) []tea.Cmd {
+	var cmds []tea.Cmd
+	imgCfg := m.imageConfig()
+
 	for _, item := range items {
 		nestedContainer, ok := item.(chat.NestedToolContainer)
 		if !ok {
@@ -1206,6 +1226,10 @@ func (m *UI) loadNestedToolCalls(items []chat.MessageItem) {
 					if simplifiable, ok := nestedToolItem.(chat.Compactable); ok {
 						simplifiable.SetCompact(true)
 					}
+					nestedToolItem.SetImageConfig(imgCfg)
+					if cmd := nestedToolItem.TransmitImage(); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
 					nestedTools = append(nestedTools, nestedToolItem)
 				}
 			}
@@ -1216,11 +1240,13 @@ func (m *UI) loadNestedToolCalls(items []chat.MessageItem) {
 		for i, nt := range nestedTools {
 			nestedMessageItems[i] = nt
 		}
-		m.loadNestedToolCalls(nestedMessageItems)
+		nestedCmds := m.loadNestedToolCalls(nestedMessageItems)
+		cmds = append(cmds, nestedCmds...)
 
 		// Set nested tools on the parent.
 		nestedContainer.SetNestedTools(nestedTools)
 	}
+	return cmds
 }
 
 // appendSessionMessage appends a new message to the current session in the chat
@@ -1238,7 +1264,14 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 	case message.User:
 		m.lastUserMessageTime = msg.CreatedAt
 		items := chat.ExtractMessageItems(m.com.Styles, &msg, nil)
+		imgCfg := m.imageConfig()
 		for _, item := range items {
+			if userItem, ok := item.(*chat.UserMessageItem); ok {
+				userItem.SetImageConfig(imgCfg)
+				if cmd := userItem.TransmitImages(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
 			if animatable, ok := item.(chat.Animatable); ok {
 				if cmd := animatable.StartAnimation(); cmd != nil {
 					cmds = append(cmds, cmd)
@@ -1295,6 +1328,9 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 			}
 			if toolMsgItem, ok := toolItem.(chat.ToolMessageItem); ok {
 				toolMsgItem.SetResult(&tr)
+				if cmd := toolMsgItem.TransmitImage(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 				if m.chat.Follow() {
 					if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
 						cmds = append(cmds, cmd)
@@ -1372,7 +1408,9 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 			}
 		}
 		if existingToolItem == nil {
-			items = append(items, chat.NewToolMessageItem(m.com.Styles, msg.ID, tc, nil, false))
+			item := chat.NewToolMessageItem(m.com.Styles, msg.ID, tc, nil, false)
+			item.SetImageConfig(m.imageConfig())
+			items = append(items, item)
 		}
 	}
 
@@ -1450,6 +1488,7 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 		if !found {
 			// Create a new nested tool item.
 			nestedItem := chat.NewToolMessageItem(m.com.Styles, event.Payload.ID, tc, nil, false)
+			nestedItem.SetImageConfig(m.imageConfig())
 			if simplifiable, ok := nestedItem.(chat.Compactable); ok {
 				simplifiable.SetCompact(true)
 			}
@@ -1467,6 +1506,9 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 		for _, nestedTool := range nestedTools {
 			if nestedTool.ToolCall().ID == tr.ToolCallID {
 				nestedTool.SetResult(&tr)
+				if cmd := nestedTool.TransmitImage(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 				break
 			}
 		}
@@ -2914,6 +2956,31 @@ func (m *UI) currentModelSupportsImages() bool {
 	return model != nil && model.SupportsImages
 }
 
+// imageConfig returns an ImageConfig for inline image rendering if the terminal
+// supports it, or nil otherwise.
+func (m *UI) imageConfig() *chat.ImageConfig {
+	if !m.caps.SupportsKittyGraphics() {
+		return nil
+	}
+	cellW, cellH := m.caps.CellSize()
+	if cellW == 0 || cellH == 0 {
+		return nil
+	}
+	_, isTmux := m.caps.Env.LookupEnv("TMUX")
+
+	maxCols := min(80, m.caps.Columns-10)
+	maxRows := min(20, m.caps.Rows/3)
+
+	return &chat.ImageConfig{
+		Encoding:   fimage.EncodingKitty,
+		CellWidth:  cellW,
+		CellHeight: cellH,
+		Tmux:       isTmux,
+		MaxCols:    maxCols,
+		MaxRows:    maxRows,
+	}
+}
+
 // toggleCompactMode toggles compact mode between uiChat and uiChatCompact states.
 func (m *UI) toggleCompactMode() tea.Cmd {
 	m.forceCompactMode = !m.forceCompactMode
@@ -4293,8 +4360,8 @@ func (m *UI) handleFilePathPaste(path string) tea.Cmd {
 		if fileInfo.IsDir() {
 			return util.ReportWarn("Cannot attach a directory")
 		}
-		if fileInfo.Size() > common.MaxAttachmentSize {
-			return util.ReportWarn("File is too big (>5mb)")
+		if fileInfo.Size() > common.MaxImageAttachmentSize {
+			return util.ReportWarn("Image too large to attach")
 		}
 
 		content, err := os.ReadFile(path)
@@ -4319,14 +4386,14 @@ func (m *UI) handleFilePathPaste(path string) tea.Cmd {
 // interpreting clipboard text as a file path.
 func (m *UI) pasteImageFromClipboard() tea.Msg {
 	imageData, err := readClipboard(clipboardFormatImage)
-	if int64(len(imageData)) > common.MaxAttachmentSize {
-		return util.InfoMsg{
-			Type: util.InfoTypeError,
-			Msg:  "File too large, max 5MB",
+	if err == nil && len(imageData) > 0 {
+		if int64(len(imageData)) > common.MaxImageAttachmentSize {
+			return util.InfoMsg{
+				Type: util.InfoTypeError,
+				Msg:  "Image too large to attach",
+			}
 		}
-	}
-	name := fmt.Sprintf("paste_%d.png", m.pasteIdx())
-	if err == nil {
+		name := fmt.Sprintf("paste_%d.png", m.pasteIdx())
 		return message.Attachment{
 			FilePath: name,
 			FileName: name,
@@ -4337,13 +4404,13 @@ func (m *UI) pasteImageFromClipboard() tea.Msg {
 
 	textData, textErr := readClipboard(clipboardFormatText)
 	if textErr != nil || len(textData) == 0 {
-		return nil // Clipboard is empty or does not contain an image
+		return util.NewInfoMsg("No image found in clipboard")
 	}
 
 	path := strings.TrimSpace(string(textData))
 	path = strings.ReplaceAll(path, "\\ ", " ")
 	if _, statErr := os.Stat(path); statErr != nil {
-		return nil // Clipboard does not contain an image or valid file path
+		return util.NewInfoMsg("No image found in clipboard")
 	}
 
 	lowerPath := strings.ToLower(path)
@@ -4365,10 +4432,10 @@ func (m *UI) pasteImageFromClipboard() tea.Msg {
 			Msg:  fmt.Sprintf("Unable to read file: %v", statErr),
 		}
 	}
-	if fileInfo.Size() > common.MaxAttachmentSize {
+	if fileInfo.Size() > common.MaxImageAttachmentSize {
 		return util.InfoMsg{
 			Type: util.InfoTypeError,
-			Msg:  "File too large, max 5MB",
+			Msg:  "Image too large to attach",
 		}
 	}
 

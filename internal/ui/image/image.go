@@ -61,6 +61,11 @@ type CellSize struct {
 type cachedImage struct {
 	img        image.Image
 	cols, rows int
+	// fitCols and fitRows are the image's cell footprint after the
+	// aspect-preserving fit. Using them (rather than cols/rows) for the kitty
+	// placement and placeholder grid renders the image flush-left instead of
+	// letterboxed inside the full box.
+	fitCols, fitRows int
 }
 
 var (
@@ -76,10 +81,12 @@ func ResetCache() {
 }
 
 // fitImage resizes the image to fit within the specified dimensions in
-// terminal cells, maintaining the aspect ratio.
-func fitImage(id string, img image.Image, cs CellSize, cols, rows int) image.Image {
+// terminal cells, maintaining the aspect ratio. It returns the resized image
+// along with its cell footprint, which is <= cols/rows because the fit
+// preserves aspect ratio.
+func fitImage(id string, img image.Image, cs CellSize, cols, rows int) (image.Image, int, int) {
 	if img == nil {
-		return nil
+		return nil, cols, rows
 	}
 
 	key := imageKey{id: id, cols: cols, rows: rows}
@@ -88,11 +95,11 @@ func fitImage(id string, img image.Image, cs CellSize, cols, rows int) image.Ima
 	cached, ok := cachedImages[key]
 	cachedMutex.RUnlock()
 	if ok {
-		return cached.img
+		return cached.img, cached.fitCols, cached.fitRows
 	}
 
 	if cs.Width == 0 || cs.Height == 0 {
-		return img
+		return img, cols, rows
 	}
 
 	maxWidth := cols * cs.Width
@@ -100,15 +107,25 @@ func fitImage(id string, img image.Image, cs CellSize, cols, rows int) image.Ima
 
 	img = imaging.Fit(img, maxWidth, maxHeight, imaging.Lanczos)
 
+	b := img.Bounds()
+	fitCols := min(cols, ceilDiv(b.Dx(), cs.Width))
+	fitRows := min(rows, ceilDiv(b.Dy(), cs.Height))
+
 	cachedMutex.Lock()
 	cachedImages[key] = cachedImage{
-		img:  img,
-		cols: cols,
-		rows: rows,
+		img:     img,
+		cols:    cols,
+		rows:    rows,
+		fitCols: fitCols,
+		fitRows: fitRows,
 	}
 	cachedMutex.Unlock()
 
-	return img
+	return img, fitCols, fitRows
+}
+
+func ceilDiv(a, b int) int {
+	return (a + b - 1) / b
 }
 
 // HasTransmitted checks if the image with the given ID has already been
@@ -138,33 +155,31 @@ func (e Encoding) Transmit(id string, img image.Image, cs CellSize, cols, rows i
 		return nil
 	}
 
-	cmd := func() tea.Msg {
-		if e != EncodingKitty {
-			cachedMutex.Lock()
-			cachedImages[key] = cachedImage{
-				img:  img,
-				cols: cols,
-				rows: rows,
-			}
-			cachedMutex.Unlock()
+	// Cache synchronously so the render in the same update cycle resolves
+	// HasTransmitted; only the terminal write stays in the returned command.
+	fitted, fitCols, fitRows := fitImage(id, img, cs, cols, rows)
+
+	if e != EncodingKitty {
+		return func() tea.Msg {
 			return TransmittedMsg{ID: key.ID()}
 		}
+	}
 
+	return func() tea.Msg {
 		var buf bytes.Buffer
-		img := fitImage(id, img, cs, cols, rows)
-		bounds := img.Bounds()
+		bounds := fitted.Bounds()
 		imgWidth := bounds.Dx()
 		imgHeight := bounds.Dy()
 		imgID := int(key.Hash())
-		if err := kitty.EncodeGraphics(&buf, img, &kitty.Options{
+		if err := kitty.EncodeGraphics(&buf, fitted, &kitty.Options{
 			ID:               imgID,
 			Action:           kitty.TransmitAndPut,
 			Transmission:     kitty.Direct,
 			Format:           kitty.RGBA,
 			ImageWidth:       imgWidth,
 			ImageHeight:      imgHeight,
-			Columns:          cols,
-			Rows:             rows,
+			Columns:          fitCols,
+			Rows:             fitRows,
 			VirtualPlacement: true,
 			Quite:            1,
 			Chunk:            true,
@@ -184,8 +199,6 @@ func (e Encoding) Transmit(id string, img image.Image, cs CellSize, cols, rows i
 
 		return tea.RawMsg{Msg: buf.String()}
 	}
-
-	return cmd
 }
 
 // Render renders the given image within the specified dimensions using the
@@ -238,7 +251,11 @@ func (e Encoding) Render(id string, cols, rows int) string {
 		canvas.Paint()
 		return strings.TrimSpace(canvas.GetResult())
 	case EncodingKitty:
-		// Build Kitty graphics unicode place holders
+		fitCols, fitRows := cached.fitCols, cached.fitRows
+		if fitCols == 0 || fitRows == 0 {
+			fitCols, fitRows = cols, rows
+		}
+
 		var fg color.Color
 		var extra int
 		var r, g, b int
@@ -260,22 +277,17 @@ func (e Encoding) Render(id string, cols, rows int) string {
 		fgStyle := ansi.NewStyle().ForegroundColor(fg).String()
 
 		var buf bytes.Buffer
-		for y := range rows {
-			// As an optimization, we only write the fg color sequence id, and
-			// column-row data once on the first cell. The terminal will handle
-			// the rest.
-			buf.WriteString(fgStyle)
-			buf.WriteRune(kitty.Placeholder)
-			buf.WriteRune(kitty.Diacritic(y))
-			buf.WriteRune(kitty.Diacritic(0))
-			if extra > 0 {
-				buf.WriteRune(kitty.Diacritic(extra))
-			}
-			for x := 1; x < cols; x++ {
+		for y := range fitRows {
+			for x := range fitCols {
 				buf.WriteString(fgStyle)
 				buf.WriteRune(kitty.Placeholder)
+				buf.WriteRune(kitty.Diacritic(y))
+				buf.WriteRune(kitty.Diacritic(x))
+				if extra > 0 {
+					buf.WriteRune(kitty.Diacritic(extra))
+				}
 			}
-			if y < rows-1 {
+			if y < fitRows-1 {
 				buf.WriteByte('\n')
 			}
 		}
