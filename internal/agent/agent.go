@@ -720,12 +720,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// if the turn cannot be made to fit, refuse it with a user-facing
 	// error rather than letting it become an unrecoverable provider API
 	// failure.
-	fitted, err := fitImageAttachments(
-		largeModel.ModelCfg.Provider,
-		largeModel.CatwalkCfg.SupportsImages,
-		msgs,
-		call.Attachments,
-	)
+	fitted, err := fitImageAttachments(largeModel, msgs, call.Attachments)
 	if err != nil {
 		return nil, err
 	}

@@ -26,11 +26,11 @@ import (
 // session rather than hit an unrecoverable provider API failure.
 var ErrImageBudgetExceeded = errors.New("image budget exceeded")
 
-// imageLimits captures the documented image constraints for a provider.
-// All numeric budgets are the raw documented maximums; the effective
-// limits applied at runtime are these values scaled by limitBuffer (see
-// [imageLimits.effective]) so we stay safely inside the provider's
-// real, sometimes-undocumented enforcement.
+// imageLimits is the runtime, buffered view of a model's documented
+// image constraints. The documented numbers live in catwalk
+// (catwalk.ImageLimits, resolved per-model via Model.ResolveImageLimits);
+// this type holds them after the safety buffer has been applied, in the
+// int/int64 shapes the enforcement code below uses.
 //
 // Two classes of limit are modeled:
 //
@@ -41,9 +41,6 @@ var ErrImageBudgetExceeded = errors.New("image budget exceeded")
 //     thread that is replayed each turn, plus the current message) must
 //     satisfy maxAggregateBytes (total encoded bytes) and
 //     maxAggregatePixels (total width*height). maxImages caps the count.
-//
-// Numbers below reflect provider documentation as of 2026-06 and are
-// intentionally conservative; they are easy to tune in one place.
 type imageLimits struct {
 	maxImageBytes      int
 	maxImageDimension  int
@@ -58,79 +55,24 @@ type imageLimits struct {
 // ceilings).
 const limitBuffer = 0.95
 
-// defaultImageLimits is the conservative fallback applied to any
-// provider not explicitly listed in providerImageLimits.
-var defaultImageLimits = imageLimits{
-	maxImageBytes:      4_000_000,
-	maxImageDimension:  1568,
-	maxAggregateBytes:  20_000_000,
-	maxAggregatePixels: 30_000_000,
-	maxImages:          50,
-}
-
-// providerImageLimits maps a provider id to its documented image limits.
-// Providers that share an API surface (e.g. Bedrock/Vertex hosting
-// Claude) use the stricter of the documented values.
-var providerImageLimits = map[string]imageLimits{
-	string(catwalk.InferenceProviderAnthropic): {
-		maxImageBytes:      5_000_000, // 5MB/image (Bedrock/Vertex floor).
-		maxImageDimension:  1568,      // long edge; larger is downscaled anyway.
-		maxAggregateBytes:  32_000_000,
-		maxAggregatePixels: 40_000_000,
-		maxImages:          100,
-	},
-	string(catwalk.InferenceProviderBedrock): {
-		maxImageBytes:      5_000_000,
-		maxImageDimension:  1568,
-		maxAggregateBytes:  32_000_000,
-		maxAggregatePixels: 40_000_000,
-		maxImages:          100,
-	},
-	string(catwalk.InferenceProviderBedrockEurope): {
-		maxImageBytes:      5_000_000,
-		maxImageDimension:  1568,
-		maxAggregateBytes:  32_000_000,
-		maxAggregatePixels: 40_000_000,
-		maxImages:          100,
-	},
-	string(catwalk.InferenceProviderOpenAI): {
-		maxImageBytes:      20_000_000, // 20MB/image.
-		maxImageDimension:  2048,       // scaled to fit 2048x2048.
-		maxAggregateBytes:  50_000_000,
-		maxAggregatePixels: 50_000_000,
-		maxImages:          100,
-	},
-	string(catwalk.InferenceProviderGemini): {
-		maxImageBytes:      7_000_000, // 7MB inline.
-		maxImageDimension:  3072,
-		maxAggregateBytes:  20_000_000, // 20MB request.
-		maxAggregatePixels: 60_000_000,
-		maxImages:          3000,
-	},
-}
-
 // jpegQualitySteps is the descending quality ladder tried when fitting
 // an image to a byte budget.
 var jpegQualitySteps = []int{85, 70, 55, 40}
 
-// imageLimitsFor returns the buffered effective limits for a provider.
-func imageLimitsFor(provider string) imageLimits {
-	l, ok := providerImageLimits[provider]
-	if !ok {
-		l = defaultImageLimits
-	}
-	return l.effective()
-}
-
-// effective applies limitBuffer to every budget, leaving a margin
-// inside the documented maximum.
-func (l imageLimits) effective() imageLimits {
+// imageLimitsFor resolves a model's documented image limits from catwalk
+// and applies the safety buffer. catwalk.ResolveImageLimits already
+// merges per-model overrides over provider-family defaults (and falls
+// back to a conservative default for unknown families), so it is the
+// single source of truth for the numbers; only the buffer and the int
+// conversions live here.
+func imageLimitsFor(model Model) imageLimits {
+	l := model.CatwalkCfg.ResolveImageLimits(catwalk.Type(model.ModelCfg.Provider))
 	return imageLimits{
-		maxImageBytes:      int(float64(l.maxImageBytes) * limitBuffer),
-		maxImageDimension:  int(float64(l.maxImageDimension) * limitBuffer),
-		maxAggregateBytes:  int(float64(l.maxAggregateBytes) * limitBuffer),
-		maxAggregatePixels: int64(float64(l.maxAggregatePixels) * limitBuffer),
-		maxImages:          l.maxImages,
+		maxImageBytes:      int(float64(l.MaxBytesPerImage) * limitBuffer),
+		maxImageDimension:  int(float64(l.MaxLongEdge) * limitBuffer),
+		maxAggregateBytes:  int(float64(l.MaxAggregateBytes) * limitBuffer),
+		maxAggregatePixels: int64(float64(l.MaxAggregatePixels) * limitBuffer),
+		maxImages:          int(l.MaxImages),
 	}
 }
 
@@ -178,12 +120,13 @@ func historyImageUsage(msgs []message.Message) imageUsage {
 //
 // Non-image attachments and models that do not accept images are left
 // untouched.
-func fitImageAttachments(provider string, supportsImages bool, history []message.Message, attachments []message.Attachment) ([]message.Attachment, error) {
-	if !supportsImages {
+func fitImageAttachments(model Model, history []message.Message, attachments []message.Attachment) ([]message.Attachment, error) {
+	if !model.CatwalkCfg.SupportsImages {
 		return attachments, nil
 	}
 
-	limits := imageLimitsFor(provider)
+	limits := imageLimitsFor(model)
+	provider := model.ModelCfg.Provider
 	hist := historyImageUsage(history)
 
 	// Index of the current message's images within attachments.

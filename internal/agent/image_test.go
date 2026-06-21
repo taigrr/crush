@@ -9,10 +9,30 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/catwalk/pkg/catwalk"
+	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/message"
 )
 
 const testProvider = "anthropic"
+
+// testModel builds a Model for the anthropic provider with image
+// support and no per-model override (so it resolves the provider-family
+// defaults from catwalk).
+func testModel() Model {
+	return Model{
+		CatwalkCfg: catwalk.Model{SupportsImages: true},
+		ModelCfg:   config.SelectedModel{Provider: testProvider},
+	}
+}
+
+// unsupportedModel is a model that does not accept images.
+func unsupportedModel() Model {
+	return Model{
+		CatwalkCfg: catwalk.Model{SupportsImages: false},
+		ModelCfg:   config.SelectedModel{Provider: testProvider},
+	}
+}
 
 // noisyPNG builds an incompressible PNG of the given dimensions. Noise
 // keeps the encoded result large so byte-budget paths are exercised.
@@ -58,13 +78,13 @@ func TestFitImageAttachments_NoImagesOrUnsupported(t *testing.T) {
 	text := []message.Attachment{{FileName: "a.txt", MimeType: "text/plain", Content: []byte("hi")}}
 
 	// No images: unchanged.
-	out, err := fitImageAttachments(testProvider, true, nil, text)
+	out, err := fitImageAttachments(testModel(), nil, text)
 	require.NoError(t, err)
 	require.Equal(t, text, out)
 
 	// Model without image support: images pass through untouched.
 	img := []message.Attachment{{FileName: "x.png", MimeType: "image/png", Content: noisyPNG(t, 64)}}
-	out, err = fitImageAttachments(testProvider, false, nil, img)
+	out, err = fitImageAttachments(unsupportedModel(), nil, img)
 	require.NoError(t, err)
 	require.Equal(t, img, out)
 }
@@ -76,11 +96,11 @@ func TestFitImageAttachments_ClampsPerImageDimension(t *testing.T) {
 	atts := []message.Attachment{
 		{FileName: "big.png", MimeType: "image/png", Content: solidPNG(t, 4000, 3000)},
 	}
-	out, err := fitImageAttachments(testProvider, true, nil, atts)
+	out, err := fitImageAttachments(testModel(), nil, atts)
 	require.NoError(t, err)
 
 	w, h := decodeDims(t, out[0].Content)
-	limit := imageLimitsFor(testProvider).maxImageDimension
+	limit := imageLimitsFor(testModel()).maxImageDimension
 	require.LessOrEqual(t, w, limit)
 	require.LessOrEqual(t, h, limit)
 	require.Equal(t, "image/jpeg", out[0].MimeType)
@@ -106,7 +126,7 @@ func TestFitImageAttachments_ProportionalMultiImageDownscale(t *testing.T) {
 	// small pixel allowance remains for the current message, forcing the
 	// proportional downscale path. Solid PNGs keep history bytes tiny so
 	// the byte budget stays out of the way.
-	limits := imageLimitsFor(testProvider)
+	limits := imageLimitsFor(testModel())
 	var hist []message.Message
 	var histPixels int64
 	for histPixels+4_000_000 <= limits.maxAggregatePixels-2_000_000 {
@@ -114,7 +134,7 @@ func TestFitImageAttachments_ProportionalMultiImageDownscale(t *testing.T) {
 		histPixels += 2000 * 2000
 	}
 
-	out, err := fitImageAttachments(testProvider, true, hist, atts)
+	out, err := fitImageAttachments(testModel(), hist, atts)
 	require.NoError(t, err)
 
 	bw, bh := decodeDims(t, out[0].Content)
@@ -136,7 +156,7 @@ func TestFitImageAttachments_BlocksWhenHistoryFull(t *testing.T) {
 	t.Parallel()
 
 	// History already exceeds the aggregate byte budget.
-	limits := imageLimitsFor(testProvider)
+	limits := imageLimitsFor(testModel())
 	hist := make([]message.Message, 0)
 	var acc int
 	for acc < limits.maxAggregateBytes {
@@ -148,14 +168,14 @@ func TestFitImageAttachments_BlocksWhenHistoryFull(t *testing.T) {
 	atts := []message.Attachment{
 		{FileName: "new.png", MimeType: "image/png", Content: noisyPNG(t, 256)},
 	}
-	_, err := fitImageAttachments(testProvider, true, hist, atts)
+	_, err := fitImageAttachments(testModel(), hist, atts)
 	require.ErrorIs(t, err, ErrImageBudgetExceeded)
 }
 
 func TestFitImageAttachments_BlocksWhenTooManyImages(t *testing.T) {
 	t.Parallel()
 
-	limits := imageLimitsFor(testProvider)
+	limits := imageLimitsFor(testModel())
 	// One more than the count cap, split across history and current.
 	hist := make([]message.Message, limits.maxImages)
 	for i := range hist {
@@ -164,7 +184,7 @@ func TestFitImageAttachments_BlocksWhenTooManyImages(t *testing.T) {
 	atts := []message.Attachment{
 		{FileName: "extra.png", MimeType: "image/png", Content: solidPNG(t, 16, 16)},
 	}
-	_, err := fitImageAttachments(testProvider, true, hist, atts)
+	_, err := fitImageAttachments(testModel(), hist, atts)
 	require.ErrorIs(t, err, ErrImageBudgetExceeded)
 }
 
@@ -178,10 +198,10 @@ func TestFitImageAttachments_FitsAlongsideHistory(t *testing.T) {
 		{FileName: "new.png", MimeType: "image/png", Content: solidPNG(t, 6000, 6000)},
 	}
 
-	out, err := fitImageAttachments(testProvider, true, hist, atts)
+	out, err := fitImageAttachments(testModel(), hist, atts)
 	require.NoError(t, err)
 
-	limits := imageLimitsFor(testProvider)
+	limits := imageLimitsFor(testModel())
 	hu := historyImageUsage(hist)
 	w, h := decodeDims(t, out[0].Content)
 	require.LessOrEqual(t, hu.pixels+int64(w)*int64(h), limits.maxAggregatePixels)
@@ -195,7 +215,7 @@ func TestFitImageAttachments_UndecodableLeftAsIs(t *testing.T) {
 	atts := []message.Attachment{
 		{FileName: "broken.png", MimeType: "image/png", Content: garbage},
 	}
-	out, err := fitImageAttachments(testProvider, true, nil, atts)
+	out, err := fitImageAttachments(testModel(), nil, atts)
 	require.NoError(t, err)
 	require.Equal(t, garbage, out[0].Content)
 	require.Equal(t, "image/png", out[0].MimeType)
@@ -204,15 +224,29 @@ func TestFitImageAttachments_UndecodableLeftAsIs(t *testing.T) {
 func TestImageLimitsFor_BufferApplied(t *testing.T) {
 	t.Parallel()
 
-	raw := providerImageLimits[testProvider]
-	eff := imageLimitsFor(testProvider)
-	require.Equal(t, int(float64(raw.maxImageBytes)*limitBuffer), eff.maxImageBytes)
-	require.Equal(t, int(float64(raw.maxImageDimension)*limitBuffer), eff.maxImageDimension)
-	require.Less(t, eff.maxAggregateBytes, raw.maxAggregateBytes)
+	raw := catwalk.DefaultImageLimits(catwalk.TypeAnthropic)
+	eff := imageLimitsFor(testModel())
+	require.Equal(t, int(float64(raw.MaxBytesPerImage)*limitBuffer), eff.maxImageBytes)
+	require.Equal(t, int(float64(raw.MaxLongEdge)*limitBuffer), eff.maxImageDimension)
+	require.Less(t, int64(eff.maxAggregateBytes), raw.MaxAggregateBytes)
+}
 
-	// Unknown provider falls back to the buffered default.
-	def := imageLimitsFor("does-not-exist")
-	require.Equal(t, int(float64(defaultImageLimits.maxImageBytes)*limitBuffer), def.maxImageBytes)
+func TestImageLimitsFor_PerModelOverride(t *testing.T) {
+	t.Parallel()
+
+	// A model carrying a per-model long-edge override (e.g. Claude
+	// Opus 4.7+) gets the larger dimension; other limits stay at the
+	// provider-family default.
+	m := Model{
+		CatwalkCfg: catwalk.Model{SupportsImages: true, Image: catwalk.ImageLimits{MaxLongEdge: 2576}},
+		ModelCfg:   config.SelectedModel{Provider: testProvider},
+	}
+	eff := imageLimitsFor(m)
+	var edge int64 = 2576
+	require.Equal(t, int(float64(edge)*limitBuffer), eff.maxImageDimension)
+
+	def := imageLimitsFor(testModel())
+	require.Greater(t, eff.maxImageDimension, def.maxImageDimension)
 }
 
 func TestHistoryImageUsage_CountsOnlyImages(t *testing.T) {
