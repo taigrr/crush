@@ -223,7 +223,14 @@ func (a ActionFilePickerSelected) Cmd() tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		isFileLarge, err := common.IsFileTooBig(path, common.MaxAttachmentSize)
+		// Images are accepted up to a larger ceiling and downscaled to
+		// fit provider limits later (see fitImageAttachments); only
+		// non-image files are held to the stricter attachment cap.
+		sizeLimit := common.MaxAttachmentSize
+		if common.IsImagePath(path) {
+			sizeLimit = common.MaxImageAttachmentSize
+		}
+		isFileLarge, err := common.IsFileTooBig(path, sizeLimit)
 		if err != nil {
 			return util.InfoMsg{
 				Type: util.InfoTypeError,
@@ -231,9 +238,10 @@ func (a ActionFilePickerSelected) Cmd() tea.Cmd {
 			}
 		}
 		if isFileLarge {
+			limitMB := sizeLimit / (1024 * 1024)
 			return util.InfoMsg{
 				Type: util.InfoTypeError,
-				Msg:  "file too large, max 5MB",
+				Msg:  fmt.Sprintf("file too large, max %dMB", limitMB),
 			}
 		}
 

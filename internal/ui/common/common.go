@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
@@ -24,6 +27,15 @@ const MaxImageAttachmentSize = int64(50 * 1024 * 1024)
 
 // AllowedImageTypes defines the permitted image file types.
 var AllowedImageTypes = []string{".jpg", ".jpeg", ".png"}
+
+// IsImagePath reports whether path has a supported image extension.
+// Used to decide which size ceiling to apply when attaching: images are
+// accepted up to MaxImageAttachmentSize and downscaled to fit provider
+// limits later, while non-image files use the stricter MaxAttachmentSize.
+func IsImagePath(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return slices.Contains(AllowedImageTypes, ext)
+}
 
 // Common defines common UI options and configurations.
 type Common struct {
