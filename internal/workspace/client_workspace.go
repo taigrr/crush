@@ -296,6 +296,18 @@ func (w *ClientWorkspace) AgentClearQueue(sessionID string) {
 	_ = w.client.ClearAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
 }
 
+func (w *ClientWorkspace) AgentSetGoal(sessionID, condition string) error {
+	return w.client.SetAgentSessionGoal(context.Background(), w.workspaceID(), sessionID, condition)
+}
+
+func (w *ClientWorkspace) AgentClearGoal(sessionID string) error {
+	return w.client.ClearAgentSessionGoal(context.Background(), w.workspaceID(), sessionID)
+}
+
+func (w *ClientWorkspace) AgentGoalStatus(sessionID string) (proto.GoalStatus, error) {
+	return w.client.GetAgentSessionGoal(context.Background(), w.workspaceID(), sessionID)
+}
+
 func (w *ClientWorkspace) AgentSummarize(ctx context.Context, sessionID string) error {
 	return w.client.AgentSummarizeSession(ctx, w.workspaceID(), sessionID)
 }

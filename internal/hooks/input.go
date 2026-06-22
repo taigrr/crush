@@ -48,6 +48,62 @@ func BuildPayload(eventName, sessionID, cwd, toolName, toolInputJSON string) []b
 	return data
 }
 
+// StopInput carries the turn context handed to Stop hooks. StopHookActive
+// is true when the current turn is itself a continuation produced by a
+// previous Stop hook, letting hooks (and the agent) guard against
+// unbounded continue loops. ContinueCount is how many times the agent has
+// already been forced to continue for this user prompt.
+type StopInput struct {
+	LastMessage    string
+	ContinueCount  int
+	StopHookActive bool
+}
+
+// StopPayload is the JSON structure piped to Stop hook commands via stdin.
+type StopPayload struct {
+	Event          string `json:"event"`
+	SessionID      string `json:"session_id"`
+	CWD            string `json:"cwd"`
+	LastMessage    string `json:"last_message,omitempty"`
+	ContinueCount  int    `json:"continue_count"`
+	StopHookActive bool   `json:"stop_hook_active"`
+}
+
+// BuildStopPayload constructs the JSON stdin payload for a Stop hook.
+func BuildStopPayload(sessionID, cwd string, in StopInput) []byte {
+	p := StopPayload{
+		Event:          EventStop,
+		SessionID:      sessionID,
+		CWD:            cwd,
+		LastMessage:    in.LastMessage,
+		ContinueCount:  in.ContinueCount,
+		StopHookActive: in.StopHookActive,
+	}
+	data, err := json.Marshal(p)
+	if err != nil {
+		return []byte("{}")
+	}
+	return data
+}
+
+// BuildStopEnv constructs the environment variable slice for a Stop hook
+// command. It mirrors [BuildEnv] but exposes turn context instead of
+// tool context.
+func BuildStopEnv(sessionID, cwd, projectDir string, in StopInput) []string {
+	env := os.Environ()
+	env = append(env, shell.CrushEnvMarkers()...)
+	env = append(
+		env,
+		fmt.Sprintf("CRUSH_EVENT=%s", EventStop),
+		fmt.Sprintf("CRUSH_SESSION_ID=%s", sessionID),
+		fmt.Sprintf("CRUSH_CWD=%s", cwd),
+		fmt.Sprintf("CRUSH_PROJECT_DIR=%s", projectDir),
+		fmt.Sprintf("CRUSH_CONTINUE_COUNT=%d", in.ContinueCount),
+		fmt.Sprintf("CRUSH_STOP_HOOK_ACTIVE=%t", in.StopHookActive),
+	)
+	return env
+}
+
 // BuildEnv constructs the environment variable slice for a hook command.
 // It includes all current process env vars plus hook-specific ones.
 func BuildEnv(eventName, toolName, sessionID, cwd, projectDir, toolInputJSON string) []string {

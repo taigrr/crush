@@ -79,10 +79,16 @@ func (s *runCoordinator) ClearQueue(string)                 {}
 func (s *runCoordinator) Summarize(context.Context, string) error {
 	return nil
 }
-func (s *runCoordinator) Model() agent.Model                 { return agent.Model{} }
-func (s *runCoordinator) UpdateModels(context.Context) error { return nil }
+func (s *runCoordinator) Model() agent.Model                                 { return agent.Model{} }
+func (s *runCoordinator) UpdateModels(context.Context) error                 { return nil }
 func (s *runCoordinator) UpdateModelsWhenIdle(context.Context) (bool, error) { return false, nil }
-func (s *runCoordinator) IsExtendedContext(string) bool      { return false }
+func (s *runCoordinator) IsExtendedContext(string) bool                      { return false }
+
+func (s *runCoordinator) SetGoal(string, string) {}
+func (s *runCoordinator) ClearGoal(string)       {}
+func (s *runCoordinator) GoalStatus(string) (string, int, int, bool) {
+	return "", 0, 0, false
+}
 
 func (s *runCoordinator) capturedCtx() context.Context {
 	s.mu.Lock()

@@ -105,6 +105,11 @@ type Coordinator interface {
 	Model() Model
 	UpdateModels(ctx context.Context) error
 	UpdateModelsWhenIdle(ctx context.Context) (deferred bool, err error)
+
+	// Goal control for the autonomous /goal feature.
+	SetGoal(sessionID, condition string)
+	ClearGoal(sessionID string)
+	GoalStatus(sessionID string) (condition string, turns, maxTurns int, active bool)
 }
 
 type coordinator struct {
@@ -309,36 +314,73 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	// the coalesce closure publishes the final outcome under that
 	// same correlator.
 	runID := RunIDFromContext(ctx)
-	run := func() (*fantasy.AgentResult, error) {
-		return c.currentAgent.Run(ctx, SessionAgentCall{
-			SessionID:        sessionID,
-			RunID:            runID,
-			Prompt:           prompt,
-			Attachments:      attachments,
-			MaxOutputTokens:  maxTokens,
-			ProviderOptions:  mergedOptions,
-			Temperature:      temp,
-			TopP:             topP,
-			TopK:             topK,
-			FrequencyPenalty: freqPenalty,
-			PresencePenalty:  presPenalty,
-			OnComplete:       onComplete,
-			Accepted:         accept,
-		})
-	}
-	beforeLoaded := c.skillTracker.LoadedNames()
-	var result *fantasy.AgentResult
-	originalErr := c.runWithUnauthorizedRetry(ctx, providerCfg, func() error {
-		var err error
-		result, err = run()
-		return err
-	})
-	logTurnSkillUsage(sessionID, prompt, c.activeSkills, c.skillTracker, beforeLoaded)
+	// currentPrompt/Attachments/Accept change across goal continuations:
+	// the first turn uses the caller's prompt and accept reservation;
+	// each goal-driven continuation injects a fresh directive with no
+	// attachments and no accept reservation (the reservation is
+	// one-shot, consumed by the first Run).
+	currentPrompt := prompt
+	currentAttachments := attachments
+	currentAccept := accept
 
-	if c.isUnauthorized(originalErr) {
-		if err := c.retryAfterUnauthorized(ctx, providerCfg); err == nil {
-			result, originalErr = run()
+	runOnce := func() (*fantasy.AgentResult, error) {
+		run := func() (*fantasy.AgentResult, error) {
+			return c.currentAgent.Run(ctx, SessionAgentCall{
+				SessionID:        sessionID,
+				RunID:            runID,
+				Prompt:           currentPrompt,
+				Attachments:      currentAttachments,
+				MaxOutputTokens:  maxTokens,
+				ProviderOptions:  mergedOptions,
+				Temperature:      temp,
+				TopP:             topP,
+				TopK:             topK,
+				FrequencyPenalty: freqPenalty,
+				PresencePenalty:  presPenalty,
+				OnComplete:       onComplete,
+				Accepted:         currentAccept,
+			})
 		}
+		beforeLoaded := c.skillTracker.LoadedNames()
+		var result *fantasy.AgentResult
+		err := c.runWithUnauthorizedRetry(ctx, providerCfg, func() error {
+			var e error
+			result, e = run()
+			return e
+		})
+		logTurnSkillUsage(sessionID, currentPrompt, c.activeSkills, c.skillTracker, beforeLoaded)
+
+		if c.isUnauthorized(err) {
+			if rerr := c.retryAfterUnauthorized(ctx, providerCfg); rerr == nil {
+				result, err = run()
+			}
+		}
+		return result, err
+	}
+
+	// Goal continuation loop. After a turn ends normally the active
+	// /goal (if any) is evaluated; while the goal is unmet and within
+	// its turn budget, AdvanceGoal returns a continuation directive and
+	// the loop runs another turn. Sessions without a goal evaluate to a
+	// cheap no-op and the loop runs exactly once. Running here (rather
+	// than inside sessionAgent.Run) keeps the session continuously busy
+	// and avoids touching Run's concurrency machinery.
+	var (
+		result      *fantasy.AgentResult
+		originalErr error
+	)
+	for {
+		result, originalErr = runOnce()
+		if originalErr != nil || ctx.Err() != nil {
+			break
+		}
+		cont, contPrompt := c.currentAgent.AdvanceGoal(ctx, sessionID)
+		if !cont {
+			break
+		}
+		currentPrompt = contPrompt
+		currentAttachments = nil
+		currentAccept = nil
 	}
 
 	if hasLatest && c.runComplete != nil {
@@ -1184,6 +1226,21 @@ func (c *coordinator) UpdateModels(ctx context.Context) error {
 	}
 	c.currentAgent.SetTools(tools)
 	return nil
+}
+
+// SetGoal implements Coordinator.
+func (c *coordinator) SetGoal(sessionID, condition string) {
+	c.currentAgent.SetGoal(sessionID, condition)
+}
+
+// ClearGoal implements Coordinator.
+func (c *coordinator) ClearGoal(sessionID string) {
+	c.currentAgent.ClearGoal(sessionID)
+}
+
+// GoalStatus implements Coordinator.
+func (c *coordinator) GoalStatus(sessionID string) (condition string, turns, maxTurns int, active bool) {
+	return c.currentAgent.GoalStatus(sessionID)
 }
 
 // UpdateModelsWhenIdle applies the latest model/tool configuration. If the

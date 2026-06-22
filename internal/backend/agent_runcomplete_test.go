@@ -49,6 +49,11 @@ func (c *errorCoordinator) Model() agent.Model                                 {
 func (c *errorCoordinator) UpdateModels(context.Context) error                 { return nil }
 func (c *errorCoordinator) UpdateModelsWhenIdle(context.Context) (bool, error) { return false, nil }
 func (c *errorCoordinator) IsExtendedContext(string) bool                      { return false }
+func (c *errorCoordinator) SetGoal(string, string)                             {}
+func (c *errorCoordinator) ClearGoal(string)                                   {}
+func (c *errorCoordinator) GoalStatus(string) (string, int, int, bool) {
+	return "", 0, 0, false
+}
 
 // insertRunCompleteWorkspace installs a workspace backed by a real
 // app.App (so the runCompletions broker exists) with the given

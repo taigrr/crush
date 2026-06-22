@@ -61,6 +61,11 @@ func (c *blockingCoordinator) IsExtendedContext(string) bool                    
 func (c *blockingCoordinator) UpdateModelsWhenIdle(context.Context) (bool, error) {
 	return false, nil
 }
+func (c *blockingCoordinator) SetGoal(string, string) {}
+func (c *blockingCoordinator) ClearGoal(string)       {}
+func (c *blockingCoordinator) GoalStatus(string) (string, int, int, bool) {
+	return "", 0, 0, false
+}
 
 // insertAgentWorkspace installs a synthetic workspace with the given
 // coordinator (or none) and a workspace run context, mirroring the

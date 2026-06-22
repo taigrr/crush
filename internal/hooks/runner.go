@@ -93,20 +93,51 @@ func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolIn
 		return AggregateResult{Decision: DecisionNone}, nil
 	}
 
-	// Deduplicate by command string.
-	seen := make(map[string]struct{}, len(matching))
+	deduped := dedupeHooks(matching)
+	envVars := BuildEnv(eventName, toolName, sessionID, r.cwd, r.projectDir, toolInputJSON)
+	payload := BuildPayload(eventName, sessionID, r.cwd, toolName, toolInputJSON)
+
+	agg := r.execAndAggregate(ctx, eventName, toolName, deduped, envVars, payload, toolInputJSON)
+	return agg, nil
+}
+
+// RunStop executes all matching Stop hooks for the turn-end event and
+// returns a typed [StopResult]. Stop hooks are not tied to a tool, so
+// every hook with no matcher runs. A hook that blocks the stop (deny or
+// halt) requests that the agent keep working.
+func (r *Runner) RunStop(ctx context.Context, sessionID string, in StopInput) (StopResult, error) {
+	matching := r.matchingHooks("")
+	if len(matching) == 0 {
+		return StopResult{}, nil
+	}
+
+	deduped := dedupeHooks(matching)
+	envVars := BuildStopEnv(sessionID, r.cwd, r.projectDir, in)
+	payload := BuildStopPayload(sessionID, r.cwd, in)
+
+	agg := r.execAndAggregate(ctx, EventStop, "", deduped, envVars, payload, "{}")
+	return InterpretStop(agg), nil
+}
+
+// dedupeHooks removes hooks with duplicate command strings, preserving
+// config order.
+func dedupeHooks(hooks []config.HookConfig) []config.HookConfig {
+	seen := make(map[string]struct{}, len(hooks))
 	var deduped []config.HookConfig
-	for _, h := range matching {
+	for _, h := range hooks {
 		if _, ok := seen[h.Command]; ok {
 			continue
 		}
 		seen[h.Command] = struct{}{}
 		deduped = append(deduped, h)
 	}
+	return deduped
+}
 
-	envVars := BuildEnv(eventName, toolName, sessionID, r.cwd, r.projectDir, toolInputJSON)
-	payload := BuildPayload(eventName, sessionID, r.cwd, toolName, toolInputJSON)
-
+// execAndAggregate runs the given hooks in parallel and aggregates their
+// results. origInput is the original tool input JSON used as the merge
+// base for updated_input patches (empty/"{}" for non-tool events).
+func (r *Runner) execAndAggregate(ctx context.Context, eventName, toolName string, deduped []config.HookConfig, envVars []string, payload []byte, origInput string) AggregateResult {
 	results := make([]HookResult, len(deduped))
 	var wg sync.WaitGroup
 	wg.Add(len(deduped))
@@ -119,7 +150,7 @@ func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolIn
 	}
 	wg.Wait()
 
-	agg := aggregate(results, toolInputJSON)
+	agg := aggregate(results, origInput)
 	agg.Hooks = make([]HookInfo, len(deduped))
 	for i, h := range deduped {
 		agg.Hooks[i] = HookInfo{
@@ -138,7 +169,7 @@ func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolIn
 		"hooks", len(deduped),
 		"decision", agg.Decision.String(),
 	)
-	return agg, nil
+	return agg
 }
 
 // matchingHooks returns hooks whose matcher matches the tool name (or has

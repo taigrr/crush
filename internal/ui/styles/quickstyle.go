@@ -756,6 +756,10 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.Button.Blurred = lipgloss.NewStyle().Foreground(o.fgBase).Background(o.bgLessVisible)
 
 	// Editor
+	s.Editor.PromptNormalIconFocused = lipgloss.NewStyle().Foreground(o.successMostSubtle).SetString(" > ")
+	s.Editor.PromptNormalIconBlurred = s.Editor.PromptNormalIconFocused.Foreground(o.fgMoreSubtle)
+	s.Editor.PromptBangIconFocused = lipgloss.NewStyle().Foreground(o.warningSubtle).Bold(true).SetString(" $ ")
+	s.Editor.PromptBangIconBlurred = s.Editor.PromptBangIconFocused.UnsetBold().Foreground(o.fgMoreSubtle)
 	s.Editor.PromptNormalFocused = lipgloss.NewStyle().Foreground(o.successMostSubtle).SetString("::: ")
 	s.Editor.PromptNormalBlurred = s.Editor.PromptNormalFocused.Foreground(o.fgMoreSubtle)
 	s.Editor.PromptYoloIconFocused = lipgloss.NewStyle().MarginRight(1).Foreground(o.fgMostSubtle).Background(o.busy).Bold(true).SetString(" ! ")

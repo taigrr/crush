@@ -153,6 +153,12 @@ type SessionAgent interface {
 	ClearQueue(sessionID string)
 	Summarize(context.Context, string, fantasy.ProviderOptions) error
 	Model() Model
+
+	// Goal control for the autonomous /goal feature.
+	SetGoal(sessionID, condition string)
+	ClearGoal(sessionID string)
+	GoalStatus(sessionID string) (condition string, turns, maxTurns int, active bool)
+	AdvanceGoal(ctx context.Context, sessionID string) (cont bool, prompt string)
 }
 
 type Model struct {
@@ -181,7 +187,8 @@ type sessionAgent struct {
 
 	messageQueue        *csync.Map[string, []SessionAgentCall]
 	activeRequests      *csync.Map[string, context.CancelFunc]
-	extendedContextMode *csync.Map[string, bool] // tracks which sessions are in extended (1M) context mode
+	extendedContextMode *csync.Map[string, bool]       // tracks which sessions are in extended (1M) context mode
+	goals               *csync.Map[string, *goalState] // active /goal state per session
 
 	// dispatchMu holds a per-session mutex that serializes the
 	// accepted -> (cancel-on-entry | queued | active) transition in
@@ -268,6 +275,7 @@ func NewSessionAgent(
 		dispatchMu:           csync.NewMap[string, *sync.Mutex](),
 		acceptedRuns:         csync.NewMap[string, int](),
 		cancelMark:           csync.NewMap[string, uint64](),
+		goals:                csync.NewMap[string, *goalState](),
 		idleCh:               make(chan struct{}),
 	}
 }

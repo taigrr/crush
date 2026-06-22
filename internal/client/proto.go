@@ -404,6 +404,52 @@ func (c *Client) ClearAgentSessionQueuedPrompts(ctx context.Context, id string, 
 	return nil
 }
 
+// GetAgentSessionGoal retrieves the active autonomous goal for a session.
+func (c *Client) GetAgentSessionGoal(ctx context.Context, id, sessionID string) (proto.GoalStatus, error) {
+	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal", id, sessionID), nil, nil)
+	if err != nil {
+		return proto.GoalStatus{}, fmt.Errorf("failed to get session goal: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return proto.GoalStatus{}, fmt.Errorf("failed to get session goal: status code %d", rsp.StatusCode)
+	}
+	var status proto.GoalStatus
+	if err := json.NewDecoder(rsp.Body).Decode(&status); err != nil {
+		return proto.GoalStatus{}, fmt.Errorf("failed to decode session goal: %w", err)
+	}
+	return status, nil
+}
+
+// SetAgentSessionGoal sets (or clears, when condition is blank) the
+// autonomous goal for a session.
+func (c *Client) SetAgentSessionGoal(ctx context.Context, id, sessionID, condition string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal", id, sessionID), nil, jsonBody(proto.SetGoalRequest{
+		Condition: condition,
+	}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return fmt.Errorf("failed to set session goal: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to set session goal: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
+// ClearAgentSessionGoal clears the active autonomous goal for a session.
+func (c *Client) ClearAgentSessionGoal(ctx context.Context, id, sessionID string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal/clear", id, sessionID), nil, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to clear session goal: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to clear session goal: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
 // GetAgentInfo retrieves the agent status for a workspace.
 func (c *Client) GetAgentInfo(ctx context.Context, id string) (*proto.AgentInfo, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent", id), nil, nil)

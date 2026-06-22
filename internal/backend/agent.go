@@ -225,6 +225,49 @@ func (b *Backend) ClearQueue(workspaceID, sessionID string) error {
 	return nil
 }
 
+// SetGoal sets (or, when condition is blank, clears) the autonomous goal
+// for a session.
+func (b *Backend) SetGoal(workspaceID, sessionID, condition string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	if ws.AgentCoordinator != nil {
+		ws.AgentCoordinator.SetGoal(sessionID, condition)
+	}
+	return nil
+}
+
+// ClearGoal clears any active autonomous goal for a session.
+func (b *Backend) ClearGoal(workspaceID, sessionID string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	if ws.AgentCoordinator != nil {
+		ws.AgentCoordinator.ClearGoal(sessionID)
+	}
+	return nil
+}
+
+// GoalStatus reports the active autonomous goal for a session.
+func (b *Backend) GoalStatus(workspaceID, sessionID string) (proto.GoalStatus, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return proto.GoalStatus{}, err
+	}
+	if ws.AgentCoordinator == nil {
+		return proto.GoalStatus{}, nil
+	}
+	condition, turns, maxTurns, active := ws.AgentCoordinator.GoalStatus(sessionID)
+	return proto.GoalStatus{
+		Active:    active,
+		Condition: condition,
+		Turns:     turns,
+		MaxTurns:  maxTurns,
+	}, nil
+}
+
 // QueuedPromptsList returns the list of queued prompt strings for a
 // session.
 func (b *Backend) QueuedPromptsList(workspaceID, sessionID string) ([]string, error) {

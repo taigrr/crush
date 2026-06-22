@@ -13,7 +13,42 @@ import (
 // Hook event name constants.
 const (
 	EventPreToolUse = "PreToolUse"
+	// EventStop fires when the agent is about to end its turn and return
+	// control to the user. A Stop hook can block the stop and force the
+	// agent to keep working (see [StopResult] and [InterpretStop]).
+	EventStop = "Stop"
 )
+
+// StopResult is the typed interpretation of a Stop event's aggregate
+// outcome. Stop hooks reuse the generic [Decision] pipeline: a
+// [DecisionDeny] (or Halt) means "block stopping" — i.e. the agent must
+// keep working — and Reason carries the instruction injected into the
+// continuation turn. This mirrors Claude Code's Stop hook model where
+// block=true prevents the turn from ending.
+type StopResult struct {
+	// Continue is true when at least one hook blocked the stop and the
+	// agent should run another turn.
+	Continue bool
+	// Reason is the instruction injected as the continuation prompt when
+	// Continue is true. Empty when no hook supplied one.
+	Reason string
+	// Context is extra information appended to the continuation prompt.
+	Context string
+	// HookCount is the number of hooks that ran for the event.
+	HookCount int
+}
+
+// InterpretStop maps a generic [AggregateResult] produced by running
+// Stop hooks into a typed [StopResult]. On a Stop event a deny or halt
+// is a request to keep working rather than a block of a tool call.
+func InterpretStop(agg AggregateResult) StopResult {
+	return StopResult{
+		Continue:  agg.Decision == DecisionDeny || agg.Halt,
+		Reason:    agg.Reason,
+		Context:   agg.Context,
+		HookCount: agg.HookCount,
+	}
+}
 
 // HaltExitCode is the exit code that halts the whole turn. 2 blocks the
 // current tool call; 49 sits in the no-man's-land between the

@@ -16,16 +16,16 @@ type Workspace struct {
 	ID         string         `json:"id"`
 	Path       string         `json:"path"`
 	WorkingDir string         `json:"working_dir,omitempty"`
-	GitBranch string         `json:"git_branch,omitempty"`
-	YOLO      bool           `json:"yolo,omitempty"`
-	Isolated  bool           `json:"isolated,omitempty"`
-	Debug     bool           `json:"debug,omitempty"`
-	DataDir   string         `json:"data_dir,omitempty"`
-	Version   string         `json:"version,omitempty"`
-	Config    *config.Config `json:"config,omitempty"`
-	Env       []string       `json:"env,omitempty"`
-	Skills    []SkillState   `json:"skills,omitempty"`
-	ClientID  string         `json:"client_id,omitempty"`
+	GitBranch  string         `json:"git_branch,omitempty"`
+	YOLO       bool           `json:"yolo,omitempty"`
+	Isolated   bool           `json:"isolated,omitempty"`
+	Debug      bool           `json:"debug,omitempty"`
+	DataDir    string         `json:"data_dir,omitempty"`
+	Version    string         `json:"version,omitempty"`
+	Config     *config.Config `json:"config,omitempty"`
+	Env        []string       `json:"env,omitempty"`
+	Skills     []SkillState   `json:"skills,omitempty"`
+	ClientID   string         `json:"client_id,omitempty"`
 }
 
 // Error represents an error response.
@@ -160,6 +160,21 @@ type ShellCommandRequest struct {
 type ShellCommandResponse struct {
 	Output   string `json:"output"`
 	ExitCode int    `json:"exit_code"`
+}
+
+// SetGoalRequest sets (or replaces) the autonomous goal for a session. A
+// blank Condition clears any active goal.
+type SetGoalRequest struct {
+	SessionID string `json:"session_id"`
+	Condition string `json:"condition"`
+}
+
+// GoalStatus reports the active autonomous goal for a session.
+type GoalStatus struct {
+	Active    bool   `json:"active"`
+	Condition string `json:"condition"`
+	Turns     int    `json:"turns"`
+	MaxTurns  int    `json:"max_turns"`
 }
 
 // AgentSession represents a session with its busy status.

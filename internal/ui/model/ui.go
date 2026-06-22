@@ -2331,13 +2331,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					return m.runShellCommand(command)
 				}
 
-				if aside, ok := strings.CutPrefix(value, "/btw "); ok && aside != "" {
-					if !m.hasSession() {
-						return util.ReportError(fmt.Errorf("/btw requires an active session"))
-					}
-					m.randomizePlaceholders()
-					m.historyReset()
-					return m.sendBTWMessage(aside)
+				if cmd, handled := m.dispatchSlash(value); handled {
+					return cmd
 				}
 
 				attachments := m.attachments.List()
@@ -3357,15 +3352,22 @@ func (m *UI) setEditorPrompt(yolo bool) {
 	m.textarea.SetPromptFunc(4, m.normalPromptFunc)
 }
 
-// normalPromptFunc returns the normal editor prompt style ("  > " on first
-// line, "::: " on subsequent lines).
+// normalPromptFunc returns the normal editor prompt style. On the first line
+// it shows a themed ">" (or "!" when the input starts with "!"). Subsequent
+// lines show the continuation ":::" dots.
 func (m *UI) normalPromptFunc(info textarea.PromptInfo) string {
 	t := m.com.Styles
 	if info.LineNumber == 0 {
 		if info.Focused {
-			return "  > "
+			if strings.HasPrefix(m.textarea.Value(), "!") {
+				return t.Editor.PromptBangIconFocused.Render()
+			}
+			return t.Editor.PromptNormalIconFocused.Render()
 		}
-		return "::: "
+		if strings.HasPrefix(m.textarea.Value(), "!") {
+			return t.Editor.PromptBangIconBlurred.Render()
+		}
+		return t.Editor.PromptNormalIconBlurred.Render()
 	}
 	if info.Focused {
 		return t.Editor.PromptNormalFocused.Render()
@@ -3374,7 +3376,8 @@ func (m *UI) normalPromptFunc(info textarea.PromptInfo) string {
 }
 
 // yoloPromptFunc returns the yolo mode editor prompt style with warning icon
-// and colored dots.
+// and colored dots. The icon is " ! " to flag the elevated-permission mode,
+// distinct from the " $ " bang-mode shell prefix.
 func (m *UI) yoloPromptFunc(info textarea.PromptInfo) string {
 	t := m.com.Styles
 	if info.LineNumber == 0 {
@@ -3708,6 +3711,28 @@ func (m *UI) sendBTWMessage(content string) tea.Cmd {
 	return func() tea.Msg {
 		err := m.com.Workspace.AgentRunBTW(context.Background(), sessionID, content)
 		if err != nil {
+			return util.InfoMsg{
+				Type: util.InfoTypeError,
+				Msg:  fmt.Sprintf("%v", err),
+			}
+		}
+		return nil
+	}
+}
+
+// continueTurn re-kicks an idle session, instructing the model to resume
+// the previous task as if its last turn never ended. The agent loop
+// requires a triggering prompt, so a minimal continuation directive is
+// sent; the model still has full conversation context and picks up where
+// it left off. The caller (dispatchSlash) guarantees an active session.
+func (m *UI) continueTurn() tea.Cmd {
+	if m.isAgentBusy() {
+		return util.ReportWarn("Agent is still working; nothing to continue")
+	}
+	const continuePrompt = "[continue] Resume the previous task and keep working from where you left off, as if your last turn never ended. Do not wait for further instructions."
+	sessionID := m.session.ID
+	return func() tea.Msg {
+		if err := m.com.Workspace.AgentRun(context.Background(), sessionID, continuePrompt); err != nil {
 			return util.InfoMsg{
 				Type: util.InfoTypeError,
 				Msg:  fmt.Sprintf("%v", err),

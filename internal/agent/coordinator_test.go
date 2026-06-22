@@ -48,6 +48,16 @@ func (m *mockSessionAgent) Summarize(context.Context, string, fantasy.ProviderOp
 	return nil
 }
 
+func (m *mockSessionAgent) SetGoal(sessionID, condition string) {}
+func (m *mockSessionAgent) ClearGoal(sessionID string)          {}
+func (m *mockSessionAgent) GoalStatus(sessionID string) (string, int, int, bool) {
+	return "", 0, 0, false
+}
+
+func (m *mockSessionAgent) AdvanceGoal(ctx context.Context, sessionID string) (bool, string) {
+	return false, ""
+}
+
 // newTestCoordinator creates a minimal coordinator for unit testing runSubAgent.
 func newTestCoordinator(t *testing.T, env fakeEnv, providerID string, providerCfg config.ProviderConfig) *coordinator {
 	cfg, err := config.Init(env.workingDir, "", false)

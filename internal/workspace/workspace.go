@@ -111,6 +111,10 @@ type Workspace interface {
 	AgentQueuedPromptsList(sessionID string) []string
 	AgentClearQueue(sessionID string)
 	AgentSummarize(ctx context.Context, sessionID string) error
+	// Goal controls the autonomous /goal feature.
+	AgentSetGoal(sessionID, condition string) error
+	AgentClearGoal(sessionID string) error
+	AgentGoalStatus(sessionID string) (proto.GoalStatus, error)
 	UpdateAgentModel(ctx context.Context) error
 	InitCoderAgent(ctx context.Context) error
 	GetDefaultSmallModel(providerID string) config.SelectedModel

@@ -44,15 +44,20 @@ func (s *stubCoordinator) IsBusy() bool  { return false }
 func (s *stubCoordinator) IsSessionBusy(id string) bool {
 	return s.busy[id]
 }
-func (s *stubCoordinator) IsExtendedContext(string) bool     { return false }
+func (s *stubCoordinator) IsExtendedContext(string) bool { return false }
+func (s *stubCoordinator) SetGoal(string, string)        {}
+func (s *stubCoordinator) ClearGoal(string)              {}
+func (s *stubCoordinator) GoalStatus(string) (string, int, int, bool) {
+	return "", 0, 0, false
+}
 func (s *stubCoordinator) QueuedPrompts(string) int          { return 0 }
 func (s *stubCoordinator) QueuedPromptsList(string) []string { return nil }
 func (s *stubCoordinator) ClearQueue(string)                 {}
 func (s *stubCoordinator) Summarize(context.Context, string) error {
 	return nil
 }
-func (s *stubCoordinator) Model() agent.Model                 { return agent.Model{} }
-func (s *stubCoordinator) UpdateModels(context.Context) error { return nil }
+func (s *stubCoordinator) Model() agent.Model                                 { return agent.Model{} }
+func (s *stubCoordinator) UpdateModels(context.Context) error                 { return nil }
 func (s *stubCoordinator) UpdateModelsWhenIdle(context.Context) (bool, error) { return false, nil }
 
 // stubSessions is a minimal session.Service that returns a fixed list

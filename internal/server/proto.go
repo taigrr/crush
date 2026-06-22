@@ -980,6 +980,79 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionPromptClear(w http.Respons
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleGetWorkspaceAgentSessionGoal returns the active autonomous goal.
+//
+//	@Summary		Get goal status
+//	@Tags			agent
+//	@Produce		json
+//	@Param			id	path		string	true	"Workspace ID"
+//	@Param			sid	path		string	true	"Session ID"
+//	@Success		200	{object}	proto.GoalStatus
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/goal [get]
+func (c *controllerV1) handleGetWorkspaceAgentSessionGoal(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+	status, err := c.backend.GoalStatus(id, sid)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, status)
+}
+
+// handlePostWorkspaceAgentSessionGoal sets (or clears, when the condition
+// is blank) the autonomous goal for a session.
+//
+//	@Summary		Set goal
+//	@Tags			agent
+//	@Accept			json
+//	@Param			id		path	string					true	"Workspace ID"
+//	@Param			sid		path	string					true	"Session ID"
+//	@Param			request	body	proto.SetGoalRequest	true	"Goal"
+//	@Success		200
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/goal [post]
+func (c *controllerV1) handlePostWorkspaceAgentSessionGoal(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+
+	var req proto.SetGoalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+
+	if err := c.backend.SetGoal(id, sid, req.Condition); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// handlePostWorkspaceAgentSessionGoalClear clears the autonomous goal.
+//
+//	@Summary		Clear goal
+//	@Tags			agent
+//	@Param			id	path	string	true	"Workspace ID"
+//	@Param			sid	path	string	true	"Session ID"
+//	@Success		200
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/goal/clear [post]
+func (c *controllerV1) handlePostWorkspaceAgentSessionGoalClear(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+	if err := c.backend.ClearGoal(id, sid); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // handlePostWorkspaceAgentSessionSummarize summarizes a session.
 //
 //	@Summary		Summarize session
