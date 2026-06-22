@@ -40,11 +40,6 @@ type Opts struct {
 // The compact argument determines whether it renders compact for the sidebar
 // or wider for the main pane.
 func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
-	charm := "Charm™"
-	if !o.Hyper {
-		charm = " " + charm
-	}
-
 	fg := func(c color.Color, s string) string {
 		return lipgloss.NewStyle().Foreground(c).Render(s)
 	}
@@ -89,26 +84,32 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 	for r := range strings.SplitSeq(crush, "\n") {
 		fmt.Fprintln(b, styles.ApplyForegroundGrad(base, r, o.TitleColorA, o.TitleColorB))
 	}
-	crush = b.String()
+	crushLetterformsStyled := b.String() // styled letterforms only, no meta row
 
-	// Charm and version.
-	metaRowGap := 1
-	maxVersionWidth := crushWidth - lipgloss.Width(charm) - metaRowGap
-	version = ansi.Truncate(version, maxVersionWidth, "…") // truncate version if too long.
-	if o.Hyper && compact {
-		version += " "
-	}
-	gap := max(0, crushWidth-lipgloss.Width(charm)-lipgloss.Width(version))
-	metaRow := fg(o.CharmColor, charm) + strings.Repeat(" ", gap) + fg(o.VersionColor, version)
-
-	// Join the meta row and big Crush title.
-	crush = strings.TrimSpace(metaRow + "\n" + crush)
-
-	// Narrow version. If this is Hypercrush, this is also a stacked version.
+	// Compact (sidebar) layout:
+	// - one field row of diagonals
+	// - styled letterforms (3 rows)
+	// - version string (replaces the bottom diagonals)
+	// Charm™ is removed and the top duplicate field row is dropped to
+	// reclaim two rows of sidebar height for the cwd display.
 	if compact {
 		field := fg(o.FieldColor, strings.Repeat(diag, crushWidth))
-		return strings.Join([]string{field, field, crush, field, ""}, "\n")
+		versionStr := ansi.Truncate(version, crushWidth, "…")
+		versionRow := fg(o.VersionColor, versionStr)
+		crush = strings.TrimSpace(crushLetterformsStyled)
+		return strings.Join([]string{field, crush, versionRow, ""}, "\n")
 	}
+
+	// Wide layout retains the Charm™ + version meta row above the letterforms.
+	charm := "Charm™"
+	if !o.Hyper {
+		charm = " " + charm
+	}
+	maxVersionWidth := crushWidth - lipgloss.Width(charm) - 1
+	version = ansi.Truncate(version, maxVersionWidth, "…")
+	gap := max(0, crushWidth-lipgloss.Width(charm)-lipgloss.Width(version))
+	metaRow := fg(o.CharmColor, charm) + strings.Repeat(" ", gap) + fg(o.VersionColor, version)
+	crush = strings.TrimSpace(metaRow + "\n" + crushLetterformsStyled)
 
 	fieldHeight := lipgloss.Height(crush)
 

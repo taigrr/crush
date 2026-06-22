@@ -267,6 +267,20 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		return nil, proto.Workspace{}, fmt.Errorf("failed to resolve workspace path: %w", err)
 	}
 
+	// effectiveCwd is the absolute, symlink-resolved form of the client's
+	// original launch directory. It is preserved separately from key (the
+	// project root used for .crush/ and dedup) so that tools, shell
+	// commands, and file edits run in the directory the user actually
+	// launched Crush from — even when that directory is a linked worktree
+	// that collapses to a different project root for .crush/ purposes.
+	effectiveCwd, err := filepath.Abs(args.Path)
+	if err != nil {
+		effectiveCwd = args.Path
+	}
+	if resolved, err := filepath.EvalSymlinks(effectiveCwd); err == nil {
+		effectiveCwd = resolved
+	}
+
 	b.mu.Lock()
 	if !args.Isolated {
 		if existingID, ok := b.pathIndex[key]; ok {
@@ -274,6 +288,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 				logFirstWinsMismatch(ws, args)
 				b.registerClient(ws, clientID, args.Env, args.Path)
 				b.mu.Unlock()
+				b.reloadWorkspaceConfig(ws)
 				return ws, workspaceToProto(ws), nil
 			}
 			delete(b.pathIndex, key)
@@ -317,7 +332,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		skills.WithWorkingDir(discoveryCfg.WorkingDir),
 	)
 
-	appWorkspace, err := app.New(b.ctx, conn, cfg, skillsMgr)
+	appWorkspace, err := app.New(b.ctx, conn, cfg, skillsMgr, effectiveCwd)
 	if err != nil {
 		return nil, proto.Workspace{}, fmt.Errorf("failed to create app workspace: %w", err)
 	}
@@ -346,6 +361,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 				b.registerClient(existing, clientID, args.Env, args.Path)
 				b.mu.Unlock()
 				ws.invokeShutdown()
+				b.reloadWorkspaceConfig(existing)
 				return existing, workspaceToProto(existing), nil
 			}
 			delete(b.pathIndex, key)
@@ -727,18 +743,21 @@ func (b *Backend) Shutdown() {
 	}
 }
 
-// resolveWorkspaceKey returns a stable canonical form of path suitable
-// for use as a dedup key. Two clients invoking Crush from anywhere
-// inside the same project (the main working tree or any linked
-// worktree under `.crush/worktrees/`) must collapse to the same key
-// so they share a single server-side workspace and thus a single
-// `*App` writing to `.crush/git/` and `.crush/worktrees/`. Without
-// this, two clients would each spin up their own checkpoint and
-// worktree services racing on the same on-disk state. The dedup is
-// done by walking up to the canonical project root via
-// `config.ProjectRoot` (which uses `git rev-parse --git-common-dir`
-// when available); for non-git directories the absolute resolved cwd
-// is used as a sensible fallback.
+// resolveWorkspaceKey returns the canonical project root for path,
+// suitable for use as the workspace dedup key. All clients that share
+// the same git repository — whether in the main working tree, a
+// Crush-managed worktree, or a user-created sibling worktree — resolve
+// to the same key so they share a single server-side workspace and
+// thus a single `*App` writing to `.crush/`. Without this, concurrent
+// clients would race on the same on-disk state.
+//
+// The key is the project root (config.ProjectRoot), which for git
+// repositories is always the main working tree root. For non-git
+// directories the absolute resolved cwd is used as a fallback.
+//
+// The original client cwd (args.Path) is preserved separately as
+// effectiveCwd and threaded into the coordinator so tools and shell
+// commands run in the directory the user actually launched from.
 func resolveWorkspaceKey(path string) (string, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -765,9 +784,10 @@ func validateClientID(id string) (string, error) {
 func workspaceToProto(ws *Workspace) proto.Workspace {
 	cfg := ws.Cfg.Config()
 	out := proto.Workspace{
-		ID:        ws.ID,
-		Path:      ws.Path,
-		GitBranch: getGitBranch(ws.Path),
+		ID:         ws.ID,
+		Path:       ws.Path,
+		WorkingDir: ws.App.WorkingDir(),
+		GitBranch:  getGitBranch(ws.Path),
 		YOLO:      ws.Cfg.Overrides().SkipPermissionRequests,
 		DataDir:   cfg.Options.DataDirectory,
 		Debug:     cfg.Options.Debug,

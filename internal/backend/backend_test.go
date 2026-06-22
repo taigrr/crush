@@ -388,6 +388,51 @@ func TestConcurrentAttachDetach(t *testing.T) {
 	require.Contains(t, ws.clients, cid)
 }
 
+// TestReconnectReloadsStaleConfig verifies that when a client
+// reconnects to a workspace the server kept alive after earlier
+// clients left, an edit made to the workspace's config file on disk is
+// picked up. This guards the reload-on-dedup path in CreateWorkspace.
+func TestReconnectReloadsStaleConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cwd := t.TempDir()
+	dataDir := t.TempDir()
+	cfgPath := filepath.Join(cwd, "crush.json")
+
+	require.NoError(t, os.WriteFile(cfgPath,
+		[]byte(`{"options":{"tui":{"compact_mode":false}}}`), 0o644))
+
+	b := New(context.Background(), nil, func() {})
+	b.SetCreateGrace(2 * time.Second)
+	t.Cleanup(func() { drainBackend(t, b) })
+
+	cidA := uuid.New().String()
+	wsA, _, err := b.CreateWorkspace(protoWS(cwd, dataDir, cidA))
+	require.NoError(t, err)
+	require.NotNil(t, wsA.Cfg.Config().Options.TUI)
+	require.False(t, wsA.Cfg.Config().Options.TUI.CompactMode)
+
+	// Simulate the user editing the config on disk while the server
+	// keeps the workspace warm between client sessions. Bump mtime far
+	// enough that staleness detection sees the change.
+	require.NoError(t, os.WriteFile(cfgPath,
+		[]byte(`{"options":{"tui":{"compact_mode":true}}}`), 0o644))
+	future := time.Now().Add(2 * time.Second)
+	require.NoError(t, os.Chtimes(cfgPath, future, future))
+
+	cidB := uuid.New().String()
+	wsB, _, err := b.CreateWorkspace(protoWS(cwd, dataDir, cidB))
+	require.NoError(t, err)
+	require.Equal(t, wsA.ID, wsB.ID, "reconnect must return the persisted workspace")
+
+	require.NotNil(t, wsB.Cfg.Config().Options.TUI)
+	require.True(t, wsB.Cfg.Config().Options.TUI.CompactMode,
+		"reconnect should reload the edited config from disk")
+}
+
 // TestPathDedupe_FullCreate exercises CreateWorkspace end-to-end
 // (config init, real app.App). Two CreateWorkspace calls at the same
 // path return the same workspace ID and share the clients map.
@@ -1294,6 +1339,64 @@ func TestPathDedupe_LinkedWorktreeSharesProjectWorkspace(t *testing.T) {
 		"client invoked from a linked worktree must share the project's workspace")
 	require.Equal(t, wsA.Path, wsB.Path,
 		"workspace path must be the canonical project root, not the per-client cwd")
+}
+
+// TestPathDedupe_UserWorktreeIsOwnWorkspace verifies that a
+// user-created sibling worktree (e.g. ~/m2 linked to ~/m) shares the
+// same workspace as the main repo (same .crush/ project root), while
+// each client's effective working directory remains their launch cwd.
+func TestPathDedupe_UserWorktreeIsOwnWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git linked worktrees behave differently on windows test runners")
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	gitRun := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test")
+		out, err := cmd.CombinedOutput()
+		require.NoErrorf(t, err, "git %v: %s", args, out)
+	}
+
+	// Main repo at <base>/m, user worktree as a sibling at <base>/m2
+	// (NOT under .crush/worktrees/), mirroring the reported setup.
+	base := t.TempDir()
+	mainDir := filepath.Join(base, "m")
+	siblingDir := filepath.Join(base, "m2")
+	require.NoError(t, os.MkdirAll(mainDir, 0o755))
+	gitRun(mainDir, "init", "-b", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(mainDir, "README.md"), []byte("hi\n"), 0o644))
+	gitRun(mainDir, "add", ".")
+	gitRun(mainDir, "commit", "-m", "init")
+	gitRun(mainDir, "worktree", "add", "-b", "feature", siblingDir, "HEAD")
+
+	// Resolve symlinks so comparisons hold on macOS (/var -> /private/var).
+	evalMain, err := filepath.EvalSymlinks(mainDir)
+	require.NoError(t, err)
+	_, err = filepath.EvalSymlinks(siblingDir)
+	require.NoError(t, err)
+
+	b := New(context.Background(), nil, func() {})
+	b.SetCreateGrace(2 * time.Second)
+	t.Cleanup(func() { drainBackend(t, b) })
+
+	wsMain, _, err := b.CreateWorkspace(protoWS(mainDir, t.TempDir(), uuid.New().String()))
+	require.NoError(t, err)
+	wsSibling, _, err := b.CreateWorkspace(protoWS(siblingDir, t.TempDir(), uuid.New().String()))
+	require.NoError(t, err)
+
+	require.Equal(t, wsMain.ID, wsSibling.ID,
+		"a user sibling worktree must share the main repo's workspace for .crush/ sharing")
+	require.Equal(t, evalMain, wsMain.Path)
+	require.Equal(t, evalMain, wsSibling.Path,
+		"both workspaces must report the project root path")
 }
 
 // fakeWorktreeService is a tiny Service stub used to verify

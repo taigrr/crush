@@ -99,6 +99,7 @@ type Workspace interface {
 
 	// Agent
 	AgentRun(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) error
+	AgentRunBTW(ctx context.Context, sessionID, prompt string) error
 	AgentRunShellCommand(ctx context.Context, sessionID, command string) (proto.ShellCommandResponse, error)
 	AgentCancel(sessionID string)
 	AgentIsBusy() bool
@@ -151,7 +152,8 @@ type Workspace interface {
 	// Config (read-only data)
 	Config() *config.Config
 	WorkingDir() string
-	BaseDir() string // Project base directory (not worktree-aware)
+	BaseDir() string             // Project base directory (not worktree-aware)
+	EffectiveWorkingDir() string // Launch cwd; may differ from BaseDir() for linked worktrees
 	GitBranch() string
 	Resolver() config.VariableResolver
 
@@ -160,6 +162,7 @@ type Workspace interface {
 	ActiveSessionID() string
 
 	// Config mutations (proxied to server in client mode)
+	ReloadConfig(ctx context.Context) error
 	UpdatePreferredModel(scope config.Scope, modelType config.SelectedModelType, model config.SelectedModel) error
 	SetCompactMode(scope config.Scope, enabled bool) error
 	SetProviderAPIKey(scope config.Scope, providerID string, apiKey any) error

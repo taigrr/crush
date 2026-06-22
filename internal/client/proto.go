@@ -703,6 +703,19 @@ func (c *Client) GetPermissionsSysadminMode(ctx context.Context, id string) (boo
 	return req.Sysadmin, nil
 }
 
+// ReloadConfig reloads the workspace config from disk on the server.
+func (c *Client) ReloadConfig(ctx context.Context, id string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/config/reload", id), nil, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to reload config: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to reload config: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
 // GetConfig retrieves the workspace-specific configuration.
 func (c *Client) GetConfig(ctx context.Context, id string) (*config.Config, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/config", id), nil, nil)

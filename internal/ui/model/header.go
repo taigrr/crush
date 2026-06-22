@@ -154,7 +154,7 @@ func renderHeaderDetails(
 	if activeWorktree != nil {
 		parts = append(parts, t.Header.WorkingDir.Render("⑂ "+activeWorktree.Name))
 	} else if branch := com.Workspace.GitBranch(); branch != "" {
-		parts = append(parts, t.Header.WorkingDir.Render(" "+branch))
+		parts = append(parts, t.Header.WorkingDir.Render(styles.GitBranchIcon+" "+branch))
 	}
 
 	agentCfg := com.Config().Agents[config.AgentCoder]

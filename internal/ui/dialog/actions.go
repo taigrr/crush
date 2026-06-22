@@ -115,6 +115,8 @@ type (
 	ActionEnableDockerMCP struct{}
 	// ActionDisableDockerMCP is a message to disable Docker MCP.
 	ActionDisableDockerMCP struct{}
+	// ActionReloadConfig is a message to reload the configuration from disk.
+	ActionReloadConfig struct{}
 
 	// Snapshot/Worktree actions.
 

@@ -22,7 +22,7 @@ Common shell builtins and core utils available on Windows.
 - Each command runs in independent shell (no state persistence between calls)
 - Prefer absolute paths over 'cd' (use 'cd' only if user explicitly requests)
 {{- if .RgAvailable }}
-- Ripgrep (`rg`) is available; prefer it over `grep` for faster, more intuitive searching
+- CRITICAL: NEVER run `grep` in bash. Ripgrep (`rg`) is installed and MUST be used for all content searches. Plain `grep` recurses into `node_modules`, `.git`, and other huge directories and is dramatically slower. Use the Grep tool, or `rg` directly in bash — never `grep`.
 {{- end }}
 </usage_notes>
 

@@ -303,8 +303,8 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "200": {
-                        "description": "OK"
+                    "202": {
+                        "description": "Accepted"
                     },
                     "400": {
                         "description": "Bad Request",
@@ -314,6 +314,12 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/proto.Error"
                         }
@@ -616,6 +622,71 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/agent/sessions/{sid}/shell": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Run shell command",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Shell command",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.ShellCommandRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.ShellCommandResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
                         }
                     },
                     "404": {
@@ -996,6 +1067,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/workspaces/{id}/config/reload": {
+            "post": {
+                "tags": [
+                    "config"
+                ],
+                "summary": "Reload config from disk",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/workspaces/{id}/config/remove": {
             "post": {
                 "consumes": [
@@ -1093,6 +1198,62 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/current-session": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "Set current session for a client",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Client ID (UUID)",
+                        "name": "client_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "description": "Current session selection",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.CurrentSession"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/proto.Error"
                         }
@@ -1225,6 +1386,107 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/fork": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "forks"
+                ],
+                "summary": "Fork conversation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fork params",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/fork.ForkParams"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/git/branches": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "List git branches",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
                         }
                     },
                     "404": {
@@ -1825,8 +2087,55 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_crush_internal_proto.Message"
+                                "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Message"
                             }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/messages/{msgid}/snapshot": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "snapshots"
+                ],
+                "summary": "Get snapshot by message",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Message ID",
+                        "name": "msgid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
                         }
                     },
                     "404": {
@@ -1873,7 +2182,10 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK"
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.PermissionGrantResponse"
+                        }
                     },
                     "400": {
                         "description": "Bad Request",
@@ -1958,6 +2270,96 @@ const docTemplate = `{
                         "required": true,
                         "schema": {
                             "$ref": "#/definitions/proto.PermissionSkipRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/permissions/sysadmin": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "permissions"
+                ],
+                "summary": "Get sysadmin mode status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.PermissionSysadminRequest"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "permissions"
+                ],
+                "summary": "Set sysadmin mode",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Sysadmin mode request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.PermissionSysadminRequest"
                         }
                     }
                 ],
@@ -2239,6 +2641,49 @@ const docTemplate = `{
                 }
             }
         },
+        "/workspaces/{id}/sessions/archived": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List archived sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/proto.Session"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/workspaces/{id}/sessions/{sid}": {
             "get": {
                 "produces": [
@@ -2353,6 +2798,47 @@ const docTemplate = `{
                     "sessions"
                 ],
                 "summary": "Delete session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/archive": {
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Archive a session",
                 "parameters": [
                     {
                         "type": "string",
@@ -2519,7 +3005,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_crush_internal_proto.Message"
+                                "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Message"
                             }
                         }
                     },
@@ -2569,8 +3055,934 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_charmbracelet_crush_internal_proto.Message"
+                                "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Message"
                             }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/snapshots": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "snapshots"
+                ],
+                "summary": "List snapshots",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/unarchive": {
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Unarchive a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/worktrees": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "worktrees"
+                ],
+                "summary": "List worktrees",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "worktrees"
+                ],
+                "summary": "Create worktree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Worktree creation params",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.CreateWorktreeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/worktrees/active": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "worktrees"
+                ],
+                "summary": "Get active worktree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/worktrees/{wtid}/switch": {
+            "post": {
+                "tags": [
+                    "worktrees"
+                ],
+                "summary": "Switch worktree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "wtid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/skills": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "skills"
+                ],
+                "summary": "List visible skills",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/proto.SkillInfo"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/skills/read": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Read skill content",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Read skill request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.ReadSkillRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.ReadSkillResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/skills/states": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "skills"
+                ],
+                "summary": "Get skill discovery states",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/proto.SkillState"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/snapshots/enabled": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "snapshots"
+                ],
+                "summary": "Check if snapshots are enabled",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/snapshots/gc": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "snapshots"
+                ],
+                "summary": "Run snapshot garbage collection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/snapshots/stats": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "snapshots"
+                ],
+                "summary": "Get snapshot stats",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/snapshots/{snapid}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "snapshots"
+                ],
+                "summary": "Get snapshot",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Snapshot ID",
+                        "name": "snapid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/snapshots/{snapid}/diff": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "snapshots"
+                ],
+                "summary": "Get snapshot diff",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Snapshot ID",
+                        "name": "snapid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/snapshots/{snapid}/restore": {
+            "post": {
+                "tags": [
+                    "snapshots"
+                ],
+                "summary": "Restore snapshot",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Snapshot ID",
+                        "name": "snapid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/worktrees": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "worktrees"
+                ],
+                "summary": "List all worktrees",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/worktrees/enabled": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "worktrees"
+                ],
+                "summary": "Check if worktrees are enabled",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/worktrees/{wtid}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "worktrees"
+                ],
+                "summary": "Get worktree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "wtid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "worktrees"
+                ],
+                "summary": "Delete worktree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "wtid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/worktrees/{wtid}/merge": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "worktrees"
+                ],
+                "summary": "Merge worktree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "wtid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Merge params",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.MergeWorktreeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
                         }
                     },
                     "404": {
@@ -2590,6 +4002,26 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "catwalk.ImageLimits": {
+            "type": "object",
+            "properties": {
+                "max_aggregate_bytes": {
+                    "type": "integer"
+                },
+                "max_aggregate_pixels": {
+                    "type": "integer"
+                },
+                "max_bytes_per_image": {
+                    "type": "integer"
+                },
+                "max_images": {
+                    "type": "integer"
+                },
+                "max_long_edge": {
+                    "type": "integer"
+                }
+            }
+        },
         "catwalk.Model": {
             "type": "object",
             "properties": {
@@ -2620,6 +4052,24 @@ const docTemplate = `{
                 "id": {
                     "type": "string"
                 },
+                "image": {
+                    "description": "Image holds per-model image-input constraints. When zero, callers\nshould resolve the provider-family defaults via\n[Model.ResolveImageLimits]; non-zero fields override those\ndefaults (e.g. newer Claude models that allow a larger long edge).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/catwalk.ImageLimits"
+                        }
+                    ]
+                },
+                "long_context_cost_per_1m_in": {
+                    "description": "Long context pricing (when \u003e200K input tokens with 1M context enabled).\nThese are the premium rates; standard rates are in the CostPer1M* fields above.",
+                    "type": "number"
+                },
+                "long_context_cost_per_1m_in_cached": {
+                    "type": "number"
+                },
+                "long_context_cost_per_1m_out": {
+                    "type": "number"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -2631,6 +4081,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "supports_1m_context": {
+                    "description": "Supports1MContext indicates the model supports the 1M context window beta feature.",
+                    "type": "boolean"
                 },
                 "supports_attachments": {
                     "type": "boolean"
@@ -2667,9 +4121,6 @@ const docTemplate = `{
                 "co_authored_by": {
                     "type": "boolean"
                 },
-                "generated_with": {
-                    "type": "boolean"
-                },
                 "trailer_style": {
                     "$ref": "#/definitions/config.TrailerStyle"
                 }
@@ -2685,6 +4136,19 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "config.ContextMode": {
+            "type": "string",
+            "enum": [
+                "standard",
+                "extended",
+                "dynamic"
+            ],
+            "x-enum-varnames": [
+                "ContextModeStandard",
+                "ContextModeExtended",
+                "ContextModeDynamic"
+            ]
         },
         "config.HookConfig": {
             "type": "object",
@@ -2836,20 +4300,30 @@ const docTemplate = `{
                 }
             }
         },
-        "config.Scope": {
-            "type": "integer",
-            "enum": [
-                0,
-                1
-            ],
-            "x-enum-varnames": [
-                "ScopeGlobal",
-                "ScopeWorkspace"
-            ]
+        "config.PostCreateHook": {
+            "type": "object",
+            "properties": {
+                "if_exists": {
+                    "description": "IfExists is a file to check for before running the command.",
+                    "type": "string"
+                },
+                "run": {
+                    "description": "Run is the command to execute.",
+                    "type": "string"
+                }
+            }
         },
         "config.SelectedModel": {
             "type": "object",
             "properties": {
+                "context_mode": {
+                    "description": "ContextMode controls how the model handles context window limits for models that support extended context.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.ContextMode"
+                        }
+                    ]
+                },
                 "frequency_penalty": {
                     "type": "number"
                 },
@@ -2903,6 +4377,22 @@ const docTemplate = `{
                 "SelectedModelTypeSmall"
             ]
         },
+        "config.SnapshotsConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "description": "Enabled enables automatic snapshots on user messages.",
+                    "type": "boolean"
+                },
+                "exclude": {
+                    "description": "Exclude is a list of glob patterns to exclude from snapshots.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "config.TUIOptions": {
             "type": "object",
             "properties": {
@@ -2913,6 +4403,14 @@ const docTemplate = `{
                     "$ref": "#/definitions/config.Completions"
                 },
                 "diff_mode": {
+                    "type": "string"
+                },
+                "low_bandwidth": {
+                    "description": "LowBandwidth, when true, swaps the animated spinner for a simple\n\"Generating .\", \"..\", \"...\" cycle, halves the renderer FPS, and\ndisables the session-title reveal animation. Useful over slow\nlinks or when the user wants reduced motion. Toggleable from the\ncommand palette and forced on by the CRUSH_LOW_BANDWIDTH env var.",
+                    "type": "boolean"
+                },
+                "theme": {
+                    "description": "Theme selects the UI color theme by name. Builtin themes (\"charmtone\",\n\"hypercrush\") and user themes from $config/crush/themes/*.lua are\nsupported. Local config overrides global, so a theme can be set\nper-workspace. Empty falls back to the provider-derived default.",
                     "type": "string"
                 },
                 "transparent": {
@@ -2963,10 +4461,51 @@ const docTemplate = `{
                 "TrailerStyleAssistedBy"
             ]
         },
+        "config.WorktreeConfig": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "description": "Enabled controls whether worktrees are used (default true).",
+                    "type": "boolean"
+                },
+                "post_create": {
+                    "description": "PostCreate defines commands to run after creating/restoring a worktree.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/config.PostCreateHook"
+                    }
+                }
+            }
+        },
         "csync.Map-string-config_ProviderConfig": {
             "type": "object"
         },
-        "github_com_charmbracelet_crush_internal_config.Config": {
+        "fork.ForkParams": {
+            "type": "object",
+            "properties": {
+                "createWorktree": {
+                    "description": "CreateWorktree if true, creates a new worktree with the snapshot state.",
+                    "type": "boolean"
+                },
+                "messageID": {
+                    "description": "MessageID is the message to fork from. The new session will include\nall messages up to and including this one.",
+                    "type": "string"
+                },
+                "sessionID": {
+                    "description": "SessionID is the source session to fork from.",
+                    "type": "string"
+                },
+                "title": {
+                    "description": "Title is the title for the new session. Auto-generated if empty.",
+                    "type": "string"
+                },
+                "worktreeName": {
+                    "description": "WorktreeName is the name for the new worktree. Auto-generated if empty.",
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_taigrr_crush_internal_config.Config": {
             "type": "object",
             "properties": {
                 "$schema": {
@@ -2995,7 +4534,7 @@ const docTemplate = `{
                     }
                 },
                 "options": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Options"
+                    "$ref": "#/definitions/github_com_taigrr_crush_internal_config.Options"
                 },
                 "permissions": {
                     "$ref": "#/definitions/config.Permissions"
@@ -3018,12 +4557,18 @@ const docTemplate = `{
                         }
                     }
                 },
+                "snapshots": {
+                    "$ref": "#/definitions/config.SnapshotsConfig"
+                },
                 "tools": {
                     "$ref": "#/definitions/config.Tools"
+                },
+                "worktree": {
+                    "$ref": "#/definitions/config.WorktreeConfig"
                 }
             }
         },
-        "github_com_charmbracelet_crush_internal_config.Options": {
+        "github_com_taigrr_crush_internal_config.Options": {
             "type": "object",
             "properties": {
                 "attribution": {
@@ -3078,6 +4623,9 @@ const docTemplate = `{
                 "initialize_as": {
                     "type": "string"
                 },
+                "notification_style": {
+                    "type": "string"
+                },
                 "progress": {
                     "type": "boolean"
                 },
@@ -3092,7 +4640,18 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_charmbracelet_crush_internal_proto.Message": {
+        "github_com_taigrr_crush_internal_config.Scope": {
+            "type": "integer",
+            "enum": [
+                0,
+                1
+            ],
+            "x-enum-varnames": [
+                "ScopeGlobal",
+                "ScopeWorkspace"
+            ]
+        },
+        "github_com_taigrr_crush_internal_proto.Message": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -3178,7 +4737,14 @@ const docTemplate = `{
                         "$ref": "#/definitions/proto.Attachment"
                     }
                 },
+                "client_id": {
+                    "description": "ClientID identifies the client that initiated the turn. The\nserver uses it to route per-client resources (notably the editor\nbridge) to the right client. Empty means \"no specific client\".",
+                    "type": "string"
+                },
                 "prompt": {
+                    "type": "string"
+                },
+                "run_id": {
                     "type": "string"
                 },
                 "session_id": {
@@ -3189,6 +4755,9 @@ const docTemplate = `{
         "proto.AgentSession": {
             "type": "object",
             "properties": {
+                "attached_clients": {
+                    "type": "integer"
+                },
                 "completion_tokens": {
                     "type": "integer"
                 },
@@ -3202,6 +4771,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "is_busy": {
+                    "type": "boolean"
+                },
+                "is_extended_context": {
                     "type": "boolean"
                 },
                 "message_count": {
@@ -3218,6 +4790,12 @@ const docTemplate = `{
                 },
                 "title": {
                     "type": "string"
+                },
+                "todos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.Todo"
+                    }
                 },
                 "updated_at": {
                     "type": "integer"
@@ -3251,7 +4829,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "scope": {
-                    "$ref": "#/definitions/config.Scope"
+                    "$ref": "#/definitions/github_com_taigrr_crush_internal_config.Scope"
                 }
             }
         },
@@ -3265,7 +4843,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/config.SelectedModelType"
                 },
                 "scope": {
-                    "$ref": "#/definitions/config.Scope"
+                    "$ref": "#/definitions/github_com_taigrr_crush_internal_config.Scope"
                 }
             }
         },
@@ -3285,7 +4863,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/config.Scope"
+                    "$ref": "#/definitions/github_com_taigrr_crush_internal_config.Scope"
                 }
             }
         },
@@ -3296,7 +4874,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/config.Scope"
+                    "$ref": "#/definitions/github_com_taigrr_crush_internal_config.Scope"
                 }
             }
         },
@@ -3307,7 +4885,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/config.Scope"
+                    "$ref": "#/definitions/github_com_taigrr_crush_internal_config.Scope"
                 }
             }
         },
@@ -3318,9 +4896,17 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "scope": {
-                    "$ref": "#/definitions/config.Scope"
+                    "$ref": "#/definitions/github_com_taigrr_crush_internal_config.Scope"
                 },
                 "value": {}
+            }
+        },
+        "proto.CurrentSession": {
+            "type": "object",
+            "properties": {
+                "session_id": {
+                    "type": "string"
+                }
             }
         },
         "proto.Error": {
@@ -3525,6 +5111,14 @@ const docTemplate = `{
                 }
             }
         },
+        "proto.PermissionGrantResponse": {
+            "type": "object",
+            "properties": {
+                "resolved": {
+                    "type": "boolean"
+                }
+            }
+        },
         "proto.PermissionRequest": {
             "type": "object",
             "properties": {
@@ -3560,6 +5154,14 @@ const docTemplate = `{
                 }
             }
         },
+        "proto.PermissionSysadminRequest": {
+            "type": "object",
+            "properties": {
+                "sysadmin": {
+                    "type": "boolean"
+                }
+            }
+        },
         "proto.ProjectInitPromptResponse": {
             "type": "object",
             "properties": {
@@ -3576,6 +5178,28 @@ const docTemplate = `{
                 }
             }
         },
+        "proto.ReadSkillRequest": {
+            "type": "object",
+            "properties": {
+                "skill_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.ReadSkillResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "result": {
+                    "$ref": "#/definitions/proto.SkillReadResult"
+                }
+            }
+        },
         "proto.ServerControl": {
             "type": "object",
             "properties": {
@@ -3587,6 +5211,9 @@ const docTemplate = `{
         "proto.Session": {
             "type": "object",
             "properties": {
+                "attached_clients": {
+                    "type": "integer"
+                },
                 "completion_tokens": {
                     "type": "integer"
                 },
@@ -3598,6 +5225,9 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "is_busy": {
+                    "type": "boolean"
                 },
                 "message_count": {
                     "type": "integer"
@@ -3614,8 +5244,116 @@ const docTemplate = `{
                 "title": {
                     "type": "string"
                 },
+                "todos": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.Todo"
+                    }
+                },
                 "updated_at": {
                     "type": "integer"
+                }
+            }
+        },
+        "proto.ShellCommandRequest": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.ShellCommandResponse": {
+            "type": "object",
+            "properties": {
+                "exit_code": {
+                    "type": "integer"
+                },
+                "output": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.SkillDiscoveryState": {
+            "type": "integer",
+            "enum": [
+                0,
+                1
+            ],
+            "x-enum-varnames": [
+                "SkillStateNormal",
+                "SkillStateError"
+            ]
+        },
+        "proto.SkillInfo": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "user_invocable": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "proto.SkillReadResult": {
+            "type": "object",
+            "properties": {
+                "builtin": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.SkillState": {
+            "type": "object",
+            "properties": {
+                "error": {},
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/proto.SkillDiscoveryState"
+                }
+            }
+        },
+        "proto.Todo": {
+            "type": "object",
+            "properties": {
+                "active_form": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },
@@ -3642,8 +5380,11 @@ const docTemplate = `{
         "proto.Workspace": {
             "type": "object",
             "properties": {
+                "client_id": {
+                    "type": "string"
+                },
                 "config": {
-                    "$ref": "#/definitions/github_com_charmbracelet_crush_internal_config.Config"
+                    "$ref": "#/definitions/github_com_taigrr_crush_internal_config.Config"
                 },
                 "data_dir": {
                     "type": "string"
@@ -3657,17 +5398,51 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "git_branch": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
+                "isolated": {
+                    "type": "boolean"
+                },
                 "path": {
                     "type": "string"
+                },
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.SkillState"
+                    }
                 },
                 "version": {
                     "type": "string"
                 },
                 "yolo": {
                     "type": "boolean"
+                }
+            }
+        },
+        "server.CreateWorktreeRequest": {
+            "type": "object",
+            "properties": {
+                "from_snapshot_id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.MergeWorktreeRequest": {
+            "type": "object",
+            "properties": {
+                "rebase": {
+                    "type": "boolean"
+                },
+                "target_branch": {
+                    "type": "string"
                 }
             }
         },

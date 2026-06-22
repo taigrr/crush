@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -706,7 +707,7 @@ func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {
 	coderAgent, ok := cfg.Agents[AgentCoder]
 	require.True(t, ok)
 
-	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "job_output", "job_kill", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_definition", "lsp_document_symbols", "lsp_rename", "lsp_restart", "fetch", "agentic_fetch", "glob", "ls", "multi_view", "sourcegraph", "context7", "search_history", "todos", "view", "write", "list_mcp_resources", "read_mcp_resource", "editor_context", "show_locations"}, coderAgent.AllowedTools)
+	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "reload_config", "job_output", "job_kill", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_definition", "lsp_document_symbols", "lsp_rename", "lsp_restart", "fetch", "agentic_fetch", "glob", "ls", "multi_view", "sourcegraph", "context7", "search_history", "todos", "view", "write", "list_mcp_resources", "read_mcp_resource", "editor_context", "show_locations"}, coderAgent.AllowedTools)
 
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
@@ -734,7 +735,7 @@ func TestConfig_setupAgentsWithEveryReadOnlyToolDisabled(t *testing.T) {
 	cfg.SetupAgents()
 	coderAgent, ok := cfg.Agents[AgentCoder]
 	require.True(t, ok)
-	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "job_output", "job_kill", "download", "edit", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_definition", "lsp_document_symbols", "lsp_rename", "lsp_restart", "fetch", "agentic_fetch", "todos", "write", "list_mcp_resources", "read_mcp_resource"}, coderAgent.AllowedTools)
+	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "reload_config", "job_output", "job_kill", "download", "edit", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_definition", "lsp_document_symbols", "lsp_rename", "lsp_restart", "fetch", "agentic_fetch", "todos", "write", "list_mcp_resources", "read_mcp_resource"}, coderAgent.AllowedTools)
 
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
@@ -2078,4 +2079,123 @@ func TestConfig_configureProviders_UnsetAzureEndpointSkipsProvider(t *testing.T)
 	require.Equal(t, 0, cfg.Providers.Len(), "azure provider with unset endpoint must be skipped")
 	_, exists := cfg.Providers.Get("azure")
 	require.False(t, exists)
+}
+
+// gitForWorktreeTest runs git in dir with a deterministic identity.
+func gitForWorktreeTest(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test")
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "git %v: %s", args, out)
+}
+
+func initRepoForWorktreeTest(t *testing.T, dir string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	gitForWorktreeTest(t, dir, "init", "-b", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi\n"), 0o644))
+	gitForWorktreeTest(t, dir, "add", ".")
+	gitForWorktreeTest(t, dir, "commit", "-m", "init")
+}
+
+// TestProjectRoot_MainWorktree verifies the main repo resolves to its
+// own top-level (and a subdirectory walks up to it).
+func TestProjectRoot_MainWorktree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git linked worktrees behave differently on windows test runners")
+	}
+	repo := t.TempDir()
+	initRepoForWorktreeTest(t, repo)
+	want, err := filepath.EvalSymlinks(repo)
+	require.NoError(t, err)
+
+	require.Equal(t, want, ProjectRoot(repo))
+
+	sub := filepath.Join(repo, "src", "pkg")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	require.Equal(t, want, ProjectRoot(sub),
+		"a subdirectory must resolve to the repo top-level")
+}
+
+// TestProjectRoot_UserWorktreeIsOwnProject verifies that a user-created
+// sibling worktree (e.g. ~/m2 linked to ~/m) collapses to the main repo
+// root, just like a Crush-managed worktree, so .crush/ is always shared
+// at the main repo. The effective working directory (for tools/shell) is
+// tracked separately in coordinator.effectiveWorkingDir.
+func TestProjectRoot_UserWorktreeIsOwnProject(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git linked worktrees behave differently on windows test runners")
+	}
+	base := t.TempDir()
+	main := filepath.Join(base, "m")
+	sibling := filepath.Join(base, "m2")
+	initRepoForWorktreeTest(t, main)
+	gitForWorktreeTest(t, main, "worktree", "add", "-b", "feature", sibling, "HEAD")
+
+	wantMain, err := filepath.EvalSymlinks(main)
+	require.NoError(t, err)
+	_, err = filepath.EvalSymlinks(sibling)
+	require.NoError(t, err)
+
+	require.Equal(t, wantMain, ProjectRoot(main))
+	require.Equal(t, wantMain, ProjectRoot(sibling),
+		"a user sibling worktree must collapse to the main repo root for .crush/ sharing")
+}
+
+// TestProjectRoot_ManagedWorktreeCollapses verifies that a Crush-managed
+// worktree under <root>/.crush/worktrees/<name> collapses to <root> so
+// .crush/ stays co-located at the main project.
+func TestProjectRoot_ManagedWorktreeCollapses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git linked worktrees behave differently on windows test runners")
+	}
+	repo := t.TempDir()
+	initRepoForWorktreeTest(t, repo)
+	managed := filepath.Join(repo, ".crush", "worktrees", "feat-x")
+	require.NoError(t, os.MkdirAll(filepath.Dir(managed), 0o755))
+	gitForWorktreeTest(t, repo, "worktree", "add", "-b", "feat-x", managed, "HEAD")
+
+	want, err := filepath.EvalSymlinks(repo)
+	require.NoError(t, err)
+	require.Equal(t, want, ProjectRoot(managed),
+		"managed worktree must collapse to the main project root")
+}
+
+// TestProjectRoot_RepoLivingUnderManagedPathNotCollapsed is the
+// future-proofing case: a normal standalone repo that merely happens to
+// live at a path containing `.crush/worktrees` must NOT be collapsed,
+// because git reports it as its own main worktree. This is why the
+// managed-worktree check is anchored to git's reported main root rather
+// than a path-string scan.
+func TestProjectRoot_RepoLivingUnderManagedPathNotCollapsed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git linked worktrees behave differently on windows test runners")
+	}
+	base := t.TempDir()
+	// An unrelated outer repo whose layout includes .crush/worktrees,
+	// with a wholly separate standalone repo checked out inside it.
+	outer := filepath.Join(base, "outer")
+	initRepoForWorktreeTest(t, outer)
+	inner := filepath.Join(outer, ".crush", "worktrees", "standalone")
+	initRepoForWorktreeTest(t, inner)
+
+	wantInner, err := filepath.EvalSymlinks(inner)
+	require.NoError(t, err)
+	require.Equal(t, wantInner, ProjectRoot(inner),
+		"a standalone repo under a .crush/worktrees path must remain its own project root")
+}
+
+// TestProjectRoot_NonGitDir falls back to the absolute resolved path.
+func TestProjectRoot_NonGitDir(t *testing.T) {
+	dir := t.TempDir()
+	want, err := filepath.EvalSymlinks(dir)
+	require.NoError(t, err)
+	got := ProjectRoot(dir)
+	gotResolved, err := filepath.EvalSymlinks(got)
+	require.NoError(t, err)
+	require.Equal(t, want, gotResolved)
 }

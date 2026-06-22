@@ -79,5 +79,6 @@ func NewCoordinator(
 		nil,
 		nil,
 		nil,
+		workingDir,
 	)
 }

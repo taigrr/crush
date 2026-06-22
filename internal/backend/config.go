@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/taigrr/crush/internal/agent"
 	mcptools "github.com/taigrr/crush/internal/agent/tools/mcp"
@@ -35,6 +36,47 @@ type MCPResourceContents struct {
 	MIMEType string `json:"mime_type,omitempty"`
 	Text     string `json:"text,omitempty"`
 	Blob     []byte `json:"blob,omitempty"`
+}
+
+// ReloadConfig re-reads the workspace's config files from disk and
+// refreshes the in-memory config, providers, and agents. Clients are
+// notified via a ConfigChanged event.
+func (b *Backend) ReloadConfig(workspaceID string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	if ws.Cfg == nil {
+		return fmt.Errorf("workspace has no config")
+	}
+	if err := ws.Cfg.ReloadFromDisk(b.ctx); err != nil {
+		return err
+	}
+	publishConfigChanged(ws)
+	return nil
+}
+
+// reloadWorkspaceConfig refreshes a persisted workspace's config from
+// disk when a client (re)connects to a deduplicated workspace. The
+// server outlives its clients, so a workspace can be handed back to a
+// reconnecting client with config that has since changed on disk. We
+// only reload when the tracked config files are actually stale to avoid
+// reconfiguring providers on every connect. Best-effort: failures are
+// logged, not fatal.
+func (b *Backend) reloadWorkspaceConfig(ws *Workspace) {
+	if ws == nil || ws.Cfg == nil {
+		return
+	}
+	if !ws.Cfg.ConfigStaleness().Dirty {
+		return
+	}
+	if err := ws.Cfg.ReloadFromDisk(b.ctx); err != nil {
+		slog.Warn("Failed to reload workspace config on client connect",
+			"workspace", ws.ID, "error", err)
+		return
+	}
+	slog.Info("Reloaded workspace config from disk on client connect", "workspace", ws.ID)
+	publishConfigChanged(ws)
 }
 
 // SetConfigField sets a key/value pair in the config file for the

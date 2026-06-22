@@ -208,6 +208,24 @@ func (c *controllerV1) handlePostWorkspaceConfigRefreshOAuth(w http.ResponseWrit
 	w.WriteHeader(http.StatusOK)
 }
 
+// handlePostWorkspaceConfigReload reloads the workspace config from disk.
+//
+//	@Summary		Reload config from disk
+//	@Tags			config
+//	@Param			id	path	string	true	"Workspace ID"
+//	@Success		200
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/config/reload [post]
+func (c *controllerV1) handlePostWorkspaceConfigReload(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := c.backend.ReloadConfig(id); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // handleGetWorkspaceProjectNeedsInit reports whether a project needs initialization.
 //
 //	@Summary		Check if project needs initialization

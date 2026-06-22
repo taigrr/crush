@@ -313,6 +313,17 @@ commercial license from Charm. Not legal advice.
   signals "new work" to orchestration (DO alarms + event to a queue).
 - E2E encryption is intentionally **out** — server must read plaintext to
   merge and to power the dashboard.
+- **Worktree fingerprint collision.** A user-created sibling worktree
+  (e.g. `~/m2` linked to `~/m`) resolves to its own project root and
+  keeps a *separate* local `.crush/` database (see
+  `docs/specs/WORKTREES_AND_SNAPSHOTS.md` §1 "Project root resolution").
+  But the §4 fingerprint `SHA256(git_remote + ":" + repo_relative_.crush_path)`
+  is identical for both (same remote; `.crush/` is at each tree's own
+  root, so the repo-relative path matches). Two distinct local DBs would
+  therefore map to one DO. Decide whether worktrees of the same repo are
+  one cloud project (DO merges both, distinguished by branch / `db_id`)
+  or must diverge — likely by folding the branch or working-tree
+  identity into the fingerprint for non-main worktrees.
 
 ---
 

@@ -13,8 +13,9 @@ import (
 // Workspace represents a running app.App workspace with its associated
 // resources and state.
 type Workspace struct {
-	ID        string         `json:"id"`
-	Path      string         `json:"path"`
+	ID         string         `json:"id"`
+	Path       string         `json:"path"`
+	WorkingDir string         `json:"working_dir,omitempty"`
 	GitBranch string         `json:"git_branch,omitempty"`
 	YOLO      bool           `json:"yolo,omitempty"`
 	Isolated  bool           `json:"isolated,omitempty"`

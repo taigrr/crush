@@ -129,6 +129,12 @@ type coordinator struct {
 	activeSkills []*skills.Skill // Post-filter: active skills only.
 	skillTracker *skills.Tracker
 
+	// effectiveWorkingDir is the working directory for tools and shell
+	// commands. For user-created linked worktrees this is the actual cwd
+	// the user launched from, which may differ from cfg.WorkingDir()
+	// (the project root hosting .crush/). Empty means use cfg.WorkingDir().
+	effectiveWorkingDir string
+
 	readyWg errgroup.Group
 }
 
@@ -147,6 +153,7 @@ func NewCoordinator(
 	runComplete pubsub.Publisher[notify.RunComplete],
 	skillsMgr *skills.Manager,
 	worktrees worktree.Service,
+	effectiveWorkingDir string,
 ) (Coordinator, error) {
 	// Skills are pre-discovered by the caller (see app.New /
 	// backend.CreateWorkspace) and passed in via the manager. If no
@@ -162,22 +169,23 @@ func NewCoordinator(
 	skillTracker := skills.NewTracker(activeSkills)
 
 	c := &coordinator{
-		cfg:          cfg,
-		sessions:     sessions,
-		messages:     messages,
-		checkpoints:  checkpoints,
-		permissions:  permissions,
-		history:      history,
-		filetracker:  filetracker,
-		milestones:   milestones,
-		lspManager:   lspManager,
-		worktrees:    worktrees,
-		notify:       notify,
-		runComplete:  runComplete,
-		agents:       make(map[string]SessionAgent),
-		allSkills:    allSkills,
-		activeSkills: activeSkills,
-		skillTracker: skillTracker,
+		cfg:                 cfg,
+		sessions:            sessions,
+		messages:            messages,
+		checkpoints:         checkpoints,
+		permissions:         permissions,
+		history:             history,
+		filetracker:         filetracker,
+		milestones:          milestones,
+		lspManager:          lspManager,
+		worktrees:           worktrees,
+		notify:              notify,
+		runComplete:         runComplete,
+		agents:              make(map[string]SessionAgent),
+		allSkills:           allSkills,
+		activeSkills:        activeSkills,
+		skillTracker:        skillTracker,
+		effectiveWorkingDir: effectiveWorkingDir,
 	}
 
 	agentCfg, ok := cfg.Config().Agents[config.AgentCoder]
@@ -186,7 +194,7 @@ func NewCoordinator(
 	}
 
 	// TODO: make this dynamic when we support multiple agents
-	prompt, err := coderPrompt(prompt.WithWorkingDir(c.cfg.WorkingDir()))
+	prompt, err := coderPrompt(prompt.WithWorkingDir(cmp.Or(effectiveWorkingDir, c.cfg.WorkingDir())))
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +215,7 @@ func NewCoordinator(
 // session, a disabled worktree service, or a lookup error all
 // gracefully degrade to the workspace root.
 func (c *coordinator) workingDir(ctx context.Context) string {
-	root := c.cfg.WorkingDir()
+	root := cmp.Or(c.effectiveWorkingDir, c.cfg.WorkingDir())
 	if c.worktrees == nil || !c.worktrees.IsEnabled() {
 		return root
 	}
@@ -646,6 +654,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		allTools,
 		tools.NewBashTool(c.permissions, c.workingDir, c.cfg.Config().Options.Attribution, modelName),
 		tools.NewCrushInfoTool(c.cfg, c.lspManager, c.allSkills, c.activeSkills, c.skillTracker),
+		tools.NewReloadConfigTool(c.cfg, c.permissions),
 		tools.NewCrushLogsTool(logFile),
 		tools.NewJobOutputTool(),
 		tools.NewJobKillTool(),

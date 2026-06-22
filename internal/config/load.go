@@ -1026,54 +1026,79 @@ func isInsideWorktree() bool {
 	return err == nil && strings.TrimSpace(string(bts)) == "true"
 }
 
-// worktreeRoot returns the absolute path of the *main* git working tree
-// root for dir, or the empty string when dir is not inside a working tree
-// (bare repositories, missing git binary, plain directories, or any other
-// failure mode).
+// worktreeRoot returns the absolute path of the canonical project root
+// for dir — the directory under which `.crush/` (database, snapshot
+// repo, managed worktrees) lives — or the empty string when dir is not
+// inside a working tree (bare repositories, missing git binary, plain
+// directories, or any other failure mode).
 //
-// When dir lives inside a linked worktree (e.g. one Crush created under
-// .crush/worktrees/<name>/), `git rev-parse --show-toplevel` would report
-// the linked worktree's own top-level, which means callers would treat
-// the linked worktree as the project root and store `.crush/`,
-// snapshots, and managed worktrees nested inside it. To get the
-// canonical project root we use `--git-common-dir`, which always points
-// at the main repository's `.git/` regardless of which worktree we are
-// in; its parent directory is the main worktree root.
+// The rule: the main working tree and every linked worktree (whether
+// Crush-managed under `<main>/.crush/worktrees/<name>/` or user-created
+// as a sibling, e.g. `~/m2` linked to `~/m`) all resolve to the main
+// repo root. This ensures a single shared `.crush/` for the repository,
+// preventing split database and snapshot state across worktrees.
+//
+// The effective working directory for tools (pwd, shell, file edits) is
+// tracked separately from the project root and always reflects the cwd
+// the user launched Crush from; see coordinator.effectiveWorkingDir.
+//
+// This determinism matters beyond local correctness: per the worktrees
+// spec (docs/specs/WORKTREES_AND_SNAPSHOTS.md §1, §8) `.crush/` location
+// defines the project, and the cloud sync model
+// (docs/sync-spec.md §4) derives a project's identity/Durable-Object key
+// from the git remote plus the repo-relative `.crush/` path. A stable,
+// git-anchored project root keeps that fingerprint consistent.
 func worktreeRoot(dir string) string {
-	out, err := gitRevParse(dir, "--path-format=absolute", "--git-common-dir")
-	if err != nil || out == "" {
-		// Fall back to --show-toplevel for older git versions or
-		// unusual setups (submodules without a common dir, etc.).
-		out2, err2 := gitRevParse(dir, "--show-toplevel")
-		if err2 != nil || out2 == "" {
-			return ""
-		}
-		abs, err := filepath.Abs(out2)
-		if err != nil {
-			return ""
-		}
-		return abs
-	}
-	// `--git-common-dir` returns the main repo's git dir
-	// (typically `<root>/.git`). Strip the trailing `.git` segment to
-	// get the project root. For bare repos or worktrees pointing at a
-	// gitdir file, fall back to --show-toplevel.
-	gitDir := out
-	parent := filepath.Dir(gitDir)
-	base := filepath.Base(gitDir)
-	if base != ".git" {
-		// Not a standard layout; try --show-toplevel as a fallback so
-		// we still return *something* sensible.
-		if out2, err2 := gitRevParse(dir, "--show-toplevel"); err2 == nil && out2 != "" {
-			if abs, err := filepath.Abs(out2); err == nil {
-				return abs
-			}
-		}
+	top, err := gitRevParse(dir, "--show-toplevel")
+	if err != nil || top == "" {
 		return ""
 	}
-	abs, err := filepath.Abs(parent)
+	top = normalizePath(top)
+
+	mainRoot, ok := gitMainWorktreeRoot(dir)
+	if !ok || mainRoot == top {
+		// Main worktree, or an unusual layout we couldn't classify
+		// (bare repo, gitdir file, old git): treat dir's own
+		// top-level as the project root.
+		return top
+	}
+
+	// dir is any linked worktree — collapse to the main repo root so
+	// .crush/ is always co-located with the main working tree.
+	return mainRoot
+}
+
+// gitMainWorktreeRoot returns the working-tree root of the *main*
+// repository backing dir, regardless of which linked worktree dir lives
+// in. It derives the root from `--git-common-dir`, which always points
+// at the main repo's `.git` directory. Returns ok=false for layouts it
+// cannot classify (bare repos, a gitdir *file* rather than a `.git`
+// directory, older git without `--git-common-dir`), leaving callers to
+// fall back to the tree's own top-level.
+func gitMainWorktreeRoot(dir string) (string, bool) {
+	common, err := gitRevParse(dir, "--path-format=absolute", "--git-common-dir")
+	if err != nil || common == "" {
+		return "", false
+	}
+	common = normalizePath(common)
+	if filepath.Base(common) != ".git" {
+		return "", false
+	}
+	return filepath.Dir(common), true
+}
+
+// normalizePath returns an absolute, symlink-resolved form of p so that
+// roots reported by separate git invocations (and the caller's resolved
+// cwd) compare equal on platforms with symlinked temp dirs (e.g. macOS
+// /tmp -> /private/tmp). Falls back to the cleaned absolute path when
+// the target cannot be resolved.
+func normalizePath(p string) string {
+	abs, err := filepath.Abs(p)
 	if err != nil {
-		return ""
+		return filepath.Clean(p)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
 	}
 	return abs
 }

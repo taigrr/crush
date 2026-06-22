@@ -52,6 +52,10 @@ const (
 	LSPWarningIcon string = "W"
 	LSPInfoIcon    string = "I"
 	LSPHintIcon    string = "H"
+
+	GitBranchIcon string = "⎇"
+	WrenchIcon    string = "⚙"
+	FolderIcon    string = "⌂"
 )
 
 const (

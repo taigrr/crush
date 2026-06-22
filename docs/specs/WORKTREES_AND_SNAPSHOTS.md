@@ -38,6 +38,31 @@ Key points:
 - Worktrees share the object store (deduplication)
 - `node_modules` and similar are excluded from snapshots
 
+### Project root resolution
+
+The **project root** is the directory under which `.crush/` lives. It is
+resolved from the launch cwd by `config.ProjectRoot`
+(`internal/config/load.go`), git-anchored rather than path-string based:
+
+- The base answer is the cwd's own git working-tree top-level
+  (`git rev-parse --show-toplevel`). The main repo, any subdirectory, and
+  any **user-created** linked worktree (e.g. `~/m2` linked to `~/m`) each
+  resolve to **their own** top-level. A user worktree is therefore a
+  fully independent project: its own cwd, its own `.crush/`, its own
+  shell working directory and snapshots.
+- The single exception is a **Crush-managed** worktree at
+  `<mainRoot>/.crush/worktrees/<name>/`. Those collapse to `<mainRoot>`
+  so `.crush/` stays co-located at the main project instead of nesting
+  inside each managed worktree. The managed check is anchored to the
+  main repo root that git reports via `--git-common-dir`, so a normal
+  repo that merely happens to live under a `.crush/worktrees` path is
+  never mis-collapsed.
+
+This determinism is also why the cloud sync model
+(`docs/sync-spec.md` §4) can derive a stable project fingerprint from the
+git remote plus the repo-relative `.crush/` path: a given working tree
+always maps to exactly one project root.
+
 ---
 
 ## 2. Database Schema

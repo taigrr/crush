@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
+	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/checkpoint"
@@ -205,11 +206,23 @@ func (w *ClientWorkspace) ListAllUserMessages(ctx context.Context) ([]message.Me
 // -- Agent --
 
 func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) error {
-	// The interactive TUI does not consume notify.RunComplete for
-	// completion detection (it observes message events directly),
-	// so passing an empty RunID is correct here: it skips the
-	// correlator stamping path without functional consequences.
-	return w.client.SendMessage(ctx, w.workspaceID(), sessionID, "", prompt, attachments...)
+	// A non-empty RunID ensures the queued message is kept for its
+	// own dedicated turn by drainQueueForStep rather than being
+	// folded silently into the current streaming step. The TUI
+	// does not consume notify.RunComplete for completion detection
+	// (it observes message events directly), so the RunComplete
+	// event that fires is harmlessly ignored.
+	return w.client.SendMessage(ctx, w.workspaceID(), sessionID, uuid.New().String(), prompt, attachments...)
+}
+
+// AgentRunBTW sends a "by the way" aside message that is folded into the
+// current streaming step at the earliest opportunity rather than queued for
+// its own dedicated turn. The empty RunID is intentional: drainQueueForStep
+// folds no-RunID messages into the active step context so the model sees
+// the message at the next step boundary without waiting for the turn to
+// finish.
+func (w *ClientWorkspace) AgentRunBTW(ctx context.Context, sessionID, prompt string) error {
+	return w.client.SendMessage(ctx, w.workspaceID(), sessionID, "", "[btw] "+prompt)
 }
 
 func (w *ClientWorkspace) AgentRunShellCommand(ctx context.Context, sessionID, command string) (proto.ShellCommandResponse, error) {
@@ -522,6 +535,16 @@ func (w *ClientWorkspace) BaseDir() string {
 	return w.cached().Path
 }
 
+// EffectiveWorkingDir returns the cwd the user launched Crush from. For
+// user-created linked worktrees this differs from BaseDir() (the project
+// root hosting .crush/). Falls back to BaseDir() when not set.
+func (w *ClientWorkspace) EffectiveWorkingDir() string {
+	if wd := w.cached().WorkingDir; wd != "" {
+		return wd
+	}
+	return w.cached().Path
+}
+
 // GitBranch returns the current git branch name, or empty if not in a git repo.
 // Fetches live from git using WorkingDir (which is worktree-aware).
 // invalidateWorktreeCache clears the cached active worktree so the next
@@ -704,6 +727,10 @@ func (w *ClientWorkspace) EnableDockerMCP(ctx context.Context) error {
 
 func (w *ClientWorkspace) DisableDockerMCP() error {
 	return w.client.DisableDockerMCP(context.Background(), w.workspaceID())
+}
+
+func (w *ClientWorkspace) ReloadConfig(ctx context.Context) error {
+	return w.client.ReloadConfig(ctx, w.workspaceID())
 }
 
 // -- Snapshots --

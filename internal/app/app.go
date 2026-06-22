@@ -3,6 +3,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -80,6 +81,12 @@ type App struct {
 	events          *pubsub.Broker[tea.Msg]
 	tuiWG           *sync.WaitGroup
 
+	// workingDir is the effective working directory for tools and shell
+	// commands. For user-created linked worktrees this is the worktree
+	// cwd the user launched from, which may differ from
+	// config.WorkingDir() (the project root hosting .crush/).
+	workingDir string
+
 	// global context and cleanup functions
 	globalCtx          context.Context
 	cleanupFuncs       []func(context.Context) error
@@ -96,7 +103,11 @@ type App struct {
 // New initializes a new application instance. skillsMgr carries the
 // per-workspace skill discovery results computed by the caller; the
 // caller is responsible for constructing it (typically via
-func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr *skills.Manager) (*App, error) {
+// backend.CreateWorkspace). workingDir is the effective working directory
+// for tools and shell commands; it may differ from store.WorkingDir() when
+// the client launched from a linked worktree (store.WorkingDir() is always
+// the project root hosting .crush/).
+func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr *skills.Manager, workingDir string) (*App, error) {
 	q := db.New(conn)
 	sessions := session.NewService(q, conn)
 	messages := message.NewService(q)
@@ -108,19 +119,11 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		allowedTools = cfg.Permissions.AllowedTools
 	}
 
-	// Resolve the canonical project root. When Crush is launched from
-	// inside a linked worktree under `.crush/worktrees/<name>/`, the
-	// cwd reported by store.WorkingDir() is the worktree, not the
-	// project. ProjectRoot uses `git rev-parse --git-common-dir` to
-	// always return the main repo's working tree root, so `.crush/`,
-	// the snapshot repo, and managed worktrees stay co-located at the
-	// project root rather than nesting inside each linked worktree.
-	// Per spec §8, snapshots walk the project directory (linked
-	// worktrees inside .crush/ are excluded), so the work tree is
-	// always the project root regardless of which cwd the user
-	// invoked Crush from.
-	workingDir := store.WorkingDir()
-	projectRoot := config.ProjectRoot(workingDir)
+	// store.WorkingDir() is the project root (hosting .crush/).
+	// workingDir (the parameter) is the effective cwd for tools — for
+	// user-created linked worktrees it is the worktree the user launched
+	// from, which may differ from the project root.
+	projectRoot := config.ProjectRoot(store.WorkingDir())
 
 	// Initialize checkpoint service for filesystem snapshots.
 	checkpointCfg := checkpoint.ServiceConfig{
@@ -175,7 +178,8 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		LSPManager:  lsp.NewManager(store),
 		Skills:      skillsMgr,
 
-		globalCtx: ctx,
+		workingDir: workingDir,
+		globalCtx:  ctx,
 
 		config: store,
 		dbConn: conn,
@@ -231,6 +235,14 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	}
 
 	return app, nil
+}
+
+// WorkingDir returns the effective working directory for tools and shell
+// commands. For user-created linked worktrees this is the cwd the user
+// launched from, which may differ from config.WorkingDir() (the project
+// root hosting .crush/).
+func (app *App) WorkingDir() string {
+	return cmp.Or(app.workingDir, app.config.WorkingDir())
 }
 
 // Config returns the pure-data configuration.
@@ -691,6 +703,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		app.runCompletions,
 		app.Skills,
 		app.Worktrees,
+		app.workingDir,
 	)
 	if err != nil {
 		slog.Error("Failed to create coder agent", "err", err)

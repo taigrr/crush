@@ -535,6 +535,11 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		NewCommandItem(c.com.Styles, "init", "Initialize Project", "", ActionInitializeProject{}),
 	)
 
+	// Add reload config command if sysadmin mode is enabled.
+	if c.com.Workspace.PermissionSysadminMode() {
+		commands = append(commands, NewCommandItem(c.com.Styles, "reload_config", "Reload Config", "", ActionReloadConfig{}))
+	}
+
 	// Add snapshot commands if enabled and has session.
 	if c.hasSession && c.com.Workspace.SnapshotsEnabled() {
 		commands = append(commands, NewCommandItem(c.com.Styles, "snapshots", "View Snapshots", "", ActionOpenSnapshotsDialog{SessionID: c.sessionID}))

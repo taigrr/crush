@@ -143,8 +143,9 @@ func DefaultKeyMap() KeyMap {
 		key.WithHelp("@", "mention file"),
 	)
 	km.Editor.Commands = key.NewBinding(
-		key.WithKeys("/"),
+		key.WithKeys(),
 		key.WithHelp("/", "commands"),
+		key.WithDisabled(),
 	)
 	km.Editor.AttachmentDeleteMode = key.NewBinding(
 		key.WithKeys("ctrl+r"),

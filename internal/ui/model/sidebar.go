@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/ultraviolet/layout"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/logo"
+	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/taigrr/crush/internal/worktree"
 )
 
@@ -167,8 +168,19 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	height := area.Dy()
 
 	title := m.renderSessionTitle(t.Sidebar.SessionTitle, width)
-	// Use BaseDir to show project root, not worktree path.
-	cwd := common.PrettyPath(t, m.com.Workspace.BaseDir(), width)
+
+	// Config root (always the .crush/ project root) with wrench icon.
+	cfgRootPath := m.com.Workspace.BaseDir()
+	cfgRoot := common.PrettyPath(t, styles.WrenchIcon+" "+cfgRootPath, width)
+
+	// Effective working dir (user's launch cwd) with folder icon.
+	// Only shown when different from the config root (e.g. linked worktrees).
+	effectivePath := m.com.Workspace.EffectiveWorkingDir()
+	var cwdLine string
+	if effectivePath != cfgRootPath {
+		cwdLine = common.PrettyPath(t, styles.FolderIcon+" "+effectivePath, width)
+	}
+
 	sidebarLogo := m.sidebarLogo
 	if height < logoHeightBreakpoint {
 		sidebarLogo = logo.SmallRender(m.com.Styles, width, logo.Opts{
@@ -176,8 +188,7 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 		})
 	}
 
-	// Build git/worktree info line.
-	// If in a worktree, show worktree name; otherwise show git branch.
+	// Build git/worktree info line with git symbol prefix.
 	var gitInfo string
 	var activeWorktree *worktree.Worktree
 	if m.com.Workspace.WorktreesEnabled() {
@@ -186,14 +197,17 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	if activeWorktree != nil {
 		gitInfo = t.Sidebar.WorkingDir.Render("⑂ " + activeWorktree.Name)
 	} else if branch := m.com.Workspace.GitBranch(); branch != "" {
-		gitInfo = t.Sidebar.WorkingDir.Render(" " + branch)
+		gitInfo = t.Sidebar.WorkingDir.Render(styles.GitBranchIcon + " " + branch)
 	}
 
 	blocks := []string{
 		sidebarLogo,
 		title,
 		"",
-		cwd,
+		cfgRoot,
+	}
+	if cwdLine != "" {
+		blocks = append(blocks, cwdLine)
 	}
 	if gitInfo != "" {
 		blocks = append(blocks, gitInfo)

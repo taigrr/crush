@@ -1801,6 +1801,10 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		cmds = append(cmds, m.initializeProject())
 		m.dialog.CloseDialog(dialog.CommandsID)
 
+	case dialog.ActionReloadConfig:
+		cmds = append(cmds, m.reloadConfig())
+		m.dialog.CloseDialog(dialog.CommandsID)
+
 	case dialog.ActionSelectModel:
 		if cmd := m.handleSelectModel(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -2325,6 +2329,15 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					m.randomizePlaceholders()
 					m.historyReset()
 					return m.runShellCommand(command)
+				}
+
+				if aside, ok := strings.CutPrefix(value, "/btw "); ok && aside != "" {
+					if !m.hasSession() {
+						return util.ReportError(fmt.Errorf("/btw requires an active session"))
+					}
+					m.randomizePlaceholders()
+					m.historyReset()
+					return m.sendBTWMessage(aside)
 				}
 
 				attachments := m.attachments.List()
@@ -3686,6 +3699,22 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 		return nil
 	})
 	return tea.Batch(cmds...)
+}
+
+// sendBTWMessage sends a "by the way" aside that is folded into the active
+// turn at the next step boundary rather than queued for its own turn.
+func (m *UI) sendBTWMessage(content string) tea.Cmd {
+	sessionID := m.session.ID
+	return func() tea.Msg {
+		err := m.com.Workspace.AgentRunBTW(context.Background(), sessionID, content)
+		if err != nil {
+			return util.InfoMsg{
+				Type: util.InfoTypeError,
+				Msg:  fmt.Sprintf("%v", err),
+			}
+		}
+		return nil
+	}
 }
 
 // runShellCommand executes a shell command server-side without triggering
