@@ -6,10 +6,13 @@ package db
 
 import (
 	"context"
+	"database/sql"
 )
 
 type Querier interface {
 	ArchiveSession(ctx context.Context, id string) error
+	CountEmbeddingsBySignature(ctx context.Context, signature string) (int64, error)
+	CountEmbeddingsTotal(ctx context.Context) (int64, error)
 	CountMilestonesBySession(ctx context.Context, sessionID string) (int64, error)
 	CreateFile(ctx context.Context, arg CreateFileParams) (File, error)
 	CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error)
@@ -18,6 +21,10 @@ type Querier interface {
 	CreateSnapshot(ctx context.Context, arg CreateSnapshotParams) error
 	CreateWorktree(ctx context.Context, arg CreateWorktreeParams) error
 	DeactivateSessionWorktrees(ctx context.Context, sessionID string) error
+	DeleteAllEmbeddings(ctx context.Context) error
+	DeleteEmbeddingsBySession(ctx context.Context, sessionID sql.NullString) error
+	DeleteEmbeddingsBySource(ctx context.Context, arg DeleteEmbeddingsBySourceParams) error
+	DeleteEmbeddingsExceptSignature(ctx context.Context, signature string) error
 	DeleteFile(ctx context.Context, id string) error
 	DeleteMessage(ctx context.Context, id string) error
 	DeleteMilestonesBySession(ctx context.Context, sessionID string) error
@@ -49,10 +56,14 @@ type Querier interface {
 	GetUsageByModel(ctx context.Context) ([]GetUsageByModelRow, error)
 	GetWorktree(ctx context.Context, id string) (Worktree, error)
 	GetWorktreeByName(ctx context.Context, arg GetWorktreeByNameParams) (Worktree, error)
+	HasEmbedding(ctx context.Context, arg HasEmbeddingParams) (int64, error)
+	ListAllMessages(ctx context.Context) ([]Message, error)
 	ListAllSnapshots(ctx context.Context) ([]Snapshot, error)
 	ListAllUserMessages(ctx context.Context) ([]Message, error)
 	ListAllWorktrees(ctx context.Context) ([]Worktree, error)
 	ListArchivedSessions(ctx context.Context) ([]Session, error)
+	ListEmbeddingsBySignature(ctx context.Context, signature string) ([]Embedding, error)
+	ListEmbeddingsBySignatureAndSession(ctx context.Context, arg ListEmbeddingsBySignatureAndSessionParams) ([]Embedding, error)
 	ListFilesByPath(ctx context.Context, path string) ([]File, error)
 	ListFilesBySession(ctx context.Context, sessionID string) ([]File, error)
 	ListLatestSessionFiles(ctx context.Context, sessionID string) ([]File, error)
@@ -62,6 +73,7 @@ type Querier interface {
 	ListSessionReadFiles(ctx context.Context, sessionID string) ([]ReadFile, error)
 	ListSessions(ctx context.Context) ([]Session, error)
 	ListSnapshots(ctx context.Context, sessionID string) ([]Snapshot, error)
+	ListSourceIDsForSignature(ctx context.Context, arg ListSourceIDsForSignatureParams) ([]string, error)
 	ListUserMessagesBySession(ctx context.Context, sessionID string) ([]Message, error)
 	ListWorktrees(ctx context.Context, sessionID string) ([]Worktree, error)
 	RecordFileRead(ctx context.Context, arg RecordFileReadParams) error
@@ -73,6 +85,7 @@ type Querier interface {
 	UpdateSessionForkedFrom(ctx context.Context, arg UpdateSessionForkedFromParams) error
 	UpdateSessionTitleAndUsage(ctx context.Context, arg UpdateSessionTitleAndUsageParams) error
 	UpdateSessionWorktree(ctx context.Context, arg UpdateSessionWorktreeParams) error
+	UpsertEmbedding(ctx context.Context, arg UpsertEmbeddingParams) error
 }
 
 var _ Querier = (*Queries)(nil)

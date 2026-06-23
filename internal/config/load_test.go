@@ -689,7 +689,7 @@ func TestConfig_setupAgentsWithNoDisabledTools(t *testing.T) {
 
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
-	assert.Equal(t, []string{"glob", "grep", "ls", "multi_view", "sourcegraph", "context7", "search_history", "view", "editor_context", "show_locations"}, taskAgent.AllowedTools)
+	assert.Equal(t, []string{"glob", "grep", "ls", "multi_view", "sourcegraph", "context7", "search_history", "list_sessions", "view", "editor_context", "show_locations"}, taskAgent.AllowedTools)
 }
 
 func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {
@@ -707,11 +707,11 @@ func TestConfig_setupAgentsWithDisabledTools(t *testing.T) {
 	coderAgent, ok := cfg.Agents[AgentCoder]
 	require.True(t, ok)
 
-	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "reload_config", "job_output", "job_kill", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_definition", "lsp_document_symbols", "lsp_rename", "lsp_restart", "fetch", "agentic_fetch", "glob", "ls", "multi_view", "sourcegraph", "context7", "search_history", "todos", "view", "write", "list_mcp_resources", "read_mcp_resource", "editor_context", "show_locations"}, coderAgent.AllowedTools)
+	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "reload_config", "job_output", "job_kill", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_definition", "lsp_document_symbols", "lsp_rename", "lsp_restart", "fetch", "agentic_fetch", "glob", "ls", "multi_view", "sourcegraph", "context7", "search_history", "list_sessions", "todos", "view", "write", "list_mcp_resources", "read_mcp_resource", "editor_context", "show_locations"}, coderAgent.AllowedTools)
 
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
-	assert.Equal(t, []string{"glob", "ls", "multi_view", "sourcegraph", "context7", "search_history", "view", "editor_context", "show_locations"}, taskAgent.AllowedTools)
+	assert.Equal(t, []string{"glob", "ls", "multi_view", "sourcegraph", "context7", "search_history", "list_sessions", "view", "editor_context", "show_locations"}, taskAgent.AllowedTools)
 }
 
 func TestConfig_setupAgentsWithEveryReadOnlyToolDisabled(t *testing.T) {
@@ -735,11 +735,11 @@ func TestConfig_setupAgentsWithEveryReadOnlyToolDisabled(t *testing.T) {
 	cfg.SetupAgents()
 	coderAgent, ok := cfg.Agents[AgentCoder]
 	require.True(t, ok)
-	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "reload_config", "job_output", "job_kill", "download", "edit", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_definition", "lsp_document_symbols", "lsp_rename", "lsp_restart", "fetch", "agentic_fetch", "todos", "write", "list_mcp_resources", "read_mcp_resource"}, coderAgent.AllowedTools)
+	assert.Equal(t, []string{"agent", "bash", "crush_info", "crush_logs", "reload_config", "job_output", "job_kill", "download", "edit", "multiedit", "lsp_diagnostics", "lsp_references", "lsp_definition", "lsp_document_symbols", "lsp_rename", "lsp_restart", "fetch", "agentic_fetch", "list_sessions", "todos", "write", "list_mcp_resources", "read_mcp_resource"}, coderAgent.AllowedTools)
 
 	taskAgent, ok := cfg.Agents[AgentTask]
 	require.True(t, ok)
-	assert.Len(t, taskAgent.AllowedTools, 0)
+	assert.Equal(t, []string{"list_sessions"}, taskAgent.AllowedTools)
 }
 
 func TestConfig_configureProvidersWithDisabledProvider(t *testing.T) {

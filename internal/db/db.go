@@ -27,6 +27,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.archiveSessionStmt, err = db.PrepareContext(ctx, archiveSession); err != nil {
 		return nil, fmt.Errorf("error preparing query ArchiveSession: %w", err)
 	}
+	if q.countEmbeddingsBySignatureStmt, err = db.PrepareContext(ctx, countEmbeddingsBySignature); err != nil {
+		return nil, fmt.Errorf("error preparing query CountEmbeddingsBySignature: %w", err)
+	}
+	if q.countEmbeddingsTotalStmt, err = db.PrepareContext(ctx, countEmbeddingsTotal); err != nil {
+		return nil, fmt.Errorf("error preparing query CountEmbeddingsTotal: %w", err)
+	}
 	if q.countMilestonesBySessionStmt, err = db.PrepareContext(ctx, countMilestonesBySession); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMilestonesBySession: %w", err)
 	}
@@ -50,6 +56,18 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deactivateSessionWorktreesStmt, err = db.PrepareContext(ctx, deactivateSessionWorktrees); err != nil {
 		return nil, fmt.Errorf("error preparing query DeactivateSessionWorktrees: %w", err)
+	}
+	if q.deleteAllEmbeddingsStmt, err = db.PrepareContext(ctx, deleteAllEmbeddings); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAllEmbeddings: %w", err)
+	}
+	if q.deleteEmbeddingsBySessionStmt, err = db.PrepareContext(ctx, deleteEmbeddingsBySession); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteEmbeddingsBySession: %w", err)
+	}
+	if q.deleteEmbeddingsBySourceStmt, err = db.PrepareContext(ctx, deleteEmbeddingsBySource); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteEmbeddingsBySource: %w", err)
+	}
+	if q.deleteEmbeddingsExceptSignatureStmt, err = db.PrepareContext(ctx, deleteEmbeddingsExceptSignature); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteEmbeddingsExceptSignature: %w", err)
 	}
 	if q.deleteFileStmt, err = db.PrepareContext(ctx, deleteFile); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteFile: %w", err)
@@ -144,6 +162,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getWorktreeByNameStmt, err = db.PrepareContext(ctx, getWorktreeByName); err != nil {
 		return nil, fmt.Errorf("error preparing query GetWorktreeByName: %w", err)
 	}
+	if q.hasEmbeddingStmt, err = db.PrepareContext(ctx, hasEmbedding); err != nil {
+		return nil, fmt.Errorf("error preparing query HasEmbedding: %w", err)
+	}
+	if q.listAllMessagesStmt, err = db.PrepareContext(ctx, listAllMessages); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAllMessages: %w", err)
+	}
 	if q.listAllSnapshotsStmt, err = db.PrepareContext(ctx, listAllSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListAllSnapshots: %w", err)
 	}
@@ -155,6 +179,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listArchivedSessionsStmt, err = db.PrepareContext(ctx, listArchivedSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query ListArchivedSessions: %w", err)
+	}
+	if q.listEmbeddingsBySignatureStmt, err = db.PrepareContext(ctx, listEmbeddingsBySignature); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEmbeddingsBySignature: %w", err)
+	}
+	if q.listEmbeddingsBySignatureAndSessionStmt, err = db.PrepareContext(ctx, listEmbeddingsBySignatureAndSession); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEmbeddingsBySignatureAndSession: %w", err)
 	}
 	if q.listFilesByPathStmt, err = db.PrepareContext(ctx, listFilesByPath); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFilesByPath: %w", err)
@@ -182,6 +212,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listSnapshotsStmt, err = db.PrepareContext(ctx, listSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSnapshots: %w", err)
+	}
+	if q.listSourceIDsForSignatureStmt, err = db.PrepareContext(ctx, listSourceIDsForSignature); err != nil {
+		return nil, fmt.Errorf("error preparing query ListSourceIDsForSignature: %w", err)
 	}
 	if q.listUserMessagesBySessionStmt, err = db.PrepareContext(ctx, listUserMessagesBySession); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUserMessagesBySession: %w", err)
@@ -216,6 +249,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateSessionWorktreeStmt, err = db.PrepareContext(ctx, updateSessionWorktree); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateSessionWorktree: %w", err)
 	}
+	if q.upsertEmbeddingStmt, err = db.PrepareContext(ctx, upsertEmbedding); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertEmbedding: %w", err)
+	}
 	return &q, nil
 }
 
@@ -224,6 +260,16 @@ func (q *Queries) Close() error {
 	if q.archiveSessionStmt != nil {
 		if cerr := q.archiveSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing archiveSessionStmt: %w", cerr)
+		}
+	}
+	if q.countEmbeddingsBySignatureStmt != nil {
+		if cerr := q.countEmbeddingsBySignatureStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countEmbeddingsBySignatureStmt: %w", cerr)
+		}
+	}
+	if q.countEmbeddingsTotalStmt != nil {
+		if cerr := q.countEmbeddingsTotalStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countEmbeddingsTotalStmt: %w", cerr)
 		}
 	}
 	if q.countMilestonesBySessionStmt != nil {
@@ -264,6 +310,26 @@ func (q *Queries) Close() error {
 	if q.deactivateSessionWorktreesStmt != nil {
 		if cerr := q.deactivateSessionWorktreesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deactivateSessionWorktreesStmt: %w", cerr)
+		}
+	}
+	if q.deleteAllEmbeddingsStmt != nil {
+		if cerr := q.deleteAllEmbeddingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAllEmbeddingsStmt: %w", cerr)
+		}
+	}
+	if q.deleteEmbeddingsBySessionStmt != nil {
+		if cerr := q.deleteEmbeddingsBySessionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteEmbeddingsBySessionStmt: %w", cerr)
+		}
+	}
+	if q.deleteEmbeddingsBySourceStmt != nil {
+		if cerr := q.deleteEmbeddingsBySourceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteEmbeddingsBySourceStmt: %w", cerr)
+		}
+	}
+	if q.deleteEmbeddingsExceptSignatureStmt != nil {
+		if cerr := q.deleteEmbeddingsExceptSignatureStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteEmbeddingsExceptSignatureStmt: %w", cerr)
 		}
 	}
 	if q.deleteFileStmt != nil {
@@ -421,6 +487,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getWorktreeByNameStmt: %w", cerr)
 		}
 	}
+	if q.hasEmbeddingStmt != nil {
+		if cerr := q.hasEmbeddingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasEmbeddingStmt: %w", cerr)
+		}
+	}
+	if q.listAllMessagesStmt != nil {
+		if cerr := q.listAllMessagesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAllMessagesStmt: %w", cerr)
+		}
+	}
 	if q.listAllSnapshotsStmt != nil {
 		if cerr := q.listAllSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listAllSnapshotsStmt: %w", cerr)
@@ -439,6 +515,16 @@ func (q *Queries) Close() error {
 	if q.listArchivedSessionsStmt != nil {
 		if cerr := q.listArchivedSessionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listArchivedSessionsStmt: %w", cerr)
+		}
+	}
+	if q.listEmbeddingsBySignatureStmt != nil {
+		if cerr := q.listEmbeddingsBySignatureStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEmbeddingsBySignatureStmt: %w", cerr)
+		}
+	}
+	if q.listEmbeddingsBySignatureAndSessionStmt != nil {
+		if cerr := q.listEmbeddingsBySignatureAndSessionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEmbeddingsBySignatureAndSessionStmt: %w", cerr)
 		}
 	}
 	if q.listFilesByPathStmt != nil {
@@ -484,6 +570,11 @@ func (q *Queries) Close() error {
 	if q.listSnapshotsStmt != nil {
 		if cerr := q.listSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listSnapshotsStmt: %w", cerr)
+		}
+	}
+	if q.listSourceIDsForSignatureStmt != nil {
+		if cerr := q.listSourceIDsForSignatureStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listSourceIDsForSignatureStmt: %w", cerr)
 		}
 	}
 	if q.listUserMessagesBySessionStmt != nil {
@@ -541,6 +632,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateSessionWorktreeStmt: %w", cerr)
 		}
 	}
+	if q.upsertEmbeddingStmt != nil {
+		if cerr := q.upsertEmbeddingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertEmbeddingStmt: %w", cerr)
+		}
+	}
 	return err
 }
 
@@ -578,141 +674,165 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 }
 
 type Queries struct {
-	db                             DBTX
-	tx                             *sql.Tx
-	archiveSessionStmt             *sql.Stmt
-	countMilestonesBySessionStmt   *sql.Stmt
-	createFileStmt                 *sql.Stmt
-	createMessageStmt              *sql.Stmt
-	createMilestoneStmt            *sql.Stmt
-	createSessionStmt              *sql.Stmt
-	createSnapshotStmt             *sql.Stmt
-	createWorktreeStmt             *sql.Stmt
-	deactivateSessionWorktreesStmt *sql.Stmt
-	deleteFileStmt                 *sql.Stmt
-	deleteMessageStmt              *sql.Stmt
-	deleteMilestonesBySessionStmt  *sql.Stmt
-	deleteSessionStmt              *sql.Stmt
-	deleteSessionFilesStmt         *sql.Stmt
-	deleteSessionMessagesStmt      *sql.Stmt
-	deleteSessionSnapshotsStmt     *sql.Stmt
-	deleteSessionWorktreesStmt     *sql.Stmt
-	deleteSnapshotStmt             *sql.Stmt
-	deleteWorktreeStmt             *sql.Stmt
-	getActiveWorktreeStmt          *sql.Stmt
-	getAverageResponseTimeStmt     *sql.Stmt
-	getFileStmt                    *sql.Stmt
-	getFileByPathAndSessionStmt    *sql.Stmt
-	getFileReadStmt                *sql.Stmt
-	getHourDayHeatmapStmt          *sql.Stmt
-	getLastSessionStmt             *sql.Stmt
-	getLatestMilestoneStmt         *sql.Stmt
-	getMessageStmt                 *sql.Stmt
-	getRecentActivityStmt          *sql.Stmt
-	getSessionByIDStmt             *sql.Stmt
-	getSnapshotStmt                *sql.Stmt
-	getSnapshotByMessageStmt       *sql.Stmt
-	getToolUsageStmt               *sql.Stmt
-	getTotalStatsStmt              *sql.Stmt
-	getUsageByDayStmt              *sql.Stmt
-	getUsageByDayOfWeekStmt        *sql.Stmt
-	getUsageByHourStmt             *sql.Stmt
-	getUsageByModelStmt            *sql.Stmt
-	getWorktreeStmt                *sql.Stmt
-	getWorktreeByNameStmt          *sql.Stmt
-	listAllSnapshotsStmt           *sql.Stmt
-	listAllUserMessagesStmt        *sql.Stmt
-	listAllWorktreesStmt           *sql.Stmt
-	listArchivedSessionsStmt       *sql.Stmt
-	listFilesByPathStmt            *sql.Stmt
-	listFilesBySessionStmt         *sql.Stmt
-	listLatestSessionFilesStmt     *sql.Stmt
-	listMessagesBySessionStmt      *sql.Stmt
-	listMilestonesBySessionStmt    *sql.Stmt
-	listNewFilesStmt               *sql.Stmt
-	listSessionReadFilesStmt       *sql.Stmt
-	listSessionsStmt               *sql.Stmt
-	listSnapshotsStmt              *sql.Stmt
-	listUserMessagesBySessionStmt  *sql.Stmt
-	listWorktreesStmt              *sql.Stmt
-	recordFileReadStmt             *sql.Stmt
-	renameSessionStmt              *sql.Stmt
-	setWorktreeActiveStmt          *sql.Stmt
-	unarchiveSessionStmt           *sql.Stmt
-	updateMessageStmt              *sql.Stmt
-	updateSessionStmt              *sql.Stmt
-	updateSessionForkedFromStmt    *sql.Stmt
-	updateSessionTitleAndUsageStmt *sql.Stmt
-	updateSessionWorktreeStmt      *sql.Stmt
+	db                                      DBTX
+	tx                                      *sql.Tx
+	archiveSessionStmt                      *sql.Stmt
+	countEmbeddingsBySignatureStmt          *sql.Stmt
+	countEmbeddingsTotalStmt                *sql.Stmt
+	countMilestonesBySessionStmt            *sql.Stmt
+	createFileStmt                          *sql.Stmt
+	createMessageStmt                       *sql.Stmt
+	createMilestoneStmt                     *sql.Stmt
+	createSessionStmt                       *sql.Stmt
+	createSnapshotStmt                      *sql.Stmt
+	createWorktreeStmt                      *sql.Stmt
+	deactivateSessionWorktreesStmt          *sql.Stmt
+	deleteAllEmbeddingsStmt                 *sql.Stmt
+	deleteEmbeddingsBySessionStmt           *sql.Stmt
+	deleteEmbeddingsBySourceStmt            *sql.Stmt
+	deleteEmbeddingsExceptSignatureStmt     *sql.Stmt
+	deleteFileStmt                          *sql.Stmt
+	deleteMessageStmt                       *sql.Stmt
+	deleteMilestonesBySessionStmt           *sql.Stmt
+	deleteSessionStmt                       *sql.Stmt
+	deleteSessionFilesStmt                  *sql.Stmt
+	deleteSessionMessagesStmt               *sql.Stmt
+	deleteSessionSnapshotsStmt              *sql.Stmt
+	deleteSessionWorktreesStmt              *sql.Stmt
+	deleteSnapshotStmt                      *sql.Stmt
+	deleteWorktreeStmt                      *sql.Stmt
+	getActiveWorktreeStmt                   *sql.Stmt
+	getAverageResponseTimeStmt              *sql.Stmt
+	getFileStmt                             *sql.Stmt
+	getFileByPathAndSessionStmt             *sql.Stmt
+	getFileReadStmt                         *sql.Stmt
+	getHourDayHeatmapStmt                   *sql.Stmt
+	getLastSessionStmt                      *sql.Stmt
+	getLatestMilestoneStmt                  *sql.Stmt
+	getMessageStmt                          *sql.Stmt
+	getRecentActivityStmt                   *sql.Stmt
+	getSessionByIDStmt                      *sql.Stmt
+	getSnapshotStmt                         *sql.Stmt
+	getSnapshotByMessageStmt                *sql.Stmt
+	getToolUsageStmt                        *sql.Stmt
+	getTotalStatsStmt                       *sql.Stmt
+	getUsageByDayStmt                       *sql.Stmt
+	getUsageByDayOfWeekStmt                 *sql.Stmt
+	getUsageByHourStmt                      *sql.Stmt
+	getUsageByModelStmt                     *sql.Stmt
+	getWorktreeStmt                         *sql.Stmt
+	getWorktreeByNameStmt                   *sql.Stmt
+	hasEmbeddingStmt                        *sql.Stmt
+	listAllMessagesStmt                     *sql.Stmt
+	listAllSnapshotsStmt                    *sql.Stmt
+	listAllUserMessagesStmt                 *sql.Stmt
+	listAllWorktreesStmt                    *sql.Stmt
+	listArchivedSessionsStmt                *sql.Stmt
+	listEmbeddingsBySignatureStmt           *sql.Stmt
+	listEmbeddingsBySignatureAndSessionStmt *sql.Stmt
+	listFilesByPathStmt                     *sql.Stmt
+	listFilesBySessionStmt                  *sql.Stmt
+	listLatestSessionFilesStmt              *sql.Stmt
+	listMessagesBySessionStmt               *sql.Stmt
+	listMilestonesBySessionStmt             *sql.Stmt
+	listNewFilesStmt                        *sql.Stmt
+	listSessionReadFilesStmt                *sql.Stmt
+	listSessionsStmt                        *sql.Stmt
+	listSnapshotsStmt                       *sql.Stmt
+	listSourceIDsForSignatureStmt           *sql.Stmt
+	listUserMessagesBySessionStmt           *sql.Stmt
+	listWorktreesStmt                       *sql.Stmt
+	recordFileReadStmt                      *sql.Stmt
+	renameSessionStmt                       *sql.Stmt
+	setWorktreeActiveStmt                   *sql.Stmt
+	unarchiveSessionStmt                    *sql.Stmt
+	updateMessageStmt                       *sql.Stmt
+	updateSessionStmt                       *sql.Stmt
+	updateSessionForkedFromStmt             *sql.Stmt
+	updateSessionTitleAndUsageStmt          *sql.Stmt
+	updateSessionWorktreeStmt               *sql.Stmt
+	upsertEmbeddingStmt                     *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:                             tx,
-		tx:                             tx,
-		archiveSessionStmt:             q.archiveSessionStmt,
-		countMilestonesBySessionStmt:   q.countMilestonesBySessionStmt,
-		createFileStmt:                 q.createFileStmt,
-		createMessageStmt:              q.createMessageStmt,
-		createMilestoneStmt:            q.createMilestoneStmt,
-		createSessionStmt:              q.createSessionStmt,
-		createSnapshotStmt:             q.createSnapshotStmt,
-		createWorktreeStmt:             q.createWorktreeStmt,
-		deactivateSessionWorktreesStmt: q.deactivateSessionWorktreesStmt,
-		deleteFileStmt:                 q.deleteFileStmt,
-		deleteMessageStmt:              q.deleteMessageStmt,
-		deleteMilestonesBySessionStmt:  q.deleteMilestonesBySessionStmt,
-		deleteSessionStmt:              q.deleteSessionStmt,
-		deleteSessionFilesStmt:         q.deleteSessionFilesStmt,
-		deleteSessionMessagesStmt:      q.deleteSessionMessagesStmt,
-		deleteSessionSnapshotsStmt:     q.deleteSessionSnapshotsStmt,
-		deleteSessionWorktreesStmt:     q.deleteSessionWorktreesStmt,
-		deleteSnapshotStmt:             q.deleteSnapshotStmt,
-		deleteWorktreeStmt:             q.deleteWorktreeStmt,
-		getActiveWorktreeStmt:          q.getActiveWorktreeStmt,
-		getAverageResponseTimeStmt:     q.getAverageResponseTimeStmt,
-		getFileStmt:                    q.getFileStmt,
-		getFileByPathAndSessionStmt:    q.getFileByPathAndSessionStmt,
-		getFileReadStmt:                q.getFileReadStmt,
-		getHourDayHeatmapStmt:          q.getHourDayHeatmapStmt,
-		getLastSessionStmt:             q.getLastSessionStmt,
-		getLatestMilestoneStmt:         q.getLatestMilestoneStmt,
-		getMessageStmt:                 q.getMessageStmt,
-		getRecentActivityStmt:          q.getRecentActivityStmt,
-		getSessionByIDStmt:             q.getSessionByIDStmt,
-		getSnapshotStmt:                q.getSnapshotStmt,
-		getSnapshotByMessageStmt:       q.getSnapshotByMessageStmt,
-		getToolUsageStmt:               q.getToolUsageStmt,
-		getTotalStatsStmt:              q.getTotalStatsStmt,
-		getUsageByDayStmt:              q.getUsageByDayStmt,
-		getUsageByDayOfWeekStmt:        q.getUsageByDayOfWeekStmt,
-		getUsageByHourStmt:             q.getUsageByHourStmt,
-		getUsageByModelStmt:            q.getUsageByModelStmt,
-		getWorktreeStmt:                q.getWorktreeStmt,
-		getWorktreeByNameStmt:          q.getWorktreeByNameStmt,
-		listAllSnapshotsStmt:           q.listAllSnapshotsStmt,
-		listAllUserMessagesStmt:        q.listAllUserMessagesStmt,
-		listAllWorktreesStmt:           q.listAllWorktreesStmt,
-		listArchivedSessionsStmt:       q.listArchivedSessionsStmt,
-		listFilesByPathStmt:            q.listFilesByPathStmt,
-		listFilesBySessionStmt:         q.listFilesBySessionStmt,
-		listLatestSessionFilesStmt:     q.listLatestSessionFilesStmt,
-		listMessagesBySessionStmt:      q.listMessagesBySessionStmt,
-		listMilestonesBySessionStmt:    q.listMilestonesBySessionStmt,
-		listNewFilesStmt:               q.listNewFilesStmt,
-		listSessionReadFilesStmt:       q.listSessionReadFilesStmt,
-		listSessionsStmt:               q.listSessionsStmt,
-		listSnapshotsStmt:              q.listSnapshotsStmt,
-		listUserMessagesBySessionStmt:  q.listUserMessagesBySessionStmt,
-		listWorktreesStmt:              q.listWorktreesStmt,
-		recordFileReadStmt:             q.recordFileReadStmt,
-		renameSessionStmt:              q.renameSessionStmt,
-		setWorktreeActiveStmt:          q.setWorktreeActiveStmt,
-		unarchiveSessionStmt:           q.unarchiveSessionStmt,
-		updateMessageStmt:              q.updateMessageStmt,
-		updateSessionStmt:              q.updateSessionStmt,
-		updateSessionForkedFromStmt:    q.updateSessionForkedFromStmt,
-		updateSessionTitleAndUsageStmt: q.updateSessionTitleAndUsageStmt,
-		updateSessionWorktreeStmt:      q.updateSessionWorktreeStmt,
+		db:                                      tx,
+		tx:                                      tx,
+		archiveSessionStmt:                      q.archiveSessionStmt,
+		countEmbeddingsBySignatureStmt:          q.countEmbeddingsBySignatureStmt,
+		countEmbeddingsTotalStmt:                q.countEmbeddingsTotalStmt,
+		countMilestonesBySessionStmt:            q.countMilestonesBySessionStmt,
+		createFileStmt:                          q.createFileStmt,
+		createMessageStmt:                       q.createMessageStmt,
+		createMilestoneStmt:                     q.createMilestoneStmt,
+		createSessionStmt:                       q.createSessionStmt,
+		createSnapshotStmt:                      q.createSnapshotStmt,
+		createWorktreeStmt:                      q.createWorktreeStmt,
+		deactivateSessionWorktreesStmt:          q.deactivateSessionWorktreesStmt,
+		deleteAllEmbeddingsStmt:                 q.deleteAllEmbeddingsStmt,
+		deleteEmbeddingsBySessionStmt:           q.deleteEmbeddingsBySessionStmt,
+		deleteEmbeddingsBySourceStmt:            q.deleteEmbeddingsBySourceStmt,
+		deleteEmbeddingsExceptSignatureStmt:     q.deleteEmbeddingsExceptSignatureStmt,
+		deleteFileStmt:                          q.deleteFileStmt,
+		deleteMessageStmt:                       q.deleteMessageStmt,
+		deleteMilestonesBySessionStmt:           q.deleteMilestonesBySessionStmt,
+		deleteSessionStmt:                       q.deleteSessionStmt,
+		deleteSessionFilesStmt:                  q.deleteSessionFilesStmt,
+		deleteSessionMessagesStmt:               q.deleteSessionMessagesStmt,
+		deleteSessionSnapshotsStmt:              q.deleteSessionSnapshotsStmt,
+		deleteSessionWorktreesStmt:              q.deleteSessionWorktreesStmt,
+		deleteSnapshotStmt:                      q.deleteSnapshotStmt,
+		deleteWorktreeStmt:                      q.deleteWorktreeStmt,
+		getActiveWorktreeStmt:                   q.getActiveWorktreeStmt,
+		getAverageResponseTimeStmt:              q.getAverageResponseTimeStmt,
+		getFileStmt:                             q.getFileStmt,
+		getFileByPathAndSessionStmt:             q.getFileByPathAndSessionStmt,
+		getFileReadStmt:                         q.getFileReadStmt,
+		getHourDayHeatmapStmt:                   q.getHourDayHeatmapStmt,
+		getLastSessionStmt:                      q.getLastSessionStmt,
+		getLatestMilestoneStmt:                  q.getLatestMilestoneStmt,
+		getMessageStmt:                          q.getMessageStmt,
+		getRecentActivityStmt:                   q.getRecentActivityStmt,
+		getSessionByIDStmt:                      q.getSessionByIDStmt,
+		getSnapshotStmt:                         q.getSnapshotStmt,
+		getSnapshotByMessageStmt:                q.getSnapshotByMessageStmt,
+		getToolUsageStmt:                        q.getToolUsageStmt,
+		getTotalStatsStmt:                       q.getTotalStatsStmt,
+		getUsageByDayStmt:                       q.getUsageByDayStmt,
+		getUsageByDayOfWeekStmt:                 q.getUsageByDayOfWeekStmt,
+		getUsageByHourStmt:                      q.getUsageByHourStmt,
+		getUsageByModelStmt:                     q.getUsageByModelStmt,
+		getWorktreeStmt:                         q.getWorktreeStmt,
+		getWorktreeByNameStmt:                   q.getWorktreeByNameStmt,
+		hasEmbeddingStmt:                        q.hasEmbeddingStmt,
+		listAllMessagesStmt:                     q.listAllMessagesStmt,
+		listAllSnapshotsStmt:                    q.listAllSnapshotsStmt,
+		listAllUserMessagesStmt:                 q.listAllUserMessagesStmt,
+		listAllWorktreesStmt:                    q.listAllWorktreesStmt,
+		listArchivedSessionsStmt:                q.listArchivedSessionsStmt,
+		listEmbeddingsBySignatureStmt:           q.listEmbeddingsBySignatureStmt,
+		listEmbeddingsBySignatureAndSessionStmt: q.listEmbeddingsBySignatureAndSessionStmt,
+		listFilesByPathStmt:                     q.listFilesByPathStmt,
+		listFilesBySessionStmt:                  q.listFilesBySessionStmt,
+		listLatestSessionFilesStmt:              q.listLatestSessionFilesStmt,
+		listMessagesBySessionStmt:               q.listMessagesBySessionStmt,
+		listMilestonesBySessionStmt:             q.listMilestonesBySessionStmt,
+		listNewFilesStmt:                        q.listNewFilesStmt,
+		listSessionReadFilesStmt:                q.listSessionReadFilesStmt,
+		listSessionsStmt:                        q.listSessionsStmt,
+		listSnapshotsStmt:                       q.listSnapshotsStmt,
+		listSourceIDsForSignatureStmt:           q.listSourceIDsForSignatureStmt,
+		listUserMessagesBySessionStmt:           q.listUserMessagesBySessionStmt,
+		listWorktreesStmt:                       q.listWorktreesStmt,
+		recordFileReadStmt:                      q.recordFileReadStmt,
+		renameSessionStmt:                       q.renameSessionStmt,
+		setWorktreeActiveStmt:                   q.setWorktreeActiveStmt,
+		unarchiveSessionStmt:                    q.unarchiveSessionStmt,
+		updateMessageStmt:                       q.updateMessageStmt,
+		updateSessionStmt:                       q.updateSessionStmt,
+		updateSessionForkedFromStmt:             q.updateSessionForkedFromStmt,
+		updateSessionTitleAndUsageStmt:          q.updateSessionTitleAndUsageStmt,
+		updateSessionWorktreeStmt:               q.updateSessionWorktreeStmt,
+		upsertEmbeddingStmt:                     q.upsertEmbeddingStmt,
 	}
 }

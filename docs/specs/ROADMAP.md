@@ -432,6 +432,72 @@ immediately so navigation starts clean.
 
 ---
 
+## 16. Embeddings & vector search — `IN PROGRESS`
+
+**Goal.** Let a user pick **one** embedding model (BYOK), set once in
+global config, and use it across all projects for in-process vector
+search over `crush.db`. Switching embedders must safely invalidate all
+prior vectors (never silently mix embedding spaces), and the design must
+compose with cloud sync (`docs/sync-spec.md`).
+
+**Done.**
+- `fantasy` fork: `EmbeddingProvider`/`EmbeddingModel` capability
+  interface (optional, additive); OpenAI embedder (native SDK, inherited
+  by openaicompat/azure); Bedrock embedder via `bedrockruntime`
+  (Titan + Cohere), reusing the AWS deps already pulled in transitively
+  and the existing bearer/credential resolution. Unit-tested.
+- `catwalk` fork: `Provider.EmbeddingModels` + `DefaultEmbeddingModelID`,
+  `Model.Dimensions`, `Model.IsEmbedding()`; populated bedrock/openai
+  catalogs; default-embedding validation test.
+- crush: `config.EmbeddingConfig` (global-only field + `Signature()` +
+  `hybrid_search` toggle + workspace-scope guard in `load.go`);
+  `embeddings` table migration + sqlc; `internal/embedding` package
+  (float32 BLOB store, cosine, RRF fusion with a semantic floor, service
+  with lazy embedder build + reconcile); `internal/historysearch` (shared
+  message→document bridge + background indexer subscriber); `search_history`
+  tool now hybrid; `crush search` CLI (table + `--json` + `--no-vector`);
+  `crush embeddings list/set/status` CLI; schema regenerated. All
+  unit-tested; full suite green.
+
+**Deferred (own follow-up).**
+- **TUI search palette + jump-to.** Needs `SearchHistory` threaded through
+  the `workspace.Workspace` interface and the client/server RPC proto
+  (ServerWorkspace direct + ClientWorkspace + backend + client/server
+  `proto.go` + serializable hit type), plus a new interactive dialog and
+  `ActionJumpToMessage` (loadSession + scroll-to-message by id→index,
+  reusing the milestones `ActionScrollToTurn` mechanism). Scoped but not
+  built here to avoid shipping unvalidated RPC code.
+- **Fork publishing.** The crush build currently depends on local
+  `replace` directives for the fantasy/catwalk forks (embedding support
+  is unpublished). Per `procedures/upstream-merge-and-resolution`:
+  commit+tag+push both forks, `go get @<tag>`, then drop the replaces.
+
+**Approach.** Full design in
+`docs/specs/EMBEDDINGS_AND_VECTOR_SEARCH.md`. Key decisions: global-only
+`embedding` config block (rejected at workspace scope, unlike themes);
+an embedding-space **signature** stamped on every vector; lazy
+per-database invalidation on signature change; brute-force cosine in Go
+(no extension, no ANN until ~10^5 vectors); **hybrid search** — the
+existing `search_history` tool fuses substring + vector via RRF behind a
+`hybrid_search` toggle (default on) and degrades transparently to
+substring-only when vectors are unavailable, rather than adding a
+separate semantic tool; embedder is a **tenant-global**
+choice in cloud mode with keys staying client-side; vectors start as a
+**local cache** (not synced) and only become a syncable table in a later
+phase, guarded by a tenant-canonical signature.
+
+**Files.** `internal/embedding/`, `internal/db/{sql,migrations}/`,
+`internal/config/{config,load}.go`, `internal/cmd/embeddings.go`,
+`internal/cmd/search.go` (`crush search`),
+`internal/agent/tools/search_history.go` (hybrid fusion),
+`internal/ui/dialog/{search,embedding,commands,actions}.go` (search
+palette + jump-to + embedder picker), `schema.json`,
+`internal/skills/builtin/crush-config/SKILL.md`. (Phase B sync:
+`internal/sync/`, `_changelog` triggers, DO merge in the `crush-sync`
+repo.)
+
+---
+
 ## Implementation Phases
 
 **Phase 1 — Quick, high-leverage fixes (prompt + small bugs)**
@@ -452,6 +518,7 @@ immediately so navigation starts clean.
 - #9 procedures completion
 - #3 WebSocket transport → `WEBSOCKET_TRANSPORT.md`
 - #8 buddy companion → `BUDDY.md`
+- #16 embeddings & vector search → `EMBEDDINGS_AND_VECTOR_SEARCH.md`
 
 **Phase 4 — Decisions**
 - #10 bundling personal skills (revisit after Phase 3)

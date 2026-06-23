@@ -658,6 +658,8 @@ type Config struct {
 
 	Worktree *WorktreeConfig `json:"worktree,omitempty" jsonschema:"description=Git worktree configuration"`
 
+	Embedding *EmbeddingConfig `json:"embedding,omitempty" jsonschema:"description=Global text-embedding model for vector/hybrid history search. Must be set globally (~/.config/crush); workspace overrides are ignored."`
+
 	Agents map[string]Agent `json:"-"`
 }
 
@@ -761,6 +763,7 @@ func allToolNames() []string {
 		"sourcegraph",
 		"context7",
 		"search_history",
+		"list_sessions",
 		"todos",
 		"view",
 		"write",
@@ -780,7 +783,7 @@ func resolveAllowedTools(allTools []string, disabledTools []string) []string {
 }
 
 func resolveReadOnlyTools(tools []string) []string {
-	readOnlyTools := []string{"context7", "editor_context", "glob", "grep", "ls", "multi_view", "search_history", "show_locations", "sourcegraph", "view"}
+	readOnlyTools := []string{"context7", "editor_context", "glob", "grep", "list_sessions", "ls", "multi_view", "search_history", "show_locations", "sourcegraph", "view"}
 	// filter to only include tools that are in allowedtools (include mode)
 	return filterSlice(tools, readOnlyTools, true)
 }

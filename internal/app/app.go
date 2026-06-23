@@ -27,10 +27,12 @@ import (
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/db"
+	"github.com/taigrr/crush/internal/embedding"
 	"github.com/taigrr/crush/internal/filetracker"
 	"github.com/taigrr/crush/internal/fork"
 	"github.com/taigrr/crush/internal/format"
 	"github.com/taigrr/crush/internal/history"
+	"github.com/taigrr/crush/internal/historysearch"
 	"github.com/taigrr/crush/internal/log"
 	"github.com/taigrr/crush/internal/lsp"
 	"github.com/taigrr/crush/internal/message"
@@ -65,6 +67,7 @@ type App struct {
 	Worktrees   worktree.Service
 	Forks       fork.Service
 	Milestones  milestone.Service
+	embeddings  embedding.Service
 
 	AgentCoordinator agent.Coordinator
 
@@ -175,6 +178,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		Worktrees:   worktrees,
 		Forks:       forks,
 		Milestones:  milestone.NewService(conn, q),
+		embeddings:  embedding.Build(q, store.EmbeddingParams()),
 		LSPManager:  lsp.NewManager(store),
 		Skills:      skillsMgr,
 
@@ -197,6 +201,10 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	go app.checkForUpdates(ctx)
 
 	go mcp.Initialize(ctx, app.Permissions, store)
+
+	// Embed messages in the background for hybrid history search. No-op
+	// when no embedder is configured.
+	go historysearch.RunIndexer(ctx, app.Messages, app.embeddings)
 
 	// Release the shared database connection on shutdown. The pool
 	// closes the underlying *sql.DB when the last reference is released.
@@ -699,6 +707,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		app.FileTracker,
 		app.Milestones,
 		app.LSPManager,
+		app.embeddings,
 		app.agentNotifications,
 		app.runCompletions,
 		app.Skills,

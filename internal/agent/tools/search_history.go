@@ -5,10 +5,11 @@ import (
 	_ "embed"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/taigrr/fantasy"
 
+	"github.com/taigrr/crush/internal/embedding"
+	"github.com/taigrr/crush/internal/historysearch"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/session"
 )
@@ -16,34 +17,31 @@ import (
 const (
 	SearchHistoryToolName = "search_history"
 	maxHistoryMatches     = 50
-	historySnippetWindow  = 80 // chars on each side of the match
+	// currentSessionSentinel is the session_id value that resolves to
+	// the running session from context.
+	currentSessionSentinel = "current"
 )
 
 //go:embed search_history.md
 var searchHistoryDescription string
 
-// SearchHistoryParams scopes the search. SessionID is optional; when set
-// it broadens the role filter (we list ALL messages in that session) so
-// the agent can recover prior assistant reasoning, not just user input.
+// SearchHistoryParams scopes the search. SessionID and Scope are
+// independent: SessionID optionally limits the search to one session,
+// and Scope optionally widens the role filter from user-only to all
+// messages.
 type SearchHistoryParams struct {
-	Query     string `json:"query" description:"Substring to search for (case-insensitive)"`
-	SessionID string `json:"session_id,omitempty" description:"Optional: limit to one session and include assistant messages too"`
-	Limit     int    `json:"limit,omitempty" description:"Max matches to return (default 20, max 50)"`
+	Query     string              `json:"query" description:"Search query (case-insensitive). Matched as a substring and, when embeddings are enabled, semantically."`
+	SessionID string              `json:"session_id,omitempty" description:"Optional: limit the search to a single session. Pass 'current' for the active session."`
+	Scope     historysearch.Scope `json:"scope,omitempty" description:"Which messages to search: 'user' (default, user/shell messages only) or 'all' (include assistant replies and reasoning)"`
+	Semantic  *bool               `json:"semantic,omitempty" description:"Force semantic (vector) matching on/off for this query. Defaults to the global hybrid_search setting."`
+	Limit     int                 `json:"limit,omitempty" description:"Max matches to return per page (default 20, max 50)"`
+	Offset    int                 `json:"offset,omitempty" description:"Number of matches to skip for pagination (default 0)"`
 }
 
-// SearchHistoryHit is one row in the response. Snippet is the matched
-// region with surrounding context, ready to render.
-type SearchHistoryHit struct {
-	SessionID    string `json:"session_id"`
-	SessionTitle string `json:"session_title"`
-	MessageID    string `json:"message_id"`
-	Role         string `json:"role"`
-	CreatedAt    string `json:"created_at"`
-	Snippet      string `json:"snippet"`
-}
-
-// NewSearchHistoryTool returns the search_history tool.
-func NewSearchHistoryTool(messages message.Service, sessions session.Service) fantasy.AgentTool {
+// NewSearchHistoryTool returns the search_history tool. emb may be an
+// inert service (no embedder configured); in that case search degrades
+// to substring matching.
+func NewSearchHistoryTool(messages message.Service, sessions session.Service, emb embedding.Service) fantasy.AgentTool {
 	return fantasy.NewParallelAgentTool(
 		SearchHistoryToolName,
 		searchHistoryDescription,
@@ -61,123 +59,62 @@ func NewSearchHistoryTool(messages message.Service, sessions session.Service) fa
 				limit = maxHistoryMatches
 			}
 
-			titles, err := sessionTitles(ctx, sessions)
+			// Resolve the magic "current" value to the running session so
+			// the agent can scope to this conversation without a prior
+			// lookup. Empty stays empty (= all sessions).
+			sessionID := params.SessionID
+			if sessionID == currentSessionSentinel {
+				sessionID = GetSessionFromContext(ctx)
+				if sessionID == "" {
+					return fantasy.NewTextErrorResponse("no current session in context; pass an explicit session_id"), nil
+				}
+			}
+
+			res, err := historysearch.Search(ctx, messages, sessions, emb, query, historysearch.Options{
+				SessionID: sessionID,
+				Scope:     params.Scope,
+				Semantic:  params.Semantic,
+				Limit:     limit,
+				Offset:    max(params.Offset, 0),
+			})
 			if err != nil {
-				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to load sessions: %s", err)), nil
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("search failed: %s", err)), nil
 			}
 
-			var msgs []message.Message
-			if params.SessionID != "" {
-				msgs, err = messages.List(ctx, params.SessionID)
-			} else {
-				msgs, err = messages.ListAllUserMessages(ctx)
-			}
-			if err != nil {
-				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to load messages: %s", err)), nil
-			}
-
-			needle := strings.ToLower(query)
-			hits := make([]SearchHistoryHit, 0, limit)
-			for _, m := range msgs {
-				body := messageBody(m)
-				if body == "" {
-					continue
-				}
-				idx := strings.Index(strings.ToLower(body), needle)
-				if idx < 0 {
-					continue
-				}
-				hits = append(hits, SearchHistoryHit{
-					SessionID:    m.SessionID,
-					SessionTitle: titles[m.SessionID],
-					MessageID:    m.ID,
-					Role:         string(m.Role),
-					CreatedAt:    time.Unix(m.CreatedAt, 0).Format(time.RFC3339),
-					Snippet:      snippetAround(body, idx, len(query)),
-				})
-				if len(hits) >= limit {
-					break
-				}
-			}
-
-			if len(hits) == 0 {
+			if res.Total == 0 {
 				return fantasy.NewTextResponse(fmt.Sprintf("No matches for %q", query)), nil
 			}
-			return fantasy.NewTextResponse(formatHistoryHits(query, hits)), nil
+			if len(res.Hits) == 0 {
+				return fantasy.NewTextResponse(fmt.Sprintf("No matches for %q at offset %d (only %d total)", query, res.Offset, res.Total)), nil
+			}
+			return fantasy.NewTextResponse(formatHistoryHits(query, res)), nil
 		},
 	)
 }
 
-// sessionTitles loads every session and returns id -> title. Cheap: the
-// session table is small (one row per chat) and we read all of it once.
-func sessionTitles(ctx context.Context, sessions session.Service) (map[string]string, error) {
-	all, err := sessions.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	titles := make(map[string]string, len(all))
-	for _, s := range all {
-		titles[s.ID] = s.Title
-	}
-	return titles, nil
-}
-
-// messageBody concatenates the human-readable parts of a message into a
-// single search target. We skip binary/image parts: those don't have
-// useful text to match against.
-func messageBody(m message.Message) string {
+// formatHistoryHits renders a page of fused hits. Each hit shows the
+// full session id and title (lining up with list_sessions), the match
+// type, and a snippet, with a pagination footer.
+func formatHistoryHits(query string, res embedding.SearchResult) string {
 	var b strings.Builder
-	if t := m.Content().Text; t != "" {
-		b.WriteString(t)
+	first := res.Offset + 1
+	last := res.Offset + len(res.Hits)
+	mode := "substring"
+	if res.SemanticUsed {
+		mode = "hybrid"
 	}
-	if r := m.ReasoningContent().Thinking; r != "" {
-		if b.Len() > 0 {
-			b.WriteString("\n")
-		}
-		b.WriteString(r)
-	}
-	return b.String()
-}
-
-// snippetAround extracts a window around the match index, with leading
-// and trailing ellipsis when we trimmed.
-func snippetAround(text string, idx, queryLen int) string {
-	start := max(idx-historySnippetWindow, 0)
-	end := min(idx+queryLen+historySnippetWindow, len(text))
-	prefix := ""
-	suffix := ""
-	if start > 0 {
-		prefix = "…"
-	}
-	if end < len(text) {
-		suffix = "…"
-	}
-	// Replace newlines so the snippet stays single-line in the output.
-	body := strings.ReplaceAll(text[start:end], "\n", " ")
-	return prefix + body + suffix
-}
-
-// formatHistoryHits renders the hits in chronological-feeling order:
-// most recent first within each session group is fine since the
-// underlying queries return DESC by created_at.
-func formatHistoryHits(query string, hits []SearchHistoryHit) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Found %d match(es) for %q:\n\n", len(hits), query)
-	for _, h := range hits {
+	fmt.Fprintf(&b, "Matches %d-%d of %d for %q (%s):\n\n", first, last, res.Total, query, mode)
+	for _, h := range res.Hits {
 		title := h.SessionTitle
 		if title == "" {
 			title = "(untitled)"
 		}
-		fmt.Fprintf(&b, "[%s] %s — %s (session %s)\n  %s\n\n",
-			h.CreatedAt, h.Role, title, shortID(h.SessionID), h.Snippet)
+		fmt.Fprintf(&b, "#%d [%s] %s — %s {%s}\n  session %s · message %s\n  %s\n\n",
+			h.Rank, h.CreatedAt.Format("2006-01-02 15:04"), h.Role, title, h.Match,
+			h.SessionID, h.SourceID, h.Snippet)
+	}
+	if last < res.Total {
+		fmt.Fprintf(&b, "%d more match(es). Pass offset=%d to see the next page.\n", res.Total-last, last)
 	}
 	return b.String()
-}
-
-// shortID truncates a session ID for terse display in the listing.
-func shortID(id string) string {
-	if len(id) <= 8 {
-		return id
-	}
-	return id[:8]
 }

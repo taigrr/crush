@@ -62,12 +62,22 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 		if !json.Valid(wsData) {
 			return nil, fmt.Errorf("invalid JSON in config file %s", store.workspacePath)
 		}
+		// Embedding is a global-only setting: snapshot the value from the
+		// global layer so a workspace config can never fragment the
+		// embedding space (see docs/specs/EMBEDDINGS_AND_VECTOR_SEARCH.md
+		// §3.2).
+		globalEmbedding := cfg.Embedding
 		merged, mergeErr := loadFromBytes(append([][]byte{mustMarshalConfig(cfg)}, wsData))
 		if mergeErr == nil {
 			// Preserve defaults that setDefaults already applied.
 			dataDir := cfg.Options.DataDirectory
 			*cfg = *merged
 			cfg.setDefaults(workingDir, dataDir)
+			if cfg.Embedding.Signature() != globalEmbedding.Signature() {
+				slog.Warn("Ignoring 'embedding' from workspace config; it is a global-only setting",
+					"path", store.workspacePath)
+			}
+			cfg.Embedding = globalEmbedding
 			store.config = cfg
 			store.loadedPaths = append(store.loadedPaths, store.workspacePath)
 		}

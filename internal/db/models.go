@@ -8,6 +8,26 @@ import (
 	"database/sql"
 )
 
+type Changelog struct {
+	ChangeSeq int64          `json:"change_seq"`
+	Op        string         `json:"op"`
+	TableName string         `json:"table_name"`
+	Pk        string         `json:"pk"`
+	Pk2       sql.NullString `json:"pk2"`
+	ChangedAt int64          `json:"changed_at"`
+}
+
+type Embedding struct {
+	SourceType string         `json:"source_type"`
+	SourceID   string         `json:"source_id"`
+	ChunkIdx   int64          `json:"chunk_idx"`
+	Signature  string         `json:"signature"`
+	Dim        int64          `json:"dim"`
+	Vec        []byte         `json:"vec"`
+	SessionID  sql.NullString `json:"session_id"`
+	CreatedAt  int64          `json:"created_at"`
+}
+
 type File struct {
 	ID        string `json:"id"`
 	SessionID string `json:"session_id"`
@@ -71,6 +91,11 @@ type Snapshot struct {
 	GitCommitHash    string         `json:"git_commit_hash"`
 	Description      sql.NullString `json:"description"`
 	CreatedAt        int64          `json:"created_at"`
+}
+
+type SyncMetadatum struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type Worktree struct {

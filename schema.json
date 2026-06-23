@@ -102,10 +102,53 @@
         "worktree": {
           "$ref": "#/$defs/WorktreeConfig",
           "description": "Git worktree configuration"
+        },
+        "embedding": {
+          "$ref": "#/$defs/EmbeddingConfig",
+          "description": "Global text-embedding model for vector/hybrid history search. Must be set globally (~/.config/crush); workspace overrides are ignored."
         }
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "EmbeddingConfig": {
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "The embedding model provider id that matches a key in the providers config",
+          "examples": [
+            "bedrock"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "description": "The embedding model id as used by the provider API",
+          "examples": [
+            "amazon.titan-embed-text-v2:0"
+          ]
+        },
+        "dimensions": {
+          "type": "integer",
+          "description": "Requested output vector dimensions for models that support it",
+          "examples": [
+            1024
+          ]
+        },
+        "normalize": {
+          "type": "boolean",
+          "description": "Request unit-normalized embedding vectors"
+        },
+        "hybrid_search": {
+          "type": "boolean",
+          "description": "Fuse semantic vector search with substring search (default true)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "provider",
+        "model"
+      ]
     },
     "HookConfig": {
       "properties": {
@@ -128,6 +171,27 @@
       "required": [
         "command"
       ]
+    },
+    "ImageLimits": {
+      "properties": {
+        "max_long_edge": {
+          "type": "integer"
+        },
+        "max_bytes_per_image": {
+          "type": "integer"
+        },
+        "max_aggregate_pixels": {
+          "type": "integer"
+        },
+        "max_aggregate_bytes": {
+          "type": "integer"
+        },
+        "max_images": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "LSPConfig": {
       "properties": {
@@ -351,6 +415,9 @@
         "options": {
           "$ref": "#/$defs/ModelOptions"
         },
+        "image": {
+          "$ref": "#/$defs/ImageLimits"
+        },
         "supports_1m_context": {
           "type": "boolean"
         },
@@ -362,6 +429,9 @@
         },
         "long_context_cost_per_1m_in_cached": {
           "type": "number"
+        },
+        "dimensions": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,

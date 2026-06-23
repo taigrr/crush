@@ -53,3 +53,8 @@ SELECT *
 FROM messages
 WHERE role IN ('user', 'shell')
 ORDER BY created_at DESC;
+
+-- name: ListAllMessages :many
+SELECT *
+FROM messages
+ORDER BY created_at DESC;

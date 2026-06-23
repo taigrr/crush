@@ -312,6 +312,46 @@ Select a theme from the command palette ("Select Theme"). The picker shows a
 live preview as you move the selection; `enter` confirms and persists it,
 `esc` cancels and restores the previous theme.
 
+## Embedding (hybrid history search)
+
+Crush can embed your conversation history for hybrid search — the
+`search_history` tool and `crush search` fuse exact substring matching with
+semantic vector similarity (Reciprocal Rank Fusion).
+
+This is a **global-only** setting (`~/.config/crush/crush.json`). Unlike
+`options.tui.theme`, an `embedding` block in a workspace config is ignored
+with a warning: one embedder must be used everywhere, because changing it
+invalidates all previously stored vectors.
+
+```json
+{
+  "embedding": {
+    "provider": "bedrock",
+    "model": "amazon.titan-embed-text-v2:0",
+    "dimensions": 1024,
+    "normalize": true,
+    "hybrid_search": true
+  }
+}
+```
+
+- `provider` / `model`: must reference a configured provider that supports
+  embeddings (Bedrock Titan/Cohere, or OpenAI/openai-compat). List options
+  with `crush embeddings list`.
+- `dimensions`: requested output size for models that support it (0 = model
+  default).
+- `normalize`: request unit-normalized vectors (cosine becomes a dot
+  product).
+- `hybrid_search`: when `true` (default) the semantic signal participates;
+  when `false`, search is pure substring. Toggling this does **not**
+  invalidate stored vectors.
+
+When no `embedding` block is set, search degrades to substring-only and no
+vectors are computed. Manage it with `crush embeddings set <provider>
+<model>` and `crush embeddings status`. Changing the provider, model,
+dimensions, or normalize flag changes the embedding-space *signature*;
+stale vectors are dropped and re-indexed in the background on next open.
+
 ## Snapshots
 
 Crush automatically snapshots the filesystem before each user message, enabling restore points.

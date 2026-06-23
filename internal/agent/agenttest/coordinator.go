@@ -11,6 +11,7 @@ import (
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/agent"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/embedding"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/session"
@@ -75,6 +76,7 @@ func NewCoordinator(
 		nil,
 		nil,
 		nil,
+		embedding.Build(nil, embedding.Params{Configured: false}),
 		nil,
 		nil,
 		nil,

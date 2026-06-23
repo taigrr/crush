@@ -24,6 +24,7 @@ import (
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/embedding"
 	"github.com/taigrr/crush/internal/filetracker"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/hooks"
@@ -123,6 +124,7 @@ type coordinator struct {
 	milestones  milestone.Service
 	lspManager  *lsp.Manager
 	worktrees   worktree.Service
+	embeddings  embedding.Service
 	notify      pubsub.Publisher[notify.Notification]
 	runComplete pubsub.Publisher[notify.RunComplete]
 
@@ -154,6 +156,7 @@ func NewCoordinator(
 	filetracker filetracker.Service,
 	milestones milestone.Service,
 	lspManager *lsp.Manager,
+	embeddings embedding.Service,
 	notify pubsub.Publisher[notify.Notification],
 	runComplete pubsub.Publisher[notify.RunComplete],
 	skillsMgr *skills.Manager,
@@ -184,6 +187,7 @@ func NewCoordinator(
 		milestones:          milestones,
 		lspManager:          lspManager,
 		worktrees:           worktrees,
+		embeddings:          embeddings,
 		notify:              notify,
 		runComplete:         runComplete,
 		agents:              make(map[string]SessionAgent),
@@ -709,7 +713,8 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewLsTool(c.permissions, c.workingDir, c.cfg.Config().Tools.Ls),
 		tools.NewSourcegraphTool(nil),
 		tools.NewContext7Tool(nil),
-		tools.NewSearchHistoryTool(c.messages, c.sessions),
+		tools.NewSearchHistoryTool(c.messages, c.sessions, c.embeddings),
+		tools.NewListSessionsTool(c.sessions),
 		tools.NewTodosTool(c.sessions),
 	)
 
