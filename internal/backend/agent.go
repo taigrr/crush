@@ -304,10 +304,14 @@ func (b *Backend) RunShellCommand(ctx context.Context, workspaceID string, req p
 	var stdout, stderr bytes.Buffer
 	runErr := shell.Run(ctx, shell.RunOptions{
 		Command: req.Command,
-		Cwd:     ws.Path,
-		Env:     append(os.Environ(), ws.Env...),
-		Stdout:  &stdout,
-		Stderr:  &stderr,
+		// Use the effective working directory the user launched from
+		// (matching the agent's bash tool), not ws.Path (the canonical
+		// project root hosting .crush/). They differ for subdirectories
+		// and user-created linked worktrees.
+		Cwd:    ws.App.WorkingDir(),
+		Env:    append(os.Environ(), ws.Env...),
+		Stdout: &stdout,
+		Stderr: &stderr,
 	})
 
 	exitCode := 0
