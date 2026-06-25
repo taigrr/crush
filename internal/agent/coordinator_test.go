@@ -12,6 +12,9 @@ import (
 	"github.com/taigrr/fantasy"
 	"github.com/taigrr/fantasy/providers/anthropic"
 	"github.com/taigrr/fantasy/providers/bedrock"
+	"github.com/taigrr/fantasy/providers/google"
+	"github.com/taigrr/fantasy/providers/openrouter"
+	"github.com/taigrr/fantasy/providers/vercel"
 )
 
 // mockSessionAgent is a minimal mock for the SessionAgent interface.
@@ -437,4 +440,55 @@ func TestGetProviderOptionsReasoningEffort(t *testing.T) {
 			assert.Equal(t, anthropic.Effort("max"), *parsed.Effort)
 		})
 	}
+}
+
+func reasoningModel() Model {
+	return Model{
+		CatwalkCfg: catwalk.Model{
+			ID:              "some-model",
+			CanReason:       true,
+			ReasoningLevels: []string{"high"},
+		},
+		ModelCfg: config.SelectedModel{
+			Provider:        "test",
+			ReasoningEffort: "high",
+		},
+	}
+}
+
+func TestGetProviderOptionsOpenRouter(t *testing.T) {
+	opts := getProviderOptions(reasoningModel(), config.ProviderConfig{ID: "test", Type: catwalk.Type(openrouter.Name)})
+	raw, ok := opts[openrouter.Name]
+	require.True(t, ok)
+	parsed, ok := raw.(*openrouter.ProviderOptions)
+	require.True(t, ok)
+	require.NotNil(t, parsed.Reasoning)
+}
+
+func TestGetProviderOptionsVercel(t *testing.T) {
+	opts := getProviderOptions(reasoningModel(), config.ProviderConfig{ID: "test", Type: catwalk.Type(vercel.Name)})
+	raw, ok := opts[vercel.Name]
+	require.True(t, ok)
+	_, ok = raw.(*vercel.ProviderOptions)
+	require.True(t, ok)
+}
+
+func TestGetProviderOptionsGoogleThinkingConfig(t *testing.T) {
+	model := reasoningModel()
+	model.CatwalkCfg.ID = "gemini-3-pro"
+	opts := getProviderOptions(model, config.ProviderConfig{ID: "test", Type: catwalk.Type(google.Name)})
+	raw, ok := opts[google.Name]
+	require.True(t, ok)
+	parsed, ok := raw.(*google.ProviderOptions)
+	require.True(t, ok)
+	require.NotNil(t, parsed.ThinkingConfig)
+}
+
+func TestGetProviderOptionsRespectsExistingReasoning(t *testing.T) {
+	// When the user already set reasoning, we must not overwrite it.
+	model := reasoningModel()
+	model.ModelCfg.ProviderOptions = map[string]any{"reasoning": map[string]any{"effort": "low"}}
+	opts := getProviderOptions(model, config.ProviderConfig{ID: "test", Type: catwalk.Type(openrouter.Name)})
+	parsed := opts[openrouter.Name].(*openrouter.ProviderOptions)
+	require.NotNil(t, parsed.Reasoning)
 }

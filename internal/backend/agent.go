@@ -103,6 +103,14 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 	// request context rather than coordinator state.
 	ctx = tools.WithEditorBridge(ctx, b.clientBridge(ws, msg.ClientID))
 
+	// Route the originating client's launch directory to the tools for
+	// this turn. Sibling git worktrees collapse to the same project root
+	// and therefore share one workspace (and one coordinator); without
+	// per-turn cwd the coordinator would resolve every client to the
+	// directory whichever client created the workspace first launched
+	// from. See coordinator.workingDir.
+	ctx = tools.WithWorkingDir(ctx, b.clientCwd(ws, msg.ClientID))
+
 	_, err := ws.AgentCoordinator.RunAccepted(ctx, accept, msg.SessionID, msg.Prompt, proto.AttachmentsToMessage(msg.Attachments)...)
 	if err == nil || errors.Is(err, context.Canceled) {
 		return

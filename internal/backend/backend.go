@@ -460,6 +460,32 @@ func (b *Backend) registerClient(ws *Workspace, clientID string, env []string, c
 	ws.clients[clientID] = cs
 }
 
+// clientCwd returns the absolute, symlink-resolved launch directory of
+// the named client on the workspace, or "" when the client is unknown or
+// captured no cwd. The resolution mirrors CreateWorkspace's effectiveCwd
+// so a per-turn cwd compares equal to managed worktree paths and the
+// workspace default.
+func (b *Backend) clientCwd(ws *Workspace, clientID string) string {
+	ws.clientsMu.Lock()
+	cs, ok := ws.clients[clientID]
+	cwd := ""
+	if ok {
+		cwd = cs.cwd
+	}
+	ws.clientsMu.Unlock()
+	if cwd == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return cwd
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return abs
+}
+
 // clientBridge returns the editor bridge for the named client on the
 // workspace, building it lazily from the client's captured environment
 // on first use. Always returns a non-nil bridge (editor.Noop when the
@@ -788,12 +814,12 @@ func workspaceToProto(ws *Workspace) proto.Workspace {
 		Path:       ws.Path,
 		WorkingDir: ws.App.WorkingDir(),
 		GitBranch:  getGitBranch(ws.Path),
-		YOLO:      ws.Cfg.Overrides().SkipPermissionRequests,
-		DataDir:   cfg.Options.DataDirectory,
-		Debug:     cfg.Options.Debug,
-		Config:    cfg,
-		Env:       ws.Env,
-		Version:   version.Version,
+		YOLO:       ws.Cfg.Overrides().SkipPermissionRequests,
+		DataDir:    cfg.Options.DataDirectory,
+		Debug:      cfg.Options.Debug,
+		Config:     cfg,
+		Env:        ws.Env,
+		Version:    version.Version,
 	}
 	if ws.Skills != nil {
 		out.Skills = skillStatesToProto(ws.Skills.States())

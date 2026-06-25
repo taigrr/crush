@@ -179,6 +179,56 @@ func PushPopCrushEnv() func() {
 	return restore
 }
 
+// mergeProviderModels merges user-configured models with the provider's
+// built-in models. User models take precedence and come first; built-in
+// models that share an ID with a user model are dropped. Within each set the
+// first occurrence of an ID wins, so duplicate IDs are removed. A model with
+// an empty Name defaults its Name to its ID.
+func mergeProviderModels(configModels, providerModels []catwalk.Model) []catwalk.Model {
+	models := []catwalk.Model{}
+	seen := make(map[string]struct{})
+	for _, set := range [][]catwalk.Model{configModels, providerModels} {
+		for _, model := range set {
+			if _, ok := seen[model.ID]; ok {
+				continue
+			}
+			seen[model.ID] = struct{}{}
+			if model.Name == "" {
+				model.Name = model.ID
+			}
+			models = append(models, model)
+		}
+	}
+	return models
+}
+
+// resolveProviderHeaders merges default and extra headers, resolves any
+// $(...) / $VAR templates in the values, and drops headers that resolve to
+// the empty string. Extra headers override default headers with the same key.
+// A failing resolution aborts with an error, matching the MCP header
+// contract.
+func resolveProviderHeaders(resolver VariableResolver, providerID string, defaultHeaders, extraHeaders map[string]string) (map[string]string, error) {
+	headers := map[string]string{}
+	if len(defaultHeaders) > 0 {
+		maps.Copy(headers, defaultHeaders)
+	}
+	if len(extraHeaders) > 0 {
+		maps.Copy(headers, extraHeaders)
+	}
+	for k, v := range headers {
+		resolved, err := resolver.ResolveValue(v)
+		if err != nil {
+			return nil, fmt.Errorf("resolving provider %s header %q: %w", providerID, k, err)
+		}
+		if resolved == "" {
+			delete(headers, k)
+			continue
+		}
+		headers[k] = resolved
+	}
+	return headers, nil
+}
+
 func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver VariableResolver, knownProviders []catwalk.Provider) error {
 	knownProviderNames := make(map[string]struct{})
 	restore := PushPopCrushEnv()
@@ -204,56 +254,18 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 				p.APIKey = config.APIKey
 			}
 			if len(config.Models) > 0 {
-				models := []catwalk.Model{}
-				seen := make(map[string]struct{})
-
-				for _, model := range config.Models {
-					if _, ok := seen[model.ID]; ok {
-						continue
-					}
-					seen[model.ID] = struct{}{}
-					if model.Name == "" {
-						model.Name = model.ID
-					}
-					models = append(models, model)
-				}
-				for _, model := range p.Models {
-					if _, ok := seen[model.ID]; ok {
-						continue
-					}
-					seen[model.ID] = struct{}{}
-					if model.Name == "" {
-						model.Name = model.ID
-					}
-					models = append(models, model)
-				}
-
-				p.Models = models
+				p.Models = mergeProviderModels(config.Models, p.Models)
 			}
 		}
 
-		headers := map[string]string{}
-		if len(p.DefaultHeaders) > 0 {
-			maps.Copy(headers, p.DefaultHeaders)
-		}
-		if len(config.ExtraHeaders) > 0 {
-			maps.Copy(headers, config.ExtraHeaders)
-		}
 		// Provider headers use the same error contract as MCP headers:
 		// a failing $(...) aborts the provider load with a clear
 		// message, and a header that resolves to the empty string
 		// (unset bare $VAR under lenient nounset, $(echo), or literal
 		// "") is dropped from the outgoing request.
-		for k, v := range headers {
-			resolved, err := resolver.ResolveValue(v)
-			if err != nil {
-				return fmt.Errorf("resolving provider %s header %q: %w", p.ID, k, err)
-			}
-			if resolved == "" {
-				delete(headers, k)
-				continue
-			}
-			headers[k] = resolved
+		headers, err := resolveProviderHeaders(resolver, string(p.ID), p.DefaultHeaders, config.ExtraHeaders)
+		if err != nil {
+			return err
 		}
 		prepared := ProviderConfig{
 			ID:                 string(p.ID),
@@ -271,94 +283,8 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 			Models:             p.Models,
 		}
 
-		switch {
-		case p.ID == catwalk.InferenceProviderAnthropic && config.OAuthToken != nil:
-			// Claude Code subscription is not supported anymore. Remove to show onboarding.
-			// RemoveConfigField persists the deletion to disk. The in-memory
-			// state is kept consistent by the Providers.Del call below; any
-			// concurrent reload that races with this write will also see the
-			// removal because it re-reads from disk.
-			store.RemoveConfigField(ScopeGlobal, "providers.anthropic")
-			c.Providers.Del(string(p.ID))
+		if c.applyProviderSpecificConfig(store, env, resolver, p, config, configExists, &prepared) {
 			continue
-		case p.ID == catwalk.InferenceProviderCopilot && config.OAuthToken != nil:
-			prepared.SetupGitHubCopilot()
-		}
-
-		switch p.ID {
-		// Handle specific providers that require additional configuration
-		case catwalk.InferenceProviderVertexAI:
-			var (
-				project  = env.Get("VERTEXAI_PROJECT")
-				location = env.Get("VERTEXAI_LOCATION")
-			)
-			if project == "" || location == "" {
-				if configExists {
-					slog.Warn("Skipping Vertex AI provider due to missing credentials")
-					c.Providers.Del(string(p.ID))
-				}
-				continue
-			}
-			prepared.ExtraParams["project"] = project
-			prepared.ExtraParams["location"] = location
-		case catwalk.InferenceProviderAzure:
-			endpoint, err := resolver.ResolveValue(p.APIEndpoint)
-			if err != nil || endpoint == "" {
-				if configExists {
-					slog.Warn("Skipping Azure provider due to missing API endpoint", "provider", p.ID, "error", err)
-					c.Providers.Del(string(p.ID))
-				}
-				continue
-			}
-			prepared.BaseURL = endpoint
-			prepared.ExtraParams["apiVersion"] = env.Get("AZURE_OPENAI_API_VERSION")
-		case catwalk.InferenceProviderBedrock, catwalk.InferenceProviderBedrockEurope:
-			if p.APIKey == "" && !hasAWSCredentials(env) {
-				if configExists {
-					slog.Warn("Skipping Bedrock provider due to missing AWS credentials")
-					c.Providers.Del(string(p.ID))
-				}
-				continue
-			}
-		case catwalk.InferenceProviderBedrockMantle:
-			// The Bedrock mantle (OpenAI-compatible) endpoint authenticates
-			// with a Bedrock API key via the Authorization header, not SigV4,
-			// so it requires AWS_BEARER_TOKEN_BEDROCK.
-			if prepared.APIKey == "" {
-				prepared.APIKey = env.Get("AWS_BEARER_TOKEN_BEDROCK")
-				prepared.APIKeyTemplate = prepared.APIKey
-			}
-			if prepared.APIKey == "" {
-				if configExists {
-					slog.Warn("Skipping Bedrock Mantle provider due to missing AWS_BEARER_TOKEN_BEDROCK")
-					c.Providers.Del(string(p.ID))
-				}
-				continue
-			}
-		case catwalk.InferenceProvider("hyper"):
-			if apiKey := env.Get("HYPER_API_KEY"); apiKey != "" {
-				prepared.APIKey = apiKey
-				prepared.APIKeyTemplate = apiKey
-			} else {
-				v, err := resolver.ResolveValue(p.APIKey)
-				if v == "" || err != nil {
-					if configExists {
-						slog.Warn("Skipping Hyper provider due to missing API key", "provider", p.ID)
-						c.Providers.Del(string(p.ID))
-					}
-					continue
-				}
-			}
-		default:
-			// if the provider api or endpoint are missing we skip them
-			v, err := resolver.ResolveValue(p.APIKey)
-			if v == "" || err != nil {
-				if configExists {
-					slog.Warn("Skipping provider due to missing API key", "provider", p.ID)
-					c.Providers.Del(string(p.ID))
-				}
-				continue
-			}
 		}
 		c.Providers.Set(string(p.ID), prepared)
 	}
@@ -411,16 +337,12 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 
 		// Custom-provider headers share the MCP error contract; see
 		// the known-provider loop above.
-		for k, v := range providerConfig.ExtraHeaders {
-			resolved, err := resolver.ResolveValue(v)
+		if len(providerConfig.ExtraHeaders) > 0 {
+			resolvedHeaders, err := resolveProviderHeaders(resolver, id, nil, providerConfig.ExtraHeaders)
 			if err != nil {
-				return fmt.Errorf("resolving provider %s header %q: %w", id, k, err)
+				return err
 			}
-			if resolved == "" {
-				delete(providerConfig.ExtraHeaders, k)
-				continue
-			}
-			providerConfig.ExtraHeaders[k] = resolved
+			providerConfig.ExtraHeaders = resolvedHeaders
 		}
 
 		c.Providers.Set(id, providerConfig)
@@ -431,6 +353,89 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 	}
 
 	return nil
+}
+
+// applyProviderSpecificConfig applies per-provider quirks (credentials,
+// endpoints, extra params) to a known provider's prepared config. It returns
+// true when the provider should be skipped (and removes it from c.Providers
+// when it was user-configured). prepared is mutated in place.
+func (c *Config) applyProviderSpecificConfig(store *ConfigStore, env env.Env, resolver VariableResolver, p catwalk.Provider, config ProviderConfig, configExists bool, prepared *ProviderConfig) (skip bool) {
+	// skipMissing removes a user-configured provider and logs why; bare
+	// (default) providers are silently dropped.
+	skipMissing := func(msg string, args ...any) bool {
+		if configExists {
+			slog.Warn(msg, args...)
+			c.Providers.Del(string(p.ID))
+		}
+		return true
+	}
+
+	switch {
+	case p.ID == catwalk.InferenceProviderAnthropic && config.OAuthToken != nil:
+		// Claude Code subscription is not supported anymore. Remove to show onboarding.
+		// RemoveConfigField persists the deletion to disk. The in-memory
+		// state is kept consistent by the Providers.Del call below; any
+		// concurrent reload that races with this write will also see the
+		// removal because it re-reads from disk.
+		store.RemoveConfigField(ScopeGlobal, "providers.anthropic")
+		c.Providers.Del(string(p.ID))
+		return true
+	case p.ID == catwalk.InferenceProviderCopilot && config.OAuthToken != nil:
+		prepared.SetupGitHubCopilot()
+	}
+
+	switch p.ID {
+	// Handle specific providers that require additional configuration
+	case catwalk.InferenceProviderVertexAI:
+		var (
+			project  = env.Get("VERTEXAI_PROJECT")
+			location = env.Get("VERTEXAI_LOCATION")
+		)
+		if project == "" || location == "" {
+			return skipMissing("Skipping Vertex AI provider due to missing credentials")
+		}
+		prepared.ExtraParams["project"] = project
+		prepared.ExtraParams["location"] = location
+	case catwalk.InferenceProviderAzure:
+		endpoint, err := resolver.ResolveValue(p.APIEndpoint)
+		if err != nil || endpoint == "" {
+			return skipMissing("Skipping Azure provider due to missing API endpoint", "provider", p.ID, "error", err)
+		}
+		prepared.BaseURL = endpoint
+		prepared.ExtraParams["apiVersion"] = env.Get("AZURE_OPENAI_API_VERSION")
+	case catwalk.InferenceProviderBedrock, catwalk.InferenceProviderBedrockEurope:
+		if p.APIKey == "" && !hasAWSCredentials(env) {
+			return skipMissing("Skipping Bedrock provider due to missing AWS credentials")
+		}
+	case catwalk.InferenceProviderBedrockMantle:
+		// The Bedrock mantle (OpenAI-compatible) endpoint authenticates
+		// with a Bedrock API key via the Authorization header, not SigV4,
+		// so it requires AWS_BEARER_TOKEN_BEDROCK.
+		if prepared.APIKey == "" {
+			prepared.APIKey = env.Get("AWS_BEARER_TOKEN_BEDROCK")
+			prepared.APIKeyTemplate = prepared.APIKey
+		}
+		if prepared.APIKey == "" {
+			return skipMissing("Skipping Bedrock Mantle provider due to missing AWS_BEARER_TOKEN_BEDROCK")
+		}
+	case catwalk.InferenceProvider("hyper"):
+		if apiKey := env.Get("HYPER_API_KEY"); apiKey != "" {
+			prepared.APIKey = apiKey
+			prepared.APIKeyTemplate = apiKey
+		} else {
+			v, err := resolver.ResolveValue(p.APIKey)
+			if v == "" || err != nil {
+				return skipMissing("Skipping Hyper provider due to missing API key", "provider", p.ID)
+			}
+		}
+	default:
+		// if the provider api or endpoint are missing we skip them
+		v, err := resolver.ResolveValue(p.APIKey)
+		if v == "" || err != nil {
+			return skipMissing("Skipping provider due to missing API key", "provider", p.ID)
+		}
+	}
+	return false
 }
 
 func (c *Config) setDefaults(workingDir, dataDir string) {
@@ -652,6 +657,45 @@ func (c *Config) defaultModelSelection(knownProviders []catwalk.Provider) (large
 	return largeModel, smallModel, err
 }
 
+// applyModelOverrides copies user-configured override fields from override
+// onto target, falling back to the resolved catwalk model's defaults where the
+// override is unset. target.Provider and target.Model are assumed to already
+// be resolved. Think is copied unconditionally because it is a plain bool with
+// no "unset" sentinel: a user who toggles it off must be able to override an
+// on-by-default value.
+func applyModelOverrides(target *SelectedModel, override SelectedModel, model *catwalk.Model) {
+	if override.MaxTokens > 0 {
+		target.MaxTokens = override.MaxTokens
+	} else {
+		target.MaxTokens = model.DefaultMaxTokens
+	}
+	if override.ReasoningEffort != "" {
+		target.ReasoningEffort = override.ReasoningEffort
+	}
+	target.Think = override.Think
+	if override.Temperature != nil {
+		target.Temperature = override.Temperature
+	}
+	if override.TopP != nil {
+		target.TopP = override.TopP
+	}
+	if override.TopK != nil {
+		target.TopK = override.TopK
+	}
+	if override.FrequencyPenalty != nil {
+		target.FrequencyPenalty = override.FrequencyPenalty
+	}
+	if override.PresencePenalty != nil {
+		target.PresencePenalty = override.PresencePenalty
+	}
+	if override.ContextMode != "" {
+		target.ContextMode = override.ContextMode
+	}
+	if override.ProviderOptions != nil {
+		target.ProviderOptions = override.ProviderOptions
+	}
+}
+
 func configureSelectedModels(store *ConfigStore, knownProviders []catwalk.Provider, persist bool) error {
 	c := store.config
 	defaultLarge, defaultSmall, err := c.defaultModelSelection(knownProviders)
@@ -677,36 +721,7 @@ func configureSelectedModels(store *ConfigStore, knownProviders []catwalk.Provid
 				}
 			}
 		} else {
-			if largeModelSelected.MaxTokens > 0 {
-				large.MaxTokens = largeModelSelected.MaxTokens
-			} else {
-				large.MaxTokens = model.DefaultMaxTokens
-			}
-			if largeModelSelected.ReasoningEffort != "" {
-				large.ReasoningEffort = largeModelSelected.ReasoningEffort
-			}
-			large.Think = largeModelSelected.Think
-			if largeModelSelected.Temperature != nil {
-				large.Temperature = largeModelSelected.Temperature
-			}
-			if largeModelSelected.TopP != nil {
-				large.TopP = largeModelSelected.TopP
-			}
-			if largeModelSelected.TopK != nil {
-				large.TopK = largeModelSelected.TopK
-			}
-			if largeModelSelected.FrequencyPenalty != nil {
-				large.FrequencyPenalty = largeModelSelected.FrequencyPenalty
-			}
-			if largeModelSelected.PresencePenalty != nil {
-				large.PresencePenalty = largeModelSelected.PresencePenalty
-			}
-			if largeModelSelected.ContextMode != "" {
-				large.ContextMode = largeModelSelected.ContextMode
-			}
-			if largeModelSelected.ProviderOptions != nil {
-				large.ProviderOptions = largeModelSelected.ProviderOptions
-			}
+			applyModelOverrides(&large, largeModelSelected, model)
 		}
 	}
 	smallModelSelected, smallModelConfigured := c.Models[SelectedModelTypeSmall]
@@ -727,36 +742,7 @@ func configureSelectedModels(store *ConfigStore, knownProviders []catwalk.Provid
 				}
 			}
 		} else {
-			if smallModelSelected.MaxTokens > 0 {
-				small.MaxTokens = smallModelSelected.MaxTokens
-			} else {
-				small.MaxTokens = model.DefaultMaxTokens
-			}
-			if smallModelSelected.ReasoningEffort != "" {
-				small.ReasoningEffort = smallModelSelected.ReasoningEffort
-			}
-			if smallModelSelected.Temperature != nil {
-				small.Temperature = smallModelSelected.Temperature
-			}
-			if smallModelSelected.TopP != nil {
-				small.TopP = smallModelSelected.TopP
-			}
-			if smallModelSelected.TopK != nil {
-				small.TopK = smallModelSelected.TopK
-			}
-			if smallModelSelected.FrequencyPenalty != nil {
-				small.FrequencyPenalty = smallModelSelected.FrequencyPenalty
-			}
-			if smallModelSelected.PresencePenalty != nil {
-				small.PresencePenalty = smallModelSelected.PresencePenalty
-			}
-			if smallModelSelected.ContextMode != "" {
-				small.ContextMode = smallModelSelected.ContextMode
-			}
-			if smallModelSelected.ProviderOptions != nil {
-				small.ProviderOptions = smallModelSelected.ProviderOptions
-			}
-			small.Think = smallModelSelected.Think
+			applyModelOverrides(&small, smallModelSelected, model)
 		}
 	}
 
