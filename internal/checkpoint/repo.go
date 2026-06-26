@@ -85,6 +85,7 @@ func DefaultConfig() *Config {
 			"__pycache__",
 			"**/__pycache__",
 			"*.pyc",
+			"**/*.pyc",
 			"target",
 			"dist",
 			"build",
@@ -93,6 +94,7 @@ func DefaultConfig() *Config {
 			".output",
 			".cache",
 			"*.log",
+			"**/*.log",
 			".DS_Store",
 		},
 	}
@@ -588,26 +590,28 @@ func (r *Repo) isExcluded(relPath string) bool {
 	relPath = filepath.ToSlash(relPath)
 
 	for _, pattern := range r.config.Exclude {
-		pattern = filepath.ToSlash(pattern)
-
-		// Try exact match first.
-		if pattern == relPath {
-			return true
-		}
-
-		// Try as base name match.
-		if pattern == filepath.Base(relPath) {
-			return true
-		}
-
-		// Try glob match.
-		matched, err := doublestar.Match(pattern, relPath)
-		if err == nil && matched {
+		if matchesExcludePattern(filepath.ToSlash(pattern), relPath) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// matchesExcludePattern reports whether relPath should be excluded by a single
+// pattern. Both inputs are expected to use forward slashes. A pattern matches
+// when it equals the path exactly, equals the path's base name (so a bare
+// "node_modules" excludes the directory at any depth), or matches as a
+// doublestar glob.
+func matchesExcludePattern(pattern, relPath string) bool {
+	if pattern == relPath {
+		return true
+	}
+	if pattern == filepath.Base(relPath) {
+		return true
+	}
+	matched, err := doublestar.Match(pattern, relPath)
+	return err == nil && matched
 }
 
 // restoreTree recursively restores a tree to a directory.
