@@ -228,12 +228,14 @@ func ToUnixLineEndings(content string) (string, bool) {
 	return content, false
 }
 
-// ToWindowsLineEndings converts Unix line endings (LF) to Windows line endings (CRLF).
+// ToWindowsLineEndings converts Unix line endings (LF) to Windows line endings
+// (CRLF). It first normalizes any existing CRLF to LF so that mixed content is
+// handled correctly and existing CRLF sequences are never doubled into CRCRLF.
+// The boolean reports whether the content changed.
 func ToWindowsLineEndings(content string) (string, bool) {
-	if !strings.Contains(content, "\r\n") {
-		return strings.ReplaceAll(content, "\n", "\r\n"), true
-	}
-	return content, false
+	unix := strings.ReplaceAll(content, "\r\n", "\n")
+	converted := strings.ReplaceAll(unix, "\n", "\r\n")
+	return converted, converted != content
 }
 
 func truncate[T any](input []T, limit int) ([]T, bool) {
