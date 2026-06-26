@@ -212,10 +212,10 @@ func (a *sessionAgent) getSessionMessages(ctx context.Context, session session.S
 	return msgs, nil
 }
 
-// titlePromptFromMessages builds the content used to regenerate a session
-// title from the existing user messages plus the latest prompt. Concatenating
-// the user turns gives the title model enough context to summarize where the
-// conversation has actually gone, rather than only its opening line.
+// convertToToolResult converts a fantasy.ToolResultContent into the internal
+// message.ToolResult representation, normalizing the three result variants
+// (text, error, media). Media with invalid base64 data is downgraded to an
+// error result so a malformed image can never be forwarded to a provider.
 func (a *sessionAgent) convertToToolResult(result fantasy.ToolResultContent) message.ToolResult {
 	baseResult := message.ToolResult{
 		ToolCallID: result.ToolCallID,
