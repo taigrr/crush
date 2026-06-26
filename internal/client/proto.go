@@ -135,15 +135,23 @@ func (c *Client) SubscribeEvents(ctx context.Context, id string) (<-chan any, er
 
 		scr := bufio.NewReader(rsp.Body)
 		for {
-			line, err := scr.ReadBytes('\n')
-			if errors.Is(err, io.EOF) {
+			line, readErr := scr.ReadBytes('\n')
+			// ReadBytes returns a final, newline-less line together with
+			// io.EOF, so parse what we got before deciding to break;
+			// otherwise the last event in the stream would be dropped.
+			if ev, ok := parseSSELine(line); ok {
+				if !sendEvent(ctx, events, ev) {
+					return
+				}
+			}
+			if errors.Is(readErr, io.EOF) {
 				break
 			}
-			if err != nil {
+			if readErr != nil {
 				if ctx.Err() != nil {
 					return
 				}
-				slog.Error("Reading from events stream", "error", err)
+				slog.Error("Reading from events stream", "error", readErr)
 				select {
 				case <-time.After(time.Second * 2):
 				case <-ctx.Done():
@@ -151,112 +159,80 @@ func (c *Client) SubscribeEvents(ctx context.Context, id string) (<-chan any, er
 				}
 				continue
 			}
-			line = bytes.TrimSpace(line)
-			if len(line) == 0 {
-				continue
-			}
-
-			data, ok := bytes.CutPrefix(line, []byte("data:"))
-			if !ok {
-				slog.Warn("Invalid event format", "line", string(line))
-				continue
-			}
-
-			data = bytes.TrimSpace(data)
-
-			var p pubsub.Payload
-			if err := json.Unmarshal(data, &p); err != nil {
-				slog.Error("Unmarshaling event envelope", "error", err)
-				continue
-			}
-
-			switch p.Type {
-			case pubsub.PayloadTypeLSPEvent:
-				var e pubsub.Event[proto.LSPEvent]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypeMCPEvent:
-				var e pubsub.Event[proto.MCPEvent]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypeSkillEvent:
-				var e pubsub.Event[proto.SkillEvent]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypePermissionRequest:
-				var e pubsub.Event[proto.PermissionRequest]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypePermissionNotification:
-				var e pubsub.Event[proto.PermissionNotification]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypeMessage:
-				var e pubsub.Event[proto.Message]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypeSession:
-				var e pubsub.Event[proto.Session]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypeFile:
-				var e pubsub.Event[proto.File]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypeAgentEvent:
-				var e pubsub.Event[proto.AgentEvent]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypeSkillsEvent:
-				var e pubsub.Event[proto.SkillsEvent]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypeConfigChanged:
-				var e pubsub.Event[proto.ConfigChanged]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypeRunComplete:
-				var e pubsub.Event[proto.RunComplete]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			case pubsub.PayloadTypeForkProgress:
-				var e pubsub.Event[proto.ForkProgress]
-				_ = json.Unmarshal(p.Payload, &e)
-				if !sendEvent(ctx, events, e) {
-					return
-				}
-			default:
-				slog.Warn("Unknown event type", "type", p.Type)
-				continue
-			}
 		}
 	}()
 
 	return events, nil
+}
+
+// parseSSELine parses a single Server-Sent Events line into a typed pubsub
+// event. It returns ok=false (and logs) for blank lines, malformed frames, or
+// unknown event types.
+func parseSSELine(line []byte) (any, bool) {
+	line = bytes.TrimSpace(line)
+	if len(line) == 0 {
+		return nil, false
+	}
+
+	data, ok := bytes.CutPrefix(line, []byte("data:"))
+	if !ok {
+		slog.Warn("Invalid event format", "line", string(line))
+		return nil, false
+	}
+	data = bytes.TrimSpace(data)
+
+	var p pubsub.Payload
+	if err := json.Unmarshal(data, &p); err != nil {
+		slog.Error("Unmarshaling event envelope", "error", err)
+		return nil, false
+	}
+	return decodeEvent(p)
+}
+
+// decodeEvent decodes the inner payload of an envelope into the concrete
+// pubsub.Event type for its discriminator. It returns ok=false for unknown
+// types.
+func decodeEvent(p pubsub.Payload) (any, bool) {
+	switch p.Type {
+	case pubsub.PayloadTypeLSPEvent:
+		return unmarshalEvent[proto.LSPEvent](p.Payload)
+	case pubsub.PayloadTypeMCPEvent:
+		return unmarshalEvent[proto.MCPEvent](p.Payload)
+	case pubsub.PayloadTypeSkillEvent:
+		return unmarshalEvent[proto.SkillEvent](p.Payload)
+	case pubsub.PayloadTypePermissionRequest:
+		return unmarshalEvent[proto.PermissionRequest](p.Payload)
+	case pubsub.PayloadTypePermissionNotification:
+		return unmarshalEvent[proto.PermissionNotification](p.Payload)
+	case pubsub.PayloadTypeMessage:
+		return unmarshalEvent[proto.Message](p.Payload)
+	case pubsub.PayloadTypeSession:
+		return unmarshalEvent[proto.Session](p.Payload)
+	case pubsub.PayloadTypeFile:
+		return unmarshalEvent[proto.File](p.Payload)
+	case pubsub.PayloadTypeAgentEvent:
+		return unmarshalEvent[proto.AgentEvent](p.Payload)
+	case pubsub.PayloadTypeSkillsEvent:
+		return unmarshalEvent[proto.SkillsEvent](p.Payload)
+	case pubsub.PayloadTypeConfigChanged:
+		return unmarshalEvent[proto.ConfigChanged](p.Payload)
+	case pubsub.PayloadTypeRunComplete:
+		return unmarshalEvent[proto.RunComplete](p.Payload)
+	case pubsub.PayloadTypeForkProgress:
+		return unmarshalEvent[proto.ForkProgress](p.Payload)
+	default:
+		slog.Warn("Unknown event type", "type", p.Type)
+		return nil, false
+	}
+}
+
+// unmarshalEvent decodes a raw payload into a pubsub.Event[T]. Decode errors
+// are ignored to preserve the original best-effort streaming behavior; the
+// (possibly zero) event is still delivered.
+func unmarshalEvent[T any](payload json.RawMessage) (any, bool) {
+	var e pubsub.Event[T]
+	_ = json.Unmarshal(payload, &e)
+	return e, true
 }
 
 func sendEvent(ctx context.Context, evc chan any, ev any) bool {
