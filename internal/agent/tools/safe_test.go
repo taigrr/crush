@@ -45,3 +45,50 @@ func TestContainsCommandChaining(t *testing.T) {
 		})
 	}
 }
+
+func TestIsSafeReadOnlyCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{"plain ls", "ls", true},
+		{"ls with flags", "ls -la", true},
+		{"ls with path", "ls /tmp", true},
+		{"git status", "git status", true},
+		{"git log with flags", "git log --oneline", true},
+		{"uppercase normalized", "LS -LA", true},
+
+		// Word-boundary: prefixes of safe commands must not match.
+		{"lscpu not ls", "lscpu", false},
+		{"idle not id", "idle", false},
+
+		// Not in safe list.
+		{"rm is not safe", "rm -rf /tmp/x", false},
+		{"cat is not safe", "cat secrets", false},
+
+		// Chaining / substitution disqualifies.
+		{"ls piped", "ls | grep foo", false},
+		{"ls and echo", "ls && echo done", false},
+		{"ls semicolon", "ls; rm x", false},
+		{"ls subshell", "ls $(whoami)", false},
+
+		// Redirection / background can mutate state: must prompt.
+		{"echo redirect overwrites file", "echo pwned > /etc/passwd", false},
+		{"ls append redirect", "ls >> out.txt", false},
+		{"ls background", "ls &", false},
+		{"ls redirect both", "ls &> /dev/null", false},
+
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := isSafeReadOnlyCommand(tt.input)
+			assert.Equal(t, tt.expected, got, "isSafeReadOnlyCommand(%q)", tt.input)
+		})
+	}
+}
