@@ -973,6 +973,7 @@ func translateEvent(ev any) tea.Msg {
 		return pubsub.Event[permission.PermissionNotification]{
 			Type: e.Type,
 			Payload: permission.PermissionNotification{
+				SessionID:  e.Payload.SessionID,
 				ToolCallID: e.Payload.ToolCallID,
 				Granted:    e.Payload.Granted,
 				Denied:     e.Payload.Denied,

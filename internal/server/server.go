@@ -10,6 +10,7 @@ import (
 	"os/user"
 	"runtime"
 	"strings"
+	"time"
 
 	httpswagger "github.com/swaggo/http-swagger/v2"
 	"github.com/taigrr/crush/internal/backend"
@@ -80,14 +81,23 @@ func NewServer(cfg *config.ConfigStore, network, address string) *Server {
 	s.Addr = address
 	s.network = network
 
-	// The backend is created with a shutdown callback that triggers
-	// a graceful server shutdown (e.g. when the last workspace is
-	// removed).
+	// The backend is created with a shutdown callback that stops the
+	// HTTP server. The backend has already torn down workspaces (and
+	// cancelled in-flight runs) before invoking this, so we don't wait
+	// indefinitely for in-flight requests: long-lived SSE streams block
+	// on their request context, which graceful shutdown never cancels,
+	// so a purely graceful Shutdown would hang. Attempt a brief graceful
+	// drain, then force-close so the process exits promptly.
 	s.backend = backend.New(context.Background(), cfg, func() {
 		go func() {
 			slog.Info("Shutting down server...")
-			if err := s.Shutdown(context.Background()); err != nil {
-				slog.Error("Failed to shutdown server", "error", err)
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := s.Shutdown(ctx); err != nil {
+				slog.Warn("Graceful shutdown timed out; forcing close", "error", err)
+				if cerr := s.Close(); cerr != nil {
+					slog.Error("Failed to force-close server", "error", cerr)
+				}
 			}
 		}()
 	})

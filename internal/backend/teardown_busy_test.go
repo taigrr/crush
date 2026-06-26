@@ -116,3 +116,44 @@ func TestExplicitShutdown_BypassesBusyCheck(t *testing.T) {
 
 	require.Equal(t, int32(1), srvShutdowns.Load(), "explicit shutdown must ignore busy state")
 }
+
+// TestExplicitShutdown_TearsDownAttachedBusyWorkspace verifies the
+// explicit shutdown command tears down every workspace and removes it
+// from the registry even when clients are still attached and the agent
+// is busy — i.e. it cancels in-flight runs rather than waiting for them.
+func TestExplicitShutdown_TearsDownAttachedBusyWorkspace(t *testing.T) {
+	t.Parallel()
+
+	b, srvShutdowns := newTestBackend(t)
+	ws, wsShutdowns, busy := insertBusyTestWorkspace(t, b, "/tmp/a")
+	busy.Store(true)
+
+	cid := newClientID(t)
+	b.registerClient(ws, cid, nil, "")
+	require.NoError(t, b.AttachClient(ws.ID, cid))
+
+	b.Shutdown()
+
+	require.Equal(t, int32(1), wsShutdowns.Load(), "workspace must be torn down despite attached/busy")
+	require.Equal(t, int32(1), srvShutdowns.Load(), "server must shut down")
+	_, err := b.GetWorkspace(ws.ID)
+	require.ErrorIs(t, err, ErrWorkspaceNotFound, "workspace must be removed from the registry")
+}
+
+// TestExplicitShutdown_TearsDownAllWorkspaces verifies that the explicit
+// shutdown command tears down every registered workspace, not just one,
+// and shuts the server down exactly once.
+func TestExplicitShutdown_TearsDownAllWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	b, srvShutdowns := newTestBackend(t)
+	_, wsShutdownsA := insertTestWorkspace(t, b, "/tmp/a")
+	_, wsShutdownsB := insertTestWorkspace(t, b, "/tmp/b")
+
+	b.Shutdown()
+
+	require.Equal(t, int32(1), wsShutdownsA.Load())
+	require.Equal(t, int32(1), wsShutdownsB.Load())
+	require.Equal(t, int32(1), srvShutdowns.Load(), "server shutdown must fire exactly once")
+	require.Equal(t, 0, b.workspaces.Len(), "all workspaces must be removed")
+}

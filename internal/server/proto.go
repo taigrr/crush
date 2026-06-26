@@ -304,6 +304,17 @@ func (c *controllerV1) handleGetWorkspaceEvents(w http.ResponseWriter, r *http.R
 				)
 				return
 			}
+			// Permission prompts and their resolution notifications
+			// are session-scoped: only forward them to the client that
+			// is currently viewing the originating session. Otherwise
+			// prompts and cancel/grant/deny resolutions leak across
+			// clients sharing the workspace. A client whose current
+			// session is unknown (no selection yet) receives none.
+			if sid, scoped := sessionScopedEvent(ev.Payload); scoped {
+				if cur, attached := c.backend.CurrentSessionID(id, clientID); !attached || cur != sid {
+					continue
+				}
+			}
 			wrapped := wrapEvent(ev.Payload)
 			if wrapped == nil {
 				continue

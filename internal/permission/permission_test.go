@@ -1,6 +1,7 @@
 package permission
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -612,4 +613,60 @@ func TestPermissionService_ResolveIdempotency(t *testing.T) {
 			// good: no notification.
 		}
 	})
+}
+
+// TestPermissionService_CancelPublishesDenial verifies that a pending
+// permission request whose context is cancelled (e.g. the agent run was
+// cancelled) resolves as denied and publishes a notification, so any
+// open permission dialog on subscribed clients is dismissed instead of
+// hanging open.
+func TestPermissionService_CancelPublishesDenial(t *testing.T) {
+	t.Parallel()
+	service := NewPermissionService("/tmp", false, nil)
+
+	requests := service.Subscribe(t.Context())
+	notifications := service.SubscribeNotifications(t.Context())
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	var granted bool
+	var err error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		granted, err = service.Request(ctx, CreatePermissionRequest{
+			SessionID:  "s-cancel",
+			ToolCallID: "call-cancel",
+			ToolName:   "view",
+			Action:     "read",
+			Path:       "/tmp",
+		})
+	}()
+
+	// Wait for the request to be published (the initial pending
+	// notification is published first, then the request itself).
+	<-requests
+
+	// Cancel the run while the prompt is still pending.
+	cancel()
+	wg.Wait()
+
+	require.Error(t, err)
+	assert.False(t, granted)
+
+	// Drain notifications until the terminal denial arrives.
+	deadline := time.After(time.Second)
+	var sawDenial bool
+	for !sawDenial {
+		select {
+		case ev := <-notifications:
+			if ev.Payload.ToolCallID == "call-cancel" && ev.Payload.Denied {
+				assert.Equal(t, "s-cancel", ev.Payload.SessionID)
+				sawDenial = true
+			}
+		case <-deadline:
+			t.Fatal("cancellation did not publish a denial notification")
+		}
+	}
 }

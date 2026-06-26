@@ -434,9 +434,16 @@ func TestE2E_PermissionFlowCrossClient(t *testing.T) {
 
 	h.waitForAttached(t, 2)
 
+	// Both clients are viewing the same session, so both must receive
+	// the session-scoped permission request and resolution
+	// notifications. Permission events are filtered server-side by the
+	// client's current session.
+	const sessionID = "s-perm"
+	require.NoError(t, h.backend.SetCurrentSession(h.workspace.ID, cidA, sessionID))
+	require.NoError(t, h.backend.SetCurrentSession(h.workspace.ID, cidB, sessionID))
+
 	// Drive the permission request from a goroutine simulating the
 	// tool path. Request blocks until resolved; capture the outcome.
-	const sessionID = "s-perm"
 	const toolCallID = "tc-1"
 	type result struct {
 		granted bool
@@ -498,6 +505,66 @@ func TestE2E_PermissionFlowCrossClient(t *testing.T) {
 		Action:     proto.PermissionAllow,
 	})
 	require.False(t, resolvedB, "client B's follow-up grant must report already resolved")
+}
+
+// TestE2E_PermissionPromptNotLeakedToOtherSession verifies the
+// server-side session scoping: a permission request for session A is
+// delivered only to clients viewing session A. A client viewing a
+// different session must not receive the prompt.
+func TestE2E_PermissionPromptNotLeakedToOtherSession(t *testing.T) {
+	t.Parallel()
+	h := newE2EHarness(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	cidA := uuid.New().String()
+	cidB := uuid.New().String()
+
+	evcA, cancelA := h.subscribeSSE(t, ctx, h.workspace.ID, cidA)
+	t.Cleanup(cancelA)
+	evcB, cancelB := h.subscribeSSE(t, ctx, h.workspace.ID, cidB)
+	t.Cleanup(cancelB)
+
+	h.waitForAttached(t, 2)
+
+	// A views session-a, B views session-b. The request targets
+	// session-a, so only A should observe it.
+	require.NoError(t, h.backend.SetCurrentSession(h.workspace.ID, cidA, "session-a"))
+	require.NoError(t, h.backend.SetCurrentSession(h.workspace.ID, cidB, "session-b"))
+
+	const toolCallID = "tc-leak"
+	go func() {
+		_, _ = h.app.Permissions.Request(ctx, permission.CreatePermissionRequest{
+			SessionID:   "session-a",
+			ToolCallID:  toolCallID,
+			ToolName:    "view",
+			Description: "read a file",
+			Action:      "read",
+			Path:        h.workspace.Path,
+		})
+	}()
+
+	// A must receive the prompt.
+	pickCtx, pickCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer pickCancel()
+	reqEv, ok := drainUntil(pickCtx, evcA, func(e pubsub.Event[proto.PermissionRequest]) bool {
+		return e.Payload.ToolCallID == toolCallID
+	})
+	require.True(t, ok, "client A (viewing session-a) must receive the request")
+
+	// B must NOT receive the prompt within a short window.
+	leakCtx, leakCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer leakCancel()
+	_, leaked := drainUntil(leakCtx, evcB, func(e pubsub.Event[proto.PermissionRequest]) bool {
+		return e.Payload.ToolCallID == toolCallID
+	})
+	require.False(t, leaked, "client B (viewing session-b) must not receive the request")
+
+	// Resolve so the goroutine's Request call returns.
+	h.grantPermission(t, ctx, h.workspace.ID, proto.PermissionGrant{
+		Permission: reqEv.Payload,
+		Action:     proto.PermissionAllow,
+	})
 }
 
 // TestE2E_KillingClientASSEDoesNotBreakClientB covers PLAN item 6

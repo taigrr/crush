@@ -46,6 +46,7 @@ type CreatePermissionRequest struct {
 }
 
 type PermissionNotification struct {
+	SessionID  string `json:"session_id"`
 	ToolCallID string `json:"tool_call_id"`
 	Granted    bool   `json:"granted"`
 	Denied     bool   `json:"denied"`
@@ -143,6 +144,7 @@ func (s *permissionService) resolve(permission PermissionRequest, granted, denie
 	}
 
 	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+		SessionID:  permission.SessionID,
 		ToolCallID: permission.ToolCallID,
 		Granted:    granted,
 		Denied:     denied,
@@ -201,6 +203,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 	// and audit subscribers see the outcome.
 	if hookApproved(ctx, opts.ToolCallID) {
 		s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+			SessionID:  opts.SessionID,
 			ToolCallID: opts.ToolCallID,
 			Granted:    true,
 		})
@@ -212,6 +215,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 
 	// tell the UI that a permission was requested
 	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+		SessionID:  opts.SessionID,
 		ToolCallID: opts.ToolCallID,
 	})
 
@@ -221,6 +225,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 
 	if autoApprove {
 		s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+			SessionID:  opts.SessionID,
 			ToolCallID: opts.ToolCallID,
 			Granted:    true,
 		})
@@ -258,6 +263,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		Path:      permission.Path,
 	}); ok {
 		s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+			SessionID:  opts.SessionID,
 			ToolCallID: opts.ToolCallID,
 			Granted:    true,
 		})
@@ -277,6 +283,13 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 
 	select {
 	case <-ctx.Done():
+		// The run was cancelled (or otherwise torn down) while the
+		// prompt was still pending. Resolve the request as denied so
+		// any open permission dialog on clients viewing this session
+		// is dismissed; without this the dialog would hang open until
+		// manually closed, making the cancel appear to do nothing.
+		// resolve is a no-op if a concurrent Grant/Deny already won.
+		s.resolve(permission, false, true, nil)
 		return false, ctx.Err()
 	case granted := <-respCh:
 		return granted, nil

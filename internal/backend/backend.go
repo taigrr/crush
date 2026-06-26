@@ -785,6 +785,25 @@ func (w *Workspace) AttachedClientsForSession(sessionID string) int {
 	return n
 }
 
+// CurrentSessionID returns the session the given client is currently
+// viewing in the workspace, along with whether the client is attached
+// with a live SSE stream. Hold-only clients (streams == 0) and unknown
+// clients report ok=false. Used to scope broadcast events to the
+// session a client is actually looking at.
+func (b *Backend) CurrentSessionID(workspaceID, clientID string) (string, bool) {
+	ws, ok := b.workspaces.Get(workspaceID)
+	if !ok {
+		return "", false
+	}
+	ws.clientsMu.Lock()
+	defer ws.clientsMu.Unlock()
+	cs, ok := ws.clients[clientID]
+	if !ok || cs.streams == 0 {
+		return "", false
+	}
+	return cs.currentSessionID, true
+}
+
 // GetWorkspaceProto returns the proto representation of a workspace.
 func (b *Backend) GetWorkspaceProto(id string) (proto.Workspace, error) {
 	ws, err := b.GetWorkspace(id)
@@ -810,8 +829,40 @@ func (b *Backend) Config() *config.ConfigStore {
 	return b.cfg
 }
 
-// Shutdown initiates a graceful server shutdown.
+// Shutdown initiates an immediate server shutdown. Unlike the
+// idle-teardown path (which keeps a workspace alive while clients are
+// attached or an agent is busy), this is the explicit "stop now"
+// command: it tears down every workspace regardless of attached
+// clients, cancelling each workspace run context and all in-flight
+// agent runs via [Workspace.Shutdown] so streaming tool calls are
+// marked cancelled. Only after every workspace has been torn down does
+// it invoke the shutdown callback to stop the HTTP server.
+//
+// Workspaces are removed from the registry first so any concurrent
+// detach/idle teardown becomes a no-op and the shutdown callback is not
+// raced by the "last workspace removed" path.
 func (b *Backend) Shutdown() {
+	b.mu.Lock()
+	wss := make([]*Workspace, 0, b.workspaces.Len())
+	for id, ws := range b.workspaces.Seq2() {
+		wss = append(wss, ws)
+		if existing, ok := b.pathIndex[ws.resolvedPath]; ok && existing == id {
+			delete(b.pathIndex, ws.resolvedPath)
+		}
+	}
+	for _, ws := range wss {
+		b.workspaces.Del(ws.ID)
+	}
+	b.mu.Unlock()
+
+	// Cancel and tear down each workspace. invokeShutdown runs
+	// Workspace.Shutdown: mark closing, cancel the run context,
+	// CancelAll in-flight coordinator runs, wait for run goroutines,
+	// then App cleanup.
+	for _, ws := range wss {
+		ws.invokeShutdown()
+	}
+
 	if b.shutdownFn != nil {
 		b.shutdownFn()
 	}
