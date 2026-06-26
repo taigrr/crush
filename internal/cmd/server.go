@@ -1,14 +1,12 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"time"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
@@ -84,15 +82,12 @@ var serverCmd = &cobra.Command{
 			return nil
 		}
 
-		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
-		defer cancel()
-
 		slog.Info("Shutting down...")
 
-		if err := srv.Shutdown(ctx); err != nil {
-			slog.Error("Failed to shutdown server", "error", err)
-			return fmt.Errorf("failed to shutdown server: %v", err)
-		}
+		// Stop tears down workspaces (cancelling in-flight runs) and
+		// then drains/force-closes HTTP, so a signal doesn't hang on
+		// open SSE streams or leave runs executing.
+		srv.Stop()
 
 		return nil
 	},

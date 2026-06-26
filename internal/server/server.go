@@ -82,24 +82,11 @@ func NewServer(cfg *config.ConfigStore, network, address string) *Server {
 	s.network = network
 
 	// The backend is created with a shutdown callback that stops the
-	// HTTP server. The backend has already torn down workspaces (and
-	// cancelled in-flight runs) before invoking this, so we don't wait
-	// indefinitely for in-flight requests: long-lived SSE streams block
-	// on their request context, which graceful shutdown never cancels,
-	// so a purely graceful Shutdown would hang. Attempt a brief graceful
-	// drain, then force-close so the process exits promptly.
+	// HTTP server. The control-command path (Backend.Shutdown) has
+	// already torn down workspaces and cancelled in-flight runs before
+	// invoking this, so Stop only needs to drain/close HTTP.
 	s.backend = backend.New(context.Background(), cfg, func() {
-		go func() {
-			slog.Info("Shutting down server...")
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			if err := s.Shutdown(ctx); err != nil {
-				slog.Warn("Graceful shutdown timed out; forcing close", "error", err)
-				if cerr := s.Close(); cerr != nil {
-					slog.Error("Failed to force-close server", "error", cerr)
-				}
-			}
-		}()
+		go s.stopHTTP()
 	})
 	s.installHandler()
 	if network == "tcp" {
@@ -260,6 +247,32 @@ func (s *Server) Close() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	defer func() { s.closeListener() }()
 	return s.h.Shutdown(ctx)
+}
+
+// Stop performs an immediate, complete shutdown: it tears down every
+// workspace (cancelling in-flight agent runs and marking streaming tool
+// calls cancelled) and then stops the HTTP server. Use this for
+// signal-driven shutdown (SIGINT/SIGTERM). It is synchronous so callers
+// can return only once teardown has finished.
+func (s *Server) Stop() {
+	s.backend.ShutdownWorkspaces()
+	s.stopHTTP()
+}
+
+// stopHTTP drains the HTTP server. Long-lived SSE streams block on their
+// request context, which a graceful Shutdown never cancels, so a purely
+// graceful Shutdown would hang. Attempt a brief graceful drain, then
+// force-close so the process exits promptly.
+func (s *Server) stopHTTP() {
+	slog.Info("Shutting down server...")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		slog.Warn("Graceful shutdown timed out; forcing close", "error", err)
+		if cerr := s.Close(); cerr != nil {
+			slog.Error("Failed to force-close server", "error", cerr)
+		}
+	}
 }
 
 func (s *Server) logError(r *http.Request, msg string, args ...any) {

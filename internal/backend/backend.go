@@ -842,6 +842,25 @@ func (b *Backend) Config() *config.ConfigStore {
 // detach/idle teardown becomes a no-op and the shutdown callback is not
 // raced by the "last workspace removed" path.
 func (b *Backend) Shutdown() {
+	b.ShutdownWorkspaces()
+
+	if b.shutdownFn != nil {
+		b.shutdownFn()
+	}
+}
+
+// ShutdownWorkspaces tears down every registered workspace without
+// stopping the HTTP server. It cancels each workspace run context and
+// all in-flight agent runs via [Workspace.Shutdown] so streaming tool
+// calls are marked cancelled. Used by both [Backend.Shutdown] (the
+// control-command path, which also stops the server afterward) and by
+// signal-driven shutdown in the server command, which owns server
+// teardown itself and must cancel runs before draining HTTP.
+//
+// Workspaces are removed from the registry first so any concurrent
+// detach/idle teardown becomes a no-op and the "last workspace removed"
+// path does not race the explicit teardown.
+func (b *Backend) ShutdownWorkspaces() {
 	b.mu.Lock()
 	wss := make([]*Workspace, 0, b.workspaces.Len())
 	for id, ws := range b.workspaces.Seq2() {
@@ -861,10 +880,6 @@ func (b *Backend) Shutdown() {
 	// then App cleanup.
 	for _, ws := range wss {
 		ws.invokeShutdown()
-	}
-
-	if b.shutdownFn != nil {
-		b.shutdownFn()
 	}
 }
 
