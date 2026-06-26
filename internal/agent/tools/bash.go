@@ -405,7 +405,12 @@ func formatOutput(stdout, stderr string, execErr error) string {
 	}
 
 	if errorMessage != "" {
-		stdout += "\n" + errorMessage
+		// Only insert a separating newline when there is preceding stdout;
+		// otherwise the result would start with a spurious blank line.
+		if stdout != "" {
+			stdout += "\n"
+		}
+		stdout += errorMessage
 	}
 
 	return stdout
