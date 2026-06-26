@@ -26,20 +26,9 @@ func (a *sessionAgent) updateSessionUsage(model Model, session *session.Session,
 
 	modelConfig := model.CatwalkCfg
 
-	// Determine pricing tier: when extended (1M) context is active AND the
-	// prompt exceeds the standard 200K threshold, Anthropic charges premium
-	// long-context rates.
 	costIn := modelConfig.CostPer1MIn
 	costOut := modelConfig.CostPer1MOut
 	costInCached := modelConfig.CostPer1MInCached
-	if a.useExtendedContext(session.ID, model) {
-		promptTokens := usage.InputTokens + usage.CacheReadTokens + usage.CacheCreationTokens
-		if promptTokens > largeContextWindowThreshold && modelConfig.LongContextCostPer1MIn > 0 {
-			costIn = modelConfig.LongContextCostPer1MIn
-			costOut = modelConfig.LongContextCostPer1MOut
-			costInCached = modelConfig.LongContextCostPer1MInCached
-		}
-	}
 
 	cost := costInCached/1e6*float64(usage.CacheCreationTokens) +
 		modelConfig.CostPer1MOutCached/1e6*float64(usage.CacheReadTokens) +

@@ -83,43 +83,9 @@ func HighlightBuffer(content string, area image.Rectangle, startLine, startCol, 
 		}
 
 		line := buf.Line(y)
+		colStart, highlightEnd := highlightRangeForLine(line, y, startLine, endLine, startCol, endCol)
 
-		// Determine column range for this line
-		colStart := 0
-		if y == startLine {
-			colStart = min(startCol, len(line))
-		}
-
-		colEnd := len(line)
-		if y == endLine {
-			colEnd = min(endCol, len(line))
-		}
-
-		// Track last non-empty position as we go
-		lastContentX := -1
-
-		// Single pass: check content and track last non-empty position
-		for x := colStart; x < colEnd; x++ {
-			cell := line.At(x)
-			if cell == nil {
-				continue
-			}
-
-			// Update last content position if non-empty
-			if cell.Content != "" && cell.Content != " " {
-				lastContentX = x
-			}
-		}
-
-		// Only apply highlight up to last content position
-		highlightEnd := colEnd
-		if lastContentX >= 0 {
-			highlightEnd = lastContentX + 1
-		} else if lastContentX == -1 {
-			highlightEnd = colStart // No content on this line
-		}
-
-		// Apply highlight style only to cells with content
+		// Apply highlight style only to cells with content.
 		for x := colStart; x < highlightEnd; x++ {
 			if !image.Pt(x, y).In(area) {
 				continue
@@ -132,6 +98,41 @@ func HighlightBuffer(content string, area image.Rectangle, startLine, startCol, 
 	}
 
 	return &buf
+}
+
+// highlightRangeForLine computes the [colStart, highlightEnd) column span to
+// highlight on line y. The start/end columns only clamp on the first/last
+// lines of the selection; interior lines span the whole line. The end is
+// pulled back to just past the last non-blank cell so trailing whitespace is
+// never highlighted (highlightEnd == colStart when the line has no content in
+// range).
+func highlightRangeForLine(line uv.Line, y, startLine, endLine, startCol, endCol int) (colStart, highlightEnd int) {
+	colStart = 0
+	if y == startLine {
+		colStart = min(startCol, len(line))
+	}
+
+	colEnd := len(line)
+	if y == endLine {
+		colEnd = min(endCol, len(line))
+	}
+
+	lastContentX := -1
+	for x := colStart; x < colEnd; x++ {
+		cell := line.At(x)
+		if cell == nil {
+			continue
+		}
+		if cell.Content != "" && cell.Content != " " {
+			lastContentX = x
+		}
+	}
+
+	if lastContentX >= 0 {
+		return colStart, lastContentX + 1
+	}
+	// No content on this line in range.
+	return colStart, colStart
 }
 
 // ToHighlighter converts a [lipgloss.Style] to a [Highlighter].

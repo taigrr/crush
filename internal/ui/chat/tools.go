@@ -1717,46 +1717,34 @@ func (t *baseToolMessageItem) formatAgentResultForCopy() string {
 	return result.String()
 }
 
+// prettyToolNames maps built-in tool names to their human-readable display
+// names. Tool names not present here (e.g. MCP tools) fall back to
+// humanizedToolName.
+var prettyToolNames = map[string]string{
+	agent.AgentToolName:        "Agent",
+	tools.BashToolName:         "Bash",
+	tools.JobOutputToolName:    "Job: Output",
+	tools.JobKillToolName:      "Job: Kill",
+	tools.DownloadToolName:     "Download",
+	tools.EditToolName:         "Edit",
+	tools.MultiEditToolName:    "Multi-Edit",
+	tools.FetchToolName:        "Fetch",
+	tools.AgenticFetchToolName: "Agentic Fetch",
+	tools.WebFetchToolName:     "Fetch",
+	tools.WebSearchToolName:    "Search",
+	tools.GlobToolName:         "Glob",
+	tools.GrepToolName:         "Grep",
+	tools.LSToolName:           "List",
+	tools.SourcegraphToolName:  "Sourcegraph",
+	tools.TodosToolName:        "To-Do",
+	tools.ViewToolName:         "View",
+	tools.WriteToolName:        "Write",
+}
+
 // prettifyToolName returns a human-readable name for tool names.
 func prettifyToolName(name string) string {
-	switch name {
-	case agent.AgentToolName:
-		return "Agent"
-	case tools.BashToolName:
-		return "Bash"
-	case tools.JobOutputToolName:
-		return "Job: Output"
-	case tools.JobKillToolName:
-		return "Job: Kill"
-	case tools.DownloadToolName:
-		return "Download"
-	case tools.EditToolName:
-		return "Edit"
-	case tools.MultiEditToolName:
-		return "Multi-Edit"
-	case tools.FetchToolName:
-		return "Fetch"
-	case tools.AgenticFetchToolName:
-		return "Agentic Fetch"
-	case tools.WebFetchToolName:
-		return "Fetch"
-	case tools.WebSearchToolName:
-		return "Search"
-	case tools.GlobToolName:
-		return "Glob"
-	case tools.GrepToolName:
-		return "Grep"
-	case tools.LSToolName:
-		return "List"
-	case tools.SourcegraphToolName:
-		return "Sourcegraph"
-	case tools.TodosToolName:
-		return "To-Do"
-	case tools.ViewToolName:
-		return "View"
-	case tools.WriteToolName:
-		return "Write"
-	default:
-		return humanizedToolName(name)
+	if pretty, ok := prettyToolNames[name]; ok {
+		return pretty
 	}
+	return humanizedToolName(name)
 }

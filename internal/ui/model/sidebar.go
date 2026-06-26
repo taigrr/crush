@@ -12,6 +12,7 @@ import (
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/logo"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/workspace"
 	"github.com/taigrr/crush/internal/worktree"
 )
 
@@ -19,70 +20,45 @@ import (
 // settings and context usage/cost for the sidebar.
 func (m *UI) modelInfo(width int) string {
 	model := m.selectedLargeModel()
-	reasoningInfo := ""
 	providerName := ""
+	reasoningInfo := ""
 
 	if model != nil {
-		// Get provider name first
-		providerConfig, ok := m.com.Config().Providers.Get(model.ModelCfg.Provider)
-		if ok {
+		if providerConfig, ok := m.com.Config().Providers.Get(model.ModelCfg.Provider); ok {
 			providerName = providerConfig.Name
-
-			// Only check reasoning if model can reason
-			if model.CatwalkCfg.CanReason {
-				if len(model.CatwalkCfg.ReasoningLevels) == 0 {
-					if model.ModelCfg.Think {
-						reasoningInfo = "Thinking On"
-					} else {
-						reasoningInfo = "Thinking Off"
-					}
-				} else {
-					reasoningEffort := cmp.Or(model.ModelCfg.ReasoningEffort, model.CatwalkCfg.DefaultReasoningEffort)
-					reasoningInfo = fmt.Sprintf("Reasoning %s", common.FormatReasoningEffort(reasoningEffort))
-				}
-			}
-
-			// Show context mode if the model supports 1M context and mode is non-standard.
-			if model.CatwalkCfg.Supports1MContext && model.ModelCfg.ContextMode != "" && model.ModelCfg.ContextMode != "standard" {
-				var modeStr string
-				if model.ModelCfg.ContextMode == "dynamic" && m.session != nil &&
-					m.com.Workspace.AgentIsExtendedContext(m.session.ID) {
-					modeStr = "1M Active"
-				} else {
-					modeStr = common.FormatContextMode(string(model.ModelCfg.ContextMode))
-				}
-				if reasoningInfo != "" {
-					reasoningInfo += " · " + modeStr
-				} else {
-					reasoningInfo = modeStr
-				}
-			}
+			reasoningInfo = reasoningInfoFor(model)
 		}
 	}
 
 	var modelContext *common.ModelContextInfo
 	if model != nil && m.session != nil {
-		// Use extended (1M) window when extended/dynamic mode is enabled.
-		ctxWindow := model.CatwalkCfg.ContextWindow
-		if model.CatwalkCfg.Supports1MContext {
-			switch model.ModelCfg.ContextMode {
-			case "extended", "dynamic":
-				ctxWindow = 1_000_000
-			}
-		}
 		modelContext = &common.ModelContextInfo{
 			ContextUsed:  m.session.CompletionTokens + m.session.PromptTokens,
 			Cost:         m.session.Cost,
-			ModelContext: ctxWindow,
+			ModelContext: int64(model.CatwalkCfg.ContextWindow),
 		}
 	}
 	var modelName string
-	var rainbow bool
 	if model != nil {
 		modelName = model.CatwalkCfg.Name
-		rainbow = model.CatwalkCfg.Supports1MContext && model.ModelCfg.ContextMode == "dynamic"
 	}
-	return common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits, rainbow)
+	return common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits)
+}
+
+// reasoningInfoFor builds the sidebar's reasoning label for a model: the
+// thinking/reasoning state. Returns "" when the model cannot reason.
+func reasoningInfoFor(model *workspace.AgentModel) string {
+	if !model.CatwalkCfg.CanReason {
+		return ""
+	}
+	if len(model.CatwalkCfg.ReasoningLevels) == 0 {
+		if model.ModelCfg.Think {
+			return "Thinking On"
+		}
+		return "Thinking Off"
+	}
+	effort := cmp.Or(model.ModelCfg.ReasoningEffort, model.CatwalkCfg.DefaultReasoningEffort)
+	return fmt.Sprintf("Reasoning %s", common.FormatReasoningEffort(effort))
 }
 
 // getDynamicHeightLimits will give us the num of items to show in each section based on the height

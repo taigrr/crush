@@ -470,6 +470,47 @@ func TestPathDedupe_FullCreate(t *testing.T) {
 
 // TestPathDedupe_DifferentPaths_DifferentWorkspaces confirms that two
 // CreateWorkspace calls at distinct paths produce distinct workspaces.
+// TestPathDedupe_PerClientWorkingDir verifies that when a second client
+// joins an existing workspace from a different subdirectory, the proto it
+// receives reports its own launch directory as WorkingDir — not the first
+// client's. Multiple clients share one workspace (collapsed to the same
+// project root for .crush/) but each must see and operate from where it
+// launched. Regression test for tools/cwd resolving to the workspace's
+// first-client directory.
+func TestPathDedupe_PerClientWorkingDir(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	root := t.TempDir()
+	realRoot, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	gitInit := exec.CommandContext(t.Context(), "git", "init", "-q")
+	gitInit.Dir = realRoot
+	require.NoError(t, gitInit.Run())
+	sub := filepath.Join(realRoot, "apps", "web")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	dataDir := t.TempDir()
+
+	b := New(context.Background(), nil, func() {})
+	b.SetCreateGrace(2 * time.Second)
+	t.Cleanup(func() { drainBackend(t, b) })
+
+	// First client launches at the project root.
+	_, protoA, err := b.CreateWorkspace(protoWS(realRoot, dataDir, uuid.New().String()))
+	require.NoError(t, err)
+	require.Equal(t, realRoot, protoA.WorkingDir)
+
+	// Second client launches from a subdirectory of the same project: it
+	// dedups to the same workspace but must see its own launch cwd.
+	wsB, protoB, err := b.CreateWorkspace(protoWS(sub, dataDir, uuid.New().String()))
+	require.NoError(t, err)
+	require.Equal(t, protoA.ID, wsB.ID, "same project must share one workspace")
+	require.Equal(t, sub, protoB.WorkingDir,
+		"second client must see its own launch directory, not the first client's")
+}
+
 func TestPathDedupe_DifferentPaths_DifferentWorkspaces(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())

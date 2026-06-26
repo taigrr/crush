@@ -61,7 +61,6 @@ func TestApplyModelOverrides(t *testing.T) {
 			TopK:             ptr(int64(40)),
 			FrequencyPenalty: ptr(0.5),
 			PresencePenalty:  ptr(0.6),
-			ContextMode:      ContextModeExtended,
 			ProviderOptions:  map[string]any{"foo": "bar"},
 		}, model)
 		require.Equal(t, "high", target.ReasoningEffort)
@@ -70,7 +69,6 @@ func TestApplyModelOverrides(t *testing.T) {
 		require.Equal(t, int64(40), *target.TopK)
 		require.Equal(t, 0.5, *target.FrequencyPenalty)
 		require.Equal(t, 0.6, *target.PresencePenalty)
-		require.Equal(t, ContextModeExtended, target.ContextMode)
 		require.Equal(t, map[string]any{"foo": "bar"}, target.ProviderOptions)
 	})
 }

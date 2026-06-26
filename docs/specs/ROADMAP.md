@@ -355,8 +355,8 @@ lifecycle — the UI just fires the RPC and shows a "queued" message.
   `UpdateAgent` RPC path (`client.UpdateAgent` → `backend.UpdateAgent` →
   `app.UpdateAgentModel`) defers on the server where the agent's mutex
   actually lives.
-- UI handlers (`handleSelectModel`, `ActionSelectReasoningEffort`,
-  `ActionSelectContextMode`) no longer reject when busy: they write config +
+- UI handlers (`handleSelectModel`, `ActionSelectReasoningEffort`) no longer
+  reject when busy: they write config +
   fire the RPC and, if `isAgentBusy()`, show "<change> queued; applies when
   the agent finishes". No UI-side polling or pending-action queue.
 

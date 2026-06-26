@@ -511,7 +511,8 @@ func (c *Client) SendMessage(ctx context.Context, id string, sessionID, runID, p
 // RunShellCommand runs a shell command in the workspace without triggering the agent.
 func (c *Client) RunShellCommand(ctx context.Context, id, sessionID, command string) (proto.ShellCommandResponse, error) {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/shell", id, sessionID), nil, jsonBody(proto.ShellCommandRequest{
-		Command: command,
+		Command:  command,
+		ClientID: c.clientID,
 	}), http.Header{"Content-Type": []string{"application/json"}})
 	if err != nil {
 		return proto.ShellCommandResponse{}, fmt.Errorf("failed to run shell command: %w", err)

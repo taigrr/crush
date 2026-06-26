@@ -221,7 +221,6 @@ func (c *scriptedCoordinator) Summarize(context.Context, string) error          
 func (c *scriptedCoordinator) Model() agent.Model                                 { return agent.Model{} }
 func (c *scriptedCoordinator) UpdateModels(context.Context) error                 { return nil }
 func (c *scriptedCoordinator) UpdateModelsWhenIdle(context.Context) (bool, error) { return false, nil }
-func (c *scriptedCoordinator) IsExtendedContext(string) bool                      { return false }
 func (c *scriptedCoordinator) SetGoal(string, string)                             {}
 func (c *scriptedCoordinator) ClearGoal(string)                                   {}
 func (c *scriptedCoordinator) GoalStatus(string) (string, int, int, bool) {

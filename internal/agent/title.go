@@ -133,18 +133,9 @@ func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, user
 
 	modelConfig := model.CatwalkCfg
 
-	// Use long context pricing if extended mode is active and prompt exceeds 200K.
 	costIn := modelConfig.CostPer1MIn
 	costOut := modelConfig.CostPer1MOut
 	costInCached := modelConfig.CostPer1MInCached
-	if a.useExtendedContext(sessionID, model) {
-		promptTokens := resp.TotalUsage.InputTokens + resp.TotalUsage.CacheReadTokens + resp.TotalUsage.CacheCreationTokens
-		if promptTokens > largeContextWindowThreshold && modelConfig.LongContextCostPer1MIn > 0 {
-			costIn = modelConfig.LongContextCostPer1MIn
-			costOut = modelConfig.LongContextCostPer1MOut
-			costInCached = modelConfig.LongContextCostPer1MInCached
-		}
-	}
 
 	cost := costInCached/1e6*float64(resp.TotalUsage.CacheCreationTokens) +
 		modelConfig.CostPer1MOutCached/1e6*float64(resp.TotalUsage.CacheReadTokens) +

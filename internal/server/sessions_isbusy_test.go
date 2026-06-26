@@ -44,7 +44,6 @@ func (s *stubCoordinator) IsBusy() bool  { return false }
 func (s *stubCoordinator) IsSessionBusy(id string) bool {
 	return s.busy[id]
 }
-func (s *stubCoordinator) IsExtendedContext(string) bool { return false }
 func (s *stubCoordinator) SetGoal(string, string)        {}
 func (s *stubCoordinator) ClearGoal(string)              {}
 func (s *stubCoordinator) GoalStatus(string) (string, int, int, bool) {

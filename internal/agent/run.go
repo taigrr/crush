@@ -17,7 +17,6 @@ import (
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
-	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/stringext"
@@ -402,17 +401,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		maxOutputTokens = &call.MaxOutputTokens
 	}
 
-	// Inject 1M context beta flag if needed (extended or dynamic mode).
-	providerOpts := call.ProviderOptions
-	if a.useExtendedContext(call.SessionID, largeModel) {
-		providerOpts = addExtendedContextBeta(providerOpts)
-	}
-
 	result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
 		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
 		Files:            files,
 		Messages:         history,
-		ProviderOptions:  providerOpts,
+		ProviderOptions:  call.ProviderOptions,
 		MaxOutputTokens:  maxOutputTokens,
 		TopP:             call.TopP,
 		Temperature:      call.Temperature,
@@ -619,11 +612,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				if cw == 0 {
 					return false
 				}
-				// When extended mode is active (always-on 1M), use the
-				// extended window size for summarization thresholds.
-				if largeModel.ModelCfg.ContextMode == config.ContextModeExtended && largeModel.CatwalkCfg.Supports1MContext {
-					cw = extendedContextWindow
-				}
 				// Use the most recent step's input usage as a proxy for the
 				// current context size. Cumulative session tokens grow
 				// monotonically and would falsely trigger summarization even
@@ -639,32 +627,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 					tokens = currentSession.CompletionTokens + currentSession.PromptTokens
 				}
 
-				// Handle dynamic context mode for models that support 1M context.
-				if largeModel.ModelCfg.ContextMode == config.ContextModeDynamic && largeModel.CatwalkCfg.Supports1MContext {
-					inExtended, _ := a.extendedContextMode.Get(call.SessionID)
-					if inExtended {
-						// In extended mode: summarize at 90% of 1M.
-						threshold := int64(float64(extendedContextWindow) * extendedContextSummarizeRatio)
-						if tokens >= threshold && !a.disableAutoSummarize {
-							// Reset to standard mode after summarization.
-							a.extendedContextMode.Set(call.SessionID, false)
-							shouldSummarize = true
-							return true
-						}
-					} else {
-						// In standard mode: switch to extended at 80% of standard window.
-						threshold := int64(float64(cw) * extendedContextSwitchRatio)
-						if tokens >= threshold {
-							// Switch to extended mode for the NEXT call (don't stop current).
-							a.extendedContextMode.Set(call.SessionID, true)
-							slog.Info("Switching to extended context mode", "session_id", call.SessionID, "tokens", tokens)
-						}
-					}
-					// Don't stop for standard auto-summarize in dynamic mode.
-					return false
-				}
-
-				// Standard auto-summarize logic for non-dynamic modes.
 				remaining := cw - tokens
 				var threshold int64
 				if cw > largeContextWindowThreshold {

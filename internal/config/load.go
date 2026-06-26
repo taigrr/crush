@@ -688,9 +688,6 @@ func applyModelOverrides(target *SelectedModel, override SelectedModel, model *c
 	if override.PresencePenalty != nil {
 		target.PresencePenalty = override.PresencePenalty
 	}
-	if override.ContextMode != "" {
-		target.ContextMode = override.ContextMode
-	}
 	if override.ProviderOptions != nil {
 		target.ProviderOptions = override.ProviderOptions
 	}

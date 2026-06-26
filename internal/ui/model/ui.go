@@ -1743,38 +1743,6 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			return util.NewInfoMsg("Reasoning effort set to " + msg.Effort)
 		})
 		m.dialog.CloseDialog(dialog.ReasoningID)
-	case dialog.ActionSelectContextMode:
-		cfg := m.com.Config()
-		if cfg == nil {
-			cmds = append(cmds, util.ReportError(errors.New("configuration not found")))
-			break
-		}
-
-		agentCfg, ok := cfg.Agents[config.AgentCoder]
-		if !ok {
-			cmds = append(cmds, util.ReportError(errors.New("agent configuration not found")))
-			break
-		}
-
-		currentModel := cfg.Models[agentCfg.Model]
-		currentModel.ContextMode = msg.Mode
-		if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, agentCfg.Model, currentModel); err != nil {
-			cmds = append(cmds, util.ReportError(err))
-			break
-		}
-
-		queued := m.isAgentBusy()
-		cmds = append(cmds, func() tea.Msg {
-			if err := m.com.Workspace.UpdateAgentModel(context.TODO()); err != nil {
-				slog.Error("Failed to update agent model after context mode change", "error", err)
-				return util.NewWarnMsg("Context mode saved but agent update failed: " + err.Error())
-			}
-			if queued {
-				return util.NewInfoMsg("Context mode change queued; applies when the agent finishes")
-			}
-			return util.NewInfoMsg("Context mode set to " + common.FormatContextMode(string(msg.Mode)))
-		})
-		m.dialog.CloseDialog(dialog.ContextModeID)
 	case dialog.ActionPreviewTheme:
 		// Live preview as the picker selection moves; not persisted.
 		m.applyTheme(msg.Styles)

@@ -57,7 +57,6 @@ func (c *blockingCoordinator) ClearQueue(string)                                
 func (c *blockingCoordinator) Summarize(context.Context, string) error           { return nil }
 func (c *blockingCoordinator) Model() agent.Model                                { return agent.Model{} }
 func (c *blockingCoordinator) UpdateModels(context.Context) error                { return nil }
-func (c *blockingCoordinator) IsExtendedContext(string) bool                     { return false }
 func (c *blockingCoordinator) UpdateModelsWhenIdle(context.Context) (bool, error) {
 	return false, nil
 }

@@ -154,6 +154,12 @@ type AgentMessage struct {
 type ShellCommandRequest struct {
 	SessionID string `json:"session_id"`
 	Command   string `json:"command"`
+	// ClientID identifies the client that initiated the command so the
+	// server can run it in that client's launch directory. Multiple
+	// clients can share one workspace (subdirectories or sibling git
+	// worktrees collapsing to the same project root); without it the
+	// command would run in whichever client created the workspace first.
+	ClientID string `json:"client_id,omitempty"`
 }
 
 // ShellCommandResponse represents the result of a direct shell command.
@@ -180,8 +186,7 @@ type GoalStatus struct {
 // AgentSession represents a session with its busy status.
 type AgentSession struct {
 	Session
-	IsBusy            bool `json:"is_busy"`
-	IsExtendedContext bool `json:"is_extended_context"`
+	IsBusy bool `json:"is_busy"`
 }
 
 // IsZero checks if the AgentSession is zero-valued.

@@ -757,16 +757,6 @@
           "type": "boolean",
           "description": "Enable thinking mode for Anthropic models that support reasoning"
         },
-        "context_mode": {
-          "type": "string",
-          "enum": [
-            "standard",
-            "extended",
-            "dynamic"
-          ],
-          "description": "Context window mode: standard (default 200K), extended (1M), or dynamic (auto-switch)",
-          "default": "standard"
-        },
         "max_tokens": {
           "type": "integer",
           "maximum": 200000,

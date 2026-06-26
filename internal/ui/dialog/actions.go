@@ -69,11 +69,6 @@ type (
 	ActionSelectReasoningEffort struct {
 		Effort string
 	}
-	// ActionSelectContextMode is a message indicating a context mode has been
-	// selected.
-	ActionSelectContextMode struct {
-		Mode config.ContextMode
-	}
 	// ActionPreviewTheme is emitted as the theme picker selection moves, so
 	// the UI can apply the theme live as a preview without persisting it.
 	ActionPreviewTheme struct {

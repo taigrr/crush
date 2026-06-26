@@ -39,12 +39,6 @@ const (
 	largeContextWindowThreshold = 200_000
 	largeContextWindowBuffer    = 20_000
 	smallContextWindowRatio     = 0.2
-
-	// Extended context (1M) constants for dynamic mode.
-	extendedContextWindow         = 1_000_000
-	extendedContextSwitchRatio    = 0.8 // switch to extended at 80% of standard window
-	extendedContextSummarizeRatio = 0.9 // summarize at 90% of 1M
-	extendedContextBetaFlag       = "context-1m-2025-08-07"
 )
 
 var userAgent = fmt.Sprintf("Charm-Crush/%s (https://charm.land/crush)", version.Version)
@@ -117,7 +111,6 @@ type SessionAgent interface {
 	Cancel(sessionID string)
 	CancelAll()
 	IsSessionBusy(sessionID string) bool
-	IsExtendedContext(sessionID string) bool
 	IsBusy() bool
 	WaitForIdle(ctx context.Context) error
 	QueuedPrompts(sessionID string) int
@@ -157,10 +150,9 @@ type sessionAgent struct {
 	notify               pubsub.Publisher[notify.Notification]
 	runComplete          pubsub.Publisher[notify.RunComplete]
 
-	messageQueue        *csync.Map[string, []SessionAgentCall]
-	activeRequests      *csync.Map[string, context.CancelFunc]
-	extendedContextMode *csync.Map[string, bool]       // tracks which sessions are in extended (1M) context mode
-	goals               *csync.Map[string, *goalState] // active /goal state per session
+	messageQueue   *csync.Map[string, []SessionAgentCall]
+	activeRequests *csync.Map[string, context.CancelFunc]
+	goals          *csync.Map[string, *goalState] // active /goal state per session
 
 	// dispatchMu holds a per-session mutex that serializes the
 	// accepted -> (cancel-on-entry | queued | active) transition in
@@ -243,7 +235,6 @@ func NewSessionAgent(
 		runComplete:          opts.RunComplete,
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
 		activeRequests:       csync.NewMap[string, context.CancelFunc](),
-		extendedContextMode:  csync.NewMap[string, bool](),
 		dispatchMu:           csync.NewMap[string, *sync.Mutex](),
 		acceptedRuns:         csync.NewMap[string, int](),
 		cancelMark:           csync.NewMap[string, uint64](),

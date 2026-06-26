@@ -560,31 +560,31 @@ func isListItemMarker(line string) bool {
 	if line == "" {
 		return false
 	}
-	c := line[0]
-	if c == '-' || c == '*' || c == '+' {
-		if len(line) >= 2 && (line[1] == ' ' || line[1] == '\t') {
-			return true
-		}
-		return false
+	if c := line[0]; c == '-' || c == '*' || c == '+' {
+		return len(line) >= 2 && isSpaceOrTab(line[1])
 	}
-	// Ordered list: digits followed by '.' or ')' and a space.
+	return isOrderedListMarker(line)
+}
+
+// isOrderedListMarker reports whether line starts with an ordered-list marker:
+// 1-9 digits, then '.' or ')', then a space or tab.
+func isOrderedListMarker(line string) bool {
 	i := 0
 	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
 		i++
 	}
-	if i == 0 || i > 9 {
-		return false
-	}
-	if i >= len(line) {
+	if i == 0 || i > 9 || i >= len(line) {
 		return false
 	}
 	if line[i] != '.' && line[i] != ')' {
 		return false
 	}
-	if i+1 >= len(line) {
-		return false
-	}
-	return line[i+1] == ' ' || line[i+1] == '\t'
+	return i+1 < len(line) && isSpaceOrTab(line[i+1])
+}
+
+// isSpaceOrTab reports whether b is a space or tab.
+func isSpaceOrTab(b byte) bool {
+	return b == ' ' || b == '\t'
 }
 
 // isSetextUnderlineCandidate reports whether line (with optional
@@ -596,7 +596,7 @@ func isListItemMarker(line string) bool {
 func isSetextUnderlineCandidate(line string) bool {
 	// Strip leading whitespace.
 	i := 0
-	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+	for i < len(line) && isSpaceOrTab(line[i]) {
 		i++
 	}
 	if i == len(line) {
@@ -612,7 +612,7 @@ func isSetextUnderlineCandidate(line string) bool {
 	}
 	// Allow trailing whitespace.
 	for j < len(line) {
-		if line[j] != ' ' && line[j] != '\t' {
+		if !isSpaceOrTab(line[j]) {
 			return false
 		}
 		j++
@@ -707,32 +707,44 @@ func isASCIILetter(b byte) bool {
 // presence of a ref-def opener anywhere in the prefix is enough
 // to forfeit the boundary.
 func isLinkRefDefinition(line string) bool {
+	// Up to 3 spaces of indentation.
 	i := 0
 	for i < len(line) && i < 3 && line[i] == ' ' {
 		i++
 	}
-	if i >= len(line) || line[i] != '[' {
+	// Non-empty bracketed label "[...]".
+	labelEnd, ok := scanLinkRefLabel(line, i)
+	if !ok {
+		return false
+	}
+	i = labelEnd
+	// Colon immediately after the label.
+	if i >= len(line) || line[i] != ':' {
 		return false
 	}
 	i++
+	// Optional whitespace, then at least one char of destination.
+	for i < len(line) && isSpaceOrTab(line[i]) {
+		i++
+	}
+	return i < len(line)
+}
+
+// scanLinkRefLabel scans a "[label]" starting at start (which must be '['),
+// requiring a non-empty label with no nested ']'. It returns the index just
+// past the closing ']' and whether a valid label was found.
+func scanLinkRefLabel(line string, start int) (int, bool) {
+	if start >= len(line) || line[start] != '[' {
+		return 0, false
+	}
+	i := start + 1
 	labelStart := i
 	for i < len(line) && line[i] != ']' {
 		i++
 	}
 	if i >= len(line) || i == labelStart {
 		// No closing bracket, or empty label.
-		return false
+		return 0, false
 	}
-	// i points at ']'.
-	i++
-	if i >= len(line) || line[i] != ':' {
-		return false
-	}
-	i++
-	// Skip required whitespace.
-	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
-		i++
-	}
-	// At least one non-whitespace character of destination.
-	return i < len(line)
+	return i + 1, true // Past the ']'.
 }

@@ -289,7 +289,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 				b.registerClient(ws, clientID, args.Env, args.Path)
 				b.mu.Unlock()
 				b.reloadWorkspaceConfig(ws)
-				return ws, workspaceToProto(ws), nil
+				return ws, workspaceToProtoForClient(ws, effectiveCwd), nil
 			}
 			delete(b.pathIndex, key)
 		}
@@ -362,7 +362,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 				b.mu.Unlock()
 				ws.invokeShutdown()
 				b.reloadWorkspaceConfig(existing)
-				return existing, workspaceToProto(existing), nil
+				return existing, workspaceToProtoForClient(existing, effectiveCwd), nil
 			}
 			delete(b.pathIndex, key)
 		}
@@ -386,7 +386,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		)))
 	}
 
-	return ws, workspaceToProto(ws), nil
+	return ws, workspaceToProtoForClient(ws, effectiveCwd), nil
 }
 
 // AttachClient registers a new SSE stream for the given client on the
@@ -823,6 +823,24 @@ func workspaceToProto(ws *Workspace) proto.Workspace {
 	}
 	if ws.Skills != nil {
 		out.Skills = skillStatesToProto(ws.Skills.States())
+	}
+	return out
+}
+
+// workspaceToProtoForClient is like workspaceToProto but reports the
+// requesting client's own launch directory (launchCwd) as WorkingDir and
+// GitBranch, rather than the workspace's shared first-client directory.
+// Multiple clients (different subdirectories or sibling git worktrees) can
+// share one workspace because they collapse to the same canonical project
+// root for .crush/ purposes; each client must still see and operate from the
+// directory it actually launched from. launchCwd is the absolute,
+// symlink-resolved client cwd; an empty value falls back to the shared
+// workspace view.
+func workspaceToProtoForClient(ws *Workspace, launchCwd string) proto.Workspace {
+	out := workspaceToProto(ws)
+	if launchCwd != "" {
+		out.WorkingDir = launchCwd
+		out.GitBranch = getGitBranch(launchCwd)
 	}
 	return out
 }

@@ -30,10 +30,6 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openReasoningDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-	case dialog.ContextModeID:
-		if cmd := m.openContextModeDialog(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
 	case dialog.ThemeID:
 		if cmd := m.openThemeDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -132,22 +128,6 @@ func (m *UI) openReasoningDialog() tea.Cmd {
 	}
 
 	m.dialog.OpenDialog(reasoningDialog)
-	return nil
-}
-
-// openContextModeDialog opens the context mode dialog.
-func (m *UI) openContextModeDialog() tea.Cmd {
-	if m.dialog.ContainsDialog(dialog.ContextModeID) {
-		m.dialog.BringToFront(dialog.ContextModeID)
-		return nil
-	}
-
-	contextModeDialog, err := dialog.NewContextMode(m.com)
-	if err != nil {
-		return util.ReportError(err)
-	}
-
-	m.dialog.OpenDialog(contextModeDialog)
 	return nil
 }
 
