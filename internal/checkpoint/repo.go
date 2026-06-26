@@ -621,80 +621,81 @@ func (r *Repo) restoreTree(tree *object.Tree, targetDir string, relPath string) 
 	restored := make(map[string]struct{})
 
 	for _, entry := range tree.Entries {
+		restored[entry.Name] = struct{}{}
 		targetPath := filepath.Join(targetDir, entry.Name)
 		entryRelPath := filepath.Join(relPath, entry.Name)
-		restored[entry.Name] = struct{}{}
-
-		switch entry.Mode {
-		case filemode.Dir:
-			// Get subtree and recurse.
-			subTree, err := r.repo.TreeObject(entry.Hash)
-			if err != nil {
-				return fmt.Errorf("get subtree %s: %w", entry.Name, err)
-			}
-			if err := r.restoreTree(subTree, targetPath, entryRelPath); err != nil {
-				return err
-			}
-
-		case filemode.Regular, filemode.Executable:
-			// Restore file.
-			blob, err := r.repo.BlobObject(entry.Hash)
-			if err != nil {
-				return fmt.Errorf("get blob %s: %w", entry.Name, err)
-			}
-
-			reader, err := blob.Reader()
-			if err != nil {
-				return fmt.Errorf("read blob %s: %w", entry.Name, err)
-			}
-
-			content, err := io.ReadAll(reader)
-			reader.Close()
-			if err != nil {
-				return fmt.Errorf("read blob content %s: %w", entry.Name, err)
-			}
-
-			mode := os.FileMode(0o644)
-			if entry.Mode == filemode.Executable {
-				mode = 0o755
-			}
-
-			if err := os.WriteFile(targetPath, content, mode); err != nil {
-				return fmt.Errorf("write file %s: %w", targetPath, err)
-			}
-
-		case filemode.Symlink:
-			// Restore symlink.
-			blob, err := r.repo.BlobObject(entry.Hash)
-			if err != nil {
-				return fmt.Errorf("get symlink blob %s: %w", entry.Name, err)
-			}
-
-			reader, err := blob.Reader()
-			if err != nil {
-				return fmt.Errorf("read symlink blob %s: %w", entry.Name, err)
-			}
-
-			target, err := io.ReadAll(reader)
-			reader.Close()
-			if err != nil {
-				return fmt.Errorf("read symlink target %s: %w", entry.Name, err)
-			}
-
-			// Remove existing file/symlink if exists.
-			os.Remove(targetPath)
-
-			if err := os.Symlink(string(target), targetPath); err != nil {
-				return fmt.Errorf("create symlink %s: %w", targetPath, err)
-			}
+		if err := r.restoreEntry(entry, targetPath, entryRelPath); err != nil {
+			return err
 		}
 	}
 
-	// Clean up files that exist on disk but not in the snapshot.
-	// Skip excluded paths - they're managed separately (node_modules, etc.).
+	r.cleanupExtraneous(targetDir, relPath, restored)
+	return nil
+}
+
+// restoreEntry restores a single tree entry (directory, regular/executable
+// file, or symlink) to targetPath. relPath is the entry's path relative to the
+// snapshot root, used when recursing into subdirectories.
+func (r *Repo) restoreEntry(entry object.TreeEntry, targetPath, relPath string) error {
+	switch entry.Mode {
+	case filemode.Dir:
+		subTree, err := r.repo.TreeObject(entry.Hash)
+		if err != nil {
+			return fmt.Errorf("get subtree %s: %w", entry.Name, err)
+		}
+		return r.restoreTree(subTree, targetPath, relPath)
+
+	case filemode.Regular, filemode.Executable:
+		content, err := r.readBlobContent(entry.Hash)
+		if err != nil {
+			return fmt.Errorf("read blob %s: %w", entry.Name, err)
+		}
+		mode := os.FileMode(0o644)
+		if entry.Mode == filemode.Executable {
+			mode = 0o755
+		}
+		if err := os.WriteFile(targetPath, content, mode); err != nil {
+			return fmt.Errorf("write file %s: %w", targetPath, err)
+		}
+		return nil
+
+	case filemode.Symlink:
+		target, err := r.readBlobContent(entry.Hash)
+		if err != nil {
+			return fmt.Errorf("read symlink blob %s: %w", entry.Name, err)
+		}
+		// Remove existing file/symlink if exists.
+		os.Remove(targetPath)
+		if err := os.Symlink(string(target), targetPath); err != nil {
+			return fmt.Errorf("create symlink %s: %w", targetPath, err)
+		}
+		return nil
+	}
+	return nil
+}
+
+// readBlobContent reads the full contents of a blob by hash.
+func (r *Repo) readBlobContent(hash plumbing.Hash) ([]byte, error) {
+	blob, err := r.repo.BlobObject(hash)
+	if err != nil {
+		return nil, err
+	}
+	reader, err := blob.Reader()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return io.ReadAll(reader)
+}
+
+// cleanupExtraneous removes files in targetDir that are not part of the
+// restored snapshot, skipping .git, .crush, and excluded paths (which are
+// managed separately). Read and removal errors during cleanup are ignored so a
+// best-effort cleanup never fails the restore.
+func (r *Repo) cleanupExtraneous(targetDir, relPath string, restored map[string]struct{}) {
 	entries, err := os.ReadDir(targetDir)
 	if err != nil {
-		return nil // Ignore read errors during cleanup.
+		return // Ignore read errors during cleanup.
 	}
 
 	for _, entry := range entries {
@@ -711,15 +712,9 @@ func (r *Repo) restoreTree(tree *object.Tree, targetDir string, relPath string) 
 			continue // Don't delete excluded paths.
 		}
 
-		// Remove file/dir that's not in the snapshot.
-		targetPath := filepath.Join(targetDir, name)
-		if err := os.RemoveAll(targetPath); err != nil {
-			// Log but don't fail on cleanup errors.
-			continue
-		}
+		// Remove file/dir that's not in the snapshot. Ignore errors.
+		_ = os.RemoveAll(filepath.Join(targetDir, name))
 	}
-
-	return nil
 }
 
 // ProjectDir returns the work tree this repo snapshots. The name is

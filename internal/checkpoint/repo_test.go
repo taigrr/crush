@@ -534,6 +534,36 @@ func TestSymlinks(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "target.txt", linkTarget)
 	})
+
+	t.Run("preserves executable mode and nested dirs", func(t *testing.T) {
+		t.Parallel()
+		projectDir := newProjectDir(t)
+
+		// Executable script at the root.
+		scriptPath := filepath.Join(projectDir, "run.sh")
+		require.NoError(t, os.WriteFile(scriptPath, []byte("#!/bin/sh\necho hi\n"), 0o755))
+
+		// Nested directory with a regular file.
+		nested := filepath.Join(projectDir, "a", "b")
+		require.NoError(t, os.MkdirAll(nested, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(nested, "c.txt"), []byte("deep"), 0o644))
+
+		repo, err := checkpoint.InitRepo(projectDir, nil)
+		require.NoError(t, err)
+		hash, err := repo.CreateSnapshot("exec")
+		require.NoError(t, err)
+
+		restoreDir := t.TempDir()
+		require.NoError(t, repo.RestoreSnapshot(hash, restoreDir))
+
+		info, err := os.Stat(filepath.Join(restoreDir, "run.sh"))
+		require.NoError(t, err)
+		require.NotZero(t, info.Mode()&0o111, "executable bit should be preserved")
+
+		deep, err := os.ReadFile(filepath.Join(restoreDir, "a", "b", "c.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "deep", string(deep))
+	})
 }
 
 func TestRepoAccessors(t *testing.T) {

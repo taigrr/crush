@@ -140,3 +140,111 @@ func BenchmarkPromptWithTextAttachments(b *testing.B) {
 		})
 	}
 }
+
+func TestToAIMessage_Shell(t *testing.T) {
+	t.Parallel()
+	msg := &Message{
+		Role: Shell,
+		Parts: []ContentPart{
+			TextContent{Text: "ls -la"},
+			TextContent{Text: "total 0"},
+		},
+	}
+	messages := msg.ToAIMessage()
+	require.Len(t, messages, 1)
+	require.Equal(t, fantasy.MessageRoleUser, messages[0].Role)
+	require.Len(t, messages[0].Content, 1)
+	text, ok := messages[0].Content[0].(fantasy.TextPart)
+	require.True(t, ok)
+	require.Equal(t, "$ ls -la\ntotal 0", text.Text)
+}
+
+func TestToAIMessage_ShellNoOutput(t *testing.T) {
+	t.Parallel()
+	msg := &Message{
+		Role:  Shell,
+		Parts: []ContentPart{TextContent{Text: "pwd"}},
+	}
+	messages := msg.ToAIMessage()
+	require.Len(t, messages, 1)
+	text := messages[0].Content[0].(fantasy.TextPart)
+	require.Equal(t, "$ pwd", text.Text)
+}
+
+func TestToAIMessage_UserTextOnly(t *testing.T) {
+	t.Parallel()
+	msg := &Message{
+		Role:  User,
+		Parts: []ContentPart{TextContent{Text: "  hello  "}},
+	}
+	messages := msg.ToAIMessage()
+	require.Len(t, messages, 1)
+	require.Equal(t, fantasy.MessageRoleUser, messages[0].Role)
+	require.Len(t, messages[0].Content, 1)
+	text := messages[0].Content[0].(fantasy.TextPart)
+	require.Equal(t, "hello", text.Text)
+}
+
+func TestToAIMessage_UserWithImageAttachment(t *testing.T) {
+	t.Parallel()
+	msg := &Message{
+		Role: User,
+		Parts: []ContentPart{
+			TextContent{Text: "look"},
+			BinaryContent{Path: "/img.png", MIMEType: "image/png", Data: []byte{1, 2, 3}},
+		},
+	}
+	messages := msg.ToAIMessage()
+	require.Len(t, messages, 1)
+	require.Len(t, messages[0].Content, 2)
+	_, ok := messages[0].Content[0].(fantasy.TextPart)
+	require.True(t, ok)
+	file, ok := messages[0].Content[1].(fantasy.FilePart)
+	require.True(t, ok)
+	require.Equal(t, "image/png", file.MediaType)
+	require.Equal(t, "/img.png", file.Filename)
+}
+
+func TestToAIMessage_AssistantTextAndToolCall(t *testing.T) {
+	t.Parallel()
+	msg := &Message{
+		Role: Assistant,
+		Parts: []ContentPart{
+			TextContent{Text: "doing it"},
+			ToolCall{ID: "c1", Name: "bash", Input: `{"command":"ls"}`},
+		},
+	}
+	messages := msg.ToAIMessage()
+	require.Len(t, messages, 1)
+	require.Equal(t, fantasy.MessageRoleAssistant, messages[0].Role)
+	require.Len(t, messages[0].Content, 2)
+	text := messages[0].Content[0].(fantasy.TextPart)
+	require.Equal(t, "doing it", text.Text)
+	call := messages[0].Content[1].(fantasy.ToolCallPart)
+	require.Equal(t, "c1", call.ToolCallID)
+	require.Equal(t, "bash", call.ToolName)
+}
+
+func TestToAIMessage_AssistantReasoningSignature(t *testing.T) {
+	t.Parallel()
+	msg := &Message{
+		Role: Assistant,
+		Parts: []ContentPart{
+			ReasoningContent{Thinking: "hmm", Signature: "sig"},
+			TextContent{Text: "answer"},
+		},
+	}
+	messages := msg.ToAIMessage()
+	require.Len(t, messages, 1)
+	// reasoning part comes after text in the output ordering.
+	var reasoning fantasy.ReasoningPart
+	var found bool
+	for _, p := range messages[0].Content {
+		if rp, ok := p.(fantasy.ReasoningPart); ok {
+			reasoning = rp
+			found = true
+		}
+	}
+	require.True(t, found)
+	require.Equal(t, "hmm", reasoning.Text)
+}

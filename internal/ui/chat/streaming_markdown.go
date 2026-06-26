@@ -639,58 +639,56 @@ func isHTMLBlockOpener(line string) bool {
 		return false
 	}
 
-	// Type 2: HTML comment "<!--".
-	if strings.HasPrefix(rest, "<!--") {
+	return htmlBlockTypes1to5(rest) || htmlBlockGenericTag(rest)
+}
+
+// htmlBlockTypes1to5 matches CommonMark HTML block types 1-5: the
+// script/pre/style/textarea family, comments, processing instructions,
+// declarations, and CDATA. rest is the line with leading indentation stripped
+// and is known to start with '<'.
+func htmlBlockTypes1to5(rest string) bool {
+	switch {
+	case strings.HasPrefix(rest, "<!--"): // Type 2: comment.
 		return true
-	}
-	// Type 3: processing instruction "<?".
-	if strings.HasPrefix(rest, "<?") {
+	case strings.HasPrefix(rest, "<?"): // Type 3: processing instruction.
 		return true
-	}
-	// Type 5: CDATA "<![CDATA[".
-	if strings.HasPrefix(rest, "<![CDATA[") {
+	case strings.HasPrefix(rest, "<![CDATA["): // Type 5: CDATA.
 		return true
-	}
-	// Type 4: declaration "<!" followed by an ASCII letter.
-	if len(rest) >= 3 && rest[1] == '!' && isASCIILetter(rest[2]) {
+	case len(rest) >= 3 && rest[1] == '!' && isASCIILetter(rest[2]): // Type 4: declaration.
 		return true
 	}
 
 	// Type 1: <script | <pre | <style | <textarea (case-insensitive)
-	// followed by whitespace, '>', end-of-line, or other non-name
-	// terminators. Use a permissive HasPrefix check on lowercase.
+	// followed by whitespace, '>', or end-of-line.
 	low := strings.ToLower(rest)
 	for _, t := range []string{"<script", "<pre", "<style", "<textarea"} {
-		if strings.HasPrefix(low, t) {
-			next := byte(0)
-			if len(low) > len(t) {
-				next = low[len(t)]
-			}
-			if next == 0 || next == ' ' || next == '\t' || next == '>' {
-				return true
-			}
+		if !strings.HasPrefix(low, t) {
+			continue
+		}
+		next := byte(0)
+		if len(low) > len(t) {
+			next = low[len(t)]
+		}
+		if next == 0 || next == ' ' || next == '\t' || next == '>' {
+			return true
 		}
 	}
+	return false
+}
 
-	// Types 6 & 7: open or close of a block-level tag.
-	//
-	// Type 6 matches a fixed CommonMark tag set; type 7 matches any
-	// otherwise-valid open/close tag whose name is not in the
-	// script/pre/style/textarea family. We collapse both into a
-	// single check: the line must start with '<' or '</' followed
-	// by an ASCII letter. This deliberately mirrors the other
-	// hazards — when in doubt, forfeit the boundary. Lines like
-	// "<3", "<-", "<<", or mid-line "<foo>" do NOT trigger because
-	// we require the line to *start* (after up to 3 spaces) with
-	// '<letter' or '</letter'.
+// htmlBlockGenericTag matches CommonMark HTML block types 6 & 7: the open or
+// close of a block-level tag. Both collapse into one check — the line must
+// start with '<' or '</' followed by an ASCII letter. This deliberately
+// mirrors the other hazards: when in doubt, forfeit the boundary. Lines like
+// "<3", "<-", "<<", or mid-line "<foo>" do NOT trigger because we require the
+// line to start (after up to 3 spaces) with '<letter' or '</letter'. rest is
+// known to start with '<'.
+func htmlBlockGenericTag(rest string) bool {
 	j := 1 // past '<'
 	if j < len(rest) && rest[j] == '/' {
 		j++
 	}
-	if j >= len(rest) || !isASCIILetter(rest[j]) {
-		return false
-	}
-	return true
+	return j < len(rest) && isASCIILetter(rest[j])
 }
 
 // isASCIILetter reports whether b is an ASCII letter.

@@ -171,68 +171,20 @@ func applyTextEdit(lines []string, edit protocol.TextEdit, encoding powernap.Off
 // applyDocumentChange applies a DocumentChange (create/rename/delete operations)
 func applyDocumentChange(change protocol.DocumentChange, encoding powernap.OffsetEncoding) error {
 	if change.CreateFile != nil {
-		path, err := change.CreateFile.URI.Path()
-		if err != nil {
-			return fmt.Errorf("invalid URI: %w", err)
-		}
-
-		if change.CreateFile.Options != nil {
-			if change.CreateFile.Options.Overwrite {
-				// Proceed with overwrite
-			} else if change.CreateFile.Options.IgnoreIfExists {
-				if _, err := os.Stat(path); err == nil {
-					return nil // File exists and we're ignoring it
-				}
-			}
-		}
-		if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
-			return fmt.Errorf("failed to create file: %w", err)
+		if err := applyCreateFile(change.CreateFile); err != nil {
+			return err
 		}
 	}
-
 	if change.DeleteFile != nil {
-		path, err := change.DeleteFile.URI.Path()
-		if err != nil {
-			return fmt.Errorf("invalid URI: %w", err)
-		}
-
-		if change.DeleteFile.Options != nil && change.DeleteFile.Options.Recursive {
-			if err := os.RemoveAll(path); err != nil {
-				return fmt.Errorf("failed to delete directory recursively: %w", err)
-			}
-		} else {
-			if err := os.Remove(path); err != nil {
-				return fmt.Errorf("failed to delete file: %w", err)
-			}
+		if err := applyDeleteFile(change.DeleteFile); err != nil {
+			return err
 		}
 	}
-
 	if change.RenameFile != nil {
-		var newPath, oldPath string
-		var err error
-
-		oldPath, err = change.RenameFile.OldURI.Path()
-		if err != nil {
+		if err := applyRenameFile(change.RenameFile); err != nil {
 			return err
-		}
-
-		newPath, err = change.RenameFile.NewURI.Path()
-		if err != nil {
-			return err
-		}
-
-		if change.RenameFile.Options != nil {
-			if !change.RenameFile.Options.Overwrite {
-				if _, err := os.Stat(newPath); err == nil {
-					return fmt.Errorf("target file already exists and overwrite is not allowed: %s", newPath)
-				}
-			}
-		}
-		if err := os.Rename(oldPath, newPath); err != nil {
-			return fmt.Errorf("failed to rename file: %w", err)
 		}
 	}
-
 	if change.TextDocumentEdit != nil {
 		textEdits := make([]protocol.TextEdit, len(change.TextDocumentEdit.Edits))
 		for i, edit := range change.TextDocumentEdit.Edits {
@@ -248,7 +200,68 @@ func applyDocumentChange(change protocol.DocumentChange, encoding powernap.Offse
 	return nil
 }
 
-// utf32ToByteOffset converts a UTF-32 codepoint offset to a byte offset.
+// applyCreateFile creates an empty file. With IgnoreIfExists set (and not
+// Overwrite) an existing file is left untouched; otherwise the file is created
+// or truncated. Overwrite wins over IgnoreIfExists, per the LSP spec.
+func applyCreateFile(create *protocol.CreateFile) error {
+	path, err := create.URI.Path()
+	if err != nil {
+		return fmt.Errorf("invalid URI: %w", err)
+	}
+	if create.Options != nil && !create.Options.Overwrite && create.Options.IgnoreIfExists {
+		if _, err := os.Stat(path); err == nil {
+			return nil // File exists and we're ignoring it.
+		}
+	}
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	return nil
+}
+
+// applyDeleteFile deletes a file, or a directory tree when Recursive is set.
+func applyDeleteFile(del *protocol.DeleteFile) error {
+	path, err := del.URI.Path()
+	if err != nil {
+		return fmt.Errorf("invalid URI: %w", err)
+	}
+	if del.Options != nil && del.Options.Recursive {
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("failed to delete directory recursively: %w", err)
+		}
+		return nil
+	}
+	if err := os.Remove(path); err != nil {
+		return fmt.Errorf("failed to delete file: %w", err)
+	}
+	return nil
+}
+
+// applyRenameFile renames a file. When Overwrite is not set, an existing target
+// is an error so the rename can't clobber unrelated content.
+func applyRenameFile(rename *protocol.RenameFile) error {
+	oldPath, err := rename.OldURI.Path()
+	if err != nil {
+		return err
+	}
+	newPath, err := rename.NewURI.Path()
+	if err != nil {
+		return err
+	}
+	// Per the LSP spec, RenameFileOptions.overwrite defaults to false, so a
+	// missing Options means "do not overwrite". Guard against clobbering an
+	// existing target unless overwrite is explicitly set.
+	if rename.Options == nil || !rename.Options.Overwrite {
+		if _, err := os.Stat(newPath); err == nil {
+			return fmt.Errorf("target file already exists and overwrite is not allowed: %s", newPath)
+		}
+	}
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return fmt.Errorf("failed to rename file: %w", err)
+	}
+	return nil
+}
+
 func utf32ToByteOffset(lineText string, codepointOffset uint32) int {
 	if codepointOffset == 0 {
 		return 0
