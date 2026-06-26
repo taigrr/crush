@@ -105,6 +105,67 @@ func TestApplyEditToContentPartialSuccess(t *testing.T) {
 	require.Contains(t, err.Error(), "not found")
 }
 
+func TestApplyEditToContentEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("noop when both strings empty", func(t *testing.T) {
+		t.Parallel()
+		content := "unchanged"
+		got, err := applyEditToContent(content, MultiEditOperation{})
+		require.NoError(t, err)
+		require.Equal(t, content, got)
+	})
+
+	t.Run("empty old string with new string errors", func(t *testing.T) {
+		t.Parallel()
+		_, err := applyEditToContent("abc", MultiEditOperation{NewString: "x"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "old_string cannot be empty")
+	})
+
+	t.Run("single occurrence replaced", func(t *testing.T) {
+		t.Parallel()
+		got, err := applyEditToContent("a-b-c", MultiEditOperation{OldString: "-b-", NewString: "+B+"})
+		require.NoError(t, err)
+		require.Equal(t, "a+B+c", got)
+	})
+
+	t.Run("multiple occurrences without replace_all errors", func(t *testing.T) {
+		t.Parallel()
+		_, err := applyEditToContent("x x x", MultiEditOperation{OldString: "x", NewString: "y"})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "appears multiple times")
+	})
+
+	t.Run("replace_all replaces every occurrence", func(t *testing.T) {
+		t.Parallel()
+		got, err := applyEditToContent("x x x", MultiEditOperation{OldString: "x", NewString: "y", ReplaceAll: true})
+		require.NoError(t, err)
+		require.Equal(t, "y y y", got)
+	})
+
+	t.Run("replace_all not found errors", func(t *testing.T) {
+		t.Parallel()
+		_, err := applyEditToContent("abc", MultiEditOperation{OldString: "z", NewString: "y", ReplaceAll: true})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("delete via empty new string", func(t *testing.T) {
+		t.Parallel()
+		got, err := applyEditToContent("hello world", MultiEditOperation{OldString: " world"})
+		require.NoError(t, err)
+		require.Equal(t, "hello", got)
+	})
+
+	t.Run("replace_all with empty new string deletes all", func(t *testing.T) {
+		t.Parallel()
+		got, err := applyEditToContent("a,b,c", MultiEditOperation{OldString: ",", ReplaceAll: true})
+		require.NoError(t, err)
+		require.Equal(t, "abc", got)
+	})
+}
+
 func TestMultiEditSequentialApplication(t *testing.T) {
 	t.Parallel()
 
