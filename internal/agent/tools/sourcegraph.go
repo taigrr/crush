@@ -157,9 +157,9 @@ func NewSourcegraphTool(client *http.Client) fantasy.AgentTool {
 func formatSourcegraphResults(result map[string]any, contextWindow int) (string, error) {
 	var buffer strings.Builder
 
-	if errors, ok := result["errors"].([]any); ok && len(errors) > 0 {
+	if errs, ok := result["errors"].([]any); ok && len(errs) > 0 {
 		buffer.WriteString("## Sourcegraph API Error\n\n")
-		for _, err := range errors {
+		for _, err := range errs {
 			if errMap, ok := err.(map[string]any); ok {
 				if message, ok := errMap["message"].(string); ok {
 					fmt.Fprintf(&buffer, "- %s\n", message)
@@ -169,19 +169,9 @@ func formatSourcegraphResults(result map[string]any, contextWindow int) (string,
 		return buffer.String(), nil
 	}
 
-	data, ok := result["data"].(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("invalid response format: missing data field")
-	}
-
-	search, ok := data["search"].(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("invalid response format: missing search field")
-	}
-
-	searchResults, ok := search["results"].(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("invalid response format: missing results field")
+	searchResults, err := sourcegraphSearchResults(result)
+	if err != nil {
+		return "", err
 	}
 
 	matchCount, _ := searchResults["matchCount"].(float64)
@@ -203,83 +193,100 @@ func formatSourcegraphResults(result map[string]any, contextWindow int) (string,
 		return buffer.String(), nil
 	}
 
-	maxResults := 10
+	const maxResults = 10
 	if len(results) > maxResults {
 		results = results[:maxResults]
 	}
 
 	for i, res := range results {
-		fileMatch, ok := res.(map[string]any)
-		if !ok {
-			continue
-		}
-
-		typeName, _ := fileMatch["__typename"].(string)
-		if typeName != "FileMatch" {
-			continue
-		}
-
-		repo, _ := fileMatch["repository"].(map[string]any)
-		file, _ := fileMatch["file"].(map[string]any)
-		lineMatches, _ := fileMatch["lineMatches"].([]any)
-
-		if repo == nil || file == nil {
-			continue
-		}
-
-		repoName, _ := repo["name"].(string)
-		filePath, _ := file["path"].(string)
-		fileURL, _ := file["url"].(string)
-		fileContent, _ := file["content"].(string)
-
-		fmt.Fprintf(&buffer, "## Result %d: %s/%s\n\n", i+1, repoName, filePath)
-
-		if fileURL != "" {
-			fmt.Fprintf(&buffer, "URL: %s\n\n", fileURL)
-		}
-
-		if len(lineMatches) > 0 {
-			for _, lm := range lineMatches {
-				lineMatch, ok := lm.(map[string]any)
-				if !ok {
-					continue
-				}
-
-				lineNumber, _ := lineMatch["lineNumber"].(float64)
-				preview, _ := lineMatch["preview"].(string)
-
-				if fileContent != "" {
-					lines := strings.Split(fileContent, "\n")
-
-					buffer.WriteString("```\n")
-
-					startLine := max(1, int(lineNumber)-contextWindow)
-
-					for j := startLine - 1; j < int(lineNumber)-1 && j < len(lines); j++ {
-						if j >= 0 {
-							fmt.Fprintf(&buffer, "%d| %s\n", j+1, lines[j])
-						}
-					}
-
-					fmt.Fprintf(&buffer, "%d|  %s\n", int(lineNumber), preview)
-
-					endLine := int(lineNumber) + contextWindow
-
-					for j := int(lineNumber); j < endLine && j < len(lines); j++ {
-						if j < len(lines) {
-							fmt.Fprintf(&buffer, "%d| %s\n", j+1, lines[j])
-						}
-					}
-
-					buffer.WriteString("```\n\n")
-				} else {
-					buffer.WriteString("```\n")
-					fmt.Fprintf(&buffer, "%d| %s\n", int(lineNumber), preview)
-					buffer.WriteString("```\n\n")
-				}
-			}
-		}
+		writeSourcegraphFileMatch(&buffer, i, res, contextWindow)
 	}
 
 	return buffer.String(), nil
+}
+
+// sourcegraphSearchResults drills into the nested data.search.results object
+// of a Sourcegraph GraphQL response, returning a clear error for each missing
+// level.
+func sourcegraphSearchResults(result map[string]any) (map[string]any, error) {
+	data, ok := result["data"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid response format: missing data field")
+	}
+	search, ok := data["search"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid response format: missing search field")
+	}
+	searchResults, ok := search["results"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid response format: missing results field")
+	}
+	return searchResults, nil
+}
+
+// writeSourcegraphFileMatch renders a single search result. Non-FileMatch
+// results and malformed entries are skipped silently.
+func writeSourcegraphFileMatch(buffer *strings.Builder, index int, res any, contextWindow int) {
+	fileMatch, ok := res.(map[string]any)
+	if !ok {
+		return
+	}
+	if typeName, _ := fileMatch["__typename"].(string); typeName != "FileMatch" {
+		return
+	}
+
+	repo, _ := fileMatch["repository"].(map[string]any)
+	file, _ := fileMatch["file"].(map[string]any)
+	lineMatches, _ := fileMatch["lineMatches"].([]any)
+	if repo == nil || file == nil {
+		return
+	}
+
+	repoName, _ := repo["name"].(string)
+	filePath, _ := file["path"].(string)
+	fileURL, _ := file["url"].(string)
+	fileContent, _ := file["content"].(string)
+
+	fmt.Fprintf(buffer, "## Result %d: %s/%s\n\n", index+1, repoName, filePath)
+	if fileURL != "" {
+		fmt.Fprintf(buffer, "URL: %s\n\n", fileURL)
+	}
+
+	for _, lm := range lineMatches {
+		lineMatch, ok := lm.(map[string]any)
+		if !ok {
+			continue
+		}
+		lineNumber, _ := lineMatch["lineNumber"].(float64)
+		preview, _ := lineMatch["preview"].(string)
+		writeSourcegraphLineMatch(buffer, int(lineNumber), preview, fileContent, contextWindow)
+	}
+}
+
+// writeSourcegraphLineMatch renders one matched line with surrounding context
+// lines from fileContent. When fileContent is empty only the preview is shown.
+// lineNumber is 1-based.
+func writeSourcegraphLineMatch(buffer *strings.Builder, lineNumber int, preview, fileContent string, contextWindow int) {
+	buffer.WriteString("```\n")
+	if fileContent == "" {
+		fmt.Fprintf(buffer, "%d| %s\n", lineNumber, preview)
+		buffer.WriteString("```\n\n")
+		return
+	}
+
+	lines := strings.Split(fileContent, "\n")
+
+	startLine := max(1, lineNumber-contextWindow)
+	for j := startLine - 1; j >= 0 && j < lineNumber-1 && j < len(lines); j++ {
+		fmt.Fprintf(buffer, "%d| %s\n", j+1, lines[j])
+	}
+
+	fmt.Fprintf(buffer, "%d|  %s\n", lineNumber, preview)
+
+	endLine := lineNumber + contextWindow
+	for j := lineNumber; j < endLine && j < len(lines); j++ {
+		fmt.Fprintf(buffer, "%d| %s\n", j+1, lines[j])
+	}
+
+	buffer.WriteString("```\n\n")
 }

@@ -1080,13 +1080,7 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 
 	// If the user switches between sessions while the agent is working we want
 	// to make sure the animations are shown.
-	for _, item := range items {
-		if animatable, ok := item.(chat.Animatable); ok {
-			if cmd := animatable.StartAnimation(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-	}
+	cmds = append(cmds, startItemAnimations(items...)...)
 
 	m.chat.SetMessages(items...)
 	if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
@@ -1198,13 +1192,7 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 		}
 	case message.Assistant:
 		items := chat.ExtractMessageItems(m.com.Styles, &msg, nil)
-		for _, item := range items {
-			if animatable, ok := item.(chat.Animatable); ok {
-				if cmd := animatable.StartAnimation(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-			}
-		}
+		cmds = append(cmds, startItemAnimations(items...)...)
 		m.chat.AppendMessages(items...)
 		if m.chat.Follow() {
 			if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
@@ -1222,13 +1210,7 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 		}
 	case message.Shell:
 		items := chat.ExtractMessageItems(m.com.Styles, &msg, nil)
-		for _, item := range items {
-			if animatable, ok := item.(chat.Animatable); ok {
-				if cmd := animatable.StartAnimation(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-			}
-		}
+		cmds = append(cmds, startItemAnimations(items...)...)
 		m.chat.AppendMessages(items...)
 		if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -1254,6 +1236,22 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 		}
 	}
 	return tea.Sequence(cmds...)
+}
+
+// startItemAnimations starts the animation for every animatable item and
+// returns the non-nil commands. It is the shared form of the loop used where
+// items are added to the chat so animations show even when switching sessions
+// mid-stream.
+func startItemAnimations(items ...chat.MessageItem) []tea.Cmd {
+	var cmds []tea.Cmd
+	for _, item := range items {
+		if animatable, ok := item.(chat.Animatable); ok {
+			if cmd := animatable.StartAnimation(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+	}
+	return cmds
 }
 
 func (m *UI) handleClickFocus(msg tea.MouseClickMsg) (cmd tea.Cmd) {
@@ -1328,13 +1326,7 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 		}
 	}
 
-	for _, item := range items {
-		if animatable, ok := item.(chat.Animatable); ok {
-			if cmd := animatable.StartAnimation(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-	}
+	cmds = append(cmds, startItemAnimations(items...)...)
 
 	m.chat.AppendMessages(items...)
 	if m.chat.Follow() {
@@ -1406,11 +1398,7 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 			if simplifiable, ok := nestedItem.(chat.Compactable); ok {
 				simplifiable.SetCompact(true)
 			}
-			if animatable, ok := nestedItem.(chat.Animatable); ok {
-				if cmd := animatable.StartAnimation(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-			}
+			cmds = append(cmds, startItemAnimations(nestedItem)...)
 			nestedTools = append(nestedTools, nestedItem)
 		}
 	}

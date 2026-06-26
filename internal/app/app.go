@@ -334,6 +334,38 @@ func (app *App) ArchiveSession(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// streamDelta computes the incremental text to print for a streamed assistant
+// message. content is the full accumulated message content; readBytes is how
+// many bytes were already consumed for this message. It returns the new
+// delta to print, the updated read-bytes count, and whether anything has been
+// printed yet (carried across calls via alreadyPrinted).
+//
+// The first bytes of a message have their leading whitespace trimmed because
+// models often emit indentation/formatting we don't want at the start. A
+// whitespace-only delta is suppressed until something real has been printed,
+// after which deltas are forwarded verbatim. It is an error for content to be
+// shorter than readBytes, which would indicate the message shrank.
+func streamDelta(content string, readBytes int, alreadyPrinted bool) (delta string, newReadBytes int, printed bool, err error) {
+	if len(content) < readBytes {
+		return "", readBytes, alreadyPrinted, fmt.Errorf("message content is shorter than read bytes: %d < %d", len(content), readBytes)
+	}
+
+	part := content[readBytes:]
+	if readBytes == 0 {
+		part = strings.TrimLeft(part, " \t")
+	}
+
+	printed = alreadyPrinted
+	if alreadyPrinted || strings.TrimSpace(part) != "" {
+		printed = true
+	} else {
+		// Suppress whitespace-only output until real content appears, but
+		// still advance the cursor so later diffs are correct.
+		part = ""
+	}
+	return part, len(content), printed, nil
+}
+
 // RunNonInteractive runs the application in non-interactive mode with the
 // given prompt, printing to stdout.
 func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt, largeModel, smallModel string, hideSpinner bool, continueSessionID string, useLast bool) error {
@@ -478,25 +510,16 @@ func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt,
 				stopSpinner()
 
 				content := msg.Content().String()
-				readBytes := messageReadBytes[msg.ID]
-
-				if len(content) < readBytes {
-					slog.Error("Non-interactive: message content is shorter than read bytes", "message_length", len(content), "read_bytes", readBytes)
-					return fmt.Errorf("message content is shorter than read bytes: %d < %d", len(content), readBytes)
+				part, n, nowPrinted, err := streamDelta(content, messageReadBytes[msg.ID], printed)
+				if err != nil {
+					slog.Error("Non-interactive: message content is shorter than read bytes", "message_length", len(content), "read_bytes", messageReadBytes[msg.ID])
+					return err
 				}
-
-				part := content[readBytes:]
-				// Trim leading whitespace. Sometimes the LLM includes leading
-				// formatting and intentation, which we don't want here.
-				if readBytes == 0 {
-					part = strings.TrimLeft(part, " \t")
-				}
-				// Ignore initial whitespace-only messages.
-				if printed || strings.TrimSpace(part) != "" {
-					printed = true
+				if part != "" {
 					fmt.Fprint(output, part)
 				}
-				messageReadBytes[msg.ID] = len(content)
+				printed = nowPrinted
+				messageReadBytes[msg.ID] = n
 			}
 
 		case <-ctx.Done():
