@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -11,7 +12,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/fantasy"
@@ -128,53 +128,73 @@ func NewFetchTool(permissions permission.Service, workingDir WorkingDirFunc, cli
 			}
 			contentType := resp.Header.Get("Content-Type")
 
-			switch format {
-			case "text":
-				if strings.Contains(contentType, "text/html") {
-					text, err := extractTextFromHTML(content)
-					if err != nil {
-						return fantasy.NewTextErrorResponse("Failed to extract text from HTML: " + err.Error()), nil
-					}
-					content = text
-				}
-
-			case "markdown":
-				if strings.Contains(contentType, "text/html") {
-					markdown, err := convertHTMLToMarkdown(content)
-					if err != nil {
-						return fantasy.NewTextErrorResponse("Failed to convert HTML to Markdown: " + err.Error()), nil
-					}
-					content = markdown
-				}
-
-				content = "```\n" + content + "\n```"
-
-			case "html":
-				// return only the body of the HTML document
-				if strings.Contains(contentType, "text/html") {
-					doc, err := goquery.NewDocumentFromReader(strings.NewReader(content))
-					if err != nil {
-						return fantasy.NewTextErrorResponse("Failed to parse HTML: " + err.Error()), nil
-					}
-					body, err := doc.Find("body").Html()
-					if err != nil {
-						return fantasy.NewTextErrorResponse("Failed to extract body from HTML: " + err.Error()), nil
-					}
-					if body == "" {
-						return fantasy.NewTextErrorResponse("No body content found in HTML"), nil
-					}
-					content = "<html>\n<body>\n" + body + "\n</body>\n</html>"
-				}
-			}
-			// truncate content if it exceeds max read size
-			if int64(len(content)) >= MaxFetchSize {
-				content = content[:MaxFetchSize]
-				content += fmt.Sprintf("\n\n[Content truncated to %d bytes]", MaxFetchSize)
+			content, err = formatFetchContent(content, contentType, format)
+			if err != nil {
+				return fantasy.NewTextErrorResponse(err.Error()), nil
 			}
 
 			return fantasy.NewTextResponse(content), nil
 		},
 	)
+}
+
+// formatFetchContent transforms a fetched body into the requested output
+// format (text, markdown, or html) and truncates it to MaxFetchSize.
+//
+// Truncation is applied to the core content before markdown fences are
+// added, so the closing fence is never stripped by the size cap.
+func formatFetchContent(content, contentType, format string) (string, error) {
+	isHTML := strings.Contains(contentType, "text/html")
+
+	switch format {
+	case "text":
+		if isHTML {
+			text, err := extractTextFromHTML(content)
+			if err != nil {
+				return "", fmt.Errorf("Failed to extract text from HTML: %w", err)
+			}
+			content = text
+		}
+		content = truncateFetchContent(content)
+
+	case "markdown":
+		if isHTML {
+			markdown, err := ConvertHTMLToMarkdown(content)
+			if err != nil {
+				return "", fmt.Errorf("Failed to convert HTML to Markdown: %w", err)
+			}
+			content = markdown
+		}
+		content = "```\n" + truncateFetchContent(content) + "\n```"
+
+	case "html":
+		if isHTML {
+			doc, err := goquery.NewDocumentFromReader(strings.NewReader(content))
+			if err != nil {
+				return "", fmt.Errorf("Failed to parse HTML: %w", err)
+			}
+			body, err := doc.Find("body").Html()
+			if err != nil {
+				return "", fmt.Errorf("Failed to extract body from HTML: %w", err)
+			}
+			if body == "" {
+				return "", errors.New("No body content found in HTML")
+			}
+			content = "<html>\n<body>\n" + body + "\n</body>\n</html>"
+		}
+		content = truncateFetchContent(content)
+	}
+
+	return content, nil
+}
+
+// truncateFetchContent caps content at MaxFetchSize, appending a notice when
+// truncation occurs.
+func truncateFetchContent(content string) string {
+	if len(content) <= MaxFetchSize {
+		return content
+	}
+	return content[:MaxFetchSize] + fmt.Sprintf("\n\n[Content truncated to %d bytes]", MaxFetchSize)
 }
 
 func extractTextFromHTML(html string) (string, error) {
@@ -187,15 +207,4 @@ func extractTextFromHTML(html string) (string, error) {
 	text = strings.Join(strings.Fields(text), " ")
 
 	return text, nil
-}
-
-func convertHTMLToMarkdown(html string) (string, error) {
-	converter := md.NewConverter("", true, nil)
-
-	markdown, err := converter.ConvertString(html)
-	if err != nil {
-		return "", err
-	}
-
-	return markdown, nil
 }
