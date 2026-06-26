@@ -303,6 +303,33 @@ type runStream struct {
 	printed   bool
 }
 
+// emitIncremental writes the not-yet-printed suffix of full for message
+// msgID to s.out, advancing the per-message read cursor. Leading spaces and
+// tabs are trimmed only from the very first chunk of a message, and nothing
+// is written until the first non-blank content appears (so blank prefixes
+// don't produce spurious leading whitespace). It returns an error if the
+// content is shorter than the bytes already read, which indicates the stream
+// regressed.
+func (s *runStream) emitIncremental(msgID, full string) error {
+	readBytes := s.read[msgID]
+	if len(full) < readBytes {
+		slog.Error("Non-interactive: message content shorter than read bytes",
+			"message_length", len(full), "read_bytes", readBytes)
+		return fmt.Errorf("message content is shorter than read bytes: %d < %d", len(full), readBytes)
+	}
+
+	part := full[readBytes:]
+	if readBytes == 0 {
+		part = strings.TrimLeft(part, " \t")
+	}
+	if s.printed || strings.TrimSpace(part) != "" {
+		s.printed = true
+		fmt.Fprint(s.out, part)
+	}
+	s.read[msgID] = len(full)
+	return nil
+}
+
 // handle processes one SSE event. Returns done=true when the run
 // loop should exit (RunComplete observed); returns an error only
 // when the agent run failed (not on context cancel — that path is
@@ -326,23 +353,9 @@ func (s *runStream) handle(ev any, stopSpinner func()) (done bool, err error) {
 		}
 		stop()
 
-		content := msg.Content().String()
-		readBytes := s.read[msg.ID]
-		if len(content) < readBytes {
-			slog.Error("Non-interactive: message content shorter than read bytes",
-				"message_length", len(content), "read_bytes", readBytes)
-			return false, fmt.Errorf("message content is shorter than read bytes: %d < %d", len(content), readBytes)
+		if err := s.emitIncremental(msg.ID, msg.Content().String()); err != nil {
+			return false, err
 		}
-
-		part := content[readBytes:]
-		if readBytes == 0 {
-			part = strings.TrimLeft(part, " \t")
-		}
-		if s.printed || strings.TrimSpace(part) != "" {
-			s.printed = true
-			fmt.Fprint(s.out, part)
-		}
-		s.read[msg.ID] = len(content)
 		return false, nil
 
 	case pubsub.Event[proto.RunComplete]:
@@ -377,17 +390,8 @@ func (s *runStream) handle(ev any, stopSpinner func()) (done bool, err error) {
 		// yet; the embedded Text field is the backstop that
 		// guarantees the full final text always appears on stdout.
 		if e.Payload.MessageID != "" {
-			full := e.Payload.Text
-			readBytes := s.read[e.Payload.MessageID]
-			if readBytes < len(full) {
-				tail := full[readBytes:]
-				if readBytes == 0 {
-					tail = strings.TrimLeft(tail, " \t")
-				}
-				if s.printed || strings.TrimSpace(tail) != "" {
-					s.printed = true
-					fmt.Fprint(s.out, tail)
-				}
+			if err := s.emitIncremental(e.Payload.MessageID, e.Payload.Text); err != nil {
+				return true, err
 			}
 		}
 		return true, nil
