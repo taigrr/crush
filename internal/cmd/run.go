@@ -594,20 +594,36 @@ func resolveSession(ctx context.Context, c *client.Client, wsID, continueSession
 
 	case useLast:
 		sessions, err := c.ListSessions(ctx, wsID)
-		if err != nil || len(sessions) == 0 {
+		if err != nil {
 			return nil, fmt.Errorf("no sessions found to continue")
 		}
-		last := sessions[0]
-		for _, s := range sessions[1:] {
-			if s.UpdatedAt > last.UpdatedAt && s.ParentSessionID == "" {
-				last = s
-			}
+		last := latestTopLevelSession(sessions)
+		if last == nil {
+			return nil, fmt.Errorf("no sessions found to continue")
 		}
-		return &last, nil
+		return last, nil
 
 	default:
 		return c.CreateSession(ctx, wsID, "non-interactive")
 	}
+}
+
+// latestTopLevelSession returns the most recently updated top-level (non-child)
+// session, or nil when none exist. Child sessions are skipped entirely so that
+// --continue-last never resumes a forked/child session, matching the explicit
+// --session guard.
+func latestTopLevelSession(sessions []proto.Session) *proto.Session {
+	var last *proto.Session
+	for i := range sessions {
+		s := &sessions[i]
+		if s.ParentSessionID != "" {
+			continue
+		}
+		if last == nil || s.UpdatedAt > last.UpdatedAt {
+			last = s
+		}
+	}
+	return last
 }
 
 // resolveSessionByID resolves a session ID that may be a full UUID or a hash
