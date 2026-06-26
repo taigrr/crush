@@ -159,6 +159,23 @@ type Workspace struct {
 	// embedded [app.App.Shutdown]; tests may override it to avoid
 	// driving a full [app.App] through shutdown.
 	shutdownFn func()
+
+	// busyFn reports whether the workspace has an in-flight agent run.
+	// It defaults to consulting the agent coordinator; tests may
+	// override it to simulate a busy workspace without a full [app.App].
+	busyFn func() bool
+}
+
+// agentBusy reports whether the workspace currently has an in-flight
+// agent run. A busy workspace must not be torn down when its last client
+// detaches: the run is bound to the workspace context, so tearing it down
+// would cancel the agent mid-turn. Only an explicit server shutdown
+// (Backend.Shutdown) overrides this.
+func (w *Workspace) agentBusy() bool {
+	if w.busyFn != nil {
+		return w.busyFn()
+	}
+	return w.App != nil && w.AgentCoordinator != nil && w.AgentCoordinator.IsBusy()
 }
 
 // invokeShutdown calls the workspace shutdown hook if set, falling
@@ -544,7 +561,7 @@ func (b *Backend) expireHold(ws *Workspace, clientID string, timer *clientState)
 	teardown := len(ws.clients) == 0
 	ws.clientsMu.Unlock()
 	if teardown {
-		b.teardown(ws)
+		b.teardownIfIdle(ws)
 	}
 }
 
@@ -567,7 +584,7 @@ func (b *Backend) releaseHoldLocked(ws *Workspace, clientID string) {
 	}
 	ws.clientsMu.Unlock()
 	if teardown {
-		b.teardown(ws)
+		b.teardownIfIdle(ws)
 	}
 }
 
@@ -589,12 +606,43 @@ func (b *Backend) detachStream(ws *Workspace, clientID string) {
 	}
 	ws.clientsMu.Unlock()
 	if teardown {
-		b.teardown(ws)
+		b.teardownIfIdle(ws)
 	}
+}
+
+// teardownIfIdle tears the workspace down only when it has no attached
+// clients and no in-flight agent run. When the last client detaches while
+// the agent is still working, the workspace is kept alive so the run can
+// finish; [Backend.runAgent] re-checks idleness on completion and tears
+// down then. The explicit shutdown command bypasses this via
+// [Backend.Shutdown], which calls shutdownFn directly.
+func (b *Backend) teardownIfIdle(ws *Workspace) {
+	ws.clientsMu.Lock()
+	hasClients := len(ws.clients) > 0
+	ws.clientsMu.Unlock()
+	if hasClients {
+		return
+	}
+	if ws.agentBusy() {
+		slog.Info(
+			"Last client detached but agent is busy; keeping workspace alive until the run completes",
+			"workspace", ws.ID,
+		)
+		return
+	}
+	b.teardown(ws)
 }
 
 func (b *Backend) teardown(ws *Workspace) {
 	b.mu.Lock()
+	// Idempotency guard: teardown can be reached both from the detach
+	// paths and from runAgent's post-run idle re-check. Once the
+	// workspace has been removed, subsequent calls are no-ops so the
+	// shutdown hook never fires twice.
+	if _, ok := b.workspaces.Get(ws.ID); !ok {
+		b.mu.Unlock()
+		return
+	}
 	ws.clientsMu.Lock()
 	if len(ws.clients) > 0 {
 		ws.clientsMu.Unlock()

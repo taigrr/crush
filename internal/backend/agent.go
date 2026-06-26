@@ -88,6 +88,13 @@ func (b *Backend) SendMessage(workspaceID string, msg proto.AgentMessage) error 
 // is also attached so the coordinator can report whether it published
 // the terminal event, letting runAgent avoid a duplicate fallback.
 func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.AcceptedRun) {
+	// Registered first so it runs last — after runWG.Done below — so that
+	// if this was the final in-flight run and all clients have already
+	// detached, the workspace (and, if it was the last one, the server)
+	// is torn down now. While the run was live, teardownIfIdle on the
+	// detach paths deliberately kept the workspace alive. teardownIfIdle
+	// is a cheap no-op when clients remain or another run is still busy.
+	defer b.teardownIfIdle(ws)
 	defer ws.runWG.Done()
 	defer accept.Close()
 
