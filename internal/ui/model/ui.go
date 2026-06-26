@@ -2079,10 +2079,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				return true
 			}
 		case key.Matches(msg, m.keyMap.Suspend):
-			if m.isAgentBusy() {
-				cmds = append(cmds, util.ReportWarn("Agent is busy, please wait..."))
-				return true
-			}
+			// Suspend (Ctrl+Z) is always safe: the agent runs in the
+			// separate server process, so backgrounding the TUI client
+			// does not interrupt an in-flight turn. The client reconciles
+			// any events missed while suspended from the event stream (and
+			// the RunComplete backstop) on resume.
 			cmds = append(cmds, tea.Suspend)
 			return true
 		case key.Matches(msg, m.keyMap.ToggleYolo):
