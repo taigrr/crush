@@ -455,23 +455,15 @@ func (r *Repo) buildTree(ctx context.Context, dir string, relPath string) (plumb
 				return plumbing.ZeroHash, fmt.Errorf("stat %s: %w", entryPath, err)
 			}
 
-			var mode filemode.FileMode
-			if info.Mode()&fs.ModeSymlink != 0 {
-				mode = filemode.Symlink
-			} else if info.Mode()&0o111 != 0 {
-				mode = filemode.Executable
-			} else {
-				mode = filemode.Regular
-			}
-
-			blobHash, err := r.addBlob(entryPath, info.Mode()&fs.ModeSymlink != 0)
+			isSymlink := info.Mode()&fs.ModeSymlink != 0
+			blobHash, err := r.addBlob(entryPath, isSymlink)
 			if err != nil {
 				return plumbing.ZeroHash, err
 			}
 
 			treeEntries = append(treeEntries, object.TreeEntry{
 				Name: name,
-				Mode: mode,
+				Mode: treeFileMode(info.Mode()),
 				Hash: blobHash,
 			})
 		}
@@ -582,6 +574,22 @@ func (r *Repo) addBlob(path string, isSymlink bool) (plumbing.Hash, error) {
 	}
 
 	return hash, nil
+}
+
+// treeFileMode maps an os.FileMode to the git tree file mode used when
+// snapshotting an entry. Symlinks take precedence over the executable bit so
+// a symlink with executable permission bits is still recorded as a symlink;
+// any file with an owner/group/other execute bit becomes Executable, and
+// everything else is a Regular blob.
+func treeFileMode(m fs.FileMode) filemode.FileMode {
+	switch {
+	case m&fs.ModeSymlink != 0:
+		return filemode.Symlink
+	case m&0o111 != 0:
+		return filemode.Executable
+	default:
+		return filemode.Regular
+	}
 }
 
 // isExcluded checks if a path matches any exclusion pattern.
