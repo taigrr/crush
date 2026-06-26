@@ -41,6 +41,32 @@ func (m *ModelGroup) AppendItems(items ...*ModelItem) {
 	m.Items = append(m.Items, items...)
 }
 
+// appendModelItems builds a ModelItem for each model, appends it to group,
+// and registers it in itemsMap (keyed by item ID). It returns the ID of the
+// item matching currentModel, or "" if none match. This centralizes the
+// item-construction loop shared by the unknown-provider and known-provider
+// branches of setProviderItems.
+func appendModelItems(
+	t *styles.Styles,
+	group *ModelGroup,
+	provider catwalk.Provider,
+	models []catwalk.Model,
+	typ ModelType,
+	currentModel config.SelectedModel,
+	itemsMap map[string]*ModelItem,
+) string {
+	var selectedID string
+	for _, model := range models {
+		item := NewModelItem(t, provider, model, typ, false)
+		group.AppendItems(item)
+		itemsMap[item.ID()] = item
+		if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
+			selectedID = item.ID()
+		}
+	}
+	return selectedID
+}
+
 // Render implements [list.Item].
 func (m *ModelGroup) Render(width int) string {
 	var configured string

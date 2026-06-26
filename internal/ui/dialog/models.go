@@ -394,13 +394,9 @@ func (m *Models) setProviderItems() error {
 			addedProviders[id] = struct{}{}
 
 			group := NewModelGroup(t, name, true)
-			for _, model := range p.Models {
-				item := NewModelItem(t, provider, model, m.modelType, false)
-				group.AppendItems(item)
-				itemsMap[item.ID()] = item
-				if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
-					selectedItemID = item.ID()
-				}
+			selected := appendModelItems(t, &group, provider, p.Models, m.modelType, currentModel, itemsMap)
+			if selected != "" {
+				selectedItemID = selected
 			}
 			if len(group.Items) > 0 {
 				groups = append(groups, group)
@@ -447,13 +443,9 @@ func (m *Models) setProviderItems() error {
 		name := cmp.Or(displayProvider.Name, providerID)
 
 		group := NewModelGroup(t, name, providerConfigured)
-		for _, model := range displayProvider.Models {
-			item := NewModelItem(t, provider, model, m.modelType, false)
-			group.AppendItems(item)
-			itemsMap[item.ID()] = item
-			if model.ID == currentModel.Model && string(provider.ID) == currentModel.Provider {
-				selectedItemID = item.ID()
-			}
+		selected := appendModelItems(t, &group, provider, displayProvider.Models, m.modelType, currentModel, itemsMap)
+		if selected != "" {
+			selectedItemID = selected
 		}
 
 		groups = append(groups, group)
