@@ -847,17 +847,21 @@ func hasAWSCredentials(env env.Env) bool {
 		return true
 	}
 
-	if env.Get("AWS_PROFILE") != "" || env.Get("AWS_DEFAULT_PROFILE") != "" {
-		return true
+	// Any single one of these env vars is enough to imply that AWS
+	// credentials are resolvable (via a profile, the default region's
+	// instance/role credentials, or container credential endpoints).
+	anyOf := []string{
+		"AWS_PROFILE",
+		"AWS_DEFAULT_PROFILE",
+		"AWS_REGION",
+		"AWS_DEFAULT_REGION",
+		"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI",
 	}
-
-	if env.Get("AWS_REGION") != "" || env.Get("AWS_DEFAULT_REGION") != "" {
-		return true
-	}
-
-	if env.Get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI") != "" ||
-		env.Get("AWS_CONTAINER_CREDENTIALS_FULL_URI") != "" {
-		return true
+	for _, key := range anyOf {
+		if env.Get(key) != "" {
+			return true
+		}
 	}
 
 	if _, err := os.Stat(filepath.Join(home.Dir(), ".aws/credentials")); err == nil && !testing.Testing() {
