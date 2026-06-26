@@ -57,6 +57,20 @@ func TestFormatParametersForCopy_GenericFallback(t *testing.T) {
 	}
 }
 
+// TestFormatParametersForCopy_GenericFallbackOrdering verifies the generic
+// fallback emits keys in a deterministic (sorted) order. Map iteration is
+// randomized, so without sorting this output would be flaky.
+func TestFormatParametersForCopy_GenericFallbackOrdering(t *testing.T) {
+	t.Parallel()
+	want := "**Alpha:** 1\n**Beta:** 2\n**Gamma:** 3"
+	for range 20 {
+		got := formatParams("my_custom_tool", `{"gamma":3,"alpha":1,"beta":2}`)
+		if got != want {
+			t.Fatalf("ordering = %q, want %q", got, want)
+		}
+	}
+}
+
 func TestFormatParametersForCopy_InvalidJSON(t *testing.T) {
 	t.Parallel()
 	if got := formatParams(tools.BashToolName, `not json`); got != "" {

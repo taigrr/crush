@@ -9,7 +9,9 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -1346,12 +1348,13 @@ func (t *baseToolMessageItem) formatParametersForCopy() string {
 
 	if params, ok := unmarshalParams[map[string]any](input); ok {
 		var f copyFields
-		for key, value := range params {
+		keys := slices.Sorted(maps.Keys(params))
+		for _, key := range keys {
 			displayKey := strings.ReplaceAll(key, "_", " ")
 			if len(displayKey) > 0 {
 				displayKey = strings.ToUpper(displayKey[:1]) + displayKey[1:]
 			}
-			f.add(displayKey, "%v", value)
+			f.add(displayKey, "%v", params[key])
 		}
 		return f.String()
 	}
