@@ -1217,156 +1217,143 @@ func (t *baseToolMessageItem) formatToolForCopy() string {
 	return strings.Join(parts, "\n\n")
 }
 
+// copyFields accumulates "**Label:** value" lines for clipboard formatting.
+type copyFields []string
+
+// add appends a "**label:** value" line unconditionally.
+func (f *copyFields) add(label, format string, args ...any) {
+	*f = append(*f, fmt.Sprintf("**"+label+":** "+format, args...))
+}
+
+// addIf appends a line only when cond is true.
+func (f *copyFields) addIf(cond bool, label, format string, args ...any) {
+	if cond {
+		f.add(label, format, args...)
+	}
+}
+
+func (f copyFields) String() string {
+	return strings.Join(f, "\n")
+}
+
+// unmarshalParams decodes the tool call input into T, reporting whether it
+// succeeded.
+func unmarshalParams[T any](input string) (T, bool) {
+	var params T
+	ok := json.Unmarshal([]byte(input), &params) == nil
+	return params, ok
+}
+
 // formatParametersForCopy formats tool parameters for clipboard copying.
 func (t *baseToolMessageItem) formatParametersForCopy() string {
+	input := t.toolCall.Input
 	switch t.toolCall.Name {
 	case tools.BashToolName:
-		var params tools.BashParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			cmd := strings.ReplaceAll(params.Command, "\n", " ")
+		if p, ok := unmarshalParams[tools.BashParams](input); ok {
+			cmd := strings.ReplaceAll(p.Command, "\n", " ")
 			cmd = strings.ReplaceAll(cmd, "\t", "    ")
 			return fmt.Sprintf("**Command:** %s", cmd)
 		}
 	case tools.ViewToolName:
-		var params tools.ViewParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			var parts []string
-			parts = append(parts, fmt.Sprintf("**File:** %s", fsext.PrettyPath(params.FilePath)))
-			if params.Limit > 0 {
-				parts = append(parts, fmt.Sprintf("**Limit:** %d", params.Limit))
-			}
-			if params.Offset > 0 {
-				parts = append(parts, fmt.Sprintf("**Offset:** %d", params.Offset))
-			}
-			return strings.Join(parts, "\n")
+		if p, ok := unmarshalParams[tools.ViewParams](input); ok {
+			var f copyFields
+			f.add("File", "%s", fsext.PrettyPath(p.FilePath))
+			f.addIf(p.Limit > 0, "Limit", "%d", p.Limit)
+			f.addIf(p.Offset > 0, "Offset", "%d", p.Offset)
+			return f.String()
 		}
 	case tools.EditToolName:
-		var params tools.EditParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			return fmt.Sprintf("**File:** %s", fsext.PrettyPath(params.FilePath))
+		if p, ok := unmarshalParams[tools.EditParams](input); ok {
+			return fmt.Sprintf("**File:** %s", fsext.PrettyPath(p.FilePath))
 		}
 	case tools.MultiEditToolName:
-		var params tools.MultiEditParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			var parts []string
-			parts = append(parts, fmt.Sprintf("**File:** %s", fsext.PrettyPath(params.FilePath)))
-			parts = append(parts, fmt.Sprintf("**Edits:** %d", len(params.Edits)))
-			return strings.Join(parts, "\n")
+		if p, ok := unmarshalParams[tools.MultiEditParams](input); ok {
+			var f copyFields
+			f.add("File", "%s", fsext.PrettyPath(p.FilePath))
+			f.add("Edits", "%d", len(p.Edits))
+			return f.String()
 		}
 	case tools.WriteToolName:
-		var params tools.WriteParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			return fmt.Sprintf("**File:** %s", fsext.PrettyPath(params.FilePath))
+		if p, ok := unmarshalParams[tools.WriteParams](input); ok {
+			return fmt.Sprintf("**File:** %s", fsext.PrettyPath(p.FilePath))
 		}
 	case tools.FetchToolName:
-		var params tools.FetchParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			var parts []string
-			parts = append(parts, fmt.Sprintf("**URL:** %s", params.URL))
-			if params.Format != "" {
-				parts = append(parts, fmt.Sprintf("**Format:** %s", params.Format))
-			}
-			if params.Timeout > 0 {
-				parts = append(parts, fmt.Sprintf("**Timeout:** %ds", params.Timeout))
-			}
-			return strings.Join(parts, "\n")
+		if p, ok := unmarshalParams[tools.FetchParams](input); ok {
+			var f copyFields
+			f.add("URL", "%s", p.URL)
+			f.addIf(p.Format != "", "Format", "%s", p.Format)
+			f.addIf(p.Timeout > 0, "Timeout", "%ds", p.Timeout)
+			return f.String()
 		}
 	case tools.AgenticFetchToolName:
-		var params tools.AgenticFetchParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			var parts []string
-			if params.URL != "" {
-				parts = append(parts, fmt.Sprintf("**URL:** %s", params.URL))
-			}
-			if params.Prompt != "" {
-				parts = append(parts, fmt.Sprintf("**Prompt:** %s", params.Prompt))
-			}
-			return strings.Join(parts, "\n")
+		if p, ok := unmarshalParams[tools.AgenticFetchParams](input); ok {
+			var f copyFields
+			f.addIf(p.URL != "", "URL", "%s", p.URL)
+			f.addIf(p.Prompt != "", "Prompt", "%s", p.Prompt)
+			return f.String()
 		}
 	case tools.WebFetchToolName:
-		var params tools.WebFetchParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			return fmt.Sprintf("**URL:** %s", params.URL)
+		if p, ok := unmarshalParams[tools.WebFetchParams](input); ok {
+			return fmt.Sprintf("**URL:** %s", p.URL)
 		}
 	case tools.GrepToolName:
-		var params tools.GrepParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			var parts []string
-			parts = append(parts, fmt.Sprintf("**Pattern:** %s", params.Pattern))
-			if params.Path != "" {
-				parts = append(parts, fmt.Sprintf("**Path:** %s", params.Path))
-			}
-			if params.Include != "" {
-				parts = append(parts, fmt.Sprintf("**Include:** %s", params.Include))
-			}
-			if params.LiteralText {
-				parts = append(parts, "**Literal:** true")
-			}
-			return strings.Join(parts, "\n")
+		if p, ok := unmarshalParams[tools.GrepParams](input); ok {
+			var f copyFields
+			f.add("Pattern", "%s", p.Pattern)
+			f.addIf(p.Path != "", "Path", "%s", p.Path)
+			f.addIf(p.Include != "", "Include", "%s", p.Include)
+			f.addIf(p.LiteralText, "Literal", "true")
+			return f.String()
 		}
 	case tools.GlobToolName:
-		var params tools.GlobParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			var parts []string
-			parts = append(parts, fmt.Sprintf("**Pattern:** %s", params.Pattern))
-			if params.Path != "" {
-				parts = append(parts, fmt.Sprintf("**Path:** %s", params.Path))
-			}
-			return strings.Join(parts, "\n")
+		if p, ok := unmarshalParams[tools.GlobParams](input); ok {
+			var f copyFields
+			f.add("Pattern", "%s", p.Pattern)
+			f.addIf(p.Path != "", "Path", "%s", p.Path)
+			return f.String()
 		}
 	case tools.LSToolName:
-		var params tools.LSParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			path := params.Path
+		if p, ok := unmarshalParams[tools.LSParams](input); ok {
+			path := p.Path
 			if path == "" {
 				path = "."
 			}
 			return fmt.Sprintf("**Path:** %s", fsext.PrettyPath(path))
 		}
 	case tools.DownloadToolName:
-		var params tools.DownloadParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			var parts []string
-			parts = append(parts, fmt.Sprintf("**URL:** %s", params.URL))
-			parts = append(parts, fmt.Sprintf("**File Path:** %s", fsext.PrettyPath(params.FilePath)))
-			if params.Timeout > 0 {
-				parts = append(parts, fmt.Sprintf("**Timeout:** %s", (time.Duration(params.Timeout)*time.Second).String()))
-			}
-			return strings.Join(parts, "\n")
+		if p, ok := unmarshalParams[tools.DownloadParams](input); ok {
+			var f copyFields
+			f.add("URL", "%s", p.URL)
+			f.add("File Path", "%s", fsext.PrettyPath(p.FilePath))
+			f.addIf(p.Timeout > 0, "Timeout", "%s", (time.Duration(p.Timeout) * time.Second).String())
+			return f.String()
 		}
 	case tools.SourcegraphToolName:
-		var params tools.SourcegraphParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			var parts []string
-			parts = append(parts, fmt.Sprintf("**Query:** %s", params.Query))
-			if params.Count > 0 {
-				parts = append(parts, fmt.Sprintf("**Count:** %d", params.Count))
-			}
-			if params.ContextWindow > 0 {
-				parts = append(parts, fmt.Sprintf("**Context:** %d", params.ContextWindow))
-			}
-			return strings.Join(parts, "\n")
+		if p, ok := unmarshalParams[tools.SourcegraphParams](input); ok {
+			var f copyFields
+			f.add("Query", "%s", p.Query)
+			f.addIf(p.Count > 0, "Count", "%d", p.Count)
+			f.addIf(p.ContextWindow > 0, "Context", "%d", p.ContextWindow)
+			return f.String()
 		}
 	case tools.DiagnosticsToolName:
 		return "**Project:** diagnostics"
 	case agent.AgentToolName:
-		var params agent.AgentParams
-		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-			return fmt.Sprintf("**Task:**\n%s", params.Prompt)
+		if p, ok := unmarshalParams[agent.AgentParams](input); ok {
+			return fmt.Sprintf("**Task:**\n%s", p.Prompt)
 		}
 	}
 
-	var params map[string]any
-	if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
-		var parts []string
+	if params, ok := unmarshalParams[map[string]any](input); ok {
+		var f copyFields
 		for key, value := range params {
 			displayKey := strings.ReplaceAll(key, "_", " ")
 			if len(displayKey) > 0 {
 				displayKey = strings.ToUpper(displayKey[:1]) + displayKey[1:]
 			}
-			parts = append(parts, fmt.Sprintf("**%s:** %v", displayKey, value))
+			f.add(displayKey, "%v", value)
 		}
-		return strings.Join(parts, "\n")
+		return f.String()
 	}
 
 	return ""

@@ -245,18 +245,25 @@ func readInputs(ctx context.Context, stdin io.Reader, files []string, nullInput,
 		}
 
 		if rawInput {
-			lines := strings.Split(string(data), "\n")
 			if slurp {
-				vals = append(vals, strings.Join(lines, "\n"))
-			} else {
-				for _, line := range lines {
-					if err := ctx.Err(); err != nil {
-						return nil, err
-					}
-					if line != "" || !slurp {
-						vals = append(vals, line)
-					}
+				// -R -s reads the entire input verbatim as one string,
+				// trailing newline included.
+				vals = append(vals, string(data))
+				continue
+			}
+			lines := strings.Split(string(data), "\n")
+			// A trailing newline terminates the final line; it does not
+			// introduce an extra empty line. Drop the empty element that
+			// strings.Split yields for it so we match jq's line semantics
+			// (and so empty input yields no lines at all).
+			if n := len(lines); n > 0 && lines[n-1] == "" {
+				lines = lines[:n-1]
+			}
+			for _, line := range lines {
+				if err := ctx.Err(); err != nil {
+					return nil, err
 				}
+				vals = append(vals, line)
 			}
 			continue
 		}

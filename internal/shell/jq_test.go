@@ -198,3 +198,60 @@ func TestJQ_Success(t *testing.T) {
 		t.Fatalf("stdout = %q, want %q", got, "1\n")
 	}
 }
+
+// TestJQ_RawInput exercises -R parsing of multi-line input. A trailing
+// newline terminates the final line; it must not produce a spurious
+// empty output value, matching real jq's line semantics.
+func TestJQ_RawInput(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"trailing newline", "a\nb\n", "\"a\"\n\"b\"\n"},
+		{"no trailing newline", "a\nb", "\"a\"\n\"b\"\n"},
+		{"single line", "hello\n", "\"hello\"\n"},
+		{"empty input", "", "null\n"},
+		{"blank interior line", "a\n\nb\n", "\"a\"\n\"\"\n\"b\"\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var stdout bytes.Buffer
+			err := handleJQ(
+				t.Context(),
+				[]string{"jq", "-R", "-c", "."},
+				strings.NewReader(tc.input),
+				&stdout, io.Discard,
+			)
+			if err != nil {
+				t.Fatalf("handleJQ returned error: %v", err)
+			}
+			if got := stdout.String(); got != tc.want {
+				t.Fatalf("stdout = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestJQ_RawInputSlurp confirms -R -s reads the whole input (including a
+// trailing newline) as a single string value.
+func TestJQ_RawInputSlurp(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	err := handleJQ(
+		t.Context(),
+		[]string{"jq", "-R", "-s", "-c", "."},
+		strings.NewReader("a\nb\n"),
+		&stdout, io.Discard,
+	)
+	if err != nil {
+		t.Fatalf("handleJQ returned error: %v", err)
+	}
+	if got := stdout.String(); got != "\"a\\nb\\n\"\n" {
+		t.Fatalf("stdout = %q, want %q", got, "\"a\\nb\\n\"\n")
+	}
+}
