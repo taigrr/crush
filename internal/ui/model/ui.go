@@ -153,6 +153,7 @@ type (
 
 	// sessionFilesUpdatesMsg is sent when the files for this session have been updated
 	sessionFilesUpdatesMsg struct {
+		sessionID    string
 		sessionFiles []SessionFile
 	}
 	// creditsUpdatedMsg is sent when the remaining Hyper credits have been
@@ -587,12 +588,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.switchWorktree(msg.session.ID, msg.worktreeID))
 
 	case sessionFilesUpdatesMsg:
-		m.sessionFiles = msg.sessionFiles
-		var paths []string
-		for _, f := range msg.sessionFiles {
-			paths = append(paths, f.LatestVersion.Path)
-		}
-		cmds = append(cmds, m.startLSPs(paths))
+		cmds = append(cmds, m.applySessionFilesUpdate(msg))
 
 	case sendMessageMsg:
 		cmds = append(cmds, m.sendMessage(msg.Content, msg.Attachments...))

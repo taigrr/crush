@@ -202,17 +202,38 @@ func (m *UI) handleFileEvent(file history.File) tea.Cmd {
 		return nil
 	}
 
+	// Capture the session ID now; the closure runs on a separate
+	// goroutine where reading m.session would race the update loop and
+	// could load a different session than the one that was validated.
+	sessionID := m.session.ID
 	return func() tea.Msg {
-		sessionFiles, err := m.loadSessionFiles(m.session.ID)
+		sessionFiles, err := m.loadSessionFiles(sessionID)
 		// could not load session files
 		if err != nil {
 			return util.NewErrorMsg(err)
 		}
 
 		return sessionFilesUpdatesMsg{
+			sessionID:    sessionID,
 			sessionFiles: sessionFiles,
 		}
 	}
+}
+
+// applySessionFilesUpdate applies a session file reload to the model.
+// It ignores a reload that completed after the user switched sessions,
+// since applying it would clobber the now-current session's file list
+// with a stale one from a different session.
+func (m *UI) applySessionFilesUpdate(msg sessionFilesUpdatesMsg) tea.Cmd {
+	if m.session == nil || msg.sessionID != m.session.ID {
+		return nil
+	}
+	m.sessionFiles = msg.sessionFiles
+	var paths []string
+	for _, f := range msg.sessionFiles {
+		paths = append(paths, f.LatestVersion.Path)
+	}
+	return m.startLSPs(paths)
 }
 
 // filesInfo renders the modified files section for the sidebar, showing files
