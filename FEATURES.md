@@ -9,11 +9,11 @@ This document describes the features added in this fork compared to
 
 All import paths changed:
 
-| Upstream | Fork |
-|----------|------|
-| `github.com/charmbracelet/crush` | `github.com/taigrr/crush` |
-| `charm.land/fantasy` | `github.com/taigrr/fantasy` |
-| `charm.land/catwalk` | `github.com/taigrr/catwalk` |
+| Upstream                         | Fork                        |
+| -------------------------------- | --------------------------- |
+| `github.com/charmbracelet/crush` | `github.com/taigrr/crush`   |
+| `charm.land/fantasy`             | `github.com/taigrr/fantasy` |
+| `charm.land/catwalk`             | `github.com/taigrr/catwalk` |
 
 Charm dependencies that are **not** forked (bubbletea, lipgloss, glamour,
 fang, bubbles) remain on their upstream `charm.land/` paths.
@@ -63,11 +63,11 @@ models that support 1M context (e.g., Gemini, Claude with beta flags).
 
 Configurable per-model via `context_mode` in `crush.json`:
 
-| Mode | Behavior |
-|------|----------|
-| `standard` | Use the model's default context window |
-| `extended` | Always use 1M context |
-| `dynamic` | Auto-switch to 1M when 80% of standard window is consumed; summarize at 90% of 1M |
+| Mode       | Behavior                                                                          |
+| ---------- | --------------------------------------------------------------------------------- |
+| `standard` | Use the model's default context window                                            |
+| `extended` | Always use 1M context                                                             |
+| `dynamic`  | Auto-switch to 1M when 80% of standard window is consumed; summarize at 90% of 1M |
 
 ### Implementation
 
@@ -105,12 +105,12 @@ user's `.git/`) that captures filesystem state at each user message.
 
 ### Components
 
-| File | Purpose |
-|------|---------|
-| `checkpoint/repo.go` | go-git repository wrapper (622 lines) |
-| `checkpoint/repo_test.go` | Full test coverage (560 lines) |
-| `checkpoint/service.go` | High-level snapshot service (521 lines) |
-| `checkpoint/service_test.go` | Service tests |
+| File                         | Purpose                                 |
+| ---------------------------- | --------------------------------------- |
+| `checkpoint/repo.go`         | go-git repository wrapper (622 lines)   |
+| `checkpoint/repo_test.go`    | Full test coverage (560 lines)          |
+| `checkpoint/service.go`      | High-level snapshot service (521 lines) |
+| `checkpoint/service_test.go` | Service tests                           |
 
 ### Database
 
@@ -214,18 +214,18 @@ significantly expanded (~300 lines added) with archive/unarchive actions.
 
 `internal/server/snapshots.go` (451 lines) adds HTTP endpoints:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/workspaces/{id}/snapshots` | Create snapshot |
-| GET | `/workspaces/{id}/snapshots` | List snapshots |
-| GET | `/workspaces/{id}/snapshots/{sid}` | Get snapshot |
-| POST | `/workspaces/{id}/snapshots/{sid}/restore` | Restore snapshot |
-| GET | `/workspaces/{id}/snapshots/{sid}/diff` | Diff against snapshot |
-| POST | `/workspaces/{id}/worktrees` | Create worktree |
-| GET | `/workspaces/{id}/worktrees` | List worktrees |
-| DELETE | `/workspaces/{id}/worktrees/{wid}` | Delete worktree |
-| POST | `/workspaces/{id}/worktrees/{wid}/switch` | Switch worktree |
-| POST | `/workspaces/{id}/sessions/{sid}/fork` | Fork session |
+| Method | Path                                       | Description           |
+| ------ | ------------------------------------------ | --------------------- |
+| POST   | `/workspaces/{id}/snapshots`               | Create snapshot       |
+| GET    | `/workspaces/{id}/snapshots`               | List snapshots        |
+| GET    | `/workspaces/{id}/snapshots/{sid}`         | Get snapshot          |
+| POST   | `/workspaces/{id}/snapshots/{sid}/restore` | Restore snapshot      |
+| GET    | `/workspaces/{id}/snapshots/{sid}/diff`    | Diff against snapshot |
+| POST   | `/workspaces/{id}/worktrees`               | Create worktree       |
+| GET    | `/workspaces/{id}/worktrees`               | List worktrees        |
+| DELETE | `/workspaces/{id}/worktrees/{wid}`         | Delete worktree       |
+| POST   | `/workspaces/{id}/worktrees/{wid}/switch`  | Switch worktree       |
+| POST   | `/workspaces/{id}/sessions/{sid}/fork`     | Fork session          |
 
 Backend support: `internal/backend/snapshot.go`, `backend/worktree.go`,
 `backend/fork.go`.
@@ -289,13 +289,13 @@ ForkSession(ctx, sessionID, messageID, title, createWorktree) (session.Session, 
 
 ### New Dialogs
 
-| File | Purpose |
-|------|---------|
-| `dialog/context_mode.go` | Select context mode (Standard/Extended/Dynamic) |
-| `dialog/fork.go` | Fork conversation from a message |
-| `dialog/snapshots.go` | Browse and restore snapshots |
-| `dialog/worktrees.go` | List, switch, delete, merge worktrees |
-| `dialog/merge_worktree.go` | Merge confirmation with options |
+| File                       | Purpose                                         |
+| -------------------------- | ----------------------------------------------- |
+| `dialog/context_mode.go`   | Select context mode (Standard/Extended/Dynamic) |
+| `dialog/fork.go`           | Fork conversation from a message                |
+| `dialog/snapshots.go`      | Browse and restore snapshots                    |
+| `dialog/worktrees.go`      | List, switch, delete, merge worktrees           |
+| `dialog/merge_worktree.go` | Merge confirmation with options                 |
 
 ### Expanded Dialogs
 
@@ -350,14 +350,14 @@ implementation phases.
 
 ## Summary by the Numbers
 
-| Metric | Value |
-|--------|-------|
-| Files changed | 321 |
-| Lines added | ~10,986 |
-| Lines removed | ~4,455 |
-| Net new code | ~6,531 |
-| New packages | 3 (`checkpoint`, `worktree`, `fork`) |
-| Deleted packages | 1 (`event`) |
-| New DB migrations | 3 |
-| New UI dialogs | 5 |
-| New API endpoints | ~10 |
+| Metric            | Value                                |
+| ----------------- | ------------------------------------ |
+| Files changed     | 321                                  |
+| Lines added       | ~10,986                              |
+| Lines removed     | ~4,455                               |
+| Net new code      | ~6,531                               |
+| New packages      | 3 (`checkpoint`, `worktree`, `fork`) |
+| Deleted packages  | 1 (`event`)                          |
+| New DB migrations | 3                                    |
+| New UI dialogs    | 5                                    |
+| New API endpoints | ~10                                  |
