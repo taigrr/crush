@@ -6,6 +6,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/ultraviolet/layout"
 	"github.com/taigrr/crush/internal/ui/common"
+	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/taigrr/crush/internal/workspace"
 )
 
@@ -24,10 +25,23 @@ func (m *UI) selectedLargeModel() *workspace.AgentModel {
 func (m *UI) landingView() string {
 	t := m.com.Styles
 	width := m.layout.main.Dx()
-	cwd := common.PrettyPath(t, m.com.Workspace.WorkingDir(), width)
 
-	parts := []string{
-		cwd,
+	// Config root (always the .crush/ project root) with wrench icon.
+	cfgRootPath := m.com.Workspace.BaseDir()
+	cfgRoot := common.PrettyPath(t, styles.WrenchIcon+" "+cfgRootPath, width)
+
+	parts := []string{cfgRoot}
+
+	// Effective working dir (user's launch cwd) with folder icon. Only
+	// shown when different from the config root (linked worktrees case).
+	if effectivePath := m.com.Workspace.EffectiveWorkingDir(); effectivePath != cfgRootPath {
+		parts = append(parts, common.PrettyPath(t, styles.FolderIcon+" "+effectivePath, width))
+	}
+
+	// Git branch line (worktree lookups are session-scoped, so the
+	// landing screen only shows the plain branch).
+	if branch := m.com.Workspace.GitBranch(); branch != "" {
+		parts = append(parts, t.Sidebar.WorkingDir.Render(styles.GitBranchIcon+" "+branch))
 	}
 
 	parts = append(parts, "", m.modelInfo(width))

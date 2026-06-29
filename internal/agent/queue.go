@@ -335,14 +335,26 @@ func (a *sessionAgent) CancelAll() {
 }
 
 func (a *sessionAgent) IsBusy() bool {
-	var busy bool
 	for cancelFunc := range a.activeRequests.Seq() {
 		if cancelFunc != nil {
-			busy = true
-			break
+			return true
 		}
 	}
-	return busy
+	// A run is also busy in the dispatch window between BeginAccepted and
+	// the goroutine registering its cancel in activeRequests. Without
+	// this, Esc-cancel races where the user hits Escape before streaming
+	// starts read IsBusy()==false and silently drop the keypress.
+	if a.acceptedRuns == nil {
+		return false
+	}
+	a.acceptedMu.Lock()
+	defer a.acceptedMu.Unlock()
+	for _, count := range a.acceptedRuns.Seq2() {
+		if count > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *sessionAgent) IsSessionBusy(sessionID string) bool {
