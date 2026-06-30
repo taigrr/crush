@@ -58,8 +58,12 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	ctx := cmd.Context()
+	cwd, err := ResolveCwd(cmd)
+	if err != nil {
+		return err
+	}
 	dataDir, _ := cmd.Flags().GetString("data-dir")
-	cfg, err := config.Init("", dataDir, false)
+	cfg, err := config.Init(cwd, dataDir, false)
 	if err != nil {
 		return fmt.Errorf("failed to initialize config: %w", err)
 	}

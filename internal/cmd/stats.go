@@ -123,7 +123,11 @@ func runStats(cmd *cobra.Command, _ []string) error {
 	dataDir, _ := cmd.Flags().GetString("data-dir")
 	ctx := cmd.Context()
 
-	cfg, err := config.Init("", dataDir, false)
+	cwd, err := ResolveCwd(cmd)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Init(cwd, dataDir, false)
 	if err != nil {
 		return fmt.Errorf("failed to initialize config: %w", err)
 	}
