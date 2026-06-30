@@ -10,6 +10,30 @@ import (
 	"database/sql"
 )
 
+const copyMessageEmbeddings = `-- name: CopyMessageEmbeddings :exec
+INSERT OR IGNORE INTO embeddings (
+    source_type, source_id, chunk_idx, signature, dim, vec, session_id, created_at
+)
+SELECT 'message', ?1, chunk_idx, signature, dim, vec, ?2, created_at
+FROM embeddings
+WHERE embeddings.source_type = 'message' AND embeddings.source_id = ?3
+`
+
+type CopyMessageEmbeddingsParams struct {
+	DstSourceID  string         `json:"dst_source_id"`
+	DstSessionID sql.NullString `json:"dst_session_id"`
+	SrcSourceID  string         `json:"src_source_id"`
+}
+
+// Copies all message-source embeddings from one message id to another
+// (e.g. when forking), reusing the stored vectors so no re-embedding API
+// call is needed. The new rows take the new session id. Existing rows for
+// the destination are left untouched.
+func (q *Queries) CopyMessageEmbeddings(ctx context.Context, arg CopyMessageEmbeddingsParams) error {
+	_, err := q.exec(ctx, q.copyMessageEmbeddingsStmt, copyMessageEmbeddings, arg.DstSourceID, arg.DstSessionID, arg.SrcSourceID)
+	return err
+}
+
 const countEmbeddingsBySignature = `-- name: CountEmbeddingsBySignature :one
 SELECT COUNT(*) FROM embeddings WHERE signature = ?
 `

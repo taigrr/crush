@@ -329,6 +329,20 @@ func (s *service) copyMessagesUpTo(ctx context.Context, sourceSessionID, targetS
 		}
 
 		idMapping[msg.ID] = newMsg.ID
+
+		// Replay the source message's stored embedding vectors onto the
+		// new message id, reusing the vectors so the fork does not need a
+		// fresh embedding API call. A new row is required because vectors
+		// are keyed by message id; the bytes are copied as-is. Best-effort:
+		// a failure here just means the new message is re-embedded later by
+		// the background indexer / backfill.
+		if err := s.queries.CopyMessageEmbeddings(ctx, db.CopyMessageEmbeddingsParams{
+			SrcSourceID:  msg.ID,
+			DstSourceID:  newMsg.ID,
+			DstSessionID: sql.NullString{String: targetSessionID, Valid: targetSessionID != ""},
+		}); err != nil {
+			slog.Warn("Failed to copy embeddings during fork", "from", msg.ID, "to", newMsg.ID, "error", err)
+		}
 	}
 
 	return idMapping, prefillText, nil

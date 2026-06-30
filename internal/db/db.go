@@ -27,6 +27,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.archiveSessionStmt, err = db.PrepareContext(ctx, archiveSession); err != nil {
 		return nil, fmt.Errorf("error preparing query ArchiveSession: %w", err)
 	}
+	if q.copyMessageEmbeddingsStmt, err = db.PrepareContext(ctx, copyMessageEmbeddings); err != nil {
+		return nil, fmt.Errorf("error preparing query CopyMessageEmbeddings: %w", err)
+	}
 	if q.countEmbeddingsBySignatureStmt, err = db.PrepareContext(ctx, countEmbeddingsBySignature); err != nil {
 		return nil, fmt.Errorf("error preparing query CountEmbeddingsBySignature: %w", err)
 	}
@@ -260,6 +263,11 @@ func (q *Queries) Close() error {
 	if q.archiveSessionStmt != nil {
 		if cerr := q.archiveSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing archiveSessionStmt: %w", cerr)
+		}
+	}
+	if q.copyMessageEmbeddingsStmt != nil {
+		if cerr := q.copyMessageEmbeddingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing copyMessageEmbeddingsStmt: %w", cerr)
 		}
 	}
 	if q.countEmbeddingsBySignatureStmt != nil {
@@ -677,6 +685,7 @@ type Queries struct {
 	db                                      DBTX
 	tx                                      *sql.Tx
 	archiveSessionStmt                      *sql.Stmt
+	copyMessageEmbeddingsStmt               *sql.Stmt
 	countEmbeddingsBySignatureStmt          *sql.Stmt
 	countEmbeddingsTotalStmt                *sql.Stmt
 	countMilestonesBySessionStmt            *sql.Stmt
@@ -759,6 +768,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		db:                                      tx,
 		tx:                                      tx,
 		archiveSessionStmt:                      q.archiveSessionStmt,
+		copyMessageEmbeddingsStmt:               q.copyMessageEmbeddingsStmt,
 		countEmbeddingsBySignatureStmt:          q.countEmbeddingsBySignatureStmt,
 		countEmbeddingsTotalStmt:                q.countEmbeddingsTotalStmt,
 		countMilestonesBySessionStmt:            q.countMilestonesBySessionStmt,

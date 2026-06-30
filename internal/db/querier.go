@@ -11,6 +11,11 @@ import (
 
 type Querier interface {
 	ArchiveSession(ctx context.Context, id string) error
+	// Copies all message-source embeddings from one message id to another
+	// (e.g. when forking), reusing the stored vectors so no re-embedding API
+	// call is needed. The new rows take the new session id. Existing rows for
+	// the destination are left untouched.
+	CopyMessageEmbeddings(ctx context.Context, arg CopyMessageEmbeddingsParams) error
 	CountEmbeddingsBySignature(ctx context.Context, signature string) (int64, error)
 	CountEmbeddingsTotal(ctx context.Context) (int64, error)
 	CountMilestonesBySession(ctx context.Context, sessionID string) (int64, error)
