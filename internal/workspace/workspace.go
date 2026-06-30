@@ -171,6 +171,14 @@ type Workspace interface {
 	SetProviderAPIKey(scope config.Scope, providerID string, apiKey any) error
 	SetConfigField(scope config.Scope, key string, value any) error
 	RemoveConfigField(scope config.Scope, key string) error
+	// EmbedPendingCount reports how many past messages would be embedded
+	// by a backfill under the active embedding model.
+	EmbedPendingCount(ctx context.Context) (int, error)
+	// EmbedBackfill embeds past messages lacking a vector and returns the
+	// count embedded.
+	EmbedBackfill(ctx context.Context) (int, error)
+	// EmbedStatus reports the embedding index state for progress display.
+	EmbedStatus(ctx context.Context) (proto.EmbeddingStatus, error)
 	ImportCopilot() (*oauth.Token, bool)
 	RefreshOAuthToken(ctx context.Context, scope config.Scope, providerID string) error
 

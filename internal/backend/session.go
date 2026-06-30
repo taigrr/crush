@@ -160,3 +160,32 @@ func (b *Backend) ListAllUserMessages(ctx context.Context, workspaceID string) (
 
 	return ws.Messages.ListAllUserMessages(ctx)
 }
+
+// BackfillEmbeddings embeds past messages lacking a vector under the
+// active embedding model. Returns the count embedded.
+func (b *Backend) BackfillEmbeddings(ctx context.Context, workspaceID string) (int, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return ws.App.BackfillEmbeddings(ctx)
+}
+
+// PendingEmbeddingCount reports how many past messages BackfillEmbeddings
+// would embed.
+func (b *Backend) PendingEmbeddingCount(ctx context.Context, workspaceID string) (int, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return ws.App.PendingEmbeddingCount(ctx)
+}
+
+// EmbeddingStatus reports the embedding index state for a workspace.
+func (b *Backend) EmbeddingStatus(ctx context.Context, workspaceID string) (proto.EmbeddingStatus, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return proto.EmbeddingStatus{}, err
+	}
+	return ws.App.EmbeddingStatus(ctx)
+}

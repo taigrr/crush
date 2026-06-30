@@ -64,6 +64,20 @@ func TestLookupSlash(t *testing.T) {
 	})
 }
 
+// TestSlashCommandCompletions verifies the registry projects cleanly into
+// completion values, preserving name, arg hint, and description for every
+// builtin command.
+func TestSlashCommandCompletions(t *testing.T) {
+	t.Parallel()
+	got := slashCommandCompletions()
+	require.Len(t, got, len(builtinSlashCommands))
+	for i, c := range builtinSlashCommands {
+		require.Equal(t, c.name, got[i].Name)
+		require.Equal(t, c.argHint, got[i].ArgHint)
+		require.Equal(t, c.description, got[i].Description)
+	}
+}
+
 // TestBuiltinSlashCommandsWellFormed guards the registry against common
 // mistakes: every command must have a name and a runner, and names/aliases
 // must be unique across the registry so dispatch is unambiguous.

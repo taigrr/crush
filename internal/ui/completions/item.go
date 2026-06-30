@@ -23,11 +23,22 @@ type ResourceCompletionValue struct {
 	MIMEType string
 }
 
+// CommandCompletionValue represents a builtin slash command completion value.
+type CommandCompletionValue struct {
+	// Name is the canonical verb without the leading slash.
+	Name string
+	// ArgHint documents the argument syntax (e.g. "[filename]").
+	ArgHint string
+	// Description is a one-line summary shown next to the command.
+	Description string
+}
+
 // CompletionItem represents an item in the completions list.
 type CompletionItem struct {
 	*list.Versioned
 
 	text    string
+	display string
 	value   any
 	match   fuzzy.Match
 	focused bool
@@ -51,6 +62,21 @@ func NewCompletionItem(text string, value any, normalStyle, focusedStyle, matchS
 	}
 }
 
+// NewDisplayCompletionItem creates a completion item whose filter/match text
+// differs from what is rendered. display must begin with text so match
+// highlighting (computed against text) stays aligned with the rendered string.
+func NewDisplayCompletionItem(text, display string, value any, normalStyle, focusedStyle, matchStyle lipgloss.Style) *CompletionItem {
+	return &CompletionItem{
+		Versioned:    list.NewVersioned(),
+		text:         text,
+		display:      display,
+		value:        value,
+		normalStyle:  normalStyle,
+		focusedStyle: focusedStyle,
+		matchStyle:   matchStyle,
+	}
+}
+
 // Finished implements list.Item. Completion items render purely from
 // (text, match, focus); any mutation (SetMatch / SetFocused) bumps
 // Version() so the frozen cache entry invalidates on the next
@@ -62,6 +88,9 @@ func (c *CompletionItem) Finished() bool {
 
 // Text returns the display text of the item.
 func (c *CompletionItem) Text() string {
+	if c.display != "" {
+		return c.display
+	}
 	return c.text
 }
 
@@ -113,7 +142,7 @@ func (c *CompletionItem) Render(width int) string {
 		c.normalStyle,
 		c.focusedStyle,
 		c.matchStyle,
-		c.text,
+		c.Text(),
 		c.focused,
 		width,
 		c.cache,

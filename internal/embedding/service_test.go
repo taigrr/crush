@@ -131,3 +131,59 @@ func TestReconcileDropsStale(t *testing.T) {
 	require.Equal(t, int64(1), active)
 	require.Equal(t, int64(1), total) // stale row dropped
 }
+
+func TestBackfillEmbedsMissingOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newTestService(t, true)
+	s.model = &fakeEmbedder{vecs: map[string][]float32{
+		"alpha": {1, 0},
+		"beta":  {0, 1},
+		"gamma": {1, 1},
+	}}
+
+	// m1 already embedded under the active signature.
+	require.NoError(t, s.store.upsert(ctx, s.signature, SourceMessage, "m1", "s", 0, []float32{1, 0}))
+
+	docs := []Document{
+		{SourceType: SourceMessage, SourceID: "m1", SessionID: "s", Body: "alpha"},
+		{SourceType: SourceMessage, SourceID: "m2", SessionID: "s", Body: "beta"},
+		{SourceType: SourceMessage, SourceID: "m3", SessionID: "s", Body: "gamma"},
+		{SourceType: SourceMessage, SourceID: "m4", SessionID: "s", Body: ""}, // empty: skipped
+	}
+
+	// PendingDocs excludes the already-embedded m1 and the empty m4.
+	pending, err := s.PendingDocs(ctx, docs)
+	require.NoError(t, err)
+	require.Len(t, pending, 2)
+
+	var progressCalls int
+	n, err := s.Backfill(ctx, docs, func(done, total int) {
+		progressCalls++
+		require.Equal(t, 2, total)
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+	require.Equal(t, 2, progressCalls)
+
+	active, _, err := s.Counts(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), active) // m1 + m2 + m3
+
+	// Idempotent: a second backfill embeds nothing.
+	n, err = s.Backfill(ctx, docs, nil)
+	require.NoError(t, err)
+	require.Equal(t, 0, n)
+}
+
+func TestBackfillDisabledIsNoop(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	conn, err := db.Connect(ctx, t.TempDir())
+	require.NoError(t, err)
+	s := &service{store: newStore(db.New(conn))} // cfg nil = disabled
+
+	n, err := s.Backfill(ctx, []Document{{SourceID: "m1", Body: "x"}}, nil)
+	require.NoError(t, err)
+	require.Equal(t, 0, n)
+}

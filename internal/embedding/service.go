@@ -67,6 +67,15 @@ type Service interface {
 	Search(ctx context.Context, query string, docs []Document, opts SearchOptions) (SearchResult, error)
 	// Reconcile drops vectors that don't match the active signature.
 	Reconcile(ctx context.Context) error
+	// PendingDocs returns the subset of docs that have no vector under
+	// the active signature (i.e. what Backfill would embed). Empty when
+	// embeddings are disabled.
+	PendingDocs(ctx context.Context, docs []Document) ([]Document, error)
+	// Backfill embeds every doc lacking a vector under the active
+	// signature. It reports progress via the optional callback (done,
+	// total) after each embed and stops early if ctx is cancelled,
+	// returning the count embedded so far. No-op when disabled.
+	Backfill(ctx context.Context, docs []Document, progress func(done, total int)) (int, error)
 	// Counts returns (matching active signature, total) for status.
 	Counts(ctx context.Context) (active int64, total int64, err error)
 }
@@ -177,6 +186,58 @@ func (s *service) Reconcile(ctx context.Context) error {
 		return nil
 	}
 	return s.store.dropStale(ctx, s.signature)
+}
+
+// PendingDocs returns docs with no vector under the active signature.
+func (s *service) PendingDocs(ctx context.Context, docs []Document) ([]Document, error) {
+	if s.cfg == nil {
+		return nil, nil
+	}
+	// Pull the set of already-embedded source ids once, rather than a
+	// per-doc HasVector round trip.
+	embedded, err := s.store.sourceIDSet(ctx, s.signature)
+	if err != nil {
+		return nil, err
+	}
+	var pending []Document
+	for _, d := range docs {
+		if strings.TrimSpace(d.Body) == "" {
+			continue
+		}
+		if _, ok := embedded[d.SourceID]; ok {
+			continue
+		}
+		pending = append(pending, d)
+	}
+	return pending, nil
+}
+
+// Backfill embeds every doc lacking a vector under the active signature.
+func (s *service) Backfill(ctx context.Context, docs []Document, progress func(done, total int)) (int, error) {
+	if s.cfg == nil {
+		return 0, nil
+	}
+	pending, err := s.PendingDocs(ctx, docs)
+	if err != nil {
+		return 0, err
+	}
+	total := len(pending)
+	done := 0
+	for _, d := range pending {
+		if err := ctx.Err(); err != nil {
+			return done, err
+		}
+		if err := s.Embed(ctx, d.SourceType, d.SourceID, d.SessionID, d.Body); err != nil {
+			// Skip individual failures; backfill is best-effort and
+			// resumable (PendingDocs will return the misses next run).
+			continue
+		}
+		done++
+		if progress != nil {
+			progress(done, total)
+		}
+	}
+	return done, nil
 }
 
 func (s *service) Counts(ctx context.Context) (int64, int64, error) {

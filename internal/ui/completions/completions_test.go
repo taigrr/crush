@@ -1,11 +1,53 @@
 package completions
 
 import (
+	"strings"
 	"testing"
 
 	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSetCommandsBuildsDisplayItems(t *testing.T) {
+	t.Parallel()
+
+	c := New(lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle())
+	c.SetCommands([]CommandCompletionValue{
+		{Name: "export", ArgHint: "[filename]", Description: "Export the conversation"},
+		{Name: "continue", Description: "Resume the previous task"},
+	})
+
+	require.True(t, c.IsOpen())
+	require.Len(t, c.filtered, 2)
+
+	first := c.filtered[0].(*CompletionItem)
+	// Filter/match text is the bare verb; display extends it.
+	require.Equal(t, "/export", first.Filter())
+	require.Equal(t, "/export [filename]  Export the conversation", first.Text())
+	require.True(t, strings.HasPrefix(first.Text(), first.Filter()))
+
+	second := c.filtered[1].(*CompletionItem)
+	require.Equal(t, "/continue", second.Filter())
+	require.Equal(t, "/continue  Resume the previous task", second.Text())
+}
+
+func TestSetCommandsFiltersByVerb(t *testing.T) {
+	t.Parallel()
+
+	c := New(lipgloss.NewStyle(), lipgloss.NewStyle(), lipgloss.NewStyle())
+	c.SetCommands([]CommandCompletionValue{
+		{Name: "export", Description: "Export the conversation"},
+		{Name: "continue", Description: "Resume the previous task"},
+		{Name: "goal", Description: "Keep working autonomously"},
+	})
+
+	c.Filter("/cont")
+
+	require.Len(t, c.filtered, 1)
+	first := c.filtered[0].(*CompletionItem)
+	require.Equal(t, "/continue", first.Filter())
+	require.Equal(t, CommandCompletionValue{Name: "continue", Description: "Resume the previous task"}, first.Value())
+}
 
 func TestFilterPrefersExactBasenameStem(t *testing.T) {
 	t.Parallel()

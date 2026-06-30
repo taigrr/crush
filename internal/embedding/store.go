@@ -96,6 +96,23 @@ func (s *store) countTotal(ctx context.Context) (int64, error) {
 	return s.q.CountEmbeddingsTotal(ctx)
 }
 
+// sourceIDSet returns the set of message source ids already embedded
+// under the signature, for cheap membership checks during backfill.
+func (s *store) sourceIDSet(ctx context.Context, signature string) (map[string]struct{}, error) {
+	ids, err := s.q.ListSourceIDsForSignature(ctx, db.ListSourceIDsForSignatureParams{
+		SourceType: string(SourceMessage),
+		Signature:  signature,
+	})
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	return set, nil
+}
+
 // dropStale removes every vector not matching the active signature.
 func (s *store) dropStale(ctx context.Context, activeSignature string) error {
 	return s.q.DeleteEmbeddingsExceptSignature(ctx, activeSignature)

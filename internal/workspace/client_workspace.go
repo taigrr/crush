@@ -203,6 +203,22 @@ func (w *ClientWorkspace) ListAllUserMessages(ctx context.Context) ([]message.Me
 	return protoToMessages(msgs), nil
 }
 
+// EmbedPendingCount reports how many past messages a backfill would embed.
+func (w *ClientWorkspace) EmbedPendingCount(ctx context.Context) (int, error) {
+	return w.client.EmbeddingsPending(ctx, w.workspaceID())
+}
+
+// EmbedBackfill embeds past messages lacking a vector under the active
+// embedding model, returning the count embedded.
+func (w *ClientWorkspace) EmbedBackfill(ctx context.Context) (int, error) {
+	return w.client.BackfillEmbeddings(ctx, w.workspaceID())
+}
+
+// EmbedStatus reports the embedding index state for progress display.
+func (w *ClientWorkspace) EmbedStatus(ctx context.Context) (proto.EmbeddingStatus, error) {
+	return w.client.EmbeddingStatus(ctx, w.workspaceID())
+}
+
 // -- Agent --
 
 func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) error {

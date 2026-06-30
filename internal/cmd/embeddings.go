@@ -14,12 +14,16 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/embedding"
+	"github.com/taigrr/crush/internal/historysearch"
+	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/session"
 )
 
 var (
-	embeddingsJSON       bool
-	embeddingsDimensions int64
-	embeddingsNoNormular bool
+	embeddingsJSON        bool
+	embeddingsDimensions  int64
+	embeddingsNoNormular  bool
+	embeddingsBackfillYes bool
 )
 
 var embeddingsCmd = &cobra.Command{
@@ -51,12 +55,23 @@ var embeddingsStatusCmd = &cobra.Command{
 	RunE:  runEmbeddingsStatus,
 }
 
+var embeddingsBackfillCmd = &cobra.Command{
+	Use:   "backfill",
+	Short: "Embed existing conversation history under the active model",
+	Long: `Embed every past message that lacks a vector under the active
+embedding model. This makes API calls (and may cost money). Run it after
+'crush embeddings set' or when first enabling embeddings on a project
+with existing history.`,
+	RunE: runEmbeddingsBackfill,
+}
+
 func init() {
 	embeddingsListCmd.Flags().BoolVar(&embeddingsJSON, "json", false, "Output as JSON")
 	embeddingsStatusCmd.Flags().BoolVar(&embeddingsJSON, "json", false, "Output as JSON")
+	embeddingsBackfillCmd.Flags().BoolVar(&embeddingsBackfillYes, "yes", false, "Skip the confirmation prompt")
 	embeddingsSetCmd.Flags().Int64Var(&embeddingsDimensions, "dimensions", 0, "Requested output vector dimensions (0 = model default)")
 	embeddingsSetCmd.Flags().BoolVar(&embeddingsNoNormular, "no-normalize", false, "Do not request unit-normalized vectors")
-	embeddingsCmd.AddCommand(embeddingsListCmd, embeddingsSetCmd, embeddingsStatusCmd)
+	embeddingsCmd.AddCommand(embeddingsListCmd, embeddingsSetCmd, embeddingsStatusCmd, embeddingsBackfillCmd)
 	rootCmd.AddCommand(embeddingsCmd)
 }
 
@@ -249,4 +264,57 @@ func short12(s string) string {
 		return s
 	}
 	return s[:12]
+}
+
+func runEmbeddingsBackfill(cmd *cobra.Command, _ []string) error {
+	ctx := cmd.Context()
+	dataDir, _ := cmd.Flags().GetString("data-dir")
+	cfg, err := config.Init("", dataDir, false)
+	if err != nil {
+		return fmt.Errorf("failed to initialize config: %w", err)
+	}
+	if dataDir == "" {
+		dataDir = cfg.Config().Options.DataDirectory
+	}
+	conn, err := db.Connect(ctx, dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+	defer conn.Close()
+
+	queries := db.New(conn)
+	emb := embedding.Build(queries, cfg.EmbeddingParams())
+	if !emb.Enabled() {
+		return fmt.Errorf("no embedder configured; run 'crush embeddings set <provider> <model>' first")
+	}
+
+	sessions := session.NewService(queries, conn)
+	messages := message.NewService(queries)
+
+	pending, err := historysearch.PendingCount(ctx, messages, sessions, emb)
+	if err != nil {
+		return fmt.Errorf("failed to count pending messages: %w", err)
+	}
+	if pending == 0 {
+		cmd.Println("Nothing to backfill; all messages are already embedded.")
+		return nil
+	}
+
+	if !embeddingsBackfillYes {
+		cmd.Printf("Embed %d message(s) with %s/%s? This makes API calls and may cost money. [y/N] ",
+			pending, cfg.Config().Embedding.Provider, cfg.Config().Embedding.Model)
+		var answer string
+		fmt.Fscanln(cmd.InOrStdin(), &answer)
+		if answer != "y" && answer != "Y" && answer != "yes" {
+			cmd.Println("Aborted.")
+			return nil
+		}
+	}
+
+	n, err := historysearch.Backfill(ctx, messages, sessions, emb, nil)
+	if err != nil {
+		return fmt.Errorf("backfill failed after %d message(s): %w", n, err)
+	}
+	cmd.Printf("Embedded %d message(s).\n", n)
+	return nil
 }

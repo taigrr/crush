@@ -25,6 +25,7 @@ func main() {
 		TitleColorB:  s.Logo.TitleColorB,
 		CharmColor:   s.Logo.CharmColor,
 		VersionColor: s.Logo.VersionColor,
+		Edition:      "taigrr edition",
 		Width:        w,
 		Unstable:     true,
 	}

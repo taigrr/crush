@@ -194,6 +194,11 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 		m.modelInfo(width),
 		"",
 	)
+	// Embedding backfill progress, shown under the model and above
+	// modified files, only while a backfill is running.
+	if embProgress := m.embeddingProgress(width); embProgress != "" {
+		blocks = append(blocks, embProgress, "")
+	}
 
 	sidebarHeader := lipgloss.JoinVertical(
 		lipgloss.Left,

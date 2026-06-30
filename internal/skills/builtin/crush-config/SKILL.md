@@ -352,6 +352,14 @@ vectors are computed. Manage it with `crush embeddings set <provider>
 dimensions, or normalize flag changes the embedding-space *signature*;
 stale vectors are dropped and re-indexed in the background on next open.
 
+Only **messages** are embedded — one vector per message — and only the
+`user`, `assistant`, and `shell` roles, using each message's text and
+reasoning content. Tool calls, tool results, system messages, and images
+are never embedded. New messages are embedded automatically as they
+finish; to embed pre-existing history, run `crush embeddings backfill`
+(or "Embed History" in the command palette, which confirms first since
+it makes API calls).
+
 ## Snapshots
 
 Crush automatically snapshots the filesystem before each user message, enabling restore points.

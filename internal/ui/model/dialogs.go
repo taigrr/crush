@@ -38,6 +38,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openNotificationsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.EmbeddingsID:
+		if cmd := m.openEmbeddingsDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.FilePickerID:
 		if cmd := m.openFilesDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -159,6 +163,18 @@ func (m *UI) openNotificationsDialog() tea.Cmd {
 
 	notificationsDialog := dialog.NewNotifications(m.com)
 	m.dialog.OpenDialog(notificationsDialog)
+	return nil
+}
+
+// openEmbeddingsDialog opens the embedding model picker dialog.
+func (m *UI) openEmbeddingsDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.EmbeddingsID) {
+		m.dialog.BringToFront(dialog.EmbeddingsID)
+		return nil
+	}
+
+	embeddingsDialog := dialog.NewEmbeddings(m.com)
+	m.dialog.OpenDialog(embeddingsDialog)
 	return nil
 }
 

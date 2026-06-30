@@ -44,13 +44,7 @@ func RunIndexer(ctx context.Context, messages message.Service, emb embedding.Ser
 // indexMessage embeds one message if it is a finished, embeddable role
 // and not already embedded under the active signature.
 func indexMessage(ctx context.Context, emb embedding.Service, m message.Message) {
-	if !m.IsFinished() {
-		return
-	}
-	switch m.Role {
-	case message.User, message.Assistant, message.Shell:
-		// embeddable
-	default:
+	if !embeddableMessage(m) {
 		return
 	}
 	body := MessageBody(m)

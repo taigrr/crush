@@ -183,6 +183,13 @@ type GoalStatus struct {
 	MaxTurns  int    `json:"max_turns"`
 }
 
+// EmbeddingStatus reports the embedding index state for a workspace.
+type EmbeddingStatus struct {
+	Enabled  bool `json:"enabled"`
+	Embedded int  `json:"embedded"` // messages with a vector under the active model
+	Total    int  `json:"total"`    // embeddable messages (embedded + pending)
+}
+
 // AgentSession represents a session with its busy status.
 type AgentSession struct {
 	Session

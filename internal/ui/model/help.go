@@ -139,6 +139,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 			editorBinds := []key.Binding{
 				k.Editor.Newline,
 				k.Editor.MentionFile,
+				k.Editor.Commands,
 				k.Editor.OpenEditor,
 			}
 			if m.currentModelSupportsImages() {
@@ -195,6 +196,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 			editorBinds := []key.Binding{
 				k.Editor.Newline,
 				k.Editor.MentionFile,
+				k.Editor.Commands,
 				k.Editor.OpenEditor,
 			}
 			if m.currentModelSupportsImages() {

@@ -28,10 +28,40 @@ type Opts struct {
 	Width        int         // width of the rendered logo, used for truncation
 	Hyper        bool        // whether it is Crush or Hypercrush
 
+	// Edition, when non-empty, is centered within the top diagonal banner
+	// row, interrupting the field. It is colored with the title gradient
+	// reversed (TitleColorB -> TitleColorA).
+	Edition string
+
 	// When true, stretch a random letterform on each render. Has no effect in
 	// compact mode. Mainly for testing. In production you will want to cache
 	// the stretched letterform to keep the logo from jittering on resize.
 	Unstable bool
+}
+
+// fieldRow renders a single row of diagonal field characters of the given
+// width. When o.Edition is set and fits, the edition label is centered in
+// the row using the title gradient reversed (TitleColorB -> TitleColorA),
+// interrupting the diagonal banner. Otherwise a plain diagonal row is
+// returned.
+func fieldRow(base lipgloss.Style, o Opts, width int) string {
+	fg := func(c color.Color, s string) string {
+		return lipgloss.NewStyle().Foreground(c).Render(s)
+	}
+	if o.Edition == "" || width <= 0 {
+		return fg(o.FieldColor, strings.Repeat(diag, max(0, width)))
+	}
+	label := " " + o.Edition + " "
+	labelWidth := lipgloss.Width(label)
+	if labelWidth >= width {
+		return fg(o.FieldColor, strings.Repeat(diag, width))
+	}
+	left := (width - labelWidth) / 2
+	right := width - labelWidth - left
+	styledLabel := styles.ApplyForegroundGrad(base, label, o.TitleColorB, o.TitleColorA)
+	return fg(o.FieldColor, strings.Repeat(diag, left)) +
+		styledLabel +
+		fg(o.FieldColor, strings.Repeat(diag, right))
 }
 
 // Render renders the Crush logo. Set the argument to true to render the narrow
@@ -93,7 +123,7 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 	// Charm™ is removed and the top duplicate field row is dropped to
 	// reclaim two rows of sidebar height for the cwd display.
 	if compact {
-		field := fg(o.FieldColor, strings.Repeat(diag, crushWidth))
+		field := fieldRow(base, o, crushWidth)
 		versionStr := ansi.Truncate(version, crushWidth, "…")
 		versionRow := fg(o.VersionColor, versionStr)
 		crush = strings.TrimSpace(crushLetterformsStyled)
@@ -129,6 +159,12 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 		width := rightWidth
 		if i >= stepDownAt {
 			width = rightWidth - (i - stepDownAt)
+		}
+		// Interrupt the top row of the right diagonal banner with the
+		// centered edition label; remaining rows stay plain diagonals.
+		if i == 0 {
+			fmt.Fprint(rightField, fieldRow(base, o, width), "\n")
+			continue
 		}
 		fmt.Fprint(rightField, fg(o.FieldColor, strings.Repeat(diag, width)), "\n")
 	}

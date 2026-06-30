@@ -38,6 +38,7 @@ import (
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/milestone"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/shell"
@@ -256,6 +257,47 @@ func (app *App) WorkingDir() string {
 // Config returns the pure-data configuration.
 func (app *App) Config() *config.Config {
 	return app.config.Config()
+}
+
+// BackfillEmbeddings embeds every past message that lacks a vector under
+// the active embedding model. It builds a fresh embedding service from
+// the current config (rather than the long-lived startup service) so it
+// is correct even after the embedder was changed mid-session. Returns
+// the number of messages embedded; a no-op (0) when no embedder is
+// configured.
+func (app *App) BackfillEmbeddings(ctx context.Context) (int, error) {
+	emb := embedding.Build(db.New(app.dbConn), app.config.EmbeddingParams())
+	return historysearch.Backfill(ctx, app.Messages, app.Sessions, emb, nil)
+}
+
+// PendingEmbeddingCount reports how many past messages would be embedded
+// by BackfillEmbeddings. Zero when no embedder is configured.
+func (app *App) PendingEmbeddingCount(ctx context.Context) (int, error) {
+	emb := embedding.Build(db.New(app.dbConn), app.config.EmbeddingParams())
+	return historysearch.PendingCount(ctx, app.Messages, app.Sessions, emb)
+}
+
+// EmbeddingStatus reports the embedding index state for the sidebar
+// progress display: whether an embedder is configured, how many messages
+// are embedded under the active model, and the total embeddable count.
+func (app *App) EmbeddingStatus(ctx context.Context) (proto.EmbeddingStatus, error) {
+	emb := embedding.Build(db.New(app.dbConn), app.config.EmbeddingParams())
+	if !emb.Enabled() {
+		return proto.EmbeddingStatus{}, nil
+	}
+	embedded, _, err := emb.Counts(ctx)
+	if err != nil {
+		return proto.EmbeddingStatus{}, err
+	}
+	pending, err := historysearch.PendingCount(ctx, app.Messages, app.Sessions, emb)
+	if err != nil {
+		return proto.EmbeddingStatus{}, err
+	}
+	return proto.EmbeddingStatus{
+		Enabled:  true,
+		Embedded: int(embedded),
+		Total:    int(embedded) + pending,
+	}, nil
 }
 
 // Store returns the config store.

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/taigrr/crush/internal/ui/completions"
 	"github.com/taigrr/crush/internal/ui/util"
 )
 
@@ -97,6 +98,20 @@ func lookupSlash(cmds []slashCommand, verb string) (slashCommand, bool) {
 		}
 	}
 	return slashCommand{}, false
+}
+
+// slashCommandCompletions projects the builtin registry into completion
+// values for the inline completions popup.
+func slashCommandCompletions() []completions.CommandCompletionValue {
+	out := make([]completions.CommandCompletionValue, 0, len(builtinSlashCommands))
+	for _, c := range builtinSlashCommands {
+		out = append(out, completions.CommandCompletionValue{
+			Name:        c.name,
+			ArgHint:     c.argHint,
+			Description: c.description,
+		})
+	}
+	return out
 }
 
 // dispatchSlash routes value to a builtin slash command. handled is false

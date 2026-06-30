@@ -380,6 +380,59 @@ func (c *Client) ClearAgentSessionQueuedPrompts(ctx context.Context, id string, 
 	return nil
 }
 
+// EmbeddingsPending returns how many past messages would be embedded by
+// a backfill under the active embedding model.
+func (c *Client) EmbeddingsPending(ctx context.Context, id string) (int, error) {
+	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/embeddings/pending", id), nil, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get pending embeddings: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("failed to get pending embeddings: status code %d", rsp.StatusCode)
+	}
+	var count int
+	if err := json.NewDecoder(rsp.Body).Decode(&count); err != nil {
+		return 0, fmt.Errorf("failed to decode pending embeddings: %w", err)
+	}
+	return count, nil
+}
+
+// BackfillEmbeddings embeds past messages lacking a vector and returns
+// the count embedded.
+func (c *Client) BackfillEmbeddings(ctx context.Context, id string) (int, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/embeddings/backfill", id), nil, nil, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to backfill embeddings: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("failed to backfill embeddings: status code %d", rsp.StatusCode)
+	}
+	var count int
+	if err := json.NewDecoder(rsp.Body).Decode(&count); err != nil {
+		return 0, fmt.Errorf("failed to decode backfill result: %w", err)
+	}
+	return count, nil
+}
+
+// EmbeddingStatus returns the embedding index state for a workspace.
+func (c *Client) EmbeddingStatus(ctx context.Context, id string) (proto.EmbeddingStatus, error) {
+	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/embeddings/status", id), nil, nil)
+	if err != nil {
+		return proto.EmbeddingStatus{}, fmt.Errorf("failed to get embedding status: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return proto.EmbeddingStatus{}, fmt.Errorf("failed to get embedding status: status code %d", rsp.StatusCode)
+	}
+	var status proto.EmbeddingStatus
+	if err := json.NewDecoder(rsp.Body).Decode(&status); err != nil {
+		return proto.EmbeddingStatus{}, fmt.Errorf("failed to decode embedding status: %w", err)
+	}
+	return status, nil
+}
+
 // GetAgentSessionGoal retrieves the active autonomous goal for a session.
 func (c *Client) GetAgentSessionGoal(ctx context.Context, id, sessionID string) (proto.GoalStatus, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal", id, sessionID), nil, nil)

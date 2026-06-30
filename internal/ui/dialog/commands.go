@@ -520,6 +520,10 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	notificationLabel := "Notification Style"
 	commands = append(commands, NewCommandItem(c.com.Styles, "select_notifications", notificationLabel, "", ActionOpenDialog{DialogID: NotificationsID}))
 
+	// Embedding model picker is always available (global setting).
+	commands = append(commands, NewCommandItem(c.com.Styles, "select_embedding", "Embedding Model", "", ActionOpenDialog{DialogID: EmbeddingsID}))
+	commands = append(commands, NewCommandItem(c.com.Styles, "embed_history", "Embed History", "", ActionStartBackfill{}))
+
 	commands = append(
 		commands,
 		NewCommandItem(c.com.Styles, "toggle_yolo", "Toggle Yolo Mode", "ctrl+y", ActionToggleYoloMode{}),

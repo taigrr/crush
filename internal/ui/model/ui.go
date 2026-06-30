@@ -17,6 +17,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
@@ -39,6 +40,7 @@ import (
 	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
@@ -110,6 +112,26 @@ const (
 
 type openEditorMsg struct {
 	Text string
+}
+
+// backfillCountMsg carries the pending-embedding count for the backfill
+// confirm flow.
+type backfillCountMsg struct {
+	count int
+	err   error
+}
+
+// backfillDoneMsg carries the result of an embedding backfill.
+type backfillDoneMsg struct {
+	count int
+	err   error
+}
+
+// embeddingStatusMsg carries a polled embedding index status used to
+// drive the sidebar progress bar while a backfill runs.
+type embeddingStatusMsg struct {
+	status proto.EmbeddingStatus
+	err    error
 }
 
 type (
@@ -234,7 +256,8 @@ type UI struct {
 	completionsOpen          bool
 	completionsStartIndex    int
 	completionsQuery         string
-	completionsPositionStart image.Point // x,y where user typed '@'
+	completionsTrigger       byte        // '@' for files/resources, '/' for commands
+	completionsPositionStart image.Point // x,y where user typed the trigger
 
 	// Chat components
 	chat *Chat
@@ -252,6 +275,12 @@ type UI struct {
 
 	// skills
 	skillStates []*skills.SkillState
+
+	// embedding backfill progress (shown in the sidebar only while a
+	// backfill is running).
+	backfillActive bool
+	backfillStatus proto.EmbeddingStatus
+	embeddingBar   progress.Model
 
 	// sidebarLogo keeps a cached version of the sidebar sidebarLogo.
 	sidebarLogo string
@@ -368,6 +397,13 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		notifyWindowFocused: true,
 		initialSessionID:    initialSessionID,
 		continueLastSession: continueLast,
+		embeddingBar: progress.New(
+			progress.WithColors(
+				com.Styles.WorkingGradFromColor,
+				com.Styles.WorkingGradToColor,
+			),
+			progress.WithoutPercentage(),
+		),
 	}
 
 	status := NewStatus(com, ui)
@@ -734,6 +770,36 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handlePermissionNotification(msg.Payload)
 	case cancelTimerExpiredMsg:
 		m.isCanceling = false
+	case backfillCountMsg:
+		if msg.err != nil {
+			cmds = append(cmds, util.ReportError(msg.err))
+		} else if msg.count == 0 {
+			cmds = append(cmds, util.ReportInfo("Nothing to embed; history is already indexed (or no embedder is configured)."))
+		} else {
+			model := "the active model"
+			if cfg := m.com.Config(); cfg != nil && cfg.Embedding != nil {
+				model = cfg.Embedding.Provider + "/" + cfg.Embedding.Model
+			}
+			m.dialog.OpenDialog(dialog.NewBackfillConfirm(m.com, msg.count, model))
+			// Seed the total so the sidebar bar is meaningful from the
+			// first frame, before the first status poll returns.
+			m.backfillStatus = proto.EmbeddingStatus{Enabled: true, Total: msg.count}
+		}
+	case backfillDoneMsg:
+		m.backfillActive = false
+		if msg.err != nil {
+			cmds = append(cmds, util.ReportError(msg.err))
+		} else {
+			cmds = append(cmds, util.ReportInfo(fmt.Sprintf("Embedded %d message(s).", msg.count)))
+		}
+	case embeddingStatusMsg:
+		if msg.err == nil {
+			m.backfillStatus = msg.status
+		}
+		// Keep polling while the backfill is still running.
+		if m.backfillActive {
+			cmds = append(cmds, m.pollEmbeddingStatusCmd())
+		}
 	case tea.TerminalVersionMsg:
 		termVersion := strings.ToLower(msg.Name)
 		// Only enable progress bar for the following terminals.
@@ -1525,6 +1591,58 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			m.notifyBackend = selectNotificationBackend(m.caps, cfg)
 		}
 		m.dialog.CloseDialog(dialog.NotificationsID)
+	case dialog.ActionSelectEmbedding:
+		cfg := m.com.Config()
+		if cfg != nil {
+			if msg.Choice.Provider == "" && msg.Choice.Model == "" {
+				// Disable embeddings: remove the field entirely.
+				changed := cfg.Embedding != nil
+				if err := m.com.Workspace.RemoveConfigField(config.ScopeGlobal, "embedding"); err != nil {
+					cmds = append(cmds, util.ReportError(err))
+				} else if changed {
+					cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Embeddings disabled (substring search only)")))
+				} else {
+					cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Embeddings already disabled")))
+				}
+			} else {
+				ec := &config.EmbeddingConfig{
+					Provider:   msg.Choice.Provider,
+					Model:      msg.Choice.Model,
+					Dimensions: msg.Choice.Dimensions,
+					Normalize:  true,
+				}
+				changed := cfg.Embedding.Signature() != ec.Signature()
+				if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "embedding", ec); err != nil {
+					cmds = append(cmds, util.ReportError(err))
+				} else if changed {
+					cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(fmt.Sprintf("Embedding model set to %s/%s (applies on restart)", ec.Provider, ec.Model))))
+				} else {
+					cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("No change to embedding model")))
+				}
+			}
+		}
+		m.dialog.CloseDialog(dialog.EmbeddingsID)
+	case dialog.ActionStartBackfill:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		ws := m.com.Workspace
+		cmds = append(cmds, func() tea.Msg {
+			n, err := ws.EmbedPendingCount(context.Background())
+			return backfillCountMsg{count: n, err: err}
+		})
+	case dialog.ActionConfirmBackfill:
+		m.dialog.CloseDialog(dialog.BackfillConfirmID)
+		ws := m.com.Workspace
+		// Show the sidebar progress bar and start polling status. The
+		// total was seeded when the confirm dialog opened, so the bar is
+		// meaningful immediately.
+		m.backfillActive = true
+		m.backfillStatus.Enabled = true
+		cmds = append(cmds, util.ReportInfo("Embedding history in the background…"))
+		cmds = append(cmds, m.pollEmbeddingStatusCmd())
+		cmds = append(cmds, func() tea.Msg {
+			n, err := ws.EmbedBackfill(context.Background())
+			return backfillDoneMsg{count: n, err: err}
+		})
 	case dialog.ActionNewSession:
 		if m.isAgentBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before starting a new session..."))
@@ -2143,6 +2261,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 						if !msg.KeepOpen {
 							m.closeCompletions()
 						}
+					case completions.SelectionMsg[completions.CommandCompletionValue]:
+						cmds = append(cmds, m.insertCommandCompletion(msg.Value.Name))
+						if !msg.KeepOpen {
+							m.closeCompletions()
+						}
 					case completions.ClosedMsg:
 						m.completionsOpen = false
 					}
@@ -2256,31 +2379,40 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if cmd != nil {
 					cmds = append(cmds, cmd)
 				}
-			case key.Matches(msg, m.keyMap.Editor.Commands) && m.textarea.Value() == "":
-				if cmd := m.openCommandsDialog(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
 			default:
 				if handleGlobalKeys(msg) {
 					// Handle global keys first before passing to textarea.
 					break
 				}
 
-				// Check for @ trigger before passing to textarea.
+				// Check for completion triggers before passing to textarea.
 				curValue := m.textarea.Value()
 				curIdx := len(curValue)
 
-				// Trigger completions on @.
+				// Trigger file/resource completions on @.
 				if msg.String() == "@" && !m.completionsOpen {
 					// Only show if beginning of prompt or after whitespace.
 					if curIdx == 0 || (curIdx > 0 && isWhitespace(curValue[curIdx-1])) {
 						m.completionsOpen = true
+						m.completionsTrigger = '@'
 						m.completionsQuery = ""
 						m.completionsStartIndex = curIdx
 						m.completionsPositionStart = m.completionsPosition()
 						depth, limit := m.com.Config().Options.TUI.Completions.Limits()
 						cmds = append(cmds, m.completions.Open(depth, limit))
 					}
+				}
+
+				// Trigger slash command completions on a leading /. Slash
+				// commands only dispatch at the start of the prompt, so the
+				// completions only open there too.
+				if msg.String() == "/" && !m.completionsOpen && curIdx == 0 {
+					m.completionsOpen = true
+					m.completionsTrigger = '/'
+					m.completionsQuery = ""
+					m.completionsStartIndex = curIdx
+					m.completionsPositionStart = m.completionsPosition()
+					m.completions.SetCommands(slashCommandCompletions())
 				}
 
 				// remove the details if they are open when user starts typing
@@ -2295,8 +2427,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				// Any text modification becomes the current draft.
 				m.updateHistoryDraft(curValue)
 
-				// After updating textarea, check if we need to filter completions.
-				// Skip filtering on the initial @ keystroke since items are loading async.
+				// After updating textarea, check if we need to filter
+				// completions. Skip filtering on the initial @ keystroke since
+				// items are loading async.
 				if m.completionsOpen && msg.String() != "@" {
 					newValue := m.textarea.Value()
 					newIdx := len(newValue)
@@ -2308,13 +2441,23 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 						// Close on space.
 						m.closeCompletions()
 					} else {
-						// Extract current word and filter.
+						// Extract current word and filter against the trigger.
 						word := m.textareaWord()
-						if strings.HasPrefix(word, "@") {
-							m.completionsQuery = word[1:]
-							m.completions.Filter(m.completionsQuery)
-						} else if m.completionsOpen {
-							m.closeCompletions()
+						switch m.completionsTrigger {
+						case '/':
+							if strings.HasPrefix(word, "/") {
+								m.completionsQuery = word
+								m.completions.Filter(m.completionsQuery)
+							} else {
+								m.closeCompletions()
+							}
+						default:
+							if strings.HasPrefix(word, "@") {
+								m.completionsQuery = word[1:]
+								m.completions.Filter(m.completionsQuery)
+							} else {
+								m.closeCompletions()
+							}
 						}
 					}
 				}
@@ -3042,6 +3185,7 @@ func (m *UI) closeCompletions() {
 	m.completionsOpen = false
 	m.completionsQuery = ""
 	m.completionsStartIndex = 0
+	m.completionsTrigger = 0
 	m.completions.Close()
 }
 
@@ -3103,6 +3247,17 @@ func (m *UI) insertFileCompletion(path string) tea.Cmd {
 		}
 	}
 	return tea.Batch(heightCmd, fileCmd)
+}
+
+// insertCommandCompletion inserts the selected slash command into the
+// textarea, replacing the partially typed verb. A trailing space is added so
+// the user can immediately type arguments.
+func (m *UI) insertCommandCompletion(name string) tea.Cmd {
+	prevHeight := m.textarea.Height()
+	if !m.insertCompletionText("/" + name) {
+		return nil
+	}
+	return m.handleTextareaHeightChange(prevHeight)
 }
 
 // insertMCPResourceCompletion inserts the selected resource into the textarea,
@@ -3632,6 +3787,10 @@ func (m *UI) disableDockerMCP() tea.Msg {
 	return util.NewInfoMsg("Docker MCP disabled successfully")
 }
 
+// logoEdition is the fork's edition label shown in the logo's diagonal
+// banner.
+const logoEdition = "taigrr edition"
+
 // renderLogo renders the Crush logo with the given styles and dimensions.
 func renderLogo(t *styles.Styles, compact, hyper bool, width int) string {
 	return logo.Render(t.Logo.GradCanvas, version.Version, compact, logo.Opts{
@@ -3640,6 +3799,7 @@ func renderLogo(t *styles.Styles, compact, hyper bool, width int) string {
 		TitleColorB:  t.Logo.TitleColorB,
 		CharmColor:   t.Logo.CharmColor,
 		VersionColor: t.Logo.VersionColor,
+		Edition:      logoEdition,
 		Width:        width,
 		Hyper:        hyper,
 	})

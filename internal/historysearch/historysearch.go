@@ -119,3 +119,83 @@ func MessageBody(m message.Message) string {
 	}
 	return strings.Join(parts, "\n")
 }
+
+// embeddableDocs lists every finished, embeddable message (user, shell,
+// assistant) across all sessions as documents — the same set the live
+// indexer embeds. Used for backfill and pending-count.
+func embeddableDocs(ctx context.Context, messages message.Service, sessions session.Service) ([]embedding.Document, error) {
+	titles, err := sessionTitles(ctx, sessions)
+	if err != nil {
+		return nil, err
+	}
+	msgs, err := messages.ListAllMessages(ctx)
+	if err != nil {
+		return nil, err
+	}
+	docs := make([]embedding.Document, 0, len(msgs))
+	for _, m := range msgs {
+		if !embeddableMessage(m) {
+			continue
+		}
+		body := MessageBody(m)
+		if body == "" {
+			continue
+		}
+		docs = append(docs, embedding.Document{
+			SourceType:   embedding.SourceMessage,
+			SourceID:     m.ID,
+			SessionID:    m.SessionID,
+			SessionTitle: titles[m.SessionID],
+			Role:         string(m.Role),
+			CreatedAt:    time.Unix(m.CreatedAt, 0),
+			Body:         body,
+		})
+	}
+	return docs, nil
+}
+
+// embeddableMessage reports whether a message is eligible for embedding:
+// finished and one of the user/assistant/shell roles. Tool calls, tool
+// results, and system messages are never embedded.
+func embeddableMessage(m message.Message) bool {
+	if !m.IsFinished() {
+		return false
+	}
+	switch m.Role {
+	case message.User, message.Assistant, message.Shell:
+		return true
+	default:
+		return false
+	}
+}
+
+// PendingCount returns how many embeddable messages lack a vector under
+// the active signature (what Backfill would embed). Zero when embeddings
+// are disabled.
+func PendingCount(ctx context.Context, messages message.Service, sessions session.Service, emb embedding.Service) (int, error) {
+	if emb == nil || !emb.Enabled() {
+		return 0, nil
+	}
+	docs, err := embeddableDocs(ctx, messages, sessions)
+	if err != nil {
+		return 0, err
+	}
+	pending, err := emb.PendingDocs(ctx, docs)
+	if err != nil {
+		return 0, err
+	}
+	return len(pending), nil
+}
+
+// Backfill embeds every embeddable message that lacks a vector under the
+// active signature. Returns the count embedded. No-op when disabled.
+func Backfill(ctx context.Context, messages message.Service, sessions session.Service, emb embedding.Service, progress func(done, total int)) (int, error) {
+	if emb == nil || !emb.Enabled() {
+		return 0, nil
+	}
+	docs, err := embeddableDocs(ctx, messages, sessions)
+	if err != nil {
+		return 0, err
+	}
+	return emb.Backfill(ctx, docs, progress)
+}

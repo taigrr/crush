@@ -58,6 +58,17 @@ type (
 	ActionSelectNotificationStyle struct {
 		Style string
 	}
+	// ActionSelectEmbedding is emitted when an embedding model (or the
+	// "disabled" entry) is confirmed in the embeddings picker.
+	ActionSelectEmbedding struct {
+		Choice EmbeddingChoice
+	}
+	// ActionStartBackfill requests the embedding-history backfill flow:
+	// the UI fetches the pending count, then shows a confirm dialog.
+	ActionStartBackfill struct{}
+	// ActionConfirmBackfill is emitted when the user confirms the
+	// backfill in the confirmation dialog.
+	ActionConfirmBackfill             struct{}
 	ActionToggleTransparentBackground struct{}
 	ActionToggleLowBandwidth          struct{}
 	ActionInitializeProject           struct{}

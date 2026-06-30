@@ -971,6 +971,41 @@ func (c *controllerV1) handleGetWorkspaceAgentSessionPromptQueued(w http.Respons
 	jsonEncode(w, queued)
 }
 
+// handleGetWorkspaceEmbeddingsPending returns how many past messages
+// would be embedded by a backfill.
+func (c *controllerV1) handleGetWorkspaceEmbeddingsPending(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	pending, err := c.backend.PendingEmbeddingCount(r.Context(), id)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, pending)
+}
+
+// handlePostWorkspaceEmbeddingsBackfill embeds past messages lacking a
+// vector and returns the count embedded.
+func (c *controllerV1) handlePostWorkspaceEmbeddingsBackfill(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	embedded, err := c.backend.BackfillEmbeddings(r.Context(), id)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, embedded)
+}
+
+// handleGetWorkspaceEmbeddingsStatus returns the embedding index state.
+func (c *controllerV1) handleGetWorkspaceEmbeddingsStatus(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	status, err := c.backend.EmbeddingStatus(r.Context(), id)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, status)
+}
+
 // handlePostWorkspaceAgentSessionPromptClear clears the prompt queue for a session.
 //
 //	@Summary		Clear prompt queue

@@ -184,6 +184,42 @@ func (c *Completions) SetItems(files []FileCompletionValue, resources []Resource
 		items = append(items, item)
 	}
 
+	c.setItems(items)
+}
+
+// SetCommands sets the builtin slash commands and rebuilds the list. Unlike
+// SetItems, command items are in-memory so the popup opens synchronously.
+func (c *Completions) SetCommands(cmds []CommandCompletionValue) {
+	items := make([]list.FilterableItem, 0, len(cmds))
+	for _, cmd := range cmds {
+		// Filter/match against the leading-slash verb only; the display
+		// string extends it with the arg hint and description, so match
+		// highlighting (computed against the verb) stays aligned.
+		filter := "/" + cmd.Name
+		display := filter
+		if cmd.ArgHint != "" {
+			display += " " + cmd.ArgHint
+		}
+		if cmd.Description != "" {
+			display += "  " + cmd.Description
+		}
+		item := NewDisplayCompletionItem(
+			filter,
+			display,
+			cmd,
+			c.normalStyle,
+			c.focusedStyle,
+			c.matchStyle,
+		)
+		items = append(items, item)
+	}
+
+	c.setItems(items)
+}
+
+// setItems replaces the list contents and opens the popup, resetting the
+// query, selection, and size. It is shared by SetItems and SetCommands.
+func (c *Completions) setItems(items []list.FilterableItem) {
 	c.open = true
 	c.query = ""
 	c.allItems = items
@@ -382,6 +418,11 @@ func (c *Completions) selectCurrent(keepOpen bool) tea.Msg {
 		}
 	case FileCompletionValue:
 		return SelectionMsg[FileCompletionValue]{
+			Value:    item,
+			KeepOpen: keepOpen,
+		}
+	case CommandCompletionValue:
+		return SelectionMsg[CommandCompletionValue]{
 			Value:    item,
 			KeepOpen: keepOpen,
 		}
