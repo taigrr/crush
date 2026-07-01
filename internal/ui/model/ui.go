@@ -322,6 +322,13 @@ type UI struct {
 	// hyperCredits is the remaining Hyper credits, updated after each prompt.
 	hyperCredits *int
 
+	// versionMismatch is set when the connected server's version does not
+	// match this client's version (e.g. another client restarted the
+	// shared server with a different binary). When set, the UI renders a
+	// full-screen banner instructing the user to restart crush.
+	versionMismatch  bool
+	serverVersionStr string
+
 	// themePreviewOriginal holds the styles captured when the theme picker
 	// opened, so canceling (esc) can restore them after live previews.
 	themePreviewOriginal *styles.Styles
@@ -461,6 +468,8 @@ func (m *UI) Init() tea.Cmd {
 	if m.com.IsHyper() {
 		cmds = append(cmds, m.fetchHyperCredits())
 	}
+	// Detect client/server version mismatch and keep re-checking.
+	cmds = append(cmds, m.checkServerVersion(), m.scheduleVersionCheck())
 	return tea.Batch(cmds...)
 }
 
@@ -527,6 +536,43 @@ func (m *UI) loadMCPrompts() tea.Msg {
 	return mcpPromptsLoadedMsg{Prompts: prompts}
 }
 
+// serverVersionMsg carries the result of a server version check.
+type serverVersionMsg struct {
+	mismatch bool
+	version  string
+}
+
+// versionCheckInterval is how often the UI re-checks the server version
+// to detect a mismatch introduced after startup (e.g. another client
+// restarted the shared server with a newer binary).
+const versionCheckInterval = 30 * time.Second
+
+// checkServerVersion queries the server version and reports whether it
+// differs from this client's build. The check is best-effort: transient
+// errors are ignored so a momentarily unreachable server does not flash
+// the mismatch banner.
+func (m *UI) checkServerVersion() tea.Cmd {
+	return func() tea.Msg {
+		vi, err := m.com.Workspace.ServerVersion(context.Background())
+		if err != nil {
+			return nil
+		}
+		mismatch := vi.Version != version.Version || vi.BuildID != version.BuildID
+		return serverVersionMsg{mismatch: mismatch, version: vi.Version}
+	}
+}
+
+// scheduleVersionCheck re-runs the server version check after
+// versionCheckInterval.
+func (m *UI) scheduleVersionCheck() tea.Cmd {
+	return tea.Tick(versionCheckInterval, func(time.Time) tea.Msg {
+		return versionCheckTickMsg{}
+	})
+}
+
+// versionCheckTickMsg triggers a periodic server version check.
+type versionCheckTickMsg struct{}
+
 // Update handles updates to the UI model.
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -546,6 +592,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sendProgressBar = slices.Contains(msg, "WT_SESSION")
 		}
 		cmds = append(cmds, common.QueryCmd(uv.Environ(msg)))
+	case serverVersionMsg:
+		m.versionMismatch = msg.mismatch
+		m.serverVersionStr = msg.version
+	case versionCheckTickMsg:
+		cmds = append(cmds, m.checkServerVersion(), m.scheduleVersionCheck())
 	case tea.ModeReportMsg:
 		m.updateNotificationBackend()
 	case uv.UnknownOscEvent:
@@ -2715,6 +2766,11 @@ func (m *UI) View() tea.View {
 	v.ReportFocus = m.caps.ReportFocusEvents
 	v.WindowTitle = "crush " + home.Short(m.com.Workspace.WorkingDir())
 
+	if m.versionMismatch {
+		v.Content = m.renderVersionMismatchBanner()
+		return v
+	}
+
 	canvas := uv.NewScreenBuffer(m.width, m.height)
 	v.Cursor = m.Draw(canvas, canvas.Bounds())
 
@@ -2735,6 +2791,48 @@ func (m *UI) View() tea.View {
 	}
 
 	return v
+}
+
+// renderVersionMismatchBanner renders a full-screen notice shown when the
+// connected server's version differs from this client's. Interaction is
+// unsafe across a protocol boundary, so the UI blocks until the user
+// restarts crush.
+func (m *UI) renderVersionMismatchBanner() string {
+	serverVer := m.serverVersionStr
+	if serverVer == "" {
+		serverVer = "unknown"
+	}
+	title := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("15")).
+		Background(lipgloss.Color("9")).
+		Padding(0, 1).
+		Render("VERSION MISMATCH")
+
+	lines := []string{
+		title,
+		"",
+		"The crush server is running a different version than this client.",
+		"",
+		fmt.Sprintf("  client: %s", version.Version),
+		fmt.Sprintf("  server: %s", serverVer),
+		"",
+		"This usually happens when another crush instance restarted the",
+		"shared server with a newer or older binary.",
+		"",
+		"Please quit (ctrl+c) and restart crush to reconnect.",
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("9")).
+		Padding(1, 3).
+		Render(strings.Join(lines, "\n"))
+
+	return lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		box,
+	)
 }
 
 // ShortHelp implements [help.KeyMap].
@@ -3430,10 +3528,56 @@ func (m *UI) attachSkill(skillID, name string) tea.Cmd {
 	}
 }
 
+// restoreUnsentPrompt puts a prompt back into the editor after a failed
+// send so the user's input is never lost. It restores the text and any
+// attachments, then reports the error that prevented sending.
+func (m *UI) restoreUnsentPrompt(content string, attachments []message.Attachment, err error) tea.Cmd {
+	prevHeight := m.textarea.Height()
+	if m.textarea.Value() == "" {
+		m.textarea.SetValue(content)
+	}
+	for _, att := range attachments {
+		m.attachments.Update(att)
+	}
+	cmds := []tea.Cmd{util.ReportError(err)}
+	if cmd := m.handleTextareaHeightChange(prevHeight); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	return tea.Batch(cmds...)
+}
+
 // sendMessage sends a message with the given content and attachments.
 func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.Cmd {
-	if !m.com.Workspace.AgentIsReady() {
-		return util.ReportError(fmt.Errorf("coder agent is not initialized"))
+	readyCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	ready, err := m.com.Workspace.AgentReadiness(readyCtx)
+	switch {
+	case err != nil:
+		// Could not reach the server (e.g. spotty network). This is NOT
+		// the "agent not initialized" case: do not clear the prompt, and
+		// report a transient error the user can simply retry.
+		return m.restoreUnsentPrompt(content, attachments,
+			fmt.Errorf("could not reach crush server, please try again: %w", err))
+	case !ready:
+		// A version mismatch is unrecoverable here: the shared server
+		// speaks a different protocol. Preserve the prompt and tell the
+		// user to restart rather than silently dropping their input.
+		if m.versionMismatch {
+			return m.restoreUnsentPrompt(content, attachments,
+				fmt.Errorf("crush server version (%s) does not match this client (%s); restart crush", m.serverVersionStr, version.Version))
+		}
+		// Otherwise the agent genuinely failed to initialize (the server
+		// is reachable but reports not-ready). Try once to (re)initialize
+		// it so the user's carefully typed prompt is not lost.
+		if initErr := m.com.Workspace.InitCoderAgent(readyCtx); initErr != nil {
+			return m.restoreUnsentPrompt(content, attachments,
+				fmt.Errorf("coder agent is not initialized: %w", initErr))
+		}
+		if ok, rerr := m.com.Workspace.AgentReadiness(readyCtx); rerr != nil || !ok {
+			return m.restoreUnsentPrompt(content, attachments,
+				fmt.Errorf("coder agent is not initialized"))
+		}
 	}
 
 	var cmds []tea.Cmd

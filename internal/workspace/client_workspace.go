@@ -284,6 +284,14 @@ func (w *ClientWorkspace) AgentIsReady() bool {
 	return info.IsReady
 }
 
+func (w *ClientWorkspace) AgentReadiness(ctx context.Context) (bool, error) {
+	info, err := w.client.GetAgentInfo(ctx, w.workspaceID())
+	if err != nil {
+		return false, err
+	}
+	return info.IsReady, nil
+}
+
 func (w *ClientWorkspace) AgentQueuedPrompts(sessionID string) int {
 	count, err := w.client.GetAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
 	if err != nil {
@@ -326,6 +334,14 @@ func (w *ClientWorkspace) UpdateAgentModel(ctx context.Context) error {
 
 func (w *ClientWorkspace) InitCoderAgent(ctx context.Context) error {
 	return w.client.InitiateAgentProcessing(ctx, w.workspaceID())
+}
+
+func (w *ClientWorkspace) ServerVersion(ctx context.Context) (proto.VersionInfo, error) {
+	vi, err := w.client.VersionInfo(ctx)
+	if err != nil {
+		return proto.VersionInfo{}, err
+	}
+	return *vi, nil
 }
 
 func (w *ClientWorkspace) GetDefaultSmallModel(providerID string) config.SelectedModel {

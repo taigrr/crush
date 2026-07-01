@@ -106,6 +106,12 @@ type Workspace interface {
 	AgentIsSessionBusy(sessionID string) bool
 	AgentModel() AgentModel
 	AgentIsReady() bool
+	// AgentReadiness reports whether the coder agent is initialized,
+	// distinguishing "server reachable and says not ready" (err == nil,
+	// ready == false) from "could not reach the server" (err != nil).
+	// Callers that must not lose user input on a transient network blip
+	// should use this instead of AgentIsReady.
+	AgentReadiness(ctx context.Context) (ready bool, err error)
 	AgentQueuedPrompts(sessionID string) int
 	AgentQueuedPromptsList(sessionID string) []string
 	AgentClearQueue(sessionID string)
@@ -117,6 +123,12 @@ type Workspace interface {
 	UpdateAgentModel(ctx context.Context) error
 	InitCoderAgent(ctx context.Context) error
 	GetDefaultSmallModel(providerID string) config.SelectedModel
+
+	// ServerVersion reports the version information of the backend the
+	// frontend is talking to. Frontends use it to detect a client/server
+	// version mismatch (e.g. when another client restarted the shared
+	// server with a different binary).
+	ServerVersion(ctx context.Context) (proto.VersionInfo, error)
 
 	// Permissions
 	//
