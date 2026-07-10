@@ -926,7 +926,7 @@ func workspaceToProto(ws *Workspace) proto.Workspace {
 	out := proto.Workspace{
 		ID:         ws.ID,
 		Path:       ws.Path,
-		WorkingDir: ws.App.WorkingDir(),
+		WorkingDir: ws.WorkingDir(),
 		GitBranch:  getGitBranch(ws.Path),
 		YOLO:       ws.Cfg.Overrides().SkipPermissionRequests,
 		DataDir:    cfg.Options.DataDirectory,

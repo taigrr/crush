@@ -49,11 +49,11 @@ type PushResponse struct {
 // Resolution describes a server-side conflict outcome (e.g. a session
 // archived as "diverged").
 type Resolution struct {
-	Kind     string `json:"kind"`
-	Table    string `json:"table"`
-	PK       string `json:"pk"`
-	NewPK    string `json:"new_pk,omitempty"`
-	Detail   string `json:"detail,omitempty"`
+	Kind   string `json:"kind"`
+	Table  string `json:"table"`
+	PK     string `json:"pk"`
+	NewPK  string `json:"new_pk,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // LookupResponse is returned by /v1/projects/lookup.

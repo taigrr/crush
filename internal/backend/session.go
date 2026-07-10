@@ -168,7 +168,7 @@ func (b *Backend) BackfillEmbeddings(ctx context.Context, workspaceID string) (i
 	if err != nil {
 		return 0, err
 	}
-	return ws.App.BackfillEmbeddings(ctx)
+	return ws.BackfillEmbeddings(ctx)
 }
 
 // PendingEmbeddingCount reports how many past messages BackfillEmbeddings
@@ -178,7 +178,7 @@ func (b *Backend) PendingEmbeddingCount(ctx context.Context, workspaceID string)
 	if err != nil {
 		return 0, err
 	}
-	return ws.App.PendingEmbeddingCount(ctx)
+	return ws.PendingEmbeddingCount(ctx)
 }
 
 // EmbeddingStatus reports the embedding index state for a workspace.
@@ -187,5 +187,5 @@ func (b *Backend) EmbeddingStatus(ctx context.Context, workspaceID string) (prot
 	if err != nil {
 		return proto.EmbeddingStatus{}, err
 	}
-	return ws.App.EmbeddingStatus(ctx)
+	return ws.EmbeddingStatus(ctx)
 }

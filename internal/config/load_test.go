@@ -2084,7 +2084,7 @@ func TestConfig_configureProviders_UnsetAzureEndpointSkipsProvider(t *testing.T)
 // gitForWorktreeTest runs git in dir with a deterministic identity.
 func gitForWorktreeTest(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(t.Context(), "git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test",

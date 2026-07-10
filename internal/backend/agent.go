@@ -324,7 +324,7 @@ func (b *Backend) RunShellCommand(ctx context.Context, workspaceID string, req p
 	// sibling git worktrees that share one workspace.
 	cwd := b.clientCwd(ws, req.ClientID)
 	if cwd == "" {
-		cwd = ws.App.WorkingDir()
+		cwd = ws.WorkingDir()
 	}
 	runErr := shell.Run(ctx, shell.RunOptions{
 		Command: req.Command,

@@ -151,7 +151,7 @@ func formatFetchContent(content, contentType, format string) (string, error) {
 		if isHTML {
 			text, err := extractTextFromHTML(content)
 			if err != nil {
-				return "", fmt.Errorf("Failed to extract text from HTML: %w", err)
+				return "", fmt.Errorf("failed to extract text from HTML: %w", err)
 			}
 			content = text
 		}
@@ -161,7 +161,7 @@ func formatFetchContent(content, contentType, format string) (string, error) {
 		if isHTML {
 			markdown, err := ConvertHTMLToMarkdown(content)
 			if err != nil {
-				return "", fmt.Errorf("Failed to convert HTML to Markdown: %w", err)
+				return "", fmt.Errorf("failed to convert HTML to Markdown: %w", err)
 			}
 			content = markdown
 		}
@@ -171,14 +171,14 @@ func formatFetchContent(content, contentType, format string) (string, error) {
 		if isHTML {
 			doc, err := goquery.NewDocumentFromReader(strings.NewReader(content))
 			if err != nil {
-				return "", fmt.Errorf("Failed to parse HTML: %w", err)
+				return "", fmt.Errorf("failed to parse HTML: %w", err)
 			}
 			body, err := doc.Find("body").Html()
 			if err != nil {
-				return "", fmt.Errorf("Failed to extract body from HTML: %w", err)
+				return "", fmt.Errorf("failed to extract body from HTML: %w", err)
 			}
 			if body == "" {
-				return "", errors.New("No body content found in HTML")
+				return "", errors.New("no body content found in HTML")
 			}
 			content = "<html>\n<body>\n" + body + "\n</body>\n</html>"
 		}

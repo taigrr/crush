@@ -1223,14 +1223,14 @@ func (t *baseToolMessageItem) formatToolForCopy() string {
 type copyFields []string
 
 // add appends a "**label:** value" line unconditionally.
-func (f *copyFields) add(label, format string, args ...any) {
+func (f *copyFields) addf(label, format string, args ...any) {
 	*f = append(*f, fmt.Sprintf("**"+label+":** "+format, args...))
 }
 
 // addIf appends a line only when cond is true.
-func (f *copyFields) addIf(cond bool, label, format string, args ...any) {
+func (f *copyFields) addIff(cond bool, label, format string, args ...any) {
 	if cond {
-		f.add(label, format, args...)
+		f.addf(label, format, args...)
 	}
 }
 
@@ -1259,9 +1259,9 @@ func (t *baseToolMessageItem) formatParametersForCopy() string {
 	case tools.ViewToolName:
 		if p, ok := unmarshalParams[tools.ViewParams](input); ok {
 			var f copyFields
-			f.add("File", "%s", fsext.PrettyPath(p.FilePath))
-			f.addIf(p.Limit > 0, "Limit", "%d", p.Limit)
-			f.addIf(p.Offset > 0, "Offset", "%d", p.Offset)
+			f.addf("File", "%s", fsext.PrettyPath(p.FilePath))
+			f.addIff(p.Limit > 0, "Limit", "%d", p.Limit)
+			f.addIff(p.Offset > 0, "Offset", "%d", p.Offset)
 			return f.String()
 		}
 	case tools.EditToolName:
@@ -1271,8 +1271,8 @@ func (t *baseToolMessageItem) formatParametersForCopy() string {
 	case tools.MultiEditToolName:
 		if p, ok := unmarshalParams[tools.MultiEditParams](input); ok {
 			var f copyFields
-			f.add("File", "%s", fsext.PrettyPath(p.FilePath))
-			f.add("Edits", "%d", len(p.Edits))
+			f.addf("File", "%s", fsext.PrettyPath(p.FilePath))
+			f.addf("Edits", "%d", len(p.Edits))
 			return f.String()
 		}
 	case tools.WriteToolName:
@@ -1282,16 +1282,16 @@ func (t *baseToolMessageItem) formatParametersForCopy() string {
 	case tools.FetchToolName:
 		if p, ok := unmarshalParams[tools.FetchParams](input); ok {
 			var f copyFields
-			f.add("URL", "%s", p.URL)
-			f.addIf(p.Format != "", "Format", "%s", p.Format)
-			f.addIf(p.Timeout > 0, "Timeout", "%ds", p.Timeout)
+			f.addf("URL", "%s", p.URL)
+			f.addIff(p.Format != "", "Format", "%s", p.Format)
+			f.addIff(p.Timeout > 0, "Timeout", "%ds", p.Timeout)
 			return f.String()
 		}
 	case tools.AgenticFetchToolName:
 		if p, ok := unmarshalParams[tools.AgenticFetchParams](input); ok {
 			var f copyFields
-			f.addIf(p.URL != "", "URL", "%s", p.URL)
-			f.addIf(p.Prompt != "", "Prompt", "%s", p.Prompt)
+			f.addIff(p.URL != "", "URL", "%s", p.URL)
+			f.addIff(p.Prompt != "", "Prompt", "%s", p.Prompt)
 			return f.String()
 		}
 	case tools.WebFetchToolName:
@@ -1301,17 +1301,17 @@ func (t *baseToolMessageItem) formatParametersForCopy() string {
 	case tools.GrepToolName:
 		if p, ok := unmarshalParams[tools.GrepParams](input); ok {
 			var f copyFields
-			f.add("Pattern", "%s", p.Pattern)
-			f.addIf(p.Path != "", "Path", "%s", p.Path)
-			f.addIf(p.Include != "", "Include", "%s", p.Include)
-			f.addIf(p.LiteralText, "Literal", "true")
+			f.addf("Pattern", "%s", p.Pattern)
+			f.addIff(p.Path != "", "Path", "%s", p.Path)
+			f.addIff(p.Include != "", "Include", "%s", p.Include)
+			f.addIff(p.LiteralText, "Literal", "true")
 			return f.String()
 		}
 	case tools.GlobToolName:
 		if p, ok := unmarshalParams[tools.GlobParams](input); ok {
 			var f copyFields
-			f.add("Pattern", "%s", p.Pattern)
-			f.addIf(p.Path != "", "Path", "%s", p.Path)
+			f.addf("Pattern", "%s", p.Pattern)
+			f.addIff(p.Path != "", "Path", "%s", p.Path)
 			return f.String()
 		}
 	case tools.LSToolName:
@@ -1325,17 +1325,17 @@ func (t *baseToolMessageItem) formatParametersForCopy() string {
 	case tools.DownloadToolName:
 		if p, ok := unmarshalParams[tools.DownloadParams](input); ok {
 			var f copyFields
-			f.add("URL", "%s", p.URL)
-			f.add("File Path", "%s", fsext.PrettyPath(p.FilePath))
-			f.addIf(p.Timeout > 0, "Timeout", "%s", (time.Duration(p.Timeout) * time.Second).String())
+			f.addf("URL", "%s", p.URL)
+			f.addf("File Path", "%s", fsext.PrettyPath(p.FilePath))
+			f.addIff(p.Timeout > 0, "Timeout", "%s", (time.Duration(p.Timeout) * time.Second).String())
 			return f.String()
 		}
 	case tools.SourcegraphToolName:
 		if p, ok := unmarshalParams[tools.SourcegraphParams](input); ok {
 			var f copyFields
-			f.add("Query", "%s", p.Query)
-			f.addIf(p.Count > 0, "Count", "%d", p.Count)
-			f.addIf(p.ContextWindow > 0, "Context", "%d", p.ContextWindow)
+			f.addf("Query", "%s", p.Query)
+			f.addIff(p.Count > 0, "Count", "%d", p.Count)
+			f.addIff(p.ContextWindow > 0, "Context", "%d", p.ContextWindow)
 			return f.String()
 		}
 	case tools.DiagnosticsToolName:
@@ -1354,7 +1354,7 @@ func (t *baseToolMessageItem) formatParametersForCopy() string {
 			if len(displayKey) > 0 {
 				displayKey = strings.ToUpper(displayKey[:1]) + displayKey[1:]
 			}
-			f.add(displayKey, "%v", params[key])
+			f.addf(displayKey, "%v", params[key])
 		}
 		return f.String()
 	}

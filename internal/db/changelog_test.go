@@ -36,6 +36,7 @@ func TestChangelog_RecordsSessionMutations(t *testing.T) {
 		require.NoError(t, rows.Scan(&op, &table, &pk))
 		got = append(got, op+":"+table+":"+pk)
 	}
+	require.NoError(t, rows.Err())
 	require.Contains(t, got, "I:sessions:s1")
 	require.Contains(t, got, "I:messages:m1")
 	require.Contains(t, got, "D:sessions:s1")

@@ -40,10 +40,10 @@ func NewReloadConfigTool(cfg *config.ConfigStore, permissions permission.Service
 			var b strings.Builder
 			b.WriteString("Config reloaded from disk.\n")
 			if len(before.Changed) > 0 {
-				b.WriteString(fmt.Sprintf("changed = %s\n", strings.Join(before.Changed, ", ")))
+				fmt.Fprintf(&b, "changed = %s\n", strings.Join(before.Changed, ", "))
 			}
 			if len(before.Missing) > 0 {
-				b.WriteString(fmt.Sprintf("missing = %s\n", strings.Join(before.Missing, ", ")))
+				fmt.Fprintf(&b, "missing = %s\n", strings.Join(before.Missing, ", "))
 			}
 			if !before.Dirty {
 				b.WriteString("note = no on-disk changes were detected; reloaded anyway\n")
