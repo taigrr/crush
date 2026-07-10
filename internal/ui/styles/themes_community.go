@@ -434,3 +434,62 @@ func RosePine() Styles {
 		syntaxLiteralString:   lipgloss.Color("#9ccfd8"),
 	})
 }
+
+// VSCodeDark returns a theme based on Visual Studio Code's Dark+ scheme.
+// https://github.com/microsoft/vscode
+func VSCodeDark() Styles {
+	return quickStyle(quickStyleOpts{
+		primary:   lipgloss.Color("#569cd6"), // blue
+		secondary: lipgloss.Color("#4ec9b0"), // teal
+		accent:    lipgloss.Color("#c586c0"), // magenta
+		keyword:   lipgloss.Color("#c586c0"),
+
+		fgBase:       lipgloss.Color("#d4d4d4"),
+		fgSubtle:     lipgloss.Color("#bbbbbb"),
+		fgMoreSubtle: lipgloss.Color("#9d9d9d"),
+		fgMostSubtle: lipgloss.Color("#6a6a6a"),
+
+		onPrimary: lipgloss.Color("#ffffff"),
+
+		bgBase:         lipgloss.Color("#1e1e1e"),
+		bgLeastVisible: lipgloss.Color("#181818"),
+		bgLessVisible:  lipgloss.Color("#252526"),
+		bgMostVisible:  lipgloss.Color("#3c3c3c"),
+		separator:      lipgloss.Color("#3c3c3c"),
+
+		destructive:       lipgloss.Color("#f48771"),
+		error:             lipgloss.Color("#f14c4c"),
+		warning:           lipgloss.Color("#ffcc00"),
+		warningSubtle:     lipgloss.Color("#cca700"),
+		denied:            lipgloss.Color("#f48771"),
+		busy:              lipgloss.Color("#dcdcaa"),
+		info:              lipgloss.Color("#569cd6"),
+		infoMoreSubtle:    lipgloss.Color("#4a7aa8"),
+		infoMostSubtle:    lipgloss.Color("#2d4a63"),
+		success:           lipgloss.Color("#89d185"),
+		successMoreSubtle: lipgloss.Color("#4ec9b0"),
+		successMostSubtle: lipgloss.Color("#3a7a5e"),
+
+		diffAddFg:        lipgloss.Color("#89d185"),
+		diffAddBg:        lipgloss.Color("#203428"),
+		diffAddBgEmph:    lipgloss.Color("#1b2c22"),
+		diffRemoveFg:     lipgloss.Color("#f14c4c"),
+		diffRemoveBg:     lipgloss.Color("#3a2526"),
+		diffRemoveBgEmph: lipgloss.Color("#301e1f"),
+
+		hypercredit: lipgloss.Color("#569cd6"),
+
+		syntaxLink:            lipgloss.Color("#569cd6"),
+		syntaxImage:           lipgloss.Color("#c586c0"),
+		syntaxCommentPreproc:  lipgloss.Color("#6a9955"),
+		syntaxKeywordReserved: lipgloss.Color("#c586c0"),
+		syntaxKeywordType:     lipgloss.Color("#4ec9b0"),
+		syntaxOperator:        lipgloss.Color("#d4d4d4"),
+		syntaxNameBuiltin:     lipgloss.Color("#dcdcaa"),
+		syntaxNameTag:         lipgloss.Color("#569cd6"),
+		syntaxNameAttribute:   lipgloss.Color("#9cdcfe"),
+		syntaxNameClass:       lipgloss.Color("#4ec9b0"),
+		syntaxNameDecorator:   lipgloss.Color("#dcdcaa"),
+		syntaxLiteralString:   lipgloss.Color("#ce9178"),
+	})
+}
