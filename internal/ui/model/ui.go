@@ -17,7 +17,6 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
@@ -280,7 +279,6 @@ type UI struct {
 	// backfill is running).
 	backfillActive bool
 	backfillStatus proto.EmbeddingStatus
-	embeddingBar   progress.Model
 
 	// sidebarLogo keeps a cached version of the sidebar sidebarLogo.
 	sidebarLogo string
@@ -404,13 +402,6 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		notifyWindowFocused: true,
 		initialSessionID:    initialSessionID,
 		continueLastSession: continueLast,
-		embeddingBar: progress.New(
-			progress.WithColors(
-				com.Styles.WorkingGradFromColor,
-				com.Styles.WorkingGradToColor,
-			),
-			progress.WithoutPercentage(),
-		),
 	}
 
 	status := NewStatus(com, ui)

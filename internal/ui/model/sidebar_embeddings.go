@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"charm.land/bubbles/v2/progress"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -43,7 +44,14 @@ func (m *UI) embeddingProgress(width int) string {
 		}
 	}
 
-	m.embeddingBar.SetWidth(width)
+	// Build the bar from the current theme each render so it always
+	// follows the active theme (colors would otherwise be captured once
+	// and go stale after a theme switch).
+	bar := progress.New(
+		progress.WithColors(t.WorkingGradFromColor, t.WorkingGradToColor),
+		progress.WithoutPercentage(),
+	)
+	bar.SetWidth(width)
 
 	// Themed section header ("Embeddings" with a count), matching the
 	// LSP/MCP/Skills sidebar sections.
@@ -58,6 +66,6 @@ func (m *UI) embeddingProgress(width int) string {
 		lipgloss.Left,
 		header,
 		"",
-		m.embeddingBar.ViewAs(percent),
+		bar.ViewAs(percent),
 	)
 }
