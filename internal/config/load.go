@@ -127,6 +127,9 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 
 	if !cfg.IsConfigured() {
 		slog.Warn("No providers configured")
+		// Still capture the staleness snapshot so reload-on-reconnect
+		// works even when no providers are configured.
+		store.captureStalenessSnapshot(loadedPaths)
 		return store, nil
 	}
 
