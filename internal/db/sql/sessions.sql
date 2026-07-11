@@ -8,6 +8,7 @@ INSERT INTO sessions (
     completion_tokens,
     cost,
     summary_message_id,
+    working_dir,
     updated_at,
     created_at
 ) VALUES (
@@ -19,6 +20,7 @@ INSERT INTO sessions (
     ?,
     ?,
     null,
+    ?,
     strftime('%s', 'now'),
     strftime('%s', 'now')
 ) RETURNING *;
@@ -90,4 +92,19 @@ WHERE id = ?;
 UPDATE sessions
 SET archived_at = NULL,
     updated_at = strftime('%s', 'now')
+WHERE id = ?;
+
+-- name: MarkSessionFinished :exec
+UPDATE sessions
+SET last_finished_at = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+WHERE id = ?;
+
+-- name: MarkSessionSeen :exec
+UPDATE sessions
+SET last_seen_at = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+WHERE id = ?;
+
+-- name: SetSessionWorkingDir :exec
+UPDATE sessions
+SET working_dir = ?
 WHERE id = ?;

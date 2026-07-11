@@ -225,11 +225,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listWorktreesStmt, err = db.PrepareContext(ctx, listWorktrees); err != nil {
 		return nil, fmt.Errorf("error preparing query ListWorktrees: %w", err)
 	}
+	if q.markSessionFinishedStmt, err = db.PrepareContext(ctx, markSessionFinished); err != nil {
+		return nil, fmt.Errorf("error preparing query MarkSessionFinished: %w", err)
+	}
+	if q.markSessionSeenStmt, err = db.PrepareContext(ctx, markSessionSeen); err != nil {
+		return nil, fmt.Errorf("error preparing query MarkSessionSeen: %w", err)
+	}
 	if q.recordFileReadStmt, err = db.PrepareContext(ctx, recordFileRead); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordFileRead: %w", err)
 	}
 	if q.renameSessionStmt, err = db.PrepareContext(ctx, renameSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RenameSession: %w", err)
+	}
+	if q.setSessionWorkingDirStmt, err = db.PrepareContext(ctx, setSessionWorkingDir); err != nil {
+		return nil, fmt.Errorf("error preparing query SetSessionWorkingDir: %w", err)
 	}
 	if q.setWorktreeActiveStmt, err = db.PrepareContext(ctx, setWorktreeActive); err != nil {
 		return nil, fmt.Errorf("error preparing query SetWorktreeActive: %w", err)
@@ -595,6 +604,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listWorktreesStmt: %w", cerr)
 		}
 	}
+	if q.markSessionFinishedStmt != nil {
+		if cerr := q.markSessionFinishedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing markSessionFinishedStmt: %w", cerr)
+		}
+	}
+	if q.markSessionSeenStmt != nil {
+		if cerr := q.markSessionSeenStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing markSessionSeenStmt: %w", cerr)
+		}
+	}
 	if q.recordFileReadStmt != nil {
 		if cerr := q.recordFileReadStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recordFileReadStmt: %w", cerr)
@@ -603,6 +622,11 @@ func (q *Queries) Close() error {
 	if q.renameSessionStmt != nil {
 		if cerr := q.renameSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing renameSessionStmt: %w", cerr)
+		}
+	}
+	if q.setSessionWorkingDirStmt != nil {
+		if cerr := q.setSessionWorkingDirStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setSessionWorkingDirStmt: %w", cerr)
 		}
 	}
 	if q.setWorktreeActiveStmt != nil {
@@ -751,8 +775,11 @@ type Queries struct {
 	listSourceIDsForSignatureStmt           *sql.Stmt
 	listUserMessagesBySessionStmt           *sql.Stmt
 	listWorktreesStmt                       *sql.Stmt
+	markSessionFinishedStmt                 *sql.Stmt
+	markSessionSeenStmt                     *sql.Stmt
 	recordFileReadStmt                      *sql.Stmt
 	renameSessionStmt                       *sql.Stmt
+	setSessionWorkingDirStmt                *sql.Stmt
 	setWorktreeActiveStmt                   *sql.Stmt
 	unarchiveSessionStmt                    *sql.Stmt
 	updateMessageStmt                       *sql.Stmt
@@ -834,8 +861,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listSourceIDsForSignatureStmt:           q.listSourceIDsForSignatureStmt,
 		listUserMessagesBySessionStmt:           q.listUserMessagesBySessionStmt,
 		listWorktreesStmt:                       q.listWorktreesStmt,
+		markSessionFinishedStmt:                 q.markSessionFinishedStmt,
+		markSessionSeenStmt:                     q.markSessionSeenStmt,
 		recordFileReadStmt:                      q.recordFileReadStmt,
 		renameSessionStmt:                       q.renameSessionStmt,
+		setSessionWorkingDirStmt:                q.setSessionWorkingDirStmt,
 		setWorktreeActiveStmt:                   q.setWorktreeActiveStmt,
 		unarchiveSessionStmt:                    q.unarchiveSessionStmt,
 		updateMessageStmt:                       q.updateMessageStmt,

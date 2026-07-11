@@ -949,6 +949,25 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionCancel(w http.ResponseWrit
 	w.WriteHeader(http.StatusOK)
 }
 
+// handlePostWorkspaceAgentCancel cancels all running agent sessions in
+// the workspace.
+//
+//	@Summary		Cancel all agent sessions
+//	@Tags			agent
+//	@Param			id	path	string	true	"Workspace ID"
+//	@Success		200
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/cancel [post]
+func (c *controllerV1) handlePostWorkspaceAgentCancel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := c.backend.CancelAllSessions(id); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // handleGetWorkspaceAgentSessionPromptQueued returns whether a queued prompt exists.
 //
 //	@Summary		Get queued prompt status
@@ -1073,6 +1092,36 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionGoal(w http.ResponseWriter
 	}
 
 	if err := c.backend.SetGoal(id, sid, req.Condition); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// handlePostWorkspaceAgentSessionWorkingDir sets the working directory
+// tools run in for a session.
+//
+//	@Summary		Set session working directory
+//	@Tags			agent
+//	@Param			id		path	string						true	"Workspace ID"
+//	@Param			sid		path	string						true	"Session ID"
+//	@Param			request	body	proto.SetWorkingDirRequest	true	"Working directory"
+//	@Success		200
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/cwd [post]
+func (c *controllerV1) handlePostWorkspaceAgentSessionWorkingDir(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+
+	var req proto.SetWorkingDirRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+
+	if err := c.backend.SetSessionWorkingDir(r.Context(), id, sid, req.WorkingDir); err != nil {
 		c.handleError(w, r, err)
 		return
 	}

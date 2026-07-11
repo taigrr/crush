@@ -57,9 +57,24 @@ type Session struct {
 	SummaryMessageID string
 	Cost             float64
 	Todos            []Todo
-	CreatedAt        int64
-	UpdatedAt        int64
-	ArchivedAt       int64
+	// WorkingDir is the directory the session was started from. Tools run
+	// in this directory so a session resumed from a different client (with
+	// a different launch cwd) still operates on the original project.
+	WorkingDir string
+	// LastFinishedAt is the unix time of the session's most recent run
+	// completion; LastSeenAt is the unix time the viewing client last
+	// opened it. Unread is LastFinishedAt > LastSeenAt.
+	LastFinishedAt int64
+	LastSeenAt     int64
+	CreatedAt      int64
+	UpdatedAt      int64
+	ArchivedAt     int64
+}
+
+// Unread reports whether the session finished a run more recently than it
+// was last opened, i.e. it has completed work the viewer has not seen.
+func (s Session) Unread() bool {
+	return s.LastFinishedAt > 0 && s.LastFinishedAt > s.LastSeenAt
 }
 
 type Service interface {
@@ -77,6 +92,14 @@ type Service interface {
 	Archive(ctx context.Context, id string) error
 	Unarchive(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string) error
+
+	// SetWorkingDir records the directory the session runs its tools in.
+	SetWorkingDir(ctx context.Context, id, dir string) error
+	// MarkFinished stamps the session's most recent run completion time.
+	MarkFinished(ctx context.Context, id string) error
+	// MarkSeen stamps the time the viewing client last opened the session,
+	// clearing its unread state.
+	MarkSeen(ctx context.Context, id string) error
 
 	// Agent tool session management
 	CreateAgentToolSessionID(messageID, toolCallID string) string
@@ -291,6 +314,45 @@ func (s *service) Unarchive(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *service) SetWorkingDir(ctx context.Context, id, dir string) error {
+	if dir == "" {
+		return nil
+	}
+	if err := s.q.SetSessionWorkingDir(ctx, db.SetSessionWorkingDirParams{
+		WorkingDir: sql.NullString{String: dir, Valid: true},
+		ID:         id,
+	}); err != nil {
+		return fmt.Errorf("setting session working dir: %w", err)
+	}
+	return nil
+}
+
+func (s *service) MarkFinished(ctx context.Context, id string) error {
+	if err := s.q.MarkSessionFinished(ctx, id); err != nil {
+		return fmt.Errorf("marking session finished: %w", err)
+	}
+	s.publishByID(ctx, id)
+	return nil
+}
+
+func (s *service) MarkSeen(ctx context.Context, id string) error {
+	if err := s.q.MarkSessionSeen(ctx, id); err != nil {
+		return fmt.Errorf("marking session seen: %w", err)
+	}
+	s.publishByID(ctx, id)
+	return nil
+}
+
+// publishByID re-reads a session and publishes an update so subscribers
+// (e.g. the sessions sidebar) observe read/unread state changes.
+func (s *service) publishByID(ctx context.Context, id string) {
+	dbSession, err := s.q.GetSessionByID(ctx, id)
+	if err != nil {
+		return
+	}
+	s.Publish(pubsub.UpdatedEvent, s.fromDBItem(dbSession))
+}
+
 func (s *service) applyEstimatedUsageState(session *Session) {
 	s.estimatedUsageMu.RLock()
 	session.EstimatedUsage = s.estimatedUsage[session.ID]
@@ -328,6 +390,9 @@ func (s *service) fromDBItem(item db.Session) Session {
 		SummaryMessageID: item.SummaryMessageID.String,
 		Cost:             item.Cost,
 		Todos:            todos,
+		WorkingDir:       item.WorkingDir.String,
+		LastFinishedAt:   item.LastFinishedAt.Int64,
+		LastSeenAt:       item.LastSeenAt.Int64,
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
 		ArchivedAt:       item.ArchivedAt.Int64,

@@ -72,6 +72,12 @@ func (s *stubSessions) List(context.Context) ([]session.Session, error) {
 	return s.all, nil
 }
 
+// MarkSeen is a no-op override so SetCurrentSession (which now stamps
+// last-seen) does not dereference the embedded nil session.Service.
+func (s *stubSessions) MarkSeen(context.Context, string) error {
+	return nil
+}
+
 func (s *stubSessions) Get(_ context.Context, id string) (session.Session, error) {
 	for _, sess := range s.all {
 		if sess.ID == id {

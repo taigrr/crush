@@ -74,6 +74,15 @@ var builtinSlashCommands = []slashCommand{
 			return m.handleGoal(args)
 		},
 	},
+	{
+		name:            "cwd",
+		argHint:         "[path | (empty for terminal cwd)]",
+		description:     "Set the working directory tools run in for this session",
+		requiresSession: true,
+		run: func(m *UI, args string) tea.Cmd {
+			return m.handleCwd(args)
+		},
+	},
 }
 
 // splitSlash splits a trimmed prompt value into a slash verb and its

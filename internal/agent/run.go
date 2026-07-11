@@ -200,6 +200,20 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		systemPrompt += "\n\n<mcp-instructions>\n" + s + "\n</mcp-instructions>"
 	}
 
+	// Tell the model, every turn, which directory its tools run in. This
+	// keeps it accurate when a session is resumed from a client with a
+	// different launch cwd, or after an explicit /cwd change: the model
+	// should treat paths as relative to this directory and must not try to
+	// `cd` into it. The recorded session working dir is authoritative (see
+	// coordinator.workingDir); when unset the model falls back to its
+	// system-prompt default.
+	if a.sessions != nil {
+		if sess, err := a.sessions.Get(ctx, call.SessionID); err == nil && sess.WorkingDir != "" {
+			systemPrompt += "\n\n<environment>\nCurrent working directory: " + sess.WorkingDir +
+				"\nAll tool calls run in this directory. Treat relative paths as relative to it; do not cd into it.\n</environment>"
+		}
+	}
+
 	if len(agentTools) > 0 {
 		// Add Anthropic caching to the last tool.
 		agentTools[len(agentTools)-1].SetProviderOptions(a.getCacheControlOptions())
@@ -789,6 +803,17 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// Send notification that agent has finished its turn (skip for
 	// nested/non-interactive sessions).
 	if !call.NonInteractive && a.notify != nil {
+		// Stamp the session's most recent run completion so read/unread
+		// state can be computed: a session is unread when it finished a
+		// run more recently than the viewing client last opened it. Only
+		// interactive turns count (nested/title/task sessions do not
+		// surface in the picker). Best-effort; a failure here must not
+		// disrupt the turn's terminal handling.
+		if a.sessions != nil {
+			if err := a.sessions.MarkFinished(ctx, call.SessionID); err != nil {
+				slog.Debug("Failed to mark session finished", "session_id", call.SessionID, "error", err)
+			}
+		}
 		a.notify.Publish(pubsub.CreatedEvent, notify.Notification{
 			SessionID:    call.SessionID,
 			SessionTitle: currentSession.Title,

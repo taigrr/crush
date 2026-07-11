@@ -81,6 +81,9 @@ type Session struct {
 	WorktreeID           sql.NullString `json:"worktree_id"`
 	ForkedFromSnapshotID sql.NullString `json:"forked_from_snapshot_id"`
 	ArchivedAt           sql.NullInt64  `json:"archived_at"`
+	WorkingDir           sql.NullString `json:"working_dir"`
+	LastFinishedAt       sql.NullInt64  `json:"last_finished_at"`
+	LastSeenAt           sql.NullInt64  `json:"last_seen_at"`
 }
 
 type Snapshot struct {

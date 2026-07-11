@@ -23,6 +23,7 @@ import (
 	"github.com/taigrr/crush/internal/editor"
 	editornvim "github.com/taigrr/crush/internal/editor/nvim"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/registry"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/util"
 	"github.com/taigrr/crush/internal/version"
@@ -68,6 +69,11 @@ type Backend struct {
 	ctx         context.Context
 	shutdownFn  ShutdownFunc
 	createGrace time.Duration
+
+	// registry is the global, cross-workspace index of workspace roots
+	// used so the picker (and server on startup) can enumerate
+	// previously used workspaces without attaching them.
+	registry *registry.Store
 }
 
 // clientState tracks one client's claim on a workspace.
@@ -233,6 +239,7 @@ func New(ctx context.Context, cfg *config.ConfigStore, shutdownFn ShutdownFunc) 
 		ctx:         ctx,
 		shutdownFn:  shutdownFn,
 		createGrace: DefaultCreateGrace,
+		registry:    registry.New(),
 	}
 }
 
@@ -390,6 +397,20 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	}
 	b.registerClient(ws, clientID, args.Env, args.Path)
 	b.mu.Unlock()
+
+	// Record this workspace in the global registry so a future Crush
+	// instance (or the server on startup) can enumerate and jump to it
+	// without it being attached. Best-effort; a registry write failure
+	// must not fail workspace creation.
+	if !args.Isolated && b.registry != nil {
+		if err := b.registry.Add(registry.Entry{
+			Root:     key,
+			DataDir:  cfg.Config().Options.DataDirectory,
+			LastUsed: time.Now().Unix(),
+		}); err != nil {
+			slog.Warn("Failed to record workspace in registry", "root", key, "error", err)
+		}
+	}
 
 	if args.Version != "" && args.Version != version.Version {
 		slog.Warn(
@@ -704,6 +725,15 @@ func (b *Backend) SetCurrentSession(workspaceID, clientID, sessionID string) err
 	cs.currentSessionID = sessionID
 	cwd := cs.cwd
 	ws.clientsMu.Unlock()
+
+	// Mark the session seen: opening it clears its unread state (it has
+	// no completed work the viewer has not now seen). Best-effort; a
+	// failure must not prevent the presence write.
+	if sessionID != "" && ws.App != nil && ws.Sessions != nil {
+		if err := ws.Sessions.MarkSeen(context.Background(), sessionID); err != nil {
+			slog.Debug("Failed to mark session seen", "session_id", sessionID, "error", err)
+		}
+	}
 
 	// Best-effort: if the client's cwd lies inside a managed
 	// worktree, switch the session's active worktree to match. This

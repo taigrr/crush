@@ -249,6 +249,10 @@ func (w *ClientWorkspace) AgentCancel(sessionID string) {
 	_ = w.client.CancelAgentSession(context.Background(), w.workspaceID(), sessionID)
 }
 
+func (w *ClientWorkspace) AgentCancelAll() {
+	_ = w.client.CancelAgent(context.Background(), w.workspaceID())
+}
+
 func (w *ClientWorkspace) AgentIsBusy() bool {
 	info, err := w.client.GetAgentInfo(context.Background(), w.workspaceID())
 	if err != nil {
@@ -314,6 +318,10 @@ func (w *ClientWorkspace) AgentClearQueue(sessionID string) {
 
 func (w *ClientWorkspace) AgentSetGoal(sessionID, condition string) error {
 	return w.client.SetAgentSessionGoal(context.Background(), w.workspaceID(), sessionID, condition)
+}
+
+func (w *ClientWorkspace) AgentSetWorkingDir(sessionID, dir string) error {
+	return w.client.SetAgentSessionWorkingDir(context.Background(), w.workspaceID(), sessionID, dir)
 }
 
 func (w *ClientWorkspace) AgentClearGoal(sessionID string) error {

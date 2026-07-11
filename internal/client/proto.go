@@ -466,6 +466,22 @@ func (c *Client) SetAgentSessionGoal(ctx context.Context, id, sessionID, conditi
 	return nil
 }
 
+// SetAgentSessionWorkingDir sets the working directory tools run in for a
+// session.
+func (c *Client) SetAgentSessionWorkingDir(ctx context.Context, id, sessionID, dir string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/cwd", id, sessionID), nil, jsonBody(proto.SetWorkingDirRequest{
+		WorkingDir: dir,
+	}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return fmt.Errorf("failed to set session working dir: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to set session working dir: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
 // ClearAgentSessionGoal clears the active autonomous goal for a session.
 func (c *Client) ClearAgentSessionGoal(ctx context.Context, id, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal/clear", id, sessionID), nil, nil, nil)
@@ -932,6 +948,19 @@ func (c *Client) CancelAgentSession(ctx context.Context, id string, sessionID st
 	defer rsp.Body.Close()
 	if rsp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to cancel agent session: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
+// CancelAgent cancels all ongoing agent operations for a workspace.
+func (c *Client) CancelAgent(ctx context.Context, id string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/cancel", id), nil, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to cancel agent: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to cancel agent: status code %d", rsp.StatusCode)
 	}
 	return nil
 }

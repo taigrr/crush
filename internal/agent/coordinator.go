@@ -235,18 +235,57 @@ func (c *coordinator) workingDir(ctx context.Context) string {
 		c.effectiveWorkingDir,
 		c.cfg.WorkingDir(),
 	)
-	if c.worktrees == nil || !c.worktrees.IsEnabled() {
-		return root
-	}
 	sessionID := tools.GetSessionFromContext(ctx)
-	if sessionID == "" {
-		return root
+
+	// A worktree, when active for this session, still wins: tools must
+	// run inside the checked-out worktree regardless of the recorded
+	// session cwd.
+	if c.worktrees != nil && c.worktrees.IsEnabled() && sessionID != "" {
+		if wt, err := c.worktrees.GetActive(ctx, sessionID); err == nil && wt != nil && wt.Path != "" {
+			return wt.Path
+		}
 	}
-	wt, err := c.worktrees.GetActive(ctx, sessionID)
-	if err != nil || wt == nil || wt.Path == "" {
-		return root
+
+	// The session's recorded working directory is authoritative once set:
+	// a session resumed from a different client (with a different launch
+	// cwd) must still run its tools in the directory it was started from,
+	// not wherever the new client happens to be. This overrides the
+	// per-request cwd. Best-effort: a missing session or lookup error
+	// degrades to the request cwd / workspace root computed above.
+	if sessionID != "" && c.sessions != nil {
+		if sess, err := c.sessions.Get(ctx, sessionID); err == nil && sess.WorkingDir != "" {
+			return sess.WorkingDir
+		}
 	}
-	return wt.Path
+
+	return root
+}
+
+// stampSessionWorkingDir records the session's working directory the first
+// time it runs, if it has none yet. The value is the initiating client's
+// request cwd, falling back to the workspace defaults — captured without
+// consulting the session's own (empty) recorded dir or its worktree, so it
+// reflects where the run actually started. Best-effort and idempotent:
+// once a session has a working_dir it is never overwritten here.
+func (c *coordinator) stampSessionWorkingDir(ctx context.Context, sessionID string) {
+	if sessionID == "" || c.sessions == nil {
+		return
+	}
+	sess, err := c.sessions.Get(ctx, sessionID)
+	if err != nil || sess.WorkingDir != "" {
+		return
+	}
+	dir := cmp.Or(
+		tools.GetWorkingDirFromContext(ctx),
+		c.effectiveWorkingDir,
+		c.cfg.WorkingDir(),
+	)
+	if dir == "" {
+		return
+	}
+	if err := c.sessions.SetWorkingDir(ctx, sessionID, dir); err != nil {
+		slog.Debug("Failed to record session working dir", "session_id", sessionID, "error", err)
+	}
 }
 
 // Run implements Coordinator.
@@ -268,6 +307,12 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	if err := c.readyWg.Wait(); err != nil {
 		return nil, err
 	}
+
+	// Record the session's working directory on first run if it has none
+	// yet, defaulting to the initiating client's cwd (falling back to the
+	// workspace root). Once set, this is authoritative for tool cwd across
+	// clients, so a session resumed elsewhere keeps running where it began.
+	c.stampSessionWorkingDir(ctx, sessionID)
 
 	// refresh models before each run
 	if err := c.UpdateModels(ctx); err != nil {

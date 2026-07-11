@@ -199,6 +199,23 @@ func (b *Backend) CancelSession(workspaceID, sessionID string) error {
 	return nil
 }
 
+// CancelAllSessions cancels every in-flight agent run in the workspace,
+// regardless of which session it belongs to. It is the workspace-wide
+// counterpart to CancelSession, used when a client is not focused on the
+// busy session (e.g. after detaching from and reattaching to a workspace
+// whose run is still going).
+func (b *Backend) CancelAllSessions(workspaceID string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+
+	if ws.AgentCoordinator != nil {
+		ws.AgentCoordinator.CancelAll()
+	}
+	return nil
+}
+
 // SummarizeSession triggers a session summarization.
 func (b *Backend) SummarizeSession(ctx context.Context, workspaceID, sessionID string) error {
 	ws, err := b.GetWorkspace(workspaceID)
@@ -263,6 +280,20 @@ func (b *Backend) ClearGoal(workspaceID, sessionID string) error {
 		ws.AgentCoordinator.ClearGoal(sessionID)
 	}
 	return nil
+}
+
+// SetSessionWorkingDir records the working directory tools run in for a
+// session. Persisted via the session store so it survives reconnects and
+// applies across clients.
+func (b *Backend) SetSessionWorkingDir(ctx context.Context, workspaceID, sessionID, dir string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	if ws.App == nil || ws.Sessions == nil {
+		return ErrAgentNotInitialized
+	}
+	return ws.Sessions.SetWorkingDir(ctx, sessionID, dir)
 }
 
 // GoalStatus reports the active autonomous goal for a session.

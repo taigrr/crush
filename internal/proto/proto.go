@@ -175,6 +175,13 @@ type SetGoalRequest struct {
 	Condition string `json:"condition"`
 }
 
+// SetWorkingDirRequest sets the working directory tools run in for a
+// session. The directory is expected to be absolute and resolved by the
+// caller.
+type SetWorkingDirRequest struct {
+	WorkingDir string `json:"working_dir"`
+}
+
 // GoalStatus reports the active autonomous goal for a session.
 type GoalStatus struct {
 	Active    bool   `json:"active"`

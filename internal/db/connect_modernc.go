@@ -29,3 +29,23 @@ func openDB(dbPath string) (*sql.DB, error) {
 
 	return db, nil
 }
+
+// openReadOnlyDB opens the database read-only for peeking (cross-workspace
+// listing) without running migrations, taking the data-dir lock, or
+// writing anything. The caller closes it immediately after reading. A real
+// read-write open always happens through a fresh [Connect]; a peek handle
+// is never upgraded in place.
+func openReadOnlyDB(dbPath string) (*sql.DB, error) {
+	params := url.Values{}
+	params.Set("mode", "ro")
+	params.Set("_txlock", "deferred")
+	params.Add("_pragma", "busy_timeout(2000)")
+
+	dsn := fmt.Sprintf("file:%s?%s", dbPath, params.Encode())
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database read-only: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
+}

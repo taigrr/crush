@@ -81,8 +81,11 @@ type Querier interface {
 	ListSourceIDsForSignature(ctx context.Context, arg ListSourceIDsForSignatureParams) ([]string, error)
 	ListUserMessagesBySession(ctx context.Context, sessionID string) ([]Message, error)
 	ListWorktrees(ctx context.Context, sessionID string) ([]Worktree, error)
+	MarkSessionFinished(ctx context.Context, id string) error
+	MarkSessionSeen(ctx context.Context, id string) error
 	RecordFileRead(ctx context.Context, arg RecordFileReadParams) error
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
+	SetSessionWorkingDir(ctx context.Context, arg SetSessionWorkingDirParams) error
 	SetWorktreeActive(ctx context.Context, arg SetWorktreeActiveParams) error
 	UnarchiveSession(ctx context.Context, id string) error
 	UpdateMessage(ctx context.Context, arg UpdateMessageParams) error

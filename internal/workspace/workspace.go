@@ -102,6 +102,10 @@ type Workspace interface {
 	AgentRunBTW(ctx context.Context, sessionID, prompt string) error
 	AgentRunShellCommand(ctx context.Context, sessionID, command string) (proto.ShellCommandResponse, error)
 	AgentCancel(sessionID string)
+	// AgentCancelAll cancels every in-flight agent run in the workspace,
+	// regardless of session. Used when the client is not focused on the
+	// busy session (e.g. after detach/reattach).
+	AgentCancelAll()
 	AgentIsBusy() bool
 	AgentIsSessionBusy(sessionID string) bool
 	AgentModel() AgentModel
@@ -118,6 +122,8 @@ type Workspace interface {
 	AgentSummarize(ctx context.Context, sessionID string) error
 	// Goal controls the autonomous /goal feature.
 	AgentSetGoal(sessionID, condition string) error
+	// AgentSetWorkingDir records the directory tools run in for a session.
+	AgentSetWorkingDir(sessionID, dir string) error
 	AgentClearGoal(sessionID string) error
 	AgentGoalStatus(sessionID string) (proto.GoalStatus, error)
 	UpdateAgentModel(ctx context.Context) error

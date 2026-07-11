@@ -31,6 +31,7 @@ INSERT INTO sessions (
     completion_tokens,
     cost,
     summary_message_id,
+    working_dir,
     updated_at,
     created_at
 ) VALUES (
@@ -42,9 +43,10 @@ INSERT INTO sessions (
     ?,
     ?,
     null,
+    ?,
     strftime('%s', 'now'),
     strftime('%s', 'now')
-) RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at
+) RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at
 `
 
 type CreateSessionParams struct {
@@ -55,6 +57,7 @@ type CreateSessionParams struct {
 	PromptTokens     int64          `json:"prompt_tokens"`
 	CompletionTokens int64          `json:"completion_tokens"`
 	Cost             float64        `json:"cost"`
+	WorkingDir       sql.NullString `json:"working_dir"`
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
@@ -66,6 +69,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		arg.PromptTokens,
 		arg.CompletionTokens,
 		arg.Cost,
+		arg.WorkingDir,
 	)
 	var i Session
 	err := row.Scan(
@@ -83,6 +87,9 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.WorktreeID,
 		&i.ForkedFromSnapshotID,
 		&i.ArchivedAt,
+		&i.WorkingDir,
+		&i.LastFinishedAt,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
@@ -98,7 +105,7 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 }
 
 const getLastSession = `-- name: GetLastSession :one
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at
 FROM sessions
 ORDER BY updated_at DESC
 LIMIT 1
@@ -122,12 +129,15 @@ func (q *Queries) GetLastSession(ctx context.Context) (Session, error) {
 		&i.WorktreeID,
 		&i.ForkedFromSnapshotID,
 		&i.ArchivedAt,
+		&i.WorkingDir,
+		&i.LastFinishedAt,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at
 FROM sessions
 WHERE id = ? LIMIT 1
 `
@@ -150,12 +160,15 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Session, error
 		&i.WorktreeID,
 		&i.ForkedFromSnapshotID,
 		&i.ArchivedAt,
+		&i.WorkingDir,
+		&i.LastFinishedAt,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
 
 const listArchivedSessions = `-- name: ListArchivedSessions :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at
 FROM sessions
 WHERE parent_session_id is NULL
   AND archived_at IS NOT NULL
@@ -186,6 +199,9 @@ func (q *Queries) ListArchivedSessions(ctx context.Context) ([]Session, error) {
 			&i.WorktreeID,
 			&i.ForkedFromSnapshotID,
 			&i.ArchivedAt,
+			&i.WorkingDir,
+			&i.LastFinishedAt,
+			&i.LastSeenAt,
 		); err != nil {
 			return nil, err
 		}
@@ -201,7 +217,7 @@ func (q *Queries) ListArchivedSessions(ctx context.Context) ([]Session, error) {
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at
 FROM sessions
 WHERE parent_session_id is NULL
   AND archived_at IS NULL
@@ -232,6 +248,9 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.WorktreeID,
 			&i.ForkedFromSnapshotID,
 			&i.ArchivedAt,
+			&i.WorkingDir,
+			&i.LastFinishedAt,
+			&i.LastSeenAt,
 		); err != nil {
 			return nil, err
 		}
@@ -244,6 +263,28 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const markSessionFinished = `-- name: MarkSessionFinished :exec
+UPDATE sessions
+SET last_finished_at = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+WHERE id = ?
+`
+
+func (q *Queries) MarkSessionFinished(ctx context.Context, id string) error {
+	_, err := q.exec(ctx, q.markSessionFinishedStmt, markSessionFinished, id)
+	return err
+}
+
+const markSessionSeen = `-- name: MarkSessionSeen :exec
+UPDATE sessions
+SET last_seen_at = CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)
+WHERE id = ?
+`
+
+func (q *Queries) MarkSessionSeen(ctx context.Context, id string) error {
+	_, err := q.exec(ctx, q.markSessionSeenStmt, markSessionSeen, id)
+	return err
 }
 
 const renameSession = `-- name: RenameSession :exec
@@ -260,6 +301,22 @@ type RenameSessionParams struct {
 
 func (q *Queries) RenameSession(ctx context.Context, arg RenameSessionParams) error {
 	_, err := q.exec(ctx, q.renameSessionStmt, renameSession, arg.Title, arg.ID)
+	return err
+}
+
+const setSessionWorkingDir = `-- name: SetSessionWorkingDir :exec
+UPDATE sessions
+SET working_dir = ?
+WHERE id = ?
+`
+
+type SetSessionWorkingDirParams struct {
+	WorkingDir sql.NullString `json:"working_dir"`
+	ID         string         `json:"id"`
+}
+
+func (q *Queries) SetSessionWorkingDir(ctx context.Context, arg SetSessionWorkingDirParams) error {
+	_, err := q.exec(ctx, q.setSessionWorkingDirStmt, setSessionWorkingDir, arg.WorkingDir, arg.ID)
 	return err
 }
 
@@ -285,7 +342,7 @@ SET
     cost = ?,
     todos = ?
 WHERE id = ?
-RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at
+RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at
 `
 
 type UpdateSessionParams struct {
@@ -324,6 +381,9 @@ func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) (S
 		&i.WorktreeID,
 		&i.ForkedFromSnapshotID,
 		&i.ArchivedAt,
+		&i.WorkingDir,
+		&i.LastFinishedAt,
+		&i.LastSeenAt,
 	)
 	return i, err
 }

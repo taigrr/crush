@@ -31,3 +31,18 @@ func openDB(dbPath string) (*sql.DB, error) {
 
 	return db, nil
 }
+
+// openReadOnlyDB opens the database read-only for peeking (cross-workspace
+// listing) without running migrations, taking the data-dir lock, or
+// writing anything. The caller closes it immediately after reading. A real
+// read-write open always happens through a fresh [Connect]; a peek handle
+// is never upgraded in place.
+func openReadOnlyDB(dbPath string) (*sql.DB, error) {
+	dsn := fmt.Sprintf("file:%s?mode=ro&_txlock=deferred&busy_timeout=2000", dbPath)
+	db, err := driver.Open(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database read-only: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
+}

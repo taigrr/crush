@@ -134,8 +134,10 @@ type embeddingStatusMsg struct {
 }
 
 type (
-	// cancelTimerExpiredMsg is sent when the cancel timer expires.
-	cancelTimerExpiredMsg struct{}
+	// cancelTimerExpiredMsg is sent when the cancel timer expires. gen is
+	// the generation the timer was armed with; a mismatch means a newer
+	// arm superseded it and the message must be ignored.
+	cancelTimerExpiredMsg struct{ gen int }
 	// userCommandsLoadedMsg is sent when user commands are loaded.
 	userCommandsLoadedMsg struct {
 		Commands []commands.CustomCommand
@@ -230,6 +232,10 @@ type UI struct {
 
 	// isCanceling tracks whether the user has pressed escape once to cancel.
 	isCanceling bool
+	// cancelGen is bumped every time the cancel timer is (re)armed. Each
+	// timer carries the generation it was started with so a stale timer
+	// from an earlier arm cannot disarm a newer cycle.
+	cancelGen int
 
 	header *header
 
@@ -811,7 +817,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pubsub.Event[permission.PermissionNotification]:
 		m.handlePermissionNotification(msg.Payload)
 	case cancelTimerExpiredMsg:
-		m.isCanceling = false
+		m.handleCancelTimerExpired(msg)
 	case backfillCountMsg:
 		if msg.err != nil {
 			cmds = append(cmds, util.ReportError(msg.err))
@@ -2381,10 +2387,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if !m.hasSession() {
 					break
 				}
-				if m.isAgentBusy() {
-					cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before starting a new session..."))
-					break
-				}
+				// Do not block on busy: runs continue on the server
+				// independently of the viewing client, so starting a new
+				// session never interrupts an in-flight run and the busy
+				// session stays reachable from the sessions list.
 				if cmd := m.newSession(); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
@@ -2512,10 +2518,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				m.chat.Blur()
 			case key.Matches(msg, m.keyMap.Chat.NewSession):
 				if !m.hasSession() {
-					break
-				}
-				if m.isAgentBusy() {
-					cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before starting a new session..."))
 					break
 				}
 				m.focus = uiFocusEditor
@@ -3615,6 +3617,59 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 	return tea.Batch(cmds...)
 }
 
+// handleCwd sets the working directory tools run in for the current
+// session. With no argument it uses the client's terminal cwd; with an
+// argument it resolves the path (relative paths are resolved against the
+// terminal cwd). The change is persisted server-side and, when the agent
+// is busy, an aside is folded into the active turn so the model is told
+// its cwd changed and does not try to cd into it.
+func (m *UI) handleCwd(args string) tea.Cmd {
+	terminalCwd, err := os.Getwd()
+	if err != nil {
+		return util.ReportError(fmt.Errorf("cannot determine terminal working directory: %w", err))
+	}
+
+	target := terminalCwd
+	if args != "" {
+		p := home.Long(strings.TrimSpace(args))
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(terminalCwd, p)
+		}
+		target = filepath.Clean(p)
+	}
+
+	info, err := os.Stat(target)
+	if err != nil {
+		return util.ReportError(fmt.Errorf("cannot use %q: %w", target, err))
+	}
+	if !info.IsDir() {
+		return util.ReportError(fmt.Errorf("%q is not a directory", target))
+	}
+
+	sessionID := m.session.ID
+	busy := m.isAgentBusy()
+	return tea.Batch(
+		func() tea.Msg {
+			if err := m.com.Workspace.AgentSetWorkingDir(sessionID, target); err != nil {
+				return util.InfoMsg{Type: util.InfoTypeError, Msg: fmt.Sprintf("%v", err)}
+			}
+			return nil
+		},
+		func() tea.Msg {
+			// Inform the model only when it is mid-turn; the aside folds
+			// into the active step. When idle, the next turn's system
+			// prompt carries the new cwd (see run.go environment block),
+			// so no wasteful turn is triggered here.
+			if busy {
+				_ = m.com.Workspace.AgentRunBTW(context.Background(), sessionID,
+					"The working directory is now "+target+". Treat relative paths as relative to it; do not cd into it.")
+			}
+			return nil
+		},
+		util.ReportInfo("Working directory set to "+home.Short(target)),
+	)
+}
+
 // sendBTWMessage sends a "by the way" aside that is folded into the active
 // turn at the next step boundary rather than queued for its own turn.
 func (m *UI) sendBTWMessage(content string) tea.Cmd {
@@ -3687,10 +3742,21 @@ func (m *UI) runShellCommand(command string) tea.Cmd {
 
 const cancelTimerDuration = 2 * time.Second
 
-// cancelTimerCmd creates a command that expires the cancel timer.
-func cancelTimerCmd() tea.Cmd {
+// handleCancelTimerExpired disarms the cancel-confirmation state when the
+// timer that fired belongs to the current arming cycle. Timers from an
+// earlier arm (a lower generation) are ignored so a stale timer cannot
+// disarm a newer cycle.
+func (m *UI) handleCancelTimerExpired(msg cancelTimerExpiredMsg) {
+	if msg.gen == m.cancelGen {
+		m.isCanceling = false
+	}
+}
+
+// cancelTimerCmd creates a command that expires the cancel timer for the
+// given generation.
+func cancelTimerCmd(gen int) tea.Cmd {
 	return tea.Tick(cancelTimerDuration, func(time.Time) tea.Msg {
-		return cancelTimerExpiredMsg{}
+		return cancelTimerExpiredMsg{gen: gen}
 	})
 }
 
@@ -3698,18 +3764,23 @@ func cancelTimerCmd() tea.Cmd {
 // and starts a timer. The second press (before the timer expires) actually
 // cancels the agent.
 func (m *UI) cancelAgent() tea.Cmd {
-	if !m.hasSession() {
-		return nil
-	}
-
 	if !m.com.Workspace.AgentIsReady() {
 		return nil
 	}
 
 	if m.isCanceling {
-		// Second escape press - actually cancel the agent.
+		// Second escape press - actually cancel the agent. Cancel the
+		// focused session when it is the one running; otherwise (no
+		// focused session, or the busy run belongs to another session,
+		// e.g. after detach/reattach) fall back to a workspace-wide
+		// cancel so the in-flight run is always stopped.
 		m.isCanceling = false
-		m.com.Workspace.AgentCancel(m.session.ID)
+		m.cancelGen++
+		if m.hasSession() && m.com.Workspace.AgentIsSessionBusy(m.session.ID) {
+			m.com.Workspace.AgentCancel(m.session.ID)
+		} else {
+			m.com.Workspace.AgentCancelAll()
+		}
 		// Stop the spinning todo indicator.
 		m.todoIsSpinning = false
 		m.renderPills()
@@ -3719,14 +3790,15 @@ func (m *UI) cancelAgent() tea.Cmd {
 	// Clear queued prompts only when the queue pills are expanded. When
 	// collapsed, Esc must not discard the queue; it falls through to the
 	// cancel flow instead.
-	if m.pillsExpanded && m.com.Workspace.AgentQueuedPrompts(m.session.ID) > 0 {
+	if m.hasSession() && m.pillsExpanded && m.com.Workspace.AgentQueuedPrompts(m.session.ID) > 0 {
 		m.com.Workspace.AgentClearQueue(m.session.ID)
 		return nil
 	}
 
 	// First escape press - set canceling state and start timer.
 	m.isCanceling = true
-	return cancelTimerCmd()
+	m.cancelGen++
+	return cancelTimerCmd(m.cancelGen)
 }
 
 // openDialog opens a dialog by its ID.
@@ -3750,9 +3822,17 @@ func (m *UI) newSession() tea.Cmd {
 	m.pillsView = ""
 	m.historyReset()
 	agenttools.ResetCache()
+	// LSP clients are shared across the workspace's sessions. Only stop
+	// them when no run is in flight; otherwise a busy session (this one
+	// or another, all continuing on the server) could have its in-flight
+	// LSP tool calls disrupted. LSP restarts on demand for the new
+	// session either way.
+	busy := m.isAgentBusy()
 	return tea.Batch(
 		func() tea.Msg {
-			m.com.Workspace.LSPStopAll(context.Background())
+			if !busy {
+				m.com.Workspace.LSPStopAll(context.Background())
+			}
 			return nil
 		},
 		m.loadPromptHistory(),
