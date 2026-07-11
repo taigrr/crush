@@ -77,6 +77,42 @@ func TestAcceptedRun_NilSafe(t *testing.T) {
 	accept.Close()
 }
 
+// TestCancelAll_RecordsPendingCancelForAcceptedRun is the regression for
+// the CancelAll dispatch-window gap: a session busy only via an accepted-
+// but-not-yet-active run has no activeRequests entry, so the old CancelAll
+// (which iterated activeRequests alone) skipped it and let the run finish
+// uncancelled. IsBusy observes the accepted run, so CancelAll must record
+// a pending cancel mark covering it, matching Cancel's per-session
+// behavior.
+func TestCancelAll_RecordsPendingCancelForAcceptedRun(t *testing.T) {
+	t.Parallel()
+	sa, _ := newCancelTestAgent(t)
+
+	accept := sa.BeginAccepted("sid")
+	defer accept.Close()
+
+	require.True(t, sa.IsBusy(),
+		"an accepted run in the dispatch window must count as busy")
+
+	sa.CancelAll()
+
+	require.True(t, sa.hasPendingCancel("sid"),
+		"CancelAll must record a pending cancel for a session busy only "+
+			"via an accepted run, so the run cancels on entry to Run")
+	require.GreaterOrEqual(t, sa.pendingCancelMark("sid"), accept.seq,
+		"the recorded mark must cover the accepted reservation's sequence")
+}
+
+// TestCancelAll_IdleIsNoOp verifies CancelAll records nothing when the
+// agent is idle.
+func TestCancelAll_IdleIsNoOp(t *testing.T) {
+	t.Parallel()
+	sa, _ := newCancelTestAgent(t)
+
+	sa.CancelAll()
+	require.False(t, sa.hasPendingCancel("sid"))
+}
+
 func TestIsBusy_AcceptedRunCountsAsBusy(t *testing.T) {
 	t.Parallel()
 	sa, _ := newCancelTestAgent(t)

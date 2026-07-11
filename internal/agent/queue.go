@@ -319,8 +319,29 @@ func (a *sessionAgent) CancelAll() {
 	if !a.IsBusy() {
 		return
 	}
+	// Collect every session that is busy via an active request OR an
+	// accepted-but-not-yet-active run (the dispatch window). IsBusy
+	// observes both, so CancelAll must too: a session busy only via an
+	// accepted run has no activeRequests entry, and iterating that map
+	// alone would silently skip it, leaving the run to complete
+	// uncancelled. Cancel handles both cases per session (it cancels an
+	// active request and records a pending cancel mark when an accepted
+	// run exists).
+	sessions := make(map[string]struct{})
 	for key := range a.activeRequests.Seq2() {
-		a.Cancel(key) // key is sessionID
+		sessions[key] = struct{}{} // key is sessionID (or sessionID-summarize)
+	}
+	if a.acceptedRuns != nil {
+		a.acceptedMu.Lock()
+		for sessionID, count := range a.acceptedRuns.Seq2() {
+			if count > 0 {
+				sessions[sessionID] = struct{}{}
+			}
+		}
+		a.acceptedMu.Unlock()
+	}
+	for sessionID := range sessions {
+		a.Cancel(sessionID)
 	}
 
 	timeout := time.After(5 * time.Second)
