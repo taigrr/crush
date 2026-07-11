@@ -88,6 +88,25 @@ func (c *controllerV1) handleGetWorkspaces(w http.ResponseWriter, _ *http.Reques
 	jsonEncode(w, c.backend.ListWorkspaces())
 }
 
+// handleGetWorkspaceOverviews lists all known workspaces (attached and
+// registry-known) with their sessions, busy and unread state, for the
+// cross-workspace session picker.
+//
+//	@Summary		List workspace/session overviews
+//	@Tags			workspaces
+//	@Produce		json
+//	@Success		200	{array}		proto.WorkspaceOverview
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspace-overviews [get]
+func (c *controllerV1) handleGetWorkspaceOverviews(w http.ResponseWriter, r *http.Request) {
+	overviews, err := c.backend.ListWorkspaceOverviews(r.Context())
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, overviews)
+}
+
 // handleGetWorkspace returns a single workspace by ID.
 //
 //	@Summary		Get workspace

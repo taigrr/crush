@@ -46,6 +46,16 @@ type ClientWorkspace struct {
 	ws              proto.Workspace
 	activeSessionID string
 
+	// Subscription state for runtime workspace switching. program is the
+	// bubbletea program events are forwarded to; subCancel cancels the
+	// current event stream; switchRequested tells the subscribe loop the
+	// stream closed because of a switch (reconnect) rather than server
+	// shutdown (stop).
+	subMu           sync.Mutex
+	program         *tea.Program
+	subCancel       context.CancelFunc
+	switchRequested bool
+
 	// Cached active worktree to avoid HTTP round-trips on every
 	// WorkingDir() call. cachedWorktreeValid distinguishes "checked
 	// and no worktree" from "never checked".
@@ -917,26 +927,100 @@ func (w *ClientWorkspace) Subscribe(program *tea.Program) {
 		program.Quit()
 	})
 
-	evc, err := w.client.SubscribeEvents(context.Background(), w.workspaceID())
+	w.subMu.Lock()
+	w.program = program
+	w.subMu.Unlock()
+
+	// Reconnect loop: each iteration subscribes to the current workspace
+	// and consumes events until the stream closes. A close caused by a
+	// workspace switch (SwitchWorkspace cancels the stream and sets
+	// switchRequested) reconnects to the now-current workspace; a close
+	// for any other reason (server shutdown) ends the loop, preserving
+	// the original single-shot behavior.
+	for {
+		ctx, cancel := context.WithCancel(context.Background())
+		w.subMu.Lock()
+		w.subCancel = cancel
+		w.switchRequested = false
+		w.subMu.Unlock()
+
+		wsID := w.workspaceID()
+		evc, err := w.client.SubscribeEvents(ctx, wsID)
+		if err != nil {
+			cancel()
+			slog.Error("Failed to subscribe to events", "error", err)
+			return
+		}
+
+		// Send synthetic state-changed events to trigger UI refresh now
+		// that subscription is established. This ensures the UI gets fresh
+		// MCP/LSP states even if the actual state-change events were
+		// published before this subscription connected.
+		program.Send(pubsub.Event[mcp.Event]{
+			Type:    pubsub.UpdatedEvent,
+			Payload: mcp.Event{Type: mcp.EventStateChanged},
+		})
+		program.Send(pubsub.Event[LSPEvent]{
+			Type:    pubsub.UpdatedEvent,
+			Payload: LSPEvent{Type: LSPEventStateChanged},
+		})
+
+		w.consumeEvents(evc, program.Send)
+		cancel()
+
+		w.subMu.Lock()
+		reconnect := w.switchRequested
+		w.subMu.Unlock()
+		if !reconnect {
+			return
+		}
+	}
+}
+
+// SwitchWorkspace re-targets this client at the workspace rooted at path,
+// attaching it on the server if it is not already (dedup is first-wins by
+// resolved path). It updates the cached workspace snapshot and reconnects
+// the event subscription to the new workspace so live events flow from it.
+// The previously attached workspace is left running on the server (its
+// runs continue); only this client's view moves.
+func (w *ClientWorkspace) SwitchWorkspace(ctx context.Context, path string) error {
+	created, err := w.client.CreateWorkspace(ctx, proto.Workspace{Path: path})
 	if err != nil {
-		slog.Error("Failed to subscribe to events", "error", err)
-		return
+		return fmt.Errorf("failed to attach workspace %q: %w", path, err)
+	}
+	if created.Config != nil {
+		created.Config.SetupAgents()
 	}
 
-	// Send synthetic state-changed events to trigger UI refresh now that
-	// subscription is established. This ensures the UI gets fresh MCP/LSP
-	// states even if the actual state-change events were published before
-	// this subscription connected.
-	program.Send(pubsub.Event[mcp.Event]{
-		Type:    pubsub.UpdatedEvent,
-		Payload: mcp.Event{Type: mcp.EventStateChanged},
-	})
-	program.Send(pubsub.Event[LSPEvent]{
-		Type:    pubsub.UpdatedEvent,
-		Payload: LSPEvent{Type: LSPEventStateChanged},
-	})
+	w.mu.Lock()
+	sameWorkspace := w.ws.ID == created.ID
+	w.ws = *created
+	w.activeSessionID = ""
+	w.cachedWorktree = nil
+	w.cachedWorktreeValid = false
+	w.mu.Unlock()
 
-	w.consumeEvents(evc, program.Send)
+	if sameWorkspace {
+		// Already viewing this workspace; nothing to reconnect.
+		return nil
+	}
+
+	// Signal the subscribe loop to reconnect to the new workspace by
+	// cancelling the current stream after marking the close as a switch.
+	w.subMu.Lock()
+	w.switchRequested = true
+	cancel := w.subCancel
+	w.subMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return nil
+}
+
+// ListWorkspaceOverviews returns all known workspaces (attached and
+// registry-known) with their sessions for the cross-workspace picker.
+func (w *ClientWorkspace) ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error) {
+	return w.client.ListWorkspaceOverviews(ctx)
 }
 
 // consumeEvents drives the workspace event loop. It is split out from

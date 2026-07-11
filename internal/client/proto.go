@@ -37,6 +37,24 @@ func (c *Client) ListWorkspaces(ctx context.Context) ([]proto.Workspace, error) 
 	return workspaces, nil
 }
 
+// ListWorkspaceOverviews lists all known workspaces (attached and
+// registry-known) with their sessions for the cross-workspace picker.
+func (c *Client) ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error) {
+	rsp, err := c.get(ctx, "/workspace-overviews", nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list workspace overviews: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to list workspace overviews: status code %d", rsp.StatusCode)
+	}
+	var overviews []proto.WorkspaceOverview
+	if err := json.NewDecoder(rsp.Body).Decode(&overviews); err != nil {
+		return nil, fmt.Errorf("failed to decode workspace overviews: %w", err)
+	}
+	return overviews, nil
+}
+
 // CreateWorkspace creates a new workspace on the server.
 func (c *Client) CreateWorkspace(ctx context.Context, ws proto.Workspace) (*proto.Workspace, error) {
 	ws.ClientID = c.clientID

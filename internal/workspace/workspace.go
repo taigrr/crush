@@ -92,6 +92,14 @@ type Workspace interface {
 	// observers can compute attached-client counts per session.
 	SetCurrentSession(ctx context.Context, sessionID string) error
 
+	// SwitchWorkspace re-targets this client at the workspace rooted at
+	// path, attaching it on the server if needed and reconnecting the
+	// event subscription. The previously attached workspace keeps running.
+	SwitchWorkspace(ctx context.Context, path string) error
+	// ListWorkspaceOverviews returns all known workspaces (attached and
+	// registry-known) with their sessions for the cross-workspace picker.
+	ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error)
+
 	// Messages
 	ListMessages(ctx context.Context, sessionID string) ([]message.Message, error)
 	ListUserMessages(ctx context.Context, sessionID string) ([]message.Message, error)

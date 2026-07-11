@@ -182,6 +182,31 @@ type SetWorkingDirRequest struct {
 	WorkingDir string `json:"working_dir"`
 }
 
+// SessionOverview is a lightweight, cross-workspace session view for the
+// session picker. IsBusy is only meaningful for sessions in an attached
+// workspace (the server can only know live run state for workspaces it
+// hosts); for unattached workspaces it is always false.
+type SessionOverview struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	WorkingDir string `json:"working_dir,omitempty"`
+	UpdatedAt  int64  `json:"updated_at"`
+	IsBusy     bool   `json:"is_busy"`
+	Unread     bool   `json:"unread"`
+}
+
+// WorkspaceOverview groups a workspace's sessions for the picker. Attached
+// is true when the workspace is currently hosted by the server (live busy
+// state is available); false workspaces are known only from the registry
+// and their sessions are read from their database read-only.
+type WorkspaceOverview struct {
+	Root        string            `json:"root"`
+	DataDir     string            `json:"data_dir"`
+	WorkspaceID string            `json:"workspace_id,omitempty"`
+	Attached    bool              `json:"attached"`
+	Sessions    []SessionOverview `json:"sessions"`
+}
+
 // GoalStatus reports the active autonomous goal for a session.
 type GoalStatus struct {
 	Active    bool   `json:"active"`

@@ -110,6 +110,7 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("GET /v1/config", c.handleGetConfig)
 	mux.HandleFunc("POST /v1/control", c.handlePostControl)
 	mux.HandleFunc("GET /v1/workspaces", c.handleGetWorkspaces)
+	mux.HandleFunc("GET /v1/workspace-overviews", c.handleGetWorkspaceOverviews)
 	mux.HandleFunc("POST /v1/workspaces", c.handlePostWorkspaces)
 	mux.HandleFunc("DELETE /v1/workspaces/{id}", c.handleDeleteWorkspaces)
 	mux.HandleFunc("POST /v1/workspaces/{id}/current-session", c.handlePostWorkspaceCurrentSession)
