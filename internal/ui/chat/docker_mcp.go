@@ -36,7 +36,7 @@ type DockerMCPToolRenderContext struct{}
 
 // RenderTool implements the [ToolRenderer] interface.
 func (d *DockerMCPToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
-	cappedWidth := cappedMessageWidth(width)
+	cappedWidth := width
 
 	var params map[string]any
 	if err := json.Unmarshal([]byte(opts.ToolCall.Input), &params); err != nil {
@@ -220,7 +220,7 @@ func (d *DockerMCPToolRenderContext) makeHeader(sty *styles.Styles, tool string,
 		icon = sty.Tool.IconPending.Render()
 	}
 	prefix := fmt.Sprintf("%s %s ", icon, d.formatToolName(sty, tool))
-	return prefix + toolParamList(sty, params, width-lipgloss.Width(prefix))
+	return joinToolHeaderParams(sty, prefix, width, params...)
 }
 
 func (d *DockerMCPToolRenderContext) formatToolName(sty *styles.Styles, tool string) string {

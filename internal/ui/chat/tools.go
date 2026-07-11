@@ -174,9 +174,6 @@ type baseToolMessageItem struct {
 	result       *message.ToolResult
 	messageID    string
 	status       ToolStatus
-	// we use this so we can efficiently cache
-	// tools that have a capped width (e.x bash.. and others)
-	hasCappedWidth bool
 	// isCompact indicates this tool should render in compact mode.
 	isCompact bool
 	// spinningFunc allows tools to override the default spinning logic.
@@ -201,9 +198,6 @@ func newBaseToolMessageItem(
 	toolRenderer ToolRenderer,
 	canceled bool,
 ) *baseToolMessageItem {
-	// we only do full width for diffs (as far as I know)
-	hasCappedWidth := toolCall.Name != tools.EditToolName && toolCall.Name != tools.MultiEditToolName
-
 	status := ToolStatusRunning
 	if canceled {
 		status = ToolStatusCanceled
@@ -220,7 +214,6 @@ func newBaseToolMessageItem(
 		toolCall:                 toolCall,
 		result:                   result,
 		status:                   status,
-		hasCappedWidth:           hasCappedWidth,
 	}
 	t.anim = anim.New(anim.Settings{
 		ID:          toolCall.ID,
@@ -348,10 +341,10 @@ func (t *baseToolMessageItem) Animate(msg anim.StepMsg) tea.Cmd {
 
 // RawRender implements [MessageItem].
 func (t *baseToolMessageItem) RawRender(width int) string {
+	// Tools render at full width (like diffs): command output, code, and
+	// search results benefit from the whole terminal rather than the
+	// prose readability cap used for assistant/user text.
 	toolItemWidth := width - MessageLeftPaddingTotal
-	if t.hasCappedWidth {
-		toolItemWidth = cappedMessageWidth(width)
-	}
 
 	content, height, ok := t.getCachedRender(toolItemWidth)
 	// if we are spinning or there is no cache rerender
@@ -640,12 +633,11 @@ func toolIcon(sty *styles.Styles, status ToolStatus) string {
 	}
 }
 
-// toolParamList formats parameters as "main (key=value, ...)" with truncation.
-// toolParamList formats tool parameters as "main (key=value, ...)" with truncation.
+// toolParamList formats parameters as "main (key=value, ...)" and wraps
+// the result across multiple lines at the given width instead of
+// truncating, so long commands and paths remain fully readable. Each
+// wrapped line is styled independently. A width <= 0 disables wrapping.
 func toolParamList(sty *styles.Styles, params []string, width int) string {
-	// minSpaceForMainParam is the min space required for the main param
-	// if this is less that the value set we will only show the main param nothing else
-	const minSpaceForMainParam = 30
 	if len(params) == 0 {
 		return ""
 	}
@@ -660,19 +652,22 @@ func toolParamList(sty *styles.Styles, params []string, width int) string {
 		}
 	}
 
-	// Try to include key=value pairs if there's enough space.
 	output := mainParam
 	if len(kvPairs) > 0 {
-		partsStr := strings.Join(kvPairs, ", ")
-		if remaining := width - lipgloss.Width(partsStr) - 3; remaining >= minSpaceForMainParam {
-			output = fmt.Sprintf("%s (%s)", mainParam, partsStr)
-		}
+		output = fmt.Sprintf("%s (%s)", mainParam, strings.Join(kvPairs, ", "))
 	}
 
-	if width >= 0 {
-		output = ansi.Truncate(output, width, "…")
+	if width > 0 {
+		// ansi.Wrap word-wraps and falls back to hard-wrapping words
+		// (e.g. long paths with no spaces) that exceed the width.
+		output = ansi.Wrap(output, width, "")
 	}
-	return sty.Tool.ParamMain.Render(output)
+
+	lines := strings.Split(output, "\n")
+	for i := range lines {
+		lines[i] = sty.Tool.ParamMain.Render(lines[i])
+	}
+	return strings.Join(lines, "\n")
 }
 
 // toolHeader builds the tool header line: "● ToolName params..."
@@ -684,10 +679,27 @@ func toolHeader(sty *styles.Styles, status ToolStatus, name string, width int, n
 	}
 	toolName := nameStyle.Render(name)
 	prefix := fmt.Sprintf("%s %s ", icon, toolName)
+	return joinToolHeaderParams(sty, prefix, width, params...)
+}
+
+// joinToolHeaderParams composes a header from a styled prefix and a param
+// list, wrapping the params at the remaining width and indenting
+// continuation lines so they align under the first param — the header
+// reads as a single logical line that happens to span multiple rows.
+func joinToolHeaderParams(sty *styles.Styles, prefix string, width int, params ...string) string {
 	prefixWidth := lipgloss.Width(prefix)
-	remainingWidth := width - prefixWidth
-	paramsStr := toolParamList(sty, params, remainingWidth)
-	return prefix + paramsStr
+	paramsStr := toolParamList(sty, params, width-prefixWidth)
+	if paramsStr == "" {
+		return prefix
+	}
+	lines := strings.Split(paramsStr, "\n")
+	if len(lines) > 1 {
+		indent := strings.Repeat(" ", prefixWidth)
+		for i := 1; i < len(lines); i++ {
+			lines[i] = indent + lines[i]
+		}
+	}
+	return prefix + strings.Join(lines, "\n")
 }
 
 // toolOutputPlainContent renders plain text with optional expansion support.

@@ -54,7 +54,7 @@ func (m *ShellMessageItem) ToggleExpanded() bool {
 
 // RawRender implements [MessageItem].
 func (m *ShellMessageItem) RawRender(width int) string {
-	cappedWidth := cappedMessageWidth(width)
+	cappedWidth := width
 
 	content, height, ok := m.getCachedRender(cappedWidth)
 	if ok {
