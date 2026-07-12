@@ -127,6 +127,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 			k.Sessions,
 			k.Milestones,
 			k.ToggleYolo,
+			k.Fullscreen,
 		)
 		if hasSession {
 			mainBinds = append(mainBinds, k.Chat.NewSession)

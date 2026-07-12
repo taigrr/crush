@@ -69,6 +69,7 @@ type KeyMap struct {
 	Milestones key.Binding
 	Tab        key.Binding
 	ToggleYolo key.Binding
+	Fullscreen key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -105,6 +106,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+y"),
 			key.WithHelp("ctrl+y", "toggle yolo"),
 		),
+		Fullscreen: key.NewBinding(
+			key.WithKeys("ctrl+f"),
+			key.WithHelp("ctrl+f", "fullscreen"),
+		),
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "change focus"),
@@ -131,8 +136,8 @@ func DefaultKeyMap() KeyMap {
 		key.WithHelp("ctrl+j", "newline"),
 	)
 	km.Editor.AddImage = key.NewBinding(
-		key.WithKeys("ctrl+f"),
-		key.WithHelp("ctrl+f", "add image"),
+		key.WithKeys("ctrl+i"),
+		key.WithHelp("ctrl+i", "add image"),
 	)
 	km.Editor.PasteImage = key.NewBinding(
 		key.WithKeys("ctrl+v"),
@@ -170,8 +175,8 @@ func DefaultKeyMap() KeyMap {
 		key.WithHelp("ctrl+n", "new session"),
 	)
 	km.Chat.AddAttachment = key.NewBinding(
-		key.WithKeys("ctrl+f"),
-		key.WithHelp("ctrl+f", "add attachment"),
+		key.WithKeys("ctrl+i"),
+		key.WithHelp("ctrl+i", "add attachment"),
 	)
 	km.Chat.Cancel = key.NewBinding(
 		key.WithKeys("esc", "alt+esc"),

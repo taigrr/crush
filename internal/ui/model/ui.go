@@ -274,6 +274,10 @@ type UI struct {
 	leftSidebar        *SessionsSidebar
 	leftSidebarVisible bool
 
+	// chatFullscreen hides both the left navigator and the right info
+	// sidebar so the chat uses the full width (toggled with ctrl+f).
+	chatFullscreen bool
+
 	// onboarding state
 	onboarding struct {
 		yesInitializeSelected bool
@@ -2220,6 +2224,19 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				cmds = append(cmds, cmd)
 			}
 			return true
+		case key.Matches(msg, m.keyMap.Fullscreen):
+			// Fullscreen chat: hide both the left navigator and the right
+			// info sidebar. Leaving fullscreen restores the right sidebar;
+			// the left navigator stays closed (reopen with ctrl+s).
+			m.chatFullscreen = !m.chatFullscreen
+			if m.chatFullscreen && m.leftSidebarVisible {
+				m.leftSidebarVisible = false
+				if m.focus == uiFocusLeftSidebar {
+					m.setFocusAfterSidebarClose()
+				}
+			}
+			m.updateLayoutAndSize()
+			return true
 		case key.Matches(msg, m.keyMap.Milestones):
 			if m.hasSession() {
 				if cmd := m.openMilestonesDialog(); cmd != nil {
@@ -2696,7 +2713,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	case uiChat:
 		if m.isCompact {
 			m.drawHeader(scr, layout.header)
-		} else {
+		} else if layout.sidebar.Dx() > 0 {
 			m.drawSidebar(scr, layout.sidebar)
 		}
 
@@ -3170,19 +3187,24 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			// help
 
 			var mainRect, sideRect image.Rectangle
-			layout.Horizontal(
-				layout.Len(appRect.Dx()-sidebarWidth),
-				layout.Fill(1),
-			).Split(appRect).Assign(&mainRect, &sideRect)
-			// Add padding left
-			sideRect.Min.X += 1
+			if m.chatFullscreen {
+				// Fullscreen: no right sidebar; chat takes the full width.
+				mainRect = appRect
+			} else {
+				layout.Horizontal(
+					layout.Len(appRect.Dx()-sidebarWidth),
+					layout.Fill(1),
+				).Split(appRect).Assign(&mainRect, &sideRect)
+				// Add padding left
+				sideRect.Min.X += 1
+				uiLayout.sidebar = sideRect
+			}
 			var editorRect image.Rectangle
 			layout.Vertical(
 				layout.Len(mainRect.Dy()-editorHeight),
 				layout.Fill(1),
 			).Split(mainRect).Assign(&mainRect, &editorRect)
 			mainRect.Max.X -= 1 // Add padding right
-			uiLayout.sidebar = sideRect
 			pillsHeight := m.pillsAreaHeight()
 			if pillsHeight > 0 {
 				pillsHeight = min(pillsHeight, mainRect.Dy())
