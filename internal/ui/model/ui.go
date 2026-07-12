@@ -97,6 +97,7 @@ const (
 	uiFocusNone uiFocusState = iota
 	uiFocusEditor
 	uiFocusMain
+	uiFocusLeftSidebar
 )
 
 type uiState uint8
@@ -267,6 +268,12 @@ type UI struct {
 	// Chat components
 	chat *Chat
 
+	// leftSidebar is the cross-workspace session navigator. It is visible
+	// when leftSidebarVisible is true and focused when focus is
+	// uiFocusLeftSidebar.
+	leftSidebar        *SessionsSidebar
+	leftSidebarVisible bool
+
 	// onboarding state
 	onboarding struct {
 		yesInitializeSelected bool
@@ -398,6 +405,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		keyMap:              keyMap,
 		textarea:            ta,
 		chat:                ch,
+		leftSidebar:         NewSessionsSidebar(com),
 		header:              header,
 		completions:         comp,
 		attachments:         attachments,
@@ -605,6 +613,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pubsub.Event[notify.Notification]:
 		if cmd := m.handleAgentNotification(msg.Payload); cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+		// A run finished somewhere: refresh the session navigator so its
+		// busy/unread markers stay current while it is open.
+		if m.leftSidebarVisible {
+			cmds = append(cmds, m.loadWorkspaceOverviews())
 		}
 	case loadSessionMsg:
 		if m.forceCompactMode {
@@ -818,6 +831,15 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handlePermissionNotification(msg.Payload)
 	case cancelTimerExpiredMsg:
 		m.handleCancelTimerExpired(msg)
+	case workspaceOverviewsMsg:
+		m.leftSidebar.SetOverviews(msg.overviews)
+		if m.session != nil {
+			m.leftSidebar.SetActiveSession(m.session.ID)
+		}
+	case workspaceSwitchedMsg:
+		// The client re-targeted a new workspace; load the chosen session
+		// now on the Update goroutine.
+		cmds = append(cmds, m.loadSession(msg.sessionID))
 	case backfillCountMsg:
 		if msg.err != nil {
 			cmds = append(cmds, util.ReportError(msg.err))
@@ -2194,7 +2216,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			}
 			return true
 		case key.Matches(msg, m.keyMap.Sessions):
-			if cmd := m.openSessionsDialog(); cmd != nil {
+			if cmd := m.toggleLeftSidebar(); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 			return true
@@ -2274,6 +2296,18 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 	// Route all messages to dialog if one is open.
 	if m.dialog.HasDialogs() {
 		return m.handleDialogMsg(msg)
+	}
+
+	// When the left session navigator is focused, route navigation and
+	// selection keys to it. Unconsumed keys (e.g. ctrl+s to toggle, ctrl+c
+	// to quit) fall through to the global handlers below.
+	if m.leftSidebarVisible && m.focus == uiFocusLeftSidebar {
+		if cmd, consumed := m.handleLeftSidebarKey(msg); consumed {
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return tea.Batch(cmds...)
+		}
 	}
 
 	// Handle cancel key when agent is busy.
@@ -2686,6 +2720,11 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 	isOnboarding := m.state == uiOnboarding
 
+	// Draw the left session navigator over its carved-out column.
+	if m.leftSidebarVisible && layout.leftSidebar.Dx() > 0 {
+		m.drawLeftSidebar(scr, layout.leftSidebar)
+	}
+
 	// Add status and help layer
 	m.status.SetHideHelp(isOnboarding)
 	m.status.Draw(scr, layout.status)
@@ -3006,6 +3045,24 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 		status: helpRect,
 	}
 
+	// Carve the left session navigator off the left edge when visible
+	// (chat and landing only). The remaining appRect flows to the normal
+	// per-state layout below, so the main pane and right sidebar simply
+	// get less width.
+	if m.leftSidebarVisible && (m.state == uiChat || m.state == uiLanding) {
+		w := min(leftSidebarWidth, max(0, appRect.Dx()-10))
+		if w > 0 {
+			var leftRect image.Rectangle
+			layout.Horizontal(
+				layout.Len(w),
+				layout.Fill(1),
+			).Split(appRect).Assign(&leftRect, &appRect)
+			// Gap between the navigator and the main content.
+			appRect.Min.X += 1
+			uiLayout.leftSidebar = leftRect
+		}
+	}
+
 	// Handle different app states
 	switch m.state {
 	case uiOnboarding, uiInitialize:
@@ -3170,6 +3227,9 @@ type uiLayout struct {
 
 	// sidebar is the area for the sidebar.
 	sidebar uv.Rectangle
+
+	// leftSidebar is the area for the cross-workspace session navigator.
+	leftSidebar uv.Rectangle
 
 	// status is the area for the status view.
 	status uv.Rectangle
