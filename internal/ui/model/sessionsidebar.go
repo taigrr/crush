@@ -56,6 +56,22 @@ func NewSessionsSidebar(com *common.Common) *SessionsSidebar {
 	return &SessionsSidebar{com: com}
 }
 
+// AttachedSessions returns the sessions of the currently attached
+// workspace (the one hosted by this client), for the landing screen.
+func (s *SessionsSidebar) AttachedSessions() []proto.SessionOverview {
+	for _, ws := range s.overviews {
+		if ws.Attached {
+			return ws.Sessions
+		}
+	}
+	return nil
+}
+
+// WorkspaceCount returns the number of known workspaces.
+func (s *SessionsSidebar) WorkspaceCount() int {
+	return len(s.overviews)
+}
+
 // SetOverviews replaces the listed data and rebuilds the navigable rows,
 // keeping the cursor on the same session when possible.
 func (s *SessionsSidebar) SetOverviews(overviews []proto.WorkspaceOverview) {

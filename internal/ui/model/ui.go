@@ -470,6 +470,9 @@ func (m *UI) Init() tea.Cmd {
 	cmds = append(cmds, m.loadPromptHistory())
 	// load initial LSP, MCP, and skill states
 	cmds = append(cmds, m.loadInitialLSPStates(), m.loadInitialMCPStates(), m.loadInitialSkillStates())
+	// load cross-workspace session overviews for the landing screen and
+	// the session navigator.
+	cmds = append(cmds, m.loadWorkspaceOverviews())
 	// load initial session if specified
 	if cmd := m.loadInitialSession(); cmd != nil {
 		cmds = append(cmds, cmd)

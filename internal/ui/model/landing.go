@@ -53,13 +53,31 @@ func (m *UI) landingView() string {
 		layout.Fill(1),
 	).Split(m.layout.main).Assign(new(image.Rectangle), &remainingHeightArea)
 
-	mcpLspSectionWidth := min(30, (width-2)/3)
+	remainingHeight := max(1, remainingHeightArea.Dy())
 
-	lspSection := m.lspInfo(mcpLspSectionWidth, max(1, remainingHeightArea.Dy()), false)
-	mcpSection := m.mcpInfo(mcpLspSectionWidth, max(1, remainingHeightArea.Dy()), false)
-	skillsSection := m.skillsInfo(mcpLspSectionWidth, max(1, remainingHeightArea.Dy()), false)
+	// Left column: LSP / MCP / Skills status (as before).
+	mcpLspSectionWidth := min(30, (width-2)/4)
+	lspSection := m.lspInfo(mcpLspSectionWidth, remainingHeight, false)
+	mcpSection := m.mcpInfo(mcpLspSectionWidth, remainingHeight, false)
+	skillsSection := m.skillsInfo(mcpLspSectionWidth, remainingHeight, false)
+	statusCols := lipgloss.JoinHorizontal(lipgloss.Left, lspSection, " ", mcpSection, " ", skillsSection)
 
-	content := lipgloss.JoinHorizontal(lipgloss.Left, lspSection, " ", mcpSection, " ", skillsSection)
+	// Right column: recent sessions in this workspace, filling the space
+	// that was previously empty. Loaded async at startup; empty until then.
+	recent := m.landingRecentSessions(remainingHeight)
+
+	var content string
+	if recent != "" {
+		// Give the sessions panel the remaining width to the right of the
+		// status columns.
+		statusWidth := lipgloss.Width(statusCols)
+		gap := 2
+		sessionsWidth := max(20, width-statusWidth-gap)
+		sessionsPanel := lipgloss.NewStyle().Width(sessionsWidth).Render(recent)
+		content = lipgloss.JoinHorizontal(lipgloss.Left, statusCols, "  ", sessionsPanel)
+	} else {
+		content = statusCols
+	}
 
 	return lipgloss.NewStyle().
 		Width(width).
@@ -68,4 +86,53 @@ func (m *UI) landingView() string {
 		Render(
 			lipgloss.JoinVertical(lipgloss.Left, infoSection, "", content),
 		)
+}
+
+// landingRecentSessions renders a compact "Recent sessions" panel for the
+// current workspace from the cross-workspace overview data. Returns "" when
+// there are no sessions yet (or the data has not loaded).
+func (m *UI) landingRecentSessions(height int) string {
+	if m.leftSidebar == nil {
+		return ""
+	}
+	sessions := m.leftSidebar.AttachedSessions()
+	if len(sessions) == 0 {
+		return ""
+	}
+
+	t := m.com.Styles
+	heading := t.Resource.Heading.Render("Recent sessions")
+	lines := []string{heading}
+
+	// Reserve the heading + a trailing hint line.
+	maxRows := max(1, height-2)
+	for i, s := range sessions {
+		if i >= maxRows {
+			break
+		}
+		var marker string
+		switch {
+		case s.IsBusy:
+			marker = t.Resource.BusyIcon.String()
+		case s.Unread:
+			marker = t.Resource.OnlineIcon.String()
+		default:
+			marker = " "
+		}
+		title := s.Title
+		if title == "" {
+			title = "(untitled)"
+		}
+		lines = append(lines, t.Resource.Name.Render(marker+" "+title))
+	}
+
+	if len(sessions) > maxRows {
+		lines = append(lines, t.Resource.AdditionalText.Render(
+			"…and more (ctrl+s)",
+		))
+	} else {
+		lines = append(lines, "", t.Resource.AdditionalText.Render("ctrl+s to browse all"))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
