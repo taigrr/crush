@@ -622,8 +622,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 		// A run finished somewhere: refresh the session navigator so its
-		// busy/unread markers stay current while it is open.
-		if m.leftSidebarVisible {
+		// busy/unread markers stay current. Skip while it is focused: a
+		// rebuild reorders rows (busy/unread/recent) and would move the
+		// cursor out from under the user mid-navigation, causing enter to
+		// act on the wrong session. Live markers refresh on next open.
+		if m.leftSidebarVisible && m.focus != uiFocusLeftSidebar {
 			cmds = append(cmds, m.loadWorkspaceOverviews())
 		}
 	case loadSessionMsg:
