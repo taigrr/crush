@@ -10,8 +10,9 @@ import (
 	"github.com/taigrr/crush/internal/ui/util"
 )
 
-// leftSidebarWidth is the fixed width of the left session navigator.
-const leftSidebarWidth = 32
+// leftSidebarWidth is the fixed width of the left session navigator. It
+// matches the right info sidebar's width for visual parity.
+const leftSidebarWidth = 30
 
 // workspaceOverviewsMsg carries the result of a background overview fetch.
 type workspaceOverviewsMsg struct {

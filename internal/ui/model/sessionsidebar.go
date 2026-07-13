@@ -3,7 +3,6 @@ package model
 import (
 	"strings"
 
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/proto"
@@ -222,10 +221,12 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 	}
 	t := s.com.Styles
 
-	title := t.Sidebar.SessionTitle.Render("Sessions")
-	lines := []string{title, ""}
+	// Match the right sidebar's aesthetic: a titled section header, then
+	// workspace group headers rendered as section lines, with resource-
+	// styled rows beneath.
+	lines := []string{common.Section(t, "Sessions", width), ""}
 
-	// Reserve two lines for the title + blank.
+	// Reserve the two header lines above.
 	bodyHeight := max(1, height-2)
 
 	rendered := s.renderRows(width)
@@ -248,7 +249,7 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 	}
 
 	_ = focused
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
+	return strings.Join(lines, "\n")
 }
 
 // renderRows renders each navigable row to a styled line at the given width.
@@ -270,26 +271,32 @@ func (s *SessionsSidebar) renderRows(width int) []string {
 
 func (s *SessionsSidebar) renderWorkspaceRow(t *styles.Styles, ws proto.WorkspaceOverview, width int) string {
 	name := home.Short(ws.Root)
-	label := styles.FolderIcon + " " + name
-	if !ws.Attached {
-		// Dim unattached workspaces slightly by suffixing nothing special;
-		// heading style already differentiates it as a group header.
-	}
-	return t.Resource.Heading.Render(ansi.Truncate(label, width, "…"))
+	// Leave room for the section's trailing " ──" so the header never
+	// overflows the sidebar width and wraps.
+	name = ansi.Truncate(name, max(1, width-4), "…")
+	return common.Section(t, name, width)
 }
 
 func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected bool) string {
-	// Status glyph: busy spinner-dot, unread dot, or space.
-	var marker string
+	// Status glyph: busy dot, unread dot, or blank.
+	statusStyle := t.Resource.OfflineIcon
 	switch {
 	case sess.IsBusy:
-		marker = t.Resource.BusyIcon.String()
+		statusStyle = t.Resource.BusyIcon
 	case sess.Unread:
-		marker = t.Resource.OnlineIcon.String()
-	default:
-		marker = " "
+		statusStyle = t.Resource.OnlineIcon
+	}
+	marker := " "
+	if sess.IsBusy || sess.Unread {
+		marker = statusStyle.String()
 	}
 
+	// Active-session arrow, selection bar. The bar (▌) marks the cursor
+	// row like a focused list item without the padded dialog background.
+	bar := " "
+	if selected {
+		bar = styles.BorderThick
+	}
 	active := " "
 	if sess.ID == s.activeSessionID {
 		active = styles.ArrowRightIcon
@@ -300,13 +307,21 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		title = "(untitled)"
 	}
 
-	prefix := active + marker + " "
-	avail := max(1, width-lipgloss.Width(prefix))
+	// Build the fixed-width prefix: bar + space + active + marker + space.
+	// Each glyph is a single cell, so the prefix is exactly 5 columns; use
+	// StringWidth to stay correct if a glyph is ever wider.
+	prefixRaw := bar + " " + active + marker + " "
+	prefixWidth := ansi.StringWidth(prefixRaw)
+	avail := max(1, width-prefixWidth)
 	title = ansi.Truncate(title, avail, "…")
 
-	line := prefix + title
 	if selected {
-		return t.Dialog.SelectedItem.Width(width).Render(ansi.Strip(line))
+		// Full-row highlight without extra padding (the dialog selected
+		// style adds Padding(0,1) which would overflow the sidebar width).
+		line := prefixRaw + title
+		return t.Dialog.SelectedItem.UnsetPadding().Width(width).Render(line)
 	}
-	return t.Dialog.NormalItem.Render(line)
+
+	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + " "
+	return styledPrefix + t.Resource.Name.Render(title)
 }

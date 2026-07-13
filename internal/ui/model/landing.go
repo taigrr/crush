@@ -5,6 +5,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/ultraviolet/layout"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/taigrr/crush/internal/workspace"
@@ -64,15 +65,13 @@ func (m *UI) landingView() string {
 
 	// Right column: recent sessions in this workspace, filling the space
 	// that was previously empty. Loaded async at startup; empty until then.
-	recent := m.landingRecentSessions(remainingHeight)
+	statusWidth := lipgloss.Width(statusCols)
+	const gap = 2
+	sessionsWidth := max(20, width-statusWidth-gap)
+	recent := m.landingRecentSessions(sessionsWidth, remainingHeight)
 
 	var content string
 	if recent != "" {
-		// Give the sessions panel the remaining width to the right of the
-		// status columns.
-		statusWidth := lipgloss.Width(statusCols)
-		gap := 2
-		sessionsWidth := max(20, width-statusWidth-gap)
 		sessionsPanel := lipgloss.NewStyle().Width(sessionsWidth).Render(recent)
 		content = lipgloss.JoinHorizontal(lipgloss.Left, statusCols, "  ", sessionsPanel)
 	} else {
@@ -90,8 +89,9 @@ func (m *UI) landingView() string {
 
 // landingRecentSessions renders a compact "Recent sessions" panel for the
 // current workspace from the cross-workspace overview data. Returns "" when
-// there are no sessions yet (or the data has not loaded).
-func (m *UI) landingRecentSessions(height int) string {
+// there are no sessions yet (or the data has not loaded). Rows are
+// truncated to width so they never wrap.
+func (m *UI) landingRecentSessions(width, height int) string {
 	if m.leftSidebar == nil {
 		return ""
 	}
@@ -123,6 +123,9 @@ func (m *UI) landingRecentSessions(height int) string {
 		if title == "" {
 			title = "(untitled)"
 		}
+		// Prefix is marker + space (2 cells); truncate the title so the
+		// row fits width and never wraps.
+		title = ansi.Truncate(title, max(1, width-2), "…")
 		lines = append(lines, t.Resource.Name.Render(marker+" "+title))
 	}
 
