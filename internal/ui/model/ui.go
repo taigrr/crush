@@ -844,9 +844,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.leftSidebar.SetActiveSession(m.session.ID)
 		}
 	case workspaceSwitchedMsg:
-		// The client re-targeted a new workspace; load the chosen session
-		// now on the Update goroutine.
-		cmds = append(cmds, m.loadSession(msg.sessionID))
+		// The client re-targeted a new workspace; either open its session
+		// picker or load the chosen session on the Update goroutine.
+		if msg.openPicker {
+			cmds = append(cmds, m.openSessionsDialog())
+		} else {
+			cmds = append(cmds, m.loadSession(msg.sessionID))
+		}
 	case backfillCountMsg:
 		if msg.err != nil {
 			cmds = append(cmds, util.ReportError(msg.err))

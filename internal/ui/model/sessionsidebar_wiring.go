@@ -90,6 +90,19 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 // otherwise the client re-targets that workspace first (leaving the old one
 // running on the server) and then loads the session.
 func (m *UI) activateLeftSidebarSelection() tea.Cmd {
+	// Overflow row ("…N more"): open the full session picker for that
+	// workspace instead of switching to a specific session.
+	if root, ok := m.leftSidebar.SelectedOverflowWorkspace(); ok {
+		m.leftSidebarVisible = false
+		m.setFocusAfterSidebarClose()
+		m.updateLayoutAndSize()
+		if m.leftSidebar.SelectedWorkspaceAttached() {
+			return m.openSessionsDialog()
+		}
+		// Attach the workspace first, then open its picker.
+		return m.switchWorkspaceThenPickSession(root)
+	}
+
 	root, sessionID, ok := m.leftSidebar.Selected()
 	if !ok {
 		return nil
@@ -106,6 +119,17 @@ func (m *UI) activateLeftSidebarSelection() tea.Cmd {
 	return m.switchWorkspaceAndLoad(root, sessionID)
 }
 
+// switchWorkspaceThenPickSession re-targets the client at root and then
+// opens the session picker for the now-attached workspace.
+func (m *UI) switchWorkspaceThenPickSession(root string) tea.Cmd {
+	return func() tea.Msg {
+		if err := m.com.Workspace.SwitchWorkspace(context.Background(), root); err != nil {
+			return util.InfoMsg{Type: util.InfoTypeError, Msg: err.Error()}
+		}
+		return workspaceSwitchedMsg{openPicker: true}
+	}
+}
+
 // switchWorkspaceAndLoad re-targets the client at the workspace rooted at
 // root, then loads the session. The attach happens off the Update goroutine.
 func (m *UI) switchWorkspaceAndLoad(root, sessionID string) tea.Cmd {
@@ -118,9 +142,11 @@ func (m *UI) switchWorkspaceAndLoad(root, sessionID string) tea.Cmd {
 }
 
 // workspaceSwitchedMsg is emitted after a successful cross-workspace switch
-// so the main loop can load the target session on the Update goroutine.
+// so the main loop can act on the Update goroutine: load a specific
+// session, or open the session picker for the newly attached workspace.
 type workspaceSwitchedMsg struct {
-	sessionID string
+	sessionID  string
+	openPicker bool
 }
 
 // drawLeftSidebar renders the left session navigator into area.

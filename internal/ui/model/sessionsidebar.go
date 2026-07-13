@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -17,17 +18,28 @@ type sidebarRowKind uint8
 const (
 	sidebarRowWorkspace sidebarRowKind = iota
 	sidebarRowSession
+	// sidebarRowOverflow is the "…N more" row shown when a workspace has
+	// more sessions than its per-workspace display cap. Selecting it opens
+	// the full session picker for that workspace.
+	sidebarRowOverflow
 )
 
 // sidebarRow is one rendered/navigable line. Workspace header rows are not
-// selectable targets to switch to; only session rows are.
+// selectable; session and overflow rows are.
 type sidebarRow struct {
 	kind sidebarRowKind
 	// workspace index into the overviews slice.
 	wsIdx int
 	// session index within that workspace (only for session rows).
 	sessIdx int
+	// remaining is the count of hidden sessions (only for overflow rows).
+	remaining int
 }
+
+// minSessionsPerWorkspace is the floor on how many sessions each workspace
+// shows in the navigator before an overflow row, even when vertical space
+// is tight (a workspace with fewer sessions shows only what it has).
+const minSessionsPerWorkspace = 5
 
 // SessionsSidebar is the left panel listing every known workspace and its
 // sessions for cross-workspace navigation. It follows the imperative
@@ -44,6 +56,11 @@ type SessionsSidebar struct {
 	cursor int
 	// scroll is the index of the first visible row.
 	scroll int
+	// bodyHeight is the last rendered body height (rows available for the
+	// workspace/session list, excluding the title). It drives the
+	// per-workspace session cap so one workspace cannot push others off
+	// the screen.
+	bodyHeight int
 
 	// activeSessionID is the session currently open in the main pane, shown
 	// with a marker.
@@ -87,10 +104,15 @@ func (s *SessionsSidebar) SetActiveSession(id string) {
 
 func (s *SessionsSidebar) rebuildRows() {
 	s.rows = s.rows[:0]
+	caps := s.computeCaps()
 	for wi, ws := range s.overviews {
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowWorkspace, wsIdx: wi})
-		for si := range ws.Sessions {
+		shown := min(len(ws.Sessions), caps[wi])
+		for si := range shown {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: si})
+		}
+		if remaining := len(ws.Sessions) - shown; remaining > 0 {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowOverflow, wsIdx: wi, remaining: remaining})
 		}
 	}
 	if s.cursor >= len(s.rows) {
@@ -99,9 +121,57 @@ func (s *SessionsSidebar) rebuildRows() {
 	if s.cursor < 0 {
 		s.cursor = 0
 	}
-	// Never leave the cursor resting on a workspace header if a session
+	// Never leave the cursor resting on a workspace header if a selectable
 	// row is reachable.
 	s.snapCursorToSession(1)
+}
+
+// computeCaps returns the per-workspace session display cap. Sessions are
+// pre-sorted (busy, unread, recent) so a cap keeps the most relevant ones.
+//
+// Rules:
+//   - If every workspace's header + all its sessions fit in the body, show
+//     everything (no cap, no overflow rows).
+//   - Otherwise each workspace gets an even vertical share of the body, and
+//     shows up to that many sessions with a floor of minSessionsPerWorkspace
+//     so no single workspace crowds the others out. A workspace with fewer
+//     sessions than its cap shows only what it has.
+func (s *SessionsSidebar) computeCaps() []int {
+	n := len(s.overviews)
+	caps := make([]int, n)
+	if n == 0 {
+		return caps
+	}
+
+	h := s.bodyHeight
+	if h <= 0 {
+		// No layout yet: fall back to the floor so navigation is sane.
+		for i := range caps {
+			caps[i] = minSessionsPerWorkspace
+		}
+		return caps
+	}
+
+	// If everything fits, show all sessions with no overflow rows.
+	total := 0
+	for _, ws := range s.overviews {
+		total += 1 + len(ws.Sessions) // header + sessions
+	}
+	if total <= h {
+		for i, ws := range s.overviews {
+			caps[i] = len(ws.Sessions)
+		}
+		return caps
+	}
+
+	// Even share: each workspace's block is h/n rows. Reserve one line for
+	// the header and one for the overflow row, then floor at the minimum.
+	perWorkspace := h / n
+	cap := max(minSessionsPerWorkspace, perWorkspace-2)
+	for i := range caps {
+		caps[i] = cap
+	}
+	return caps
 }
 
 // restoreCursor moves the cursor back onto the session with id if it still
@@ -124,8 +194,17 @@ func (s *SessionsSidebar) restoreCursor(id string) {
 	s.snapCursorToSession(1)
 }
 
+// selectableRow reports whether the row at i is a navigation stop (session
+// or overflow row), i.e. not a workspace header.
+func (s *SessionsSidebar) selectableRow(i int) bool {
+	if i < 0 || i >= len(s.rows) {
+		return false
+	}
+	return s.rows[i].kind != sidebarRowWorkspace
+}
+
 // snapCursorToSession advances the cursor in the given direction (+1/-1)
-// off a workspace-header row onto the nearest session row, if any.
+// off a workspace-header row onto the nearest selectable row, if any.
 func (s *SessionsSidebar) snapCursorToSession(dir int) {
 	if len(s.rows) == 0 {
 		s.cursor = 0
@@ -146,7 +225,7 @@ func (s *SessionsSidebar) snapCursorToSession(dir int) {
 	s.ensureVisible()
 }
 
-// MoveUp / MoveDown move the cursor to the previous/next session row,
+// MoveUp / MoveDown move the cursor to the previous/next selectable row,
 // skipping workspace headers.
 func (s *SessionsSidebar) MoveUp() {
 	s.moveBy(-1)
@@ -166,7 +245,7 @@ func (s *SessionsSidebar) moveBy(dir int) {
 		if i < 0 || i >= len(s.rows) {
 			return // no move past the ends
 		}
-		if s.rows[i].kind == sidebarRowSession {
+		if s.selectableRow(i) {
 			s.cursor = i
 			s.ensureVisible()
 			return
@@ -195,6 +274,21 @@ func (s *SessionsSidebar) SelectedWorkspaceAttached() bool {
 		return false
 	}
 	return s.overviews[s.rows[s.cursor].wsIdx].Attached
+}
+
+// SelectedOverflowWorkspace reports whether the cursor is on an overflow
+// ("…N more") row and, if so, returns that workspace's root. Selecting it
+// should open the full session picker for that workspace rather than
+// switching to a specific session.
+func (s *SessionsSidebar) SelectedOverflowWorkspace() (root string, ok bool) {
+	if s.cursor < 0 || s.cursor >= len(s.rows) {
+		return "", false
+	}
+	r := s.rows[s.cursor]
+	if r.kind != sidebarRowOverflow {
+		return "", false
+	}
+	return s.overviews[r.wsIdx].Root, true
 }
 
 func (s *SessionsSidebar) selectedSessionID() string {
@@ -228,6 +322,16 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 
 	// Reserve the two header lines above.
 	bodyHeight := max(1, height-2)
+
+	// The per-workspace session cap depends on the available body height,
+	// so rebuild the row projection whenever it changes (e.g. terminal
+	// resize) before rendering.
+	if bodyHeight != s.bodyHeight {
+		prevID := s.selectedSessionID()
+		s.bodyHeight = bodyHeight
+		s.rebuildRows()
+		s.restoreCursor(prevID)
+	}
 
 	rendered := s.renderRows(width)
 	// Clamp scroll so the cursor stays visible within bodyHeight.
@@ -264,9 +368,29 @@ func (s *SessionsSidebar) renderRows(width int) []string {
 		case sidebarRowSession:
 			ws := s.overviews[r.wsIdx]
 			out = append(out, s.renderSessionRow(t, ws.Sessions[r.sessIdx], width, selected))
+		case sidebarRowOverflow:
+			out = append(out, s.renderOverflowRow(t, r.remaining, width, selected))
 		}
 	}
 	return out
+}
+
+// renderOverflowRow renders the "…N more" row that opens the workspace's
+// full session picker when selected. It aligns under the session titles
+// (a 5-cell prefix: bar + space + active + marker + space).
+func (s *SessionsSidebar) renderOverflowRow(t *styles.Styles, remaining, width int, selected bool) string {
+	bar := " "
+	if selected {
+		bar = styles.BorderThick
+	}
+	label := fmt.Sprintf("… %d more", remaining)
+	prefix := bar + "    " // bar + 4 spaces = 5-cell prefix
+	avail := max(1, width-ansi.StringWidth(prefix))
+	label = ansi.Truncate(label, avail, "…")
+	if selected {
+		return t.Dialog.SelectedItem.UnsetPadding().Width(width).Render(prefix + label)
+	}
+	return t.Resource.AdditionalText.Render(prefix + label)
 }
 
 func (s *SessionsSidebar) renderWorkspaceRow(t *styles.Styles, ws proto.WorkspaceOverview, width int) string {
