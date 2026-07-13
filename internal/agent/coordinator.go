@@ -237,21 +237,24 @@ func (c *coordinator) workingDir(ctx context.Context) string {
 	)
 	sessionID := tools.GetSessionFromContext(ctx)
 
-	// A worktree, when active for this session, still wins: tools must
-	// run inside the checked-out worktree regardless of the recorded
-	// session cwd.
-	if c.worktrees != nil && c.worktrees.IsEnabled() && sessionID != "" {
-		if wt, err := c.worktrees.GetActive(ctx, sessionID); err == nil && wt != nil && wt.Path != "" {
-			return wt.Path
+	// When worktrees are enabled, the worktree system owns per-session
+	// working directories. An active (Crush-managed) worktree wins;
+	// otherwise tools run in the live request cwd so that `cd`-following
+	// (launching from, or moving into, a sibling worktree) keeps working.
+	// The recorded session working dir deliberately does NOT participate
+	// here: mixing it in froze the cwd and broke worktree support.
+	if c.worktrees != nil && c.worktrees.IsEnabled() {
+		if sessionID != "" {
+			if wt, err := c.worktrees.GetActive(ctx, sessionID); err == nil && wt != nil && wt.Path != "" {
+				return wt.Path
+			}
 		}
+		return root
 	}
 
-	// The session's recorded working directory is authoritative once set:
-	// a session resumed from a different client (with a different launch
-	// cwd) must still run its tools in the directory it was started from,
-	// not wherever the new client happens to be. This overrides the
-	// per-request cwd. Best-effort: a missing session or lookup error
-	// degrades to the request cwd / workspace root computed above.
+	// Non-worktree workspace: the recorded session working directory is the
+	// per-session persistence, so a session resumed from a different client
+	// (with a different launch cwd) still runs its tools where it began.
 	if sessionID != "" && c.sessions != nil {
 		if sess, err := c.sessions.Get(ctx, sessionID); err == nil && sess.WorkingDir != "" {
 			return sess.WorkingDir
@@ -263,12 +266,17 @@ func (c *coordinator) workingDir(ctx context.Context) string {
 
 // stampSessionWorkingDir records the session's working directory the first
 // time it runs, if it has none yet. The value is the initiating client's
-// request cwd, falling back to the workspace defaults — captured without
-// consulting the session's own (empty) recorded dir or its worktree, so it
-// reflects where the run actually started. Best-effort and idempotent:
-// once a session has a working_dir it is never overwritten here.
+// request cwd, falling back to the workspace defaults. Best-effort and
+// idempotent: once a session has a working_dir it is never overwritten.
+//
+// This only applies to non-worktree workspaces. When worktrees are enabled
+// the worktree system owns per-session directories, so recording a working
+// dir here would be redundant and could later point at a removed worktree.
 func (c *coordinator) stampSessionWorkingDir(ctx context.Context, sessionID string) {
 	if sessionID == "" || c.sessions == nil {
+		return
+	}
+	if c.worktrees != nil && c.worktrees.IsEnabled() {
 		return
 	}
 	sess, err := c.sessions.Get(ctx, sessionID)
@@ -717,6 +725,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		Tools:                nil,
 		Notify:               c.notify,
 		RunComplete:          c.runComplete,
+		WorkingDir:           c.workingDir,
 	})
 
 	c.readyWg.Go(func() error {

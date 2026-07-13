@@ -200,16 +200,18 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		systemPrompt += "\n\n<mcp-instructions>\n" + s + "\n</mcp-instructions>"
 	}
 
-	// Tell the model, every turn, which directory its tools run in. This
-	// keeps it accurate when a session is resumed from a client with a
-	// different launch cwd, or after an explicit /cwd change: the model
+	// Tell the model, every turn, which directory its tools run in, using
+	// the same worktree-aware resolver the tools use. This keeps it
+	// accurate for worktree sessions, sessions resumed from a client with
+	// a different launch cwd, and after an explicit /cwd change: the model
 	// should treat paths as relative to this directory and must not try to
-	// `cd` into it. The recorded session working dir is authoritative (see
-	// coordinator.workingDir); when unset the model falls back to its
-	// system-prompt default.
-	if a.sessions != nil {
-		if sess, err := a.sessions.Get(ctx, call.SessionID); err == nil && sess.WorkingDir != "" {
-			systemPrompt += "\n\n<environment>\nCurrent working directory: " + sess.WorkingDir +
+	// `cd` into it.
+	if a.workingDir != nil {
+		// Ensure the resolver sees the session ID so the worktree-aware
+		// lookup resolves (the request cwd is already carried on ctx).
+		wdCtx := context.WithValue(ctx, tools.SessionIDContextKey, call.SessionID)
+		if wd := a.workingDir(wdCtx); wd != "" {
+			systemPrompt += "\n\n<environment>\nCurrent working directory: " + wd +
 				"\nAll tool calls run in this directory. Treat relative paths as relative to it; do not cd into it.\n</environment>"
 		}
 	}

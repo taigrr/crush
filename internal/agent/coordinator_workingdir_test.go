@@ -138,4 +138,41 @@ func TestCoordinatorWorkingDir_RequestCwd(t *testing.T) {
 		require.Equal(t, "/proj/wt-current",
 			c.workingDir(ctxWithSessionCwd("s1", "/proj/wt-current")))
 	})
+
+	// Regression: a recorded session working dir must NOT override the
+	// worktree system. On worktree-enabled workspaces the worktree owns the
+	// per-session dir (active worktree wins, else the live request cwd), so
+	// `cd`-following keeps working. The recorded working dir only applies to
+	// non-worktree workspaces.
+	t.Run("worktree workspace ignores recorded session working dir", func(t *testing.T) {
+		t.Parallel()
+		env := testEnv(t)
+		wcfg, err := config.Init(env.workingDir, "", false)
+		require.NoError(t, err)
+		sess, err := env.sessions.Create(t.Context(), "wt")
+		require.NoError(t, err)
+		require.NoError(t, env.sessions.SetWorkingDir(t.Context(), sess.ID, "/recorded/dir"))
+
+		c := &coordinator{cfg: wcfg, sessions: env.sessions, worktrees: &fakeWorktrees{}}
+		// Worktrees enabled, none active: the live request cwd wins, not
+		// the recorded dir.
+		require.Equal(t, "/proj/live",
+			c.workingDir(ctxWithSessionCwd(sess.ID, "/proj/live")))
+	})
+
+	t.Run("non-worktree workspace uses recorded session working dir", func(t *testing.T) {
+		t.Parallel()
+		env := testEnv(t)
+		wcfg, err := config.Init(env.workingDir, "", false)
+		require.NoError(t, err)
+		sess, err := env.sessions.Create(t.Context(), "plain")
+		require.NoError(t, err)
+		require.NoError(t, env.sessions.SetWorkingDir(t.Context(), sess.ID, "/recorded/dir"))
+
+		c := &coordinator{cfg: wcfg, sessions: env.sessions}
+		// No worktrees: the recorded dir is authoritative over the live
+		// request cwd (resume-from-different-client case).
+		require.Equal(t, "/recorded/dir",
+			c.workingDir(ctxWithSessionCwd(sess.ID, "/proj/live")))
+	})
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/agent/notify"
+	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/csync"
@@ -149,6 +150,9 @@ type sessionAgent struct {
 	isYolo               bool
 	notify               pubsub.Publisher[notify.Notification]
 	runComplete          pubsub.Publisher[notify.RunComplete]
+	// workingDir resolves the worktree-aware directory tools run in for a
+	// turn. Used only to inform the model of its cwd; nil omits the note.
+	workingDir tools.WorkingDirFunc
 
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, context.CancelFunc]
@@ -213,6 +217,10 @@ type SessionAgentOptions struct {
 	Tools                []fantasy.AgentTool
 	Notify               pubsub.Publisher[notify.Notification]
 	RunComplete          pubsub.Publisher[notify.RunComplete]
+	// WorkingDir resolves the directory tools run in for the current turn
+	// (worktree-aware). Used to tell the model its cwd; when nil the
+	// environment note is omitted.
+	WorkingDir tools.WorkingDirFunc
 }
 
 func NewSessionAgent(
@@ -233,6 +241,7 @@ func NewSessionAgent(
 		isYolo:               opts.IsYolo,
 		notify:               opts.Notify,
 		runComplete:          opts.RunComplete,
+		workingDir:           opts.WorkingDir,
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
 		activeRequests:       csync.NewMap[string, context.CancelFunc](),
 		dispatchMu:           csync.NewMap[string, *sync.Mutex](),
