@@ -96,10 +96,11 @@ func (m *UI) activateLeftSidebarSelection() tea.Cmd {
 		m.leftSidebarVisible = false
 		m.setFocusAfterSidebarClose()
 		m.updateLayoutAndSize()
-		if m.leftSidebar.SelectedWorkspaceAttached() {
+		if m.isCurrentWorkspace(root) {
 			return m.openSessionsDialog()
 		}
-		// Attach the workspace first, then open its picker.
+		// Attach/switch this client to the workspace first, then open its
+		// picker.
 		return m.switchWorkspaceThenPickSession(root)
 	}
 
@@ -113,10 +114,23 @@ func (m *UI) activateLeftSidebarSelection() tea.Cmd {
 	m.setFocusAfterSidebarClose()
 	m.updateLayoutAndSize()
 
-	if m.leftSidebar.SelectedWorkspaceAttached() {
+	// Compare against THIS client's current workspace, not the server-side
+	// "attached" flag: the server can host several workspaces (background
+	// runs, other clients), so a workspace this client is not viewing can
+	// still report Attached=true. Loading a session directly then would
+	// query the wrong (current) workspace DB and silently fail. Only take
+	// the fast path when the session lives in the workspace this client is
+	// actually pointed at.
+	if m.isCurrentWorkspace(root) {
 		return m.loadSession(sessionID)
 	}
 	return m.switchWorkspaceAndLoad(root, sessionID)
+}
+
+// isCurrentWorkspace reports whether root is the workspace this client is
+// currently viewing (its resolved project root).
+func (m *UI) isCurrentWorkspace(root string) bool {
+	return root != "" && root == m.com.Workspace.BaseDir()
 }
 
 // switchWorkspaceThenPickSession re-targets the client at root and then
