@@ -30,15 +30,16 @@ func (c *recordingCoordinator) BeginAccepted(string) *agent.AcceptedRun { return
 func (c *recordingCoordinator) Cancel(sessionID string) {
 	c.cancelCalls = append(c.cancelCalls, sessionID)
 }
-func (c *recordingCoordinator) CancelAll()                              { c.cancelAllHits.Add(1) }
-func (c *recordingCoordinator) IsBusy() bool                            { return false }
-func (c *recordingCoordinator) IsSessionBusy(string) bool               { return false }
-func (c *recordingCoordinator) QueuedPrompts(string) int                { return 0 }
-func (c *recordingCoordinator) QueuedPromptsList(string) []string       { return nil }
-func (c *recordingCoordinator) ClearQueue(string)                       {}
-func (c *recordingCoordinator) Summarize(context.Context, string) error { return nil }
-func (c *recordingCoordinator) Model() agent.Model                      { return agent.Model{} }
-func (c *recordingCoordinator) UpdateModels(context.Context) error      { return nil }
+func (c *recordingCoordinator) CancelAll()                                    { c.cancelAllHits.Add(1) }
+func (c *recordingCoordinator) IsBusy() bool                                  { return false }
+func (c *recordingCoordinator) IsSessionBusy(string) bool                     { return false }
+func (c *recordingCoordinator) QueuedPrompts(string) int                      { return 0 }
+func (c *recordingCoordinator) QueuedPromptsList(string) []string             { return nil }
+func (c *recordingCoordinator) ClearQueue(string)                             {}
+func (c *recordingCoordinator) Summarize(context.Context, string) error       { return nil }
+func (c *recordingCoordinator) RegenerateTitle(context.Context, string) error { return nil }
+func (c *recordingCoordinator) Model() agent.Model                            { return agent.Model{} }
+func (c *recordingCoordinator) UpdateModels(context.Context) error            { return nil }
 func (c *recordingCoordinator) UpdateModelsWhenIdle(context.Context) (bool, error) {
 	return false, nil
 }

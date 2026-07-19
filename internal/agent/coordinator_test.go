@@ -50,6 +50,10 @@ func (m *mockSessionAgent) Summarize(context.Context, string, fantasy.ProviderOp
 	return nil
 }
 
+func (m *mockSessionAgent) RegenerateTitle(context.Context, string) error {
+	return nil
+}
+
 func (m *mockSessionAgent) SetGoal(sessionID, condition string) {}
 func (m *mockSessionAgent) ClearGoal(sessionID string)          {}
 func (m *mockSessionAgent) GoalStatus(sessionID string) (string, int, int, bool) {

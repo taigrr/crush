@@ -1187,20 +1187,38 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionSummarize(w http.ResponseW
 	w.WriteHeader(http.StatusOK)
 }
 
-// handlePostWorkspaceAgentSessionShell runs a shell command in the workspace.
+// handlePostWorkspaceAgentSessionTitle regenerates a session's title.
 //
-//	@Summary		Run shell command
+//	@Summary		Regenerate session title
 //	@Tags			agent
-//	@Accept			json
-//	@Produce		json
-//	@Param			id		path		string						true	"Workspace ID"
-//	@Param			sid		path		string						true	"Session ID"
-//	@Param			request	body		proto.ShellCommandRequest	true	"Shell command"
-//	@Success		200		{object}	proto.ShellCommandResponse
-//	@Failure		400		{object}	proto.Error
-//	@Failure		404		{object}	proto.Error
-//	@Failure		500		{object}	proto.Error
-//	@Router			/workspaces/{id}/agent/sessions/{sid}/shell [post]
+//	@Param			id	path	string	true	"Workspace ID"
+//	@Param			sid	path	string	true	"Session ID"
+//	@Success		200
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/title [post]
+func (c *controllerV1) handlePostWorkspaceAgentSessionTitle(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+	if err := c.backend.GenerateTitleForSession(r.Context(), id, sid); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// @Summary		Run shell command
+// @Tags			agent
+// @Accept			json
+// @Produce		json
+// @Param			id		path		string						true	"Workspace ID"
+// @Param			sid		path		string						true	"Session ID"
+// @Param			request	body		proto.ShellCommandRequest	true	"Shell command"
+// @Success		200		{object}	proto.ShellCommandResponse
+// @Failure		400		{object}	proto.Error
+// @Failure		404		{object}	proto.Error
+// @Failure		500		{object}	proto.Error
+// @Router			/workspaces/{id}/agent/sessions/{sid}/shell [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionShell(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")

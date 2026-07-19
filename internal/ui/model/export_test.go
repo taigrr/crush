@@ -1,6 +1,7 @@
 package model
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -57,6 +58,18 @@ func TestResolveExportPath(t *testing.T) {
 	t.Run("absolute name preserved", func(t *testing.T) {
 		t.Parallel()
 		require.Equal(t, "/abs/path.md", resolveExportPath("/abs/path.md", "t", wd))
+	})
+
+	t.Run("tilde expands to home dir", func(t *testing.T) {
+		home, err := os.UserHomeDir()
+		require.NoError(t, err)
+		require.Equal(t, filepath.Join(home, "notes.md"), resolveExportPath("~/notes.md", "t", wd))
+	})
+
+	t.Run("env var expands", func(t *testing.T) {
+		os.Setenv("EXPORTDIR", "/tmp/exports")
+		defer os.Unsetenv("EXPORTDIR")
+		require.Equal(t, "/tmp/exports/out.md", resolveExportPath("$EXPORTDIR/out", "t", wd))
 	})
 }
 

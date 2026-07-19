@@ -128,6 +128,8 @@ type Workspace interface {
 	AgentQueuedPromptsList(sessionID string) []string
 	AgentClearQueue(sessionID string)
 	AgentSummarize(ctx context.Context, sessionID string) error
+	// AgentGenerateTitle regenerates a session's title on demand.
+	AgentGenerateTitle(ctx context.Context, sessionID string) error
 	// Goal controls the autonomous /goal feature.
 	AgentSetGoal(sessionID, condition string) error
 	// AgentSetWorkingDir records the directory tools run in for a session.

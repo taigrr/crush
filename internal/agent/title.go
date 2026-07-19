@@ -32,6 +32,26 @@ func titlePromptFromMessages(msgs []message.Message, latestPrompt string) string
 	return strings.TrimSpace(sb.String())
 }
 
+// RegenerateTitle regenerates the session title from the conversation so
+// far, using the same model path as automatic titling. It is invoked
+// on-demand by the /rename slash command when no explicit title is given.
+func (a *sessionAgent) RegenerateTitle(ctx context.Context, sessionID string) error {
+	currentSession, err := a.sessions.Get(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to get session: %w", err)
+	}
+	msgs, err := a.getSessionMessages(ctx, currentSession)
+	if err != nil {
+		return err
+	}
+	prompt := titlePromptFromMessages(msgs, "")
+	if prompt == "" {
+		return fmt.Errorf("no conversation content to generate a title from")
+	}
+	a.generateTitle(ctx, sessionID, prompt)
+	return nil
+}
+
 // generateTitle generates a session titled based on the initial prompt.
 func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, userPrompt string) {
 	if userPrompt == "" {

@@ -354,3 +354,60 @@ if (stats.usage_by_day?.length > 0) {
   });
   tableBody.appendChild(fragment);
 }
+
+// Workspace breakdown (only present with --all)
+if (stats.workspaces?.length > 0) {
+  const shortName = (p) => {
+    const parts = p.split("/").filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : p;
+  };
+
+  const tokensCard = document.getElementById("workspace-tokens-card");
+  const tableCard = document.getElementById("workspace-table-card");
+  tokensCard.hidden = false;
+  tableCard.hidden = false;
+
+  const displayWs = getTopItemsWithOthers(
+    stats.workspaces.map((w) => ({
+      label: shortName(w.path),
+      total_tokens: w.total.total_tokens,
+    })),
+    "total_tokens",
+    "label",
+  );
+  const maxWsValue = Math.max(...displayWs.map((w) => w.total_tokens));
+  new Chart(document.getElementById("workspaceChart"), {
+    type: "bar",
+    data: {
+      labels: displayWs.map((w) => w.label),
+      datasets: [
+        {
+          label: "Total Tokens",
+          data: displayWs.map((w) => w.total_tokens),
+          backgroundColor: (ctx) => interpolateColor(ctx.raw / maxWsValue),
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: easeDuration, easing: easeType },
+      plugins: { legend: { display: false } },
+    },
+  });
+
+  const wsBody = document.querySelector("#workspace-table tbody");
+  const wsFragment = document.createDocumentFragment();
+  stats.workspaces.forEach((w) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td title="${w.path}">${w.path}</td><td>${formatNumber(
+      w.total.total_sessions,
+    )}</td><td>${formatNumber(w.total.total_messages)}</td><td>${formatNumber(
+      w.total.total_tokens,
+    )}</td><td>${formatCost(w.total.total_cost)}</td>`;
+    wsFragment.appendChild(row);
+  });
+  wsBody.appendChild(wsFragment);
+}

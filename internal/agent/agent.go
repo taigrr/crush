@@ -118,6 +118,7 @@ type SessionAgent interface {
 	QueuedPromptsList(sessionID string) []string
 	ClearQueue(sessionID string)
 	Summarize(context.Context, string, fantasy.ProviderOptions) error
+	RegenerateTitle(ctx context.Context, sessionID string) error
 	Model() Model
 
 	// Goal control for the autonomous /goal feature.

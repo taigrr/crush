@@ -49,13 +49,28 @@ func resolveExportPath(name, title, workingDir string) string {
 			slug = "conversation"
 		}
 		name = fmt.Sprintf("crush-export-%s-%s.md", slug, stamp)
-	} else if !strings.HasSuffix(name, ".md") {
-		name += ".md"
+	} else {
+		name = expandPath(name)
+		if !strings.HasSuffix(name, ".md") {
+			name += ".md"
+		}
 	}
 	if filepath.IsAbs(name) {
 		return name
 	}
 	return filepath.Join(workingDir, name)
+}
+
+// expandPath expands a leading ~ (home directory) and any $VAR/${VAR}
+// environment variables in a user-supplied path.
+func expandPath(name string) string {
+	name = os.ExpandEnv(name)
+	if name == "~" || strings.HasPrefix(name, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			name = filepath.Join(home, strings.TrimPrefix(name[1:], "/"))
+		}
+	}
+	return name
 }
 
 // slugify converts a session title into a filesystem-friendly slug.

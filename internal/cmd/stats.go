@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/db"
+	"github.com/taigrr/crush/internal/projects"
 )
 
 //go:embed stats/index.html
@@ -45,6 +47,10 @@ var statsCmd = &cobra.Command{
 	RunE:  runStats,
 }
 
+func init() {
+	statsCmd.Flags().Bool("all", false, "Aggregate stats across all registered workspaces")
+}
+
 // Day names for day of week statistics.
 var dayNames = []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
 
@@ -60,6 +66,14 @@ type Stats struct {
 	AvgResponseTimeMs float64            `json:"avg_response_time_ms"`
 	ToolUsage         []ToolUsage        `json:"tool_usage"`
 	HourDayHeatmap    []HourDayHeatmapPt `json:"hour_day_heatmap"`
+	Workspaces        []WorkspaceStats   `json:"workspaces,omitempty"`
+}
+
+// WorkspaceStats holds per-workspace totals for the --all breakdown.
+type WorkspaceStats struct {
+	Path    string     `json:"path"`
+	DataDir string     `json:"data_dir"`
+	Total   TotalStats `json:"total"`
 }
 
 type TotalStats struct {
@@ -121,6 +135,7 @@ type HourDayHeatmapPt struct {
 
 func runStats(cmd *cobra.Command, _ []string) error {
 	dataDir, _ := cmd.Flags().GetString("data-dir")
+	allWorkspaces, _ := cmd.Flags().GetBool("all")
 	ctx := cmd.Context()
 
 	cwd, err := ResolveCwd(cmd)
@@ -134,31 +149,42 @@ func runStats(cmd *cobra.Command, _ []string) error {
 	if dataDir == "" {
 		dataDir = cfg.Config().Options.DataDirectory
 	}
-	conn, err := db.Connect(ctx, dataDir)
-	if err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
-	}
-	defer conn.Close()
-
-	stats, err := gatherStats(ctx, conn)
-	if err != nil {
-		return fmt.Errorf("failed to gather stats: %w", err)
-	}
-
-	if stats.Total.TotalSessions == 0 {
-		return fmt.Errorf("no data available: no sessions found in database")
-	}
 
 	currentUser, err := user.Current()
 	if err != nil {
 		return fmt.Errorf("failed to get current user: %w", err)
 	}
 	username := currentUser.Username
-	project, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
+
+	var stats *Stats
+	var project string
+	if allWorkspaces {
+		stats, err = gatherAllWorkspaceStats(ctx, currentUser.HomeDir)
+		if err != nil {
+			return err
+		}
+		project = "all workspaces"
+	} else {
+		conn, err := db.Connect(ctx, dataDir)
+		if err != nil {
+			return fmt.Errorf("failed to connect to database: %w", err)
+		}
+		defer conn.Close()
+
+		stats, err = gatherStats(ctx, conn)
+		if err != nil {
+			return fmt.Errorf("failed to gather stats: %w", err)
+		}
+		project, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
+		project = strings.Replace(project, currentUser.HomeDir, "~", 1)
 	}
-	project = strings.Replace(project, currentUser.HomeDir, "~", 1)
+
+	if stats.Total.TotalSessions == 0 {
+		return fmt.Errorf("no data available: no sessions found in database")
+	}
 
 	htmlPath := filepath.Join(dataDir, "stats/index.html")
 	if err := generateHTML(stats, project, username, htmlPath); err != nil {
@@ -173,6 +199,226 @@ func runStats(cmd *cobra.Command, _ []string) error {
 	}
 
 	return nil
+}
+
+// gatherAllWorkspaceStats aggregates stats across every registered workspace,
+// producing a combined Stats plus a per-workspace breakdown.
+func gatherAllWorkspaceStats(ctx context.Context, homeDir string) (*Stats, error) {
+	projectList, err := projects.List()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list workspaces: %w", err)
+	}
+
+	combined := &Stats{GeneratedAt: time.Now()}
+	// Weighted accumulator for average response time (by message count).
+	var respTimeWeighted, respTimeWeight float64
+
+	seen := make(map[string]bool)
+	for _, p := range projectList {
+		if p.DataDir == "" || seen[p.DataDir] {
+			continue
+		}
+		seen[p.DataDir] = true
+
+		conn, err := db.Connect(ctx, p.DataDir)
+		if err != nil {
+			fmt.Printf("Skipping %s: %v\n", p.Path, err)
+			continue
+		}
+		ws, err := gatherStats(ctx, conn)
+		conn.Close()
+		if err != nil {
+			fmt.Printf("Skipping %s: %v\n", p.Path, err)
+			continue
+		}
+		if ws.Total.TotalSessions == 0 {
+			continue
+		}
+
+		mergeStats(combined, ws)
+		respTimeWeighted += ws.AvgResponseTimeMs * float64(ws.Total.TotalMessages)
+		respTimeWeight += float64(ws.Total.TotalMessages)
+
+		combined.Workspaces = append(combined.Workspaces, WorkspaceStats{
+			Path:    strings.Replace(p.Path, homeDir, "~", 1),
+			DataDir: p.DataDir,
+			Total:   ws.Total,
+		})
+	}
+
+	if respTimeWeight > 0 {
+		combined.AvgResponseTimeMs = respTimeWeighted / respTimeWeight
+	}
+	finalizeTotals(combined)
+	sortAggregates(combined)
+	return combined, nil
+}
+
+// mergeStats adds all of src's aggregatable data into dst.
+func mergeStats(dst, src *Stats) {
+	dst.Total.TotalSessions += src.Total.TotalSessions
+	dst.Total.TotalPromptTokens += src.Total.TotalPromptTokens
+	dst.Total.TotalCompletionTokens += src.Total.TotalCompletionTokens
+	dst.Total.TotalTokens += src.Total.TotalTokens
+	dst.Total.TotalCost += src.Total.TotalCost
+	dst.Total.TotalMessages += src.Total.TotalMessages
+
+	dst.UsageByDay = mergeUsageByDay(dst.UsageByDay, src.UsageByDay)
+	dst.UsageByModel = mergeUsageByModel(dst.UsageByModel, src.UsageByModel)
+	dst.UsageByHour = mergeUsageByHour(dst.UsageByHour, src.UsageByHour)
+	dst.UsageByDayOfWeek = mergeUsageByDayOfWeek(dst.UsageByDayOfWeek, src.UsageByDayOfWeek)
+	dst.RecentActivity = mergeRecentActivity(dst.RecentActivity, src.RecentActivity)
+	dst.ToolUsage = mergeToolUsage(dst.ToolUsage, src.ToolUsage)
+	dst.HourDayHeatmap = mergeHeatmap(dst.HourDayHeatmap, src.HourDayHeatmap)
+}
+
+func mergeUsageByDay(dst, src []DailyUsage) []DailyUsage {
+	idx := make(map[string]int, len(dst))
+	for i, d := range dst {
+		idx[d.Day] = i
+	}
+	for _, s := range src {
+		if i, ok := idx[s.Day]; ok {
+			dst[i].PromptTokens += s.PromptTokens
+			dst[i].CompletionTokens += s.CompletionTokens
+			dst[i].TotalTokens += s.TotalTokens
+			dst[i].Cost += s.Cost
+			dst[i].SessionCount += s.SessionCount
+			continue
+		}
+		idx[s.Day] = len(dst)
+		dst = append(dst, s)
+	}
+	return dst
+}
+
+func mergeUsageByModel(dst, src []ModelUsage) []ModelUsage {
+	idx := make(map[string]int, len(dst))
+	for i, m := range dst {
+		idx[m.Provider+"\x00"+m.Model] = i
+	}
+	for _, s := range src {
+		key := s.Provider + "\x00" + s.Model
+		if i, ok := idx[key]; ok {
+			dst[i].MessageCount += s.MessageCount
+			continue
+		}
+		idx[key] = len(dst)
+		dst = append(dst, s)
+	}
+	return dst
+}
+
+func mergeUsageByHour(dst, src []HourlyUsage) []HourlyUsage {
+	idx := make(map[int]int, len(dst))
+	for i, h := range dst {
+		idx[h.Hour] = i
+	}
+	for _, s := range src {
+		if i, ok := idx[s.Hour]; ok {
+			dst[i].SessionCount += s.SessionCount
+			continue
+		}
+		idx[s.Hour] = len(dst)
+		dst = append(dst, s)
+	}
+	return dst
+}
+
+func mergeUsageByDayOfWeek(dst, src []DayOfWeekUsage) []DayOfWeekUsage {
+	idx := make(map[int]int, len(dst))
+	for i, d := range dst {
+		idx[d.DayOfWeek] = i
+	}
+	for _, s := range src {
+		if i, ok := idx[s.DayOfWeek]; ok {
+			dst[i].SessionCount += s.SessionCount
+			dst[i].PromptTokens += s.PromptTokens
+			dst[i].CompletionTokens += s.CompletionTokens
+			continue
+		}
+		idx[s.DayOfWeek] = len(dst)
+		dst = append(dst, s)
+	}
+	return dst
+}
+
+func mergeRecentActivity(dst, src []DailyActivity) []DailyActivity {
+	idx := make(map[string]int, len(dst))
+	for i, d := range dst {
+		idx[d.Day] = i
+	}
+	for _, s := range src {
+		if i, ok := idx[s.Day]; ok {
+			dst[i].SessionCount += s.SessionCount
+			dst[i].TotalTokens += s.TotalTokens
+			dst[i].Cost += s.Cost
+			continue
+		}
+		idx[s.Day] = len(dst)
+		dst = append(dst, s)
+	}
+	return dst
+}
+
+func mergeToolUsage(dst, src []ToolUsage) []ToolUsage {
+	idx := make(map[string]int, len(dst))
+	for i, t := range dst {
+		idx[t.ToolName] = i
+	}
+	for _, s := range src {
+		if i, ok := idx[s.ToolName]; ok {
+			dst[i].CallCount += s.CallCount
+			continue
+		}
+		idx[s.ToolName] = len(dst)
+		dst = append(dst, s)
+	}
+	return dst
+}
+
+func mergeHeatmap(dst, src []HourDayHeatmapPt) []HourDayHeatmapPt {
+	idx := make(map[int]int, len(dst))
+	for i, h := range dst {
+		idx[h.DayOfWeek*100+h.Hour] = i
+	}
+	for _, s := range src {
+		key := s.DayOfWeek*100 + s.Hour
+		if i, ok := idx[key]; ok {
+			dst[i].SessionCount += s.SessionCount
+			continue
+		}
+		idx[key] = len(dst)
+		dst = append(dst, s)
+	}
+	return dst
+}
+
+// finalizeTotals recomputes derived averages from merged totals.
+func finalizeTotals(s *Stats) {
+	if s.Total.TotalSessions > 0 {
+		s.Total.AvgTokensPerSession = float64(s.Total.TotalTokens) / float64(s.Total.TotalSessions)
+		s.Total.AvgMessagesPerSession = float64(s.Total.TotalMessages) / float64(s.Total.TotalSessions)
+	}
+}
+
+// sortAggregates orders merged slices for stable, meaningful presentation.
+func sortAggregates(s *Stats) {
+	slices.SortFunc(s.UsageByDay, func(a, b DailyUsage) int { return strings.Compare(b.Day, a.Day) })
+	slices.SortFunc(s.RecentActivity, func(a, b DailyActivity) int { return strings.Compare(a.Day, b.Day) })
+	slices.SortFunc(s.UsageByModel, func(a, b ModelUsage) int { return int(b.MessageCount - a.MessageCount) })
+	slices.SortFunc(s.ToolUsage, func(a, b ToolUsage) int { return int(b.CallCount - a.CallCount) })
+	slices.SortFunc(s.UsageByHour, func(a, b HourlyUsage) int { return a.Hour - b.Hour })
+	slices.SortFunc(s.UsageByDayOfWeek, func(a, b DayOfWeekUsage) int { return a.DayOfWeek - b.DayOfWeek })
+	slices.SortFunc(s.Workspaces, func(a, b WorkspaceStats) int {
+		if a.Total.TotalCost > b.Total.TotalCost {
+			return -1
+		}
+		if a.Total.TotalCost < b.Total.TotalCost {
+			return 1
+		}
+		return 0
+	})
 }
 
 func gatherStats(ctx context.Context, conn *sql.DB) (*Stats, error) {

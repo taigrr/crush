@@ -75,6 +75,15 @@ var builtinSlashCommands = []slashCommand{
 		},
 	},
 	{
+		name:            "rename",
+		argHint:         "[title | (empty for AI-generated title)]",
+		description:     "Rename the session, or regenerate the title with AI when blank",
+		requiresSession: true,
+		run: func(m *UI, args string) tea.Cmd {
+			return m.handleRename(args)
+		},
+	},
+	{
 		name:            "cwd",
 		argHint:         "[path | (empty for terminal cwd)]",
 		description:     "Set the working directory tools run in for this session",

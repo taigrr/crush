@@ -3762,6 +3762,37 @@ func (m *UI) handleCwd(args string) tea.Cmd {
 	)
 }
 
+// handleRename renames the current session. With an argument it sets the
+// title directly; with no argument it triggers an AI-generated title based
+// on the conversation so far. The caller (dispatchSlash) guarantees an
+// active session.
+func (m *UI) handleRename(args string) tea.Cmd {
+	sessionID := m.session.ID
+	title := strings.TrimSpace(args)
+	if title != "" {
+		sess := *m.session
+		sess.Title = title
+		return tea.Batch(
+			func() tea.Msg {
+				if _, err := m.com.Workspace.SaveSession(context.Background(), sess); err != nil {
+					return util.InfoMsg{Type: util.InfoTypeError, Msg: fmt.Sprintf("%v", err)}
+				}
+				return nil
+			},
+			util.ReportInfo("Session renamed to "+title),
+		)
+	}
+	return tea.Batch(
+		func() tea.Msg {
+			if err := m.com.Workspace.AgentGenerateTitle(context.Background(), sessionID); err != nil {
+				return util.InfoMsg{Type: util.InfoTypeError, Msg: fmt.Sprintf("%v", err)}
+			}
+			return nil
+		},
+		util.ReportInfo("Generating a new title…"),
+	)
+}
+
 // sendBTWMessage sends a "by the way" aside that is folded into the active
 // turn at the next step boundary rather than queued for its own turn.
 func (m *UI) sendBTWMessage(content string) tea.Cmd {

@@ -102,6 +102,7 @@ type Coordinator interface {
 	QueuedPromptsList(sessionID string) []string
 	ClearQueue(sessionID string)
 	Summarize(context.Context, string) error
+	RegenerateTitle(ctx context.Context, sessionID string) error
 	Model() Model
 	UpdateModels(ctx context.Context) error
 	UpdateModelsWhenIdle(ctx context.Context) (deferred bool, err error)
@@ -1380,6 +1381,12 @@ func (c *coordinator) Summarize(ctx context.Context, sessionID string) error {
 	}
 
 	return c.runWithUnauthorizedRetry(ctx, providerCfg, summarize)
+}
+
+// RegenerateTitle regenerates the session title on demand from the
+// conversation so far.
+func (c *coordinator) RegenerateTitle(ctx context.Context, sessionID string) error {
+	return c.currentAgent.RegenerateTitle(ctx, sessionID)
 }
 
 // refreshTokenIfExpired proactively refreshes the OAuth token if it has expired.
