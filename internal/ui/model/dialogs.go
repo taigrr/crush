@@ -402,13 +402,48 @@ func (m *UI) openPermissionsDialog(perm permission.PermissionRequest) tea.Cmd {
 
 	// Get diff mode from config.
 	var opts []dialog.PermissionsOption
-	if diffMode := m.com.Config().Options.TUI.DiffMode; diffMode != "" {
-		opts = append(opts, dialog.WithDiffMode(diffMode == "split"))
+	if cfg := m.com.Config(); cfg != nil && cfg.Options != nil && cfg.Options.TUI != nil {
+		if diffMode := cfg.Options.TUI.DiffMode; diffMode != "" {
+			opts = append(opts, dialog.WithDiffMode(diffMode == "split"))
+		}
 	}
 
 	permDialog := dialog.NewPermissions(m.com, perm, opts...)
 	m.dialog.OpenDialogWithGrace(permDialog)
 	return nil
+}
+
+// syncPermissionDialogForSession reconciles the permissions dialog with
+// the currently active session. It must be called whenever the active
+// session changes. It closes an open permissions dialog that belongs to
+// a different session, and re-surfaces the cached pending request when
+// it belongs to the now-active session. This prevents a prompt for one
+// session from being shown — and acted on — while the user is viewing
+// another.
+func (m *UI) syncPermissionDialogForSession() tea.Cmd {
+	activeID := ""
+	if m.session != nil {
+		activeID = m.session.ID
+	}
+
+	// Close a stale dialog that belongs to a different session.
+	if d := m.dialog.Dialog(dialog.PermissionsID); d != nil {
+		if perm, ok := d.(*dialog.Permissions); ok && perm.SessionID() != activeID {
+			m.dialog.CloseDialog(dialog.PermissionsID)
+		}
+	}
+
+	// Re-surface the pending request if it belongs to the active session
+	// and no dialog is currently shown for it.
+	if m.pendingPermission == nil || activeID == "" || m.pendingPermission.SessionID != activeID {
+		return nil
+	}
+	if d := m.dialog.Dialog(dialog.PermissionsID); d != nil {
+		if perm, ok := d.(*dialog.Permissions); ok && perm.ToolCallID() == m.pendingPermission.ToolCallID {
+			return nil // already showing it
+		}
+	}
+	return m.openPermissionsDialog(*m.pendingPermission)
 }
 
 // handlePermissionNotification updates tool items when permission state changes.

@@ -113,6 +113,11 @@ func (m *UI) handlePermissionNotification(notification permission.PermissionNoti
 	if !notification.Granted && !notification.Denied {
 		return
 	}
+	// The request is resolved: drop the cached pending request so it is
+	// not re-surfaced on a later session switch.
+	if m.pendingPermission != nil && m.pendingPermission.ToolCallID == notification.ToolCallID {
+		m.pendingPermission = nil
+	}
 	if d := m.dialog.Dialog(dialog.PermissionsID); d != nil {
 		if perm, ok := d.(*dialog.Permissions); ok && perm.ToolCallID() == notification.ToolCallID {
 			m.dialog.CloseDialog(dialog.PermissionsID)

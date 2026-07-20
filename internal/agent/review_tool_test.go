@@ -47,6 +47,21 @@ func TestReverseDiffFilesNoBoundary(t *testing.T) {
 	require.Equal(t, diff, reverseDiffFiles(diff))
 }
 
+func TestReverseDiffFilesIgnoresInContentMarker(t *testing.T) {
+	t.Parallel()
+
+	// A single-file diff whose added lines contain "diff --git " in
+	// hunk content (a diff-of-a-diff). It must NOT be split there.
+	diff := `diff --git a/one.go b/one.go
+@@ -1 +2 @@
++diff --git a/embedded.txt b/embedded.txt
++more content
+`
+	got := reverseDiffFiles(diff)
+	// Only one real file boundary → unchanged.
+	require.Equal(t, diff, got)
+}
+
 func TestBuildReviewPromptVariantsDiffer(t *testing.T) {
 	t.Parallel()
 

@@ -206,6 +206,14 @@ type UI struct {
 	session      *session.Session
 	sessionFiles []SessionFile
 
+	// pendingPermission caches the most recent unresolved permission
+	// request this client has seen. Permission requests are serialized
+	// service-side (one at a time), so there is at most one. It lets us
+	// (a) suppress showing a request that belongs to a session the user
+	// is not currently viewing and (b) re-surface it when the user
+	// switches back to that session. Cleared when the request resolves.
+	pendingPermission *permission.PermissionRequest
+
 	// keeps track of read files while we don't have a session id
 	sessionFileReads []string
 
@@ -639,6 +647,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessionFiles = msg.files
 		// Set active session for worktree-aware working directory.
 		m.com.Workspace.SetActiveSessionID(m.session.ID)
+		if cmd := m.syncPermissionDialogForSession(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
 		msgs, err := m.com.Workspace.ListMessages(context.Background(), m.session.ID)
 		if err != nil {
@@ -673,6 +684,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.session = msg.session
 		m.sessionFiles = msg.files
 		m.com.Workspace.SetActiveSessionID(m.session.ID)
+		if cmd := m.syncPermissionDialogForSession(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
 		msgs, err := m.com.Workspace.ListMessages(context.Background(), m.session.ID)
 		if err != nil {
@@ -829,8 +843,17 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, handleMCPResourcesEvent(m.com.Workspace, msg.Payload.Name)
 		}
 	case pubsub.Event[permission.PermissionRequest]:
-		if cmd := m.openPermissionsDialog(msg.Payload); cmd != nil {
-			cmds = append(cmds, cmd)
+		// Cache the request so we can re-surface it if the user switches
+		// away and back. Only pop the dialog when it belongs to the
+		// session the user is currently viewing: showing another
+		// session's prompt over the active one would let allow/deny (and
+		// "allow for session") be applied to the wrong session.
+		perm := msg.Payload
+		m.pendingPermission = &perm
+		if m.session != nil && perm.SessionID == m.session.ID {
+			if cmd := m.openPermissionsDialog(perm); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 		if cmd := m.sendNotification(notification.Notification{
 			Title:   "Crush is waiting...",
@@ -1256,11 +1279,14 @@ func (m *UI) loadNestedToolCalls(items []chat.MessageItem) []tea.Cmd {
 		messageID := toolItem.MessageID()
 
 		// loadFromSession extracts the nested tool items recorded in a
-		// child agent-tool session, if any.
-		loadFromSession := func(sessionID string) []chat.ToolMessageItem {
+		// child agent-tool session, if any. hadMessages reports whether
+		// the session existed at all (had any messages), which is
+		// distinct from whether it produced any tool items — a reviewer
+		// may answer without calling a single tool.
+		loadFromSession := func(sessionID string) (items []chat.ToolMessageItem, hadMessages bool) {
 			nestedMsgs, err := m.com.Workspace.ListMessages(context.Background(), sessionID)
 			if err != nil || len(nestedMsgs) == 0 {
-				return nil
+				return nil, false
 			}
 			nestedMsgPtrs := make([]*message.Message, len(nestedMsgs))
 			for i := range nestedMsgs {
@@ -1287,7 +1313,7 @@ func (m *UI) loadNestedToolCalls(items []chat.MessageItem) []tea.Cmd {
 					nested = append(nested, nestedToolItem)
 				}
 			}
-			return nested
+			return nested, true
 		}
 
 		// applyNested recurses into any agent tools within and returns
@@ -1303,17 +1329,24 @@ func (m *UI) loadNestedToolCalls(items []chat.MessageItem) []tea.Cmd {
 
 		// The review tool records one child session per reviewer
 		// ("<toolCallID>-review-N"). Load each into its own group so the
-		// reviewers render as separate sub-trees. Probe successive
-		// reviewer indices until one has no messages.
+		// reviewers render as separate sub-trees. Scan a fixed number of
+		// reviewer indices and populate every group whose session had
+		// messages. We must NOT break on the first empty slot: a reviewer
+		// that failed early (session created, no messages) would
+		// otherwise truncate the scan and drop later reviewers' groups.
 		if grouped, ok := item.(chat.GroupedNestedToolContainer); ok {
-			const maxReviewers = 32
 			any := false
-			for g := range maxReviewers {
+			// Bound the scan to the actual reviewer fan-out. Scan every
+			// index (do not break on an empty slot, so a reviewer that
+			// failed with no messages does not truncate later groups),
+			// but no further — an unbounded probe would issue a
+			// ListMessages query per index on every reload.
+			for g := range agent.ReviewerCount {
 				childID := agent.ReviewSubToolCallID(tc.ID, g)
 				sessionID := m.com.Workspace.CreateAgentToolSessionID(messageID, childID)
-				nested := loadFromSession(sessionID)
-				if len(nested) == 0 {
-					break
+				nested, hadMessages := loadFromSession(sessionID)
+				if !hadMessages {
+					continue
 				}
 				grouped.SetNestedToolsForGroup(g, applyNested(nested))
 				any = true
@@ -1321,15 +1354,15 @@ func (m *UI) loadNestedToolCalls(items []chat.MessageItem) []tea.Cmd {
 			if any {
 				continue
 			}
-			// Fall through to the flat path if no grouped sessions
-			// exist (e.g. legacy single-session layout).
+			// Fall through to the flat path only if no grouped sessions
+			// exist at all (e.g. legacy single-session layout).
 		}
 
 		// Non-grouped containers (agent, agentic_fetch): a single child
 		// session keyed by the tool call ID.
 		agentSessionID := m.com.Workspace.CreateAgentToolSessionID(messageID, tc.ID)
-		nestedTools := loadFromSession(agentSessionID)
-		if len(nestedTools) == 0 {
+		nestedTools, hadMessages := loadFromSession(agentSessionID)
+		if !hadMessages {
 			continue
 		}
 		nestedContainer.SetNestedTools(applyNested(nestedTools))
@@ -2014,6 +2047,13 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		m.dialog.CloseDialog(dialog.ThemeID)
 	case dialog.ActionPermissionResponse:
 		m.dialog.CloseDialog(dialog.PermissionsID)
+		// Clear the cached pending request eagerly: this resolves the
+		// request synchronously service-side, so a session switch before
+		// the resolving notification round-trips must not re-surface a
+		// now-stale ("zombie") prompt.
+		if m.pendingPermission != nil && m.pendingPermission.ToolCallID == msg.Permission.ToolCallID {
+			m.pendingPermission = nil
+		}
 		switch msg.Action {
 		case dialog.PermissionAllow:
 			m.com.Workspace.PermissionGrant(msg.Permission)
@@ -3989,6 +4029,8 @@ func (m *UI) newSession() tea.Cmd {
 	m.sessionFileReads = nil
 	// Clear active session for worktree-aware working directory.
 	m.com.Workspace.SetActiveSessionID("")
+	// Close any permission dialog bound to the session we just left.
+	m.syncPermissionDialogForSession()
 	m.setState(uiLanding, uiFocusEditor)
 	m.textarea.Focus()
 	m.chat.Blur()

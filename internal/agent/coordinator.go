@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/taigrr/catwalk/pkg/catwalk"
@@ -143,6 +144,13 @@ type coordinator struct {
 	effectiveWorkingDir string
 
 	readyWg errgroup.Group
+
+	// parentCostMu serializes the read-modify-write in
+	// updateParentSessionCost. Sub-agents can run concurrently (the
+	// review tool fans out to N reviewers in parallel), and each
+	// accumulates its child cost onto the shared parent session; without
+	// this lock the last writer wins and costs are silently dropped.
+	parentCostMu sync.Mutex
 }
 
 func NewCoordinator(
@@ -1551,6 +1559,12 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 
 // updateParentSessionCost accumulates the cost from a child session to its parent session.
 func (c *coordinator) updateParentSessionCost(ctx context.Context, childSessionID, parentSessionID string) error {
+	// Serialize the read-modify-write: concurrent sub-agents (e.g. the
+	// review tool's parallel reviewers) all accumulate onto the same
+	// parent session, and an unlocked += would drop costs.
+	c.parentCostMu.Lock()
+	defer c.parentCostMu.Unlock()
+
 	childSession, err := c.sessions.Get(ctx, childSessionID)
 	if err != nil {
 		return fmt.Errorf("get child session: %w", err)

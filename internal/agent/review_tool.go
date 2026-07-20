@@ -9,9 +9,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"github.com/taigrr/fantasy"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/taigrr/crush/internal/agent/prompt"
 	"github.com/taigrr/crush/internal/agent/tools"
@@ -24,9 +25,13 @@ var reviewToolDescription string
 
 const (
 	ReviewToolName = "review"
-	// reviewerCount is the fixed number of adversarial reviewers spawned
-	// in parallel per review call.
-	reviewerCount = 2
+	// ReviewerCount is the fixed number of adversarial reviewers spawned
+	// in parallel per review call. Exported so UI code that reconstructs
+	// per-reviewer groups from persisted sessions can bound its scan to
+	// the actual fan-out.
+	ReviewerCount = 2
+	// reviewerCount is the unexported alias used internally.
+	reviewerCount = ReviewerCount
 	// maxReviewPayloadBytes caps the size of the change fed to reviewers.
 	maxReviewPayloadBytes = 400_000
 )
@@ -109,29 +114,54 @@ var reviewVariants = [reviewerCount]reviewVariant{
 	},
 }
 
-// reverseDiffFiles splits a unified diff at "diff --git" boundaries and
-// reverses the order of the file sections, leaving each file's hunks
-// intact. Any preamble before the first file boundary is preserved at
-// the top. If no boundaries are found, the diff is returned unchanged.
+// reverseDiffFiles splits a unified diff into per-file sections and
+// reverses their order, leaving each file's hunks intact. Sections are
+// delimited only by a "diff --git " that begins a line, so an added or
+// removed line whose content happens to contain "diff --git " (e.g. a
+// diff-of-a-diff) does not falsely split a hunk. Any preamble before
+// the first file boundary is preserved at the top. If no boundaries are
+// found, the diff is returned unchanged.
 func reverseDiffFiles(diff string) string {
-	const sep = "diff --git "
-	idx := strings.Index(diff, sep)
-	if idx == -1 {
-		return diff
-	}
-	preamble := diff[:idx]
-	rest := diff[idx:]
+	const marker = "diff --git "
 
-	var sections []string
-	for len(rest) > 0 {
-		next := strings.Index(rest[len(sep):], sep)
-		if next == -1 {
-			sections = append(sections, rest)
+	// isBoundary reports whether marker begins at byte offset i, i.e. at
+	// the very start of the string or immediately after a newline.
+	isBoundary := func(i int) bool {
+		if !strings.HasPrefix(diff[i:], marker) {
+			return false
+		}
+		return i == 0 || diff[i-1] == '\n'
+	}
+
+	// Locate the first file boundary.
+	first := -1
+	for i := 0; i+len(marker) <= len(diff); i++ {
+		if isBoundary(i) {
+			first = i
 			break
 		}
-		cut := len(sep) + next
-		sections = append(sections, rest[:cut])
-		rest = rest[cut:]
+	}
+	if first == -1 {
+		return diff
+	}
+
+	preamble := diff[:first]
+
+	// Collect section start offsets.
+	var starts []int
+	for i := first; i+len(marker) <= len(diff); i++ {
+		if isBoundary(i) {
+			starts = append(starts, i)
+		}
+	}
+
+	sections := make([]string, len(starts))
+	for i, start := range starts {
+		end := len(diff)
+		if i+1 < len(starts) {
+			end = starts[i+1]
+		}
+		sections[i] = diff[start:end]
 	}
 
 	slices.Reverse(sections)
@@ -139,7 +169,12 @@ func reverseDiffFiles(diff string) string {
 }
 
 // buildReviewPrompt assembles the per-call prompt handed to reviewer
-// number variant (0-indexed), given the resolved change payload.
+// number variant (0-indexed), given the resolved change payload. The
+// base ordering/framing cycles through reviewVariants; on top of that
+// each reviewer is told its position in the panel so that, even when
+// the panel is larger than the number of base variants (N reviewers >
+// len(reviewVariants)), no two reviewers receive a byte-identical
+// prompt — preserving decorrelation as the panel scales.
 func buildReviewPrompt(params ReviewParams, change string, variant int) string {
 	v := reviewVariants[variant%len(reviewVariants)]
 
@@ -166,6 +201,7 @@ func buildReviewPrompt(params ReviewParams, change string, variant int) string {
 	}
 
 	var sb strings.Builder
+	fmt.Fprintf(&sb, "You are reviewer %d of %d independent reviewers on this panel. Review on your own; do not assume another reviewer will catch what you skip.\n\n", variant+1, reviewerCount)
 	sb.WriteString(v.intro)
 	sb.WriteString("\n\n")
 	if v.diffLast {
@@ -238,14 +274,25 @@ func (c *coordinator) reviewTool(ctx context.Context) (fantasy.AgentTool, error)
 				), nil
 			}
 			if len(change) > maxReviewPayloadBytes {
-				change = change[:maxReviewPayloadBytes] + "\n\n[... change truncated; review the largest/most relevant subset in a follow-up call ...]"
+				// Truncate on a UTF-8 rune boundary so we never emit a
+				// split multibyte character into the reviewer prompt.
+				cut := maxReviewPayloadBytes
+				for cut > 0 && !utf8.RuneStart(change[cut]) {
+					cut--
+				}
+				change = change[:cut] + "\n\n[... change truncated; review the largest/most relevant subset in a follow-up call ...]"
 			}
 
+			// Run reviewers in parallel. Each reviewer is independent: a
+			// failure in one must not cancel the others or discard their
+			// completed reports, so we collect per-reviewer outcomes
+			// rather than using errgroup's fail-fast cancellation.
 			results := make([]string, reviewerCount)
-			g, gctx := errgroup.WithContext(ctx)
+			failures := make([]bool, reviewerCount)
+			var wg sync.WaitGroup
 			for i := range reviewerCount {
-				g.Go(func() error {
-					resp, err := c.runSubAgent(gctx, subAgentParams{
+				wg.Go(func() {
+					resp, err := c.runSubAgent(ctx, subAgentParams{
 						Agent:          agent,
 						SessionID:      sessionID,
 						AgentMessageID: agentMessageID,
@@ -253,18 +300,32 @@ func (c *coordinator) reviewTool(ctx context.Context) (fantasy.AgentTool, error)
 						Prompt:         buildReviewPrompt(params, change, i),
 						SessionTitle:   fmt.Sprintf("Adversarial Review %d", i+1),
 					})
-					if err != nil {
-						return err
+					switch {
+					case err != nil:
+						results[i] = fmt.Sprintf("_Reviewer failed: %s_", err)
+						failures[i] = true
+					case resp.IsError:
+						results[i] = fmt.Sprintf("_Reviewer failed: %s_", resp.Content)
+						failures[i] = true
+					default:
+						results[i] = resp.Content
 					}
-					if resp.IsError {
-						return fmt.Errorf("reviewer %d failed: %s", i+1, resp.Content)
-					}
-					results[i] = resp.Content
-					return nil
 				})
 			}
-			if err := g.Wait(); err != nil {
-				return fantasy.NewTextErrorResponse(fmt.Sprintf("Review failed: %s", err)), nil
+			wg.Wait()
+
+			// Only fail the whole call if every reviewer failed.
+			allFailed := true
+			for _, f := range failures {
+				if !f {
+					allFailed = false
+					break
+				}
+			}
+			if allFailed {
+				return fantasy.NewTextErrorResponse(fmt.Sprintf(
+					"All reviewers failed. First error: %s", strings.TrimSpace(results[0]),
+				)), nil
 			}
 
 			var sb strings.Builder
