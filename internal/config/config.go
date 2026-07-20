@@ -57,8 +57,9 @@ const (
 )
 
 const (
-	AgentCoder string = "coder"
-	AgentTask  string = "task"
+	AgentCoder    string = "coder"
+	AgentTask     string = "task"
+	AgentReviewer string = "reviewer"
 )
 
 type SelectedModel struct {
@@ -754,6 +755,7 @@ func allToolNames() []string {
 		"read_mcp_resource",
 		"editor_context",
 		"show_locations",
+		"review",
 	}
 }
 
@@ -766,9 +768,35 @@ func resolveAllowedTools(allTools []string, disabledTools []string) []string {
 }
 
 func resolveReadOnlyTools(tools []string) []string {
-	readOnlyTools := []string{"context7", "editor_context", "glob", "grep", "list_sessions", "ls", "multi_view", "search_history", "show_locations", "sourcegraph", "view"}
+	readOnlyTools := []string{"agentic_fetch", "context7", "editor_context", "glob", "grep", "list_sessions", "ls", "multi_view", "search_history", "show_locations", "sourcegraph", "view"}
 	// filter to only include tools that are in allowedtools (include mode)
 	return filterSlice(tools, readOnlyTools, true)
+}
+
+// resolveReviewerTools returns the tools available to an adversarial
+// reviewer sub-agent: read-only inspection plus code intelligence and
+// research, but never mutation (no bash, edit, multiedit, write,
+// download, or rename).
+func resolveReviewerTools(tools []string) []string {
+	reviewerTools := []string{
+		"agentic_fetch",
+		"context7",
+		"editor_context",
+		"glob",
+		"grep",
+		"list_sessions",
+		"ls",
+		"lsp_definition",
+		"lsp_diagnostics",
+		"lsp_document_symbols",
+		"lsp_references",
+		"multi_view",
+		"search_history",
+		"show_locations",
+		"sourcegraph",
+		"view",
+	}
+	return filterSlice(tools, reviewerTools, true)
 }
 
 func filterSlice(data []string, mask []string, include bool) []string {
@@ -804,6 +832,17 @@ func (c *Config) SetupAgents() {
 			ContextPaths: c.Options.ContextPaths,
 			AllowedTools: resolveReadOnlyTools(allowedTools),
 			// NO MCPs or LSPs by default
+			AllowedMCP: map[string][]string{},
+		},
+
+		AgentReviewer: {
+			ID:           AgentReviewer,
+			Name:         "Reviewer",
+			Description:  "An adversarial reviewer sub-agent that inspects a diff and reports bugs, regressions, and correctness issues. Read-only.",
+			Model:        SelectedModelTypeLarge,
+			ContextPaths: c.Options.ContextPaths,
+			AllowedTools: resolveReviewerTools(allowedTools),
+			// NO MCPs by default.
 			AllowedMCP: map[string][]string{},
 		},
 	}

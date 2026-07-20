@@ -768,6 +768,14 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		allTools = append(allTools, agenticFetchTool)
 	}
 
+	if slices.Contains(agent.AllowedTools, ReviewToolName) {
+		reviewTool, err := c.reviewTool(ctx)
+		if err != nil {
+			return nil, err
+		}
+		allTools = append(allTools, reviewTool)
+	}
+
 	// Get the model name for the agent
 	modelName := ""
 	if modelCfg, ok := c.cfg.Config().Models[agent.Model]; ok {

@@ -1724,6 +1724,7 @@ func (t *baseToolMessageItem) formatAgentResultForCopy() string {
 // humanizedToolName.
 var prettyToolNames = map[string]string{
 	agent.AgentToolName:        "Agent",
+	agent.ReviewToolName:       "Review",
 	tools.BashToolName:         "Bash",
 	tools.JobOutputToolName:    "Job: Output",
 	tools.JobKillToolName:      "Job: Kill",
