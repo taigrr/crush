@@ -27,6 +27,7 @@ import (
 	"github.com/charmbracelet/x/editor"
 	xstrings "github.com/charmbracelet/x/exp/strings"
 	"github.com/taigrr/catwalk/pkg/catwalk"
+	"github.com/taigrr/crush/internal/agent"
 	"github.com/taigrr/crush/internal/agent/hyper"
 	"github.com/taigrr/crush/internal/agent/notify"
 	agenttools "github.com/taigrr/crush/internal/agent/tools"
@@ -1254,28 +1255,27 @@ func (m *UI) loadNestedToolCalls(items []chat.MessageItem) []tea.Cmd {
 		tc := toolItem.ToolCall()
 		messageID := toolItem.MessageID()
 
-		// Get the agent tool session ID.
-		agentSessionID := m.com.Workspace.CreateAgentToolSessionID(messageID, tc.ID)
+		// loadFromSession extracts the nested tool items recorded in a
+		// child agent-tool session, if any.
+		loadFromSession := func(sessionID string) []chat.ToolMessageItem {
+			nestedMsgs, err := m.com.Workspace.ListMessages(context.Background(), sessionID)
+			if err != nil || len(nestedMsgs) == 0 {
+				return nil
+			}
+			nestedMsgPtrs := make([]*message.Message, len(nestedMsgs))
+			for i := range nestedMsgs {
+				nestedMsgPtrs[i] = &nestedMsgs[i]
+			}
+			nestedToolResultMap := chat.BuildToolResultMap(nestedMsgPtrs)
 
-		// Fetch nested messages.
-		nestedMsgs, err := m.com.Workspace.ListMessages(context.Background(), agentSessionID)
-		if err != nil || len(nestedMsgs) == 0 {
-			continue
-		}
-
-		// Build tool result map for nested messages.
-		nestedMsgPtrs := make([]*message.Message, len(nestedMsgs))
-		for i := range nestedMsgs {
-			nestedMsgPtrs[i] = &nestedMsgs[i]
-		}
-		nestedToolResultMap := chat.BuildToolResultMap(nestedMsgPtrs)
-
-		// Extract nested tool items.
-		var nestedTools []chat.ToolMessageItem
-		for _, nestedMsg := range nestedMsgPtrs {
-			nestedItems := chat.ExtractMessageItems(m.com.Styles, nestedMsg, nestedToolResultMap)
-			for _, nestedItem := range nestedItems {
-				if nestedToolItem, ok := nestedItem.(chat.ToolMessageItem); ok {
+			var nested []chat.ToolMessageItem
+			for _, nestedMsg := range nestedMsgPtrs {
+				nestedItems := chat.ExtractMessageItems(m.com.Styles, nestedMsg, nestedToolResultMap)
+				for _, nestedItem := range nestedItems {
+					nestedToolItem, ok := nestedItem.(chat.ToolMessageItem)
+					if !ok {
+						continue
+					}
 					// Mark nested tools as simple (compact) rendering.
 					if simplifiable, ok := nestedToolItem.(chat.Compactable); ok {
 						simplifiable.SetCompact(true)
@@ -1284,21 +1284,55 @@ func (m *UI) loadNestedToolCalls(items []chat.MessageItem) []tea.Cmd {
 					if cmd := nestedToolItem.TransmitImage(); cmd != nil {
 						cmds = append(cmds, cmd)
 					}
-					nestedTools = append(nestedTools, nestedToolItem)
+					nested = append(nested, nestedToolItem)
 				}
 			}
+			return nested
 		}
 
-		// Recursively load nested tool calls for any agent tools within.
-		nestedMessageItems := make([]chat.MessageItem, len(nestedTools))
-		for i, nt := range nestedTools {
-			nestedMessageItems[i] = nt
+		// applyNested recurses into any agent tools within and returns
+		// the loaded set.
+		applyNested := func(nested []chat.ToolMessageItem) []chat.ToolMessageItem {
+			nestedMessageItems := make([]chat.MessageItem, len(nested))
+			for i, nt := range nested {
+				nestedMessageItems[i] = nt
+			}
+			cmds = append(cmds, m.loadNestedToolCalls(nestedMessageItems)...)
+			return nested
 		}
-		nestedCmds := m.loadNestedToolCalls(nestedMessageItems)
-		cmds = append(cmds, nestedCmds...)
 
-		// Set nested tools on the parent.
-		nestedContainer.SetNestedTools(nestedTools)
+		// The review tool records one child session per reviewer
+		// ("<toolCallID>-review-N"). Load each into its own group so the
+		// reviewers render as separate sub-trees. Probe successive
+		// reviewer indices until one has no messages.
+		if grouped, ok := item.(chat.GroupedNestedToolContainer); ok {
+			const maxReviewers = 32
+			any := false
+			for g := range maxReviewers {
+				childID := agent.ReviewSubToolCallID(tc.ID, g)
+				sessionID := m.com.Workspace.CreateAgentToolSessionID(messageID, childID)
+				nested := loadFromSession(sessionID)
+				if len(nested) == 0 {
+					break
+				}
+				grouped.SetNestedToolsForGroup(g, applyNested(nested))
+				any = true
+			}
+			if any {
+				continue
+			}
+			// Fall through to the flat path if no grouped sessions
+			// exist (e.g. legacy single-session layout).
+		}
+
+		// Non-grouped containers (agent, agentic_fetch): a single child
+		// session keyed by the tool call ID.
+		agentSessionID := m.com.Workspace.CreateAgentToolSessionID(messageID, tc.ID)
+		nestedTools := loadFromSession(agentSessionID)
+		if len(nestedTools) == 0 {
+			continue
+		}
+		nestedContainer.SetNestedTools(applyNested(nestedTools))
 	}
 	return cmds
 }
@@ -1500,6 +1534,12 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 	if !ok {
 		return nil
 	}
+	// The review tool fans out to multiple reviewer sub-agents whose
+	// session tool-call IDs carry a "-review-N" suffix. Capture the
+	// reviewer group index (if any), then strip the suffix so the events
+	// map back to the single parent review tool call.
+	reviewerGroup, isReviewer := agent.ReviewerIndexFromToolCallID(toolCallID)
+	toolCallID = agent.StripReviewSuffix(toolCallID)
 
 	// Find the parent agent tool item.
 	var agentItem chat.NestedToolContainer
@@ -1524,8 +1564,18 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 		return nil
 	}
 
-	// Get existing nested tools.
-	nestedTools := agentItem.NestedTools()
+	// For the review tool, bucket the reviewer's nested tool calls into
+	// its own group so each reviewer renders as a separate sub-tree.
+	// Other containers (agent, agentic_fetch) use the flat list.
+	grouped, useGroup := agentItem.(chat.GroupedNestedToolContainer)
+	useGroup = useGroup && isReviewer
+
+	var nestedTools []chat.ToolMessageItem
+	if useGroup {
+		nestedTools = grouped.NestedToolsForGroup(reviewerGroup)
+	} else {
+		nestedTools = agentItem.NestedTools()
+	}
 
 	// Update or create nested tool calls.
 	for _, tc := range event.Payload.ToolCalls() {
@@ -1563,7 +1613,11 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 	}
 
 	// Update the agent item with the new nested tools.
-	agentItem.SetNestedTools(nestedTools)
+	if useGroup {
+		grouped.SetNestedToolsForGroup(reviewerGroup, nestedTools)
+	} else {
+		agentItem.SetNestedTools(nestedTools)
+	}
 
 	// Update the chat so it updates the index map for animations to work as expected
 	m.chat.UpdateNestedToolIDs(toolCallID)

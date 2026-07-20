@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -22,6 +23,22 @@ type NestedToolContainer interface {
 	NestedTools() []ToolMessageItem
 	SetNestedTools(tools []ToolMessageItem)
 	AddNestedTool(tool ToolMessageItem)
+}
+
+// GroupedNestedToolContainer is implemented by containers that bucket
+// their nested tool calls into independent groups — e.g. the review
+// tool fans out to N adversarial reviewers, each rendered as its own
+// sub-tree. NestedTools() (from [NestedToolContainer]) still returns the
+// flattened set across all groups for ID registration and animation.
+type GroupedNestedToolContainer interface {
+	NestedToolContainer
+	// NestedToolsForGroup returns the nested tools for reviewer group g.
+	NestedToolsForGroup(g int) []ToolMessageItem
+	// SetNestedToolsForGroup replaces the nested tools for group g,
+	// growing the group set as needed.
+	SetNestedToolsForGroup(g int, tools []ToolMessageItem)
+	// GroupCount returns the number of groups currently tracked.
+	GroupCount() int
 }
 
 // AgentToolMessageItem is a message item that represents an agent tool call.
@@ -349,6 +366,200 @@ func (r *AgenticFetchToolRenderContext) RenderTool(sty *styles.Styles, width int
 	result := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	// Add body content when completed.
+	if opts.HasResult() && opts.Result.Content != "" {
+		body := toolOutputMarkdownContent(sty, opts.Result.Content, cappedWidth-toolBodyLeftPaddingTotal, opts.ExpandedContent)
+		return joinToolParts(result, body)
+	}
+
+	return result
+}
+
+// -----------------------------------------------------------------------------
+// Review Tool
+// -----------------------------------------------------------------------------
+
+// ReviewToolMessageItem is a message item that represents a review tool
+// call. It fans out to N adversarial reviewer sub-agents in parallel;
+// each reviewer's nested tool calls are bucketed into its own group and
+// rendered as a separate "Reviewer N" sub-tree.
+type ReviewToolMessageItem struct {
+	*baseToolMessageItem
+
+	// groups[i] holds the nested tool calls made by reviewer i.
+	groups [][]ToolMessageItem
+}
+
+var (
+	_ ToolMessageItem            = (*ReviewToolMessageItem)(nil)
+	_ NestedToolContainer        = (*ReviewToolMessageItem)(nil)
+	_ GroupedNestedToolContainer = (*ReviewToolMessageItem)(nil)
+)
+
+// NewReviewToolMessageItem creates a new [ReviewToolMessageItem].
+func NewReviewToolMessageItem(
+	sty *styles.Styles,
+	toolCall message.ToolCall,
+	result *message.ToolResult,
+	canceled bool,
+) *ReviewToolMessageItem {
+	t := &ReviewToolMessageItem{}
+	t.baseToolMessageItem = newBaseToolMessageItem(sty, toolCall, result, &ReviewToolRenderContext{review: t}, canceled)
+	// Keep spinning until the tool call is finished.
+	t.spinningFunc = func(state SpinningState) bool {
+		return !state.HasResult() && !state.IsCanceled()
+	}
+	return t
+}
+
+// Animate progresses the message animation if it should be spinning.
+// See [AgentToolMessageItem.Animate] for the parent-bump rationale.
+func (a *ReviewToolMessageItem) Animate(msg anim.StepMsg) tea.Cmd {
+	if a.result != nil || a.Status() == ToolStatusCanceled {
+		return nil
+	}
+	if msg.ID == a.ID() {
+		a.Bump()
+		return a.anim.Animate(msg)
+	}
+	for _, group := range a.groups {
+		for _, nestedTool := range group {
+			if msg.ID != nestedTool.ID() {
+				continue
+			}
+			if s, ok := nestedTool.(Animatable); ok {
+				a.Bump()
+				return s.Animate(msg)
+			}
+		}
+	}
+	return nil
+}
+
+// NestedTools returns the flattened set of nested tools across all
+// reviewer groups (used for ID registration and animation dispatch).
+func (a *ReviewToolMessageItem) NestedTools() []ToolMessageItem {
+	var all []ToolMessageItem
+	for _, group := range a.groups {
+		all = append(all, group...)
+	}
+	return all
+}
+
+// SetNestedTools replaces group 0. Kept for the [NestedToolContainer]
+// contract / non-grouped callers; grouped callers use
+// SetNestedToolsForGroup.
+func (a *ReviewToolMessageItem) SetNestedTools(tools []ToolMessageItem) {
+	a.SetNestedToolsForGroup(0, tools)
+}
+
+// AddNestedTool appends a nested tool to group 0.
+func (a *ReviewToolMessageItem) AddNestedTool(tool ToolMessageItem) {
+	if s, ok := tool.(Compactable); ok {
+		s.SetCompact(true)
+	}
+	if len(a.groups) == 0 {
+		a.groups = append(a.groups, nil)
+	}
+	a.groups[0] = append(a.groups[0], tool)
+	a.clearCache()
+	a.Bump()
+}
+
+// NestedToolsForGroup returns the nested tools for reviewer group g.
+func (a *ReviewToolMessageItem) NestedToolsForGroup(g int) []ToolMessageItem {
+	if g < 0 || g >= len(a.groups) {
+		return nil
+	}
+	return a.groups[g]
+}
+
+// SetNestedToolsForGroup replaces the nested tools for group g, growing
+// the group set as needed. Always bumps the version; see
+// [AgentToolMessageItem.SetNestedTools] for the rationale.
+func (a *ReviewToolMessageItem) SetNestedToolsForGroup(g int, tools []ToolMessageItem) {
+	if g < 0 {
+		return
+	}
+	for len(a.groups) <= g {
+		a.groups = append(a.groups, nil)
+	}
+	a.groups[g] = tools
+	a.clearCache()
+	a.Bump()
+}
+
+// GroupCount returns the number of reviewer groups currently tracked.
+func (a *ReviewToolMessageItem) GroupCount() int {
+	return len(a.groups)
+}
+
+// ReviewToolRenderContext renders review tool messages.
+type ReviewToolRenderContext struct {
+	review *ReviewToolMessageItem
+}
+
+// reviewParams matches the JSON shape of agent.ReviewParams.
+type reviewParams struct {
+	Command string `json:"command"`
+	Goal    string `json:"goal,omitempty"`
+	Focus   string `json:"focus,omitempty"`
+}
+
+// RenderTool implements the [ToolRenderer] interface.
+func (r *ReviewToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
+	cappedWidth := width
+	if !opts.ToolCall.Finished && !opts.IsCanceled() && r.review.GroupCount() == 0 {
+		return pendingTool(sty, "Review", opts.Anim, opts.Compact)
+	}
+
+	var params reviewParams
+	_ = json.Unmarshal([]byte(opts.ToolCall.Input), &params)
+
+	header := toolHeader(sty, opts.Status, "Review", cappedWidth, opts.Compact)
+	if opts.Compact {
+		return header
+	}
+
+	// Show the command being reviewed, and the goal if present.
+	taskTag := sty.Tool.AgentTaskTag.Render("Adversarial")
+	taskTagWidth := lipgloss.Width(taskTag)
+	remainingWidth := min(cappedWidth-taskTagWidth-3, maxTextWidth-taskTagWidth-3)
+
+	label := params.Command
+	if params.Goal != "" {
+		label = params.Goal
+	}
+	label = strings.ReplaceAll(label, "\n", " ")
+	labelText := sty.Tool.AgentPrompt.Width(remainingWidth).Render(label)
+
+	header = lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		"",
+		lipgloss.JoinHorizontal(lipgloss.Left, taskTag, " ", labelText),
+	)
+
+	// One sub-tree per reviewer group, so N reviewers render as N
+	// independent branches.
+	childTools := tree.Root(header)
+	for i, group := range r.review.groups {
+		reviewerLabel := sty.Tool.AgentPrompt.Render(fmt.Sprintf("Reviewer %d", i+1))
+		reviewerNode := tree.Root(reviewerLabel)
+		for _, nestedTool := range group {
+			reviewerNode.Child(nestedTool.Render(remainingWidth - 2))
+		}
+		childTools.Child(reviewerNode)
+	}
+
+	var parts []string
+	parts = append(parts, childTools.Enumerator(roundedEnumerator(2, taskTagWidth-5)).String())
+
+	if !opts.HasResult() && !opts.IsCanceled() {
+		parts = append(parts, "", opts.Anim.Render())
+	}
+
+	result := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
 	if opts.HasResult() && opts.Result.Content != "" {
 		body := toolOutputMarkdownContent(sty, opts.Result.Content, cappedWidth-toolBodyLeftPaddingTotal, opts.ExpandedContent)
 		return joinToolParts(result, body)

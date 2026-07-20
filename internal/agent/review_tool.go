@@ -5,7 +5,9 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/taigrr/fantasy"
@@ -14,6 +16,7 @@ import (
 	"github.com/taigrr/crush/internal/agent/prompt"
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/shell"
 )
 
 //go:embed templates/review_tool.md
@@ -24,12 +27,61 @@ const (
 	// reviewerCount is the fixed number of adversarial reviewers spawned
 	// in parallel per review call.
 	reviewerCount = 2
+	// maxReviewPayloadBytes caps the size of the change fed to reviewers.
+	maxReviewPayloadBytes = 400_000
 )
 
+// reviewSubToolCallSuffix matches the "-review-N" suffix appended to a
+// review tool call's ID to derive a distinct child session per
+// reviewer. The UI strips it to map reviewer sub-agent events back to
+// the single parent review tool call.
+var reviewSubToolCallSuffix = regexp.MustCompile(`-review-\d+$`)
+
+// reviewSubToolCallID derives the child tool-call ID (and thus child
+// session ID) for reviewer i (0-indexed) under a review tool call.
+func reviewSubToolCallID(parentCallID string, i int) string {
+	return ReviewSubToolCallID(parentCallID, i)
+}
+
+// ReviewSubToolCallID derives the child tool-call ID (and thus child
+// session ID) for reviewer i (0-indexed) under a review tool call. The
+// UI uses it to enumerate reviewer sessions when reloading from the DB.
+func ReviewSubToolCallID(parentCallID string, i int) string {
+	return fmt.Sprintf("%s-review-%d", parentCallID, i+1)
+}
+
+// StripReviewSuffix removes the reviewer suffix added by
+// [reviewSubToolCallID], returning the parent review tool call's ID. If
+// there is no such suffix the input is returned unchanged.
+func StripReviewSuffix(toolCallID string) string {
+	return reviewSubToolCallSuffix.ReplaceAllString(toolCallID, "")
+}
+
+// ReviewerIndexFromToolCallID extracts the 0-based reviewer index from a
+// reviewer child tool-call ID (e.g. "<parent>-review-2" -> 1, true).
+// Returns ok=false when the ID carries no reviewer suffix.
+func ReviewerIndexFromToolCallID(toolCallID string) (int, bool) {
+	m := reviewSubToolCallSuffix.FindString(toolCallID)
+	if m == "" {
+		return 0, false
+	}
+	// m looks like "-review-N"; parse the trailing number.
+	n, err := strconv.Atoi(m[len("-review-"):])
+	if err != nil || n < 1 {
+		return 0, false
+	}
+	return n - 1, true
+}
+
 type ReviewParams struct {
-	Diff  string `json:"diff" description:"The full diff (or code) to review. Required."`
-	Goal  string `json:"goal" description:"The original goal/intent of the change, for the reviewers' context. Optional."`
-	Focus string `json:"focus" description:"Specific areas or concerns the reviewers should focus on. Optional."`
+	// Command is a shell command whose stdout is the change to review
+	// (e.g. "git diff $(git merge-base HEAD main)"). The harness runs it
+	// and feeds the output to the reviewers, so the diff never has to
+	// pass through the model. For un-versioned projects, write the
+	// relevant files to a temp file and pass e.g. "cat /tmp/review.txt".
+	Command string `json:"command" description:"Shell command whose stdout is the change to review, e.g. 'git diff $(git merge-base HEAD main)'. The harness runs it and passes the output to the reviewers. For projects without git, write the files to a temp file and pass 'cat /tmp/review.txt'. Required."`
+	Goal    string `json:"goal,omitempty" description:"The original goal/intent of the change, for the reviewers' context. Optional."`
+	Focus   string `json:"focus,omitempty" description:"Specific areas or concerns the reviewers should focus on. Optional."`
 }
 
 // reviewVariant describes a per-reviewer framing. Varying the input
@@ -87,13 +139,12 @@ func reverseDiffFiles(diff string) string {
 }
 
 // buildReviewPrompt assembles the per-call prompt handed to reviewer
-// number variant (0-indexed).
-func buildReviewPrompt(params ReviewParams, variant int) string {
+// number variant (0-indexed), given the resolved change payload.
+func buildReviewPrompt(params ReviewParams, change string, variant int) string {
 	v := reviewVariants[variant%len(reviewVariants)]
 
-	diff := params.Diff
 	if v.reverseFiles {
-		diff = reverseDiffFiles(diff)
+		change = reverseDiffFiles(change)
 	}
 
 	writeContext := func(sb *strings.Builder) {
@@ -110,7 +161,7 @@ func buildReviewPrompt(params ReviewParams, variant int) string {
 	}
 	writeDiff := func(sb *strings.Builder) {
 		sb.WriteString("<diff>\n")
-		sb.WriteString(diff)
+		sb.WriteString(change)
 		sb.WriteString("\n</diff>\n")
 	}
 
@@ -129,10 +180,12 @@ func buildReviewPrompt(params ReviewParams, variant int) string {
 }
 
 // reviewTool spawns reviewerCount adversarial reviewer sub-agents in
-// parallel. Each reviewer runs in its own isolated session and receives
-// only the diff (and optional goal/focus) — not the coder's reasoning.
-// Both reports are returned so the coder, which retains the original
-// goal and full context, can apply the fixes.
+// parallel. The coder passes a command; the harness runs it and feeds
+// its stdout (the diff or code) to the reviewers, so the change never
+// passes through the model. Each reviewer runs in its own isolated
+// session and receives only the change (and optional goal/focus) — not
+// the coder's reasoning. Both reports are returned so the coder, which
+// retains the original goal and full context, can apply the fixes.
 func (c *coordinator) reviewTool(ctx context.Context) (fantasy.AgentTool, error) {
 	agentCfg, ok := c.cfg.Config().Agents[config.AgentReviewer]
 	if !ok {
@@ -155,8 +208,8 @@ func (c *coordinator) reviewTool(ctx context.Context) (fantasy.AgentTool, error)
 		ReviewToolName,
 		reviewToolDescription,
 		func(ctx context.Context, params ReviewParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			if strings.TrimSpace(params.Diff) == "" {
-				return fantasy.NewTextErrorResponse("diff is required"), nil
+			if strings.TrimSpace(params.Command) == "" {
+				return fantasy.NewTextErrorResponse("command is required"), nil
 			}
 
 			sessionID := tools.GetSessionFromContext(ctx)
@@ -169,6 +222,25 @@ func (c *coordinator) reviewTool(ctx context.Context) (fantasy.AgentTool, error)
 				return fantasy.ToolResponse{}, errors.New("agent message id missing from context")
 			}
 
+			// Run the command in the coder's working directory and use
+			// its stdout as the change to review.
+			sh := shell.NewShell(&shell.Options{WorkingDir: c.workingDir(ctx)})
+			stdout, stderr, runErr := sh.Exec(ctx, params.Command)
+			if runErr != nil {
+				return fantasy.NewTextErrorResponse(fmt.Sprintf(
+					"Command failed: %s\n%s", runErr, strings.TrimSpace(stderr),
+				)), nil
+			}
+			change := strings.TrimSpace(stdout)
+			if change == "" {
+				return fantasy.NewTextErrorResponse(
+					"The command produced no output — nothing to review. Check that the command captures the full change (e.g. wrong diff base, or committing directly on the base branch).",
+				), nil
+			}
+			if len(change) > maxReviewPayloadBytes {
+				change = change[:maxReviewPayloadBytes] + "\n\n[... change truncated; review the largest/most relevant subset in a follow-up call ...]"
+			}
+
 			results := make([]string, reviewerCount)
 			g, gctx := errgroup.WithContext(ctx)
 			for i := range reviewerCount {
@@ -177,8 +249,8 @@ func (c *coordinator) reviewTool(ctx context.Context) (fantasy.AgentTool, error)
 						Agent:          agent,
 						SessionID:      sessionID,
 						AgentMessageID: agentMessageID,
-						ToolCallID:     fmt.Sprintf("%s-review-%d", call.ID, i+1),
-						Prompt:         buildReviewPrompt(params, i),
+						ToolCallID:     reviewSubToolCallID(call.ID, i),
+						Prompt:         buildReviewPrompt(params, change, i),
 						SessionTitle:   fmt.Sprintf("Adversarial Review %d", i+1),
 					})
 					if err != nil {
