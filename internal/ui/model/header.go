@@ -146,14 +146,21 @@ func renderHeaderDetails(
 		parts = append(parts, t.LSP.ErrorDiagnostic.Render(fmt.Sprintf("%s%d", styles.LSPErrorIcon, lspErrorCount)))
 	}
 
-	// Show worktree name if active, otherwise git branch.
+	// Show worktree name if active, otherwise git branch. Prefer the
+	// session's own recorded working dir so attaching to a session that
+	// began in a different worktree shows that worktree's branch rather
+	// than this client's launch cwd.
 	var activeWorktree *worktree.Worktree
 	if com.Workspace.WorktreesEnabled() {
 		activeWorktree, _ = com.Workspace.GetActiveWorktree(context.Background(), session.ID)
 	}
+	branchDir := com.Workspace.EffectiveWorkingDir()
+	if session.WorkingDir != "" {
+		branchDir = session.WorkingDir
+	}
 	if activeWorktree != nil {
 		parts = append(parts, t.Header.WorkingDir.Render("⑂ "+activeWorktree.Name))
-	} else if branch := com.Workspace.GitBranch(); branch != "" {
+	} else if branch := com.Workspace.GitBranchForDir(branchDir); branch != "" {
 		parts = append(parts, t.Header.WorkingDir.Render(styles.GitBranchIcon+" "+branch))
 	}
 

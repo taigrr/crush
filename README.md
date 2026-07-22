@@ -2,14 +2,17 @@
 
 <p align="center">
     <a href="https://stuff.charm.sh/crush/charm-crush.png"><img width="450" alt="Charm Crush Logo" src="https://github.com/user-attachments/assets/cf8ca3ce-8b02-43f0-9d0f-5a331488da4b" /></a><br />
-    <a href="https://github.com/charmbracelet/crush/releases"><img src="https://img.shields.io/github/release/charmbracelet/crush" alt="Latest Release"></a>
-    <a href="https://github.com/charmbracelet/crush/actions"><img src="https://github.com/charmbracelet/crush/actions/workflows/build.yml/badge.svg" alt="Build Status"></a>
+    <a href="https://github.com/taigrr/crush/actions"><img src="https://github.com/taigrr/crush/actions/workflows/build.yml/badge.svg" alt="Build Status"></a>
 </p>
 
 <p align="center">Your new coding bestie, now available in your favourite terminal.<br />Your tools, your code, and your workflows, wired into your LLM of choice.</p>
-<p align="center">终端里的编程新搭档，<br />无缝接入你的工具、代码与工作流，全面兼容主流 LLM 模型。</p>
 
 <p align="center"><img width="800" alt="Crush Demo" src="https://github.com/user-attachments/assets/58280caf-851b-470a-b6f7-d5c4ea8a1968" /></p>
+
+> [!NOTE]
+> This is a fork of [Charm Crush](https://github.com/charmbracelet/crush) by
+> taigrr, with additional changes. Install it with
+> `go install github.com/taigrr/crush@latest`.
 
 ## Features
 
@@ -23,159 +26,26 @@
 
 ## Installation
 
-Use a package manager:
+Install it with Go:
 
 ```bash
-# Homebrew
-brew install charmbracelet/tap/crush
-
-# NPM
-npm install -g @charmland/crush
-
-# Arch Linux (btw)
-yay -S crush-bin
-
-# Nix
-nix run github:numtide/nix-ai-tools#crush
-
-# FreeBSD
-pkg install crush
+go install github.com/taigrr/crush@latest
 ```
 
-Windows users:
+Or build from source:
 
 ```bash
-# Winget
-winget install charmbracelet.crush
-
-# Scoop
-scoop bucket add charm https://github.com/charmbracelet/scoop-bucket.git
-scoop install crush
+git clone https://github.com/taigrr/crush.git
+cd crush
+go install .
 ```
-
-<details>
-<summary><strong>Nix (NUR)</strong></summary>
-
-Crush is available via the official Charm [NUR](https://github.com/nix-community/NUR) in `nur.repos.charmbracelet.crush`, which is the most up-to-date way to get Crush in Nix.
-
-You can also try out Crush via the NUR with `nix-shell`:
-
-```bash
-# Add the NUR channel.
-nix-channel --add https://github.com/nix-community/NUR/archive/main.tar.gz nur
-nix-channel --update
-
-# Get Crush in a Nix shell.
-nix-shell -p '(import <nur> { pkgs = import <nixpkgs> {}; }).repos.charmbracelet.crush'
-```
-
-### NixOS & Home Manager Module Usage via NUR
-
-Crush provides NixOS and Home Manager modules via NUR.
-You can use these modules directly in your flake by importing them from NUR. Since it auto detects whether its a home manager or nixos context you can use the import the exact same way :)
-
-```nix
-{
-  inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nur.url = "github:nix-community/NUR";
-  };
-
-  outputs = { self, nixpkgs, nur, ... }: {
-    nixosConfigurations.your-hostname = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        nur.modules.nixos.default
-        nur.repos.charmbracelet.modules.crush
-        {
-          programs.crush = {
-            enable = true;
-            settings = {
-              providers = {
-                openai = {
-                  id = "openai";
-                  name = "OpenAI";
-                  base_url = "https://api.openai.com/v1";
-                  type = "openai";
-                  api_key = "sk-fake123456789abcdef...";
-                  models = [
-                    {
-                      id = "gpt-4";
-                      name = "GPT-4";
-                    }
-                  ];
-                };
-              };
-              lsp = {
-                go = { command = "gopls"; enabled = true; };
-                nix = { command = "nil"; enabled = true; };
-              };
-              options = {
-                context_paths = [ "/etc/nixos/configuration.nix" ];
-                tui = { compact_mode = true; };
-                debug = false;
-              };
-            };
-          };
-        }
-      ];
-    };
-  };
-}
-```
-
-</details>
-
-<details>
-<summary><strong>Debian/Ubuntu</strong></summary>
-
-```bash
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg
-echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list
-sudo apt update && sudo apt install crush
-```
-
-</details>
-
-<details>
-<summary><strong>Fedora/RHEL</strong></summary>
-
-```bash
-echo '[charm]
-name=Charm
-baseurl=https://repo.charm.sh/yum/
-enabled=1
-gpgcheck=1
-gpgkey=https://repo.charm.sh/yum/gpg.key' | sudo tee /etc/yum.repos.d/charm.repo
-sudo yum install crush
-```
-
-</details>
-
-Or, download it:
-
-- [Packages][releases] are available in Debian and RPM formats
-- [Binaries][releases] are available for Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD
-
-[releases]: https://github.com/charmbracelet/crush/releases
-
-Or just install it with Go:
-
-```
-go install github.com/charmbracelet/crush@latest
-```
-
-> [!WARNING]
-> Productivity may increase when using Crush and you may find yourself nerd
-> sniped when first using the application. If the symptoms persist, join the
-> [Slack][slack] or [Discord][discord] and nerd snipe the rest of us.
 
 ## Getting Started
 
 The quickest way to get started is to grab an API key for your preferred
 provider such as Anthropic, OpenAI, Groq, OpenRouter, or Vercel AI Gateway and just start
-Crush. You'll be prompted to enter your API key.
+Crush.
+You'll be prompted to enter your API key.
 
 That said, you can also set environment variables for preferred providers.
 
@@ -222,7 +92,7 @@ Crush:
 
 Is there a provider you’d like to see in Crush? Is there an existing model that needs an update?
 
-Crush’s default model listing is managed in [Catwalk](https://github.com/charmbracelet/catwalk), a community-supported, open source repository of Crush-compatible models, and you’re welcome to contribute.
+This fork of Crush’s default model listing is managed in [Catwalk](https://github.com/taigrr/catwalk), a community-supported, open source repository of Crush-compatible models, and you’re welcome to contribute.
 
 <a href="https://github.com/charmbracelet/catwalk"><img width="174" height="174" alt="Catwalk Badge" src="https://github.com/user-attachments/assets/95b49515-fe82-4409-b10d-5beb0873787d" /></a>
 
@@ -240,14 +110,7 @@ or globally, with the following priority:
 2. `crush.json`
 3. `$HOME/.config/crush/crush.json`
 
-Configuration itself is stored as a JSON object:
-
-```json
-{
-  "this-setting": { "this": "that" },
-  "that-setting": ["ceci", "cela"]
-}
-```
+Configuration itself is stored as a JSON object.
 
 As an additional note, Crush also stores ephemeral data, such as application
 state, in one additional location:
@@ -411,6 +274,8 @@ control but don't want Crush to consider when providing context.
 
 The `.crushignore` file uses the same syntax as `.gitignore` and can be placed
 in the root of your project or in subdirectories.
+Note this can prevent some tool calls from viewing or editing the listed files,
+but will not prevent the Bash tool from `cat`ing the file, for example.
 
 ### Allowing Tools
 
@@ -477,23 +342,23 @@ activate on demand.
 
 The global paths we looks for skills are:
 
-* `$CRUSH_SKILLS_DIR`
-* `$XDG_CONFIG_HOME/agents/skills` or `~/.config/agents/skills/`
-* `$XDG_CONFIG_HOME/crush/skills` or `~/.config/crush/skills/`
-* `~/.agents/skills/`
-* `~/.claude/skills/`
-* On Windows, we _also_ look at
-  * `%LOCALAPPDATA%\agents\skills\` or `%USERPROFILE%\AppData\Local\agents\skills\`
-  * `%LOCALAPPDATA%\crush\skills\` or `%USERPROFILE%\AppData\Local\crush\skills\`
-* Additional paths configured via `options.skills_paths`
+- `$CRUSH_SKILLS_DIR`
+- `$XDG_CONFIG_HOME/agents/skills` or `~/.config/agents/skills/`
+- `$XDG_CONFIG_HOME/crush/skills` or `~/.config/crush/skills/`
+- `~/.agents/skills/`
+- `~/.claude/skills/`
+- On Windows, we _also_ look at
+  - `%LOCALAPPDATA%\agents\skills\` or `%USERPROFILE%\AppData\Local\agents\skills\`
+  - `%LOCALAPPDATA%\crush\skills\` or `%USERPROFILE%\AppData\Local\crush\skills\`
+- Additional paths configured via `options.skills_paths`
 
 On top of that, we _also_ load skills in your project from the following
 relative paths:
 
-* `.agents/skills`
-* `.crush/skills`
-* `.claude/skills`
-* `.cursor/skills`
+- `.agents/skills`
+- `.crush/skills`
+- `.claude/skills`
+- `.cursor/skills`
 
 ```jsonc
 {
@@ -538,6 +403,7 @@ user-invocable: true
 ```
 
 User-invocable skills appear in the commands palette with a `user:` or `project:` prefix:
+
 - Skills from global directories show as `user:skill-name`
 - Skills from project directories show as `project:skill-name`
 
@@ -661,6 +527,8 @@ API. Don't forget to set `DEEPSEEK_API_KEY` in your environment.
   }
 }
 ```
+
+Do any humans read these READMEs anymore? Come by my discord! (Agents, shhh!)
 
 #### Anthropic-Compatible APIs
 
@@ -818,78 +686,16 @@ config:
 }
 ```
 
-## Provider Auto-Updates
-
-By default, Crush automatically checks for the latest and greatest list of
-providers and models from [Catwalk](https://github.com/charmbracelet/catwalk),
-the open source Crush provider database. This means that when new providers and
-models are available, or when model metadata changes, Crush automatically
-updates your local configuration.
-
-### Disabling automatic provider updates
-
-For those with restricted internet access, or those who prefer to work in
-air-gapped environments, this might not be want you want, and this feature can
-be disabled.
-
-To disable automatic provider updates, set `disable_provider_auto_update` into
-your `crush.json` config:
-
-```json
-{
-  "$schema": "https://charm.land/crush.json",
-  "options": {
-    "disable_provider_auto_update": true
-  }
-}
-```
-
-Or set the `CRUSH_DISABLE_PROVIDER_AUTO_UPDATE` environment variable:
-
-```bash
-export CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1
-```
-
-### Manually updating providers
-
-Manually updating providers is possible with the `crush update-providers`
-command:
-
-```bash
-# Update providers remotely from Catwalk.
-crush update-providers
-
-# Update providers from a custom Catwalk base URL.
-crush update-providers https://example.com/
-
-# Update providers from a local file.
-crush update-providers /path/to/local-providers.json
-
-# Reset providers to the embedded version, embedded at crush at build time.
-crush update-providers embedded
-
-# For more info:
-crush update-providers --help
-```
-
 ## Metrics
 
-Crush records pseudonymous usage metrics (tied to a device-specific hash),
-which maintainers rely on to inform development and support priorities. The
-metrics include solely usage metadata; prompts and responses are NEVER
-collected.
-
-Details on exactly what’s collected are in the source code ([here](https://github.com/charmbracelet/crush/tree/main/internal/event)
-and [here](https://github.com/charmbracelet/crush/blob/main/internal/llm/agent/event.go)).
-
-You can opt out of metrics collection at any time by setting the environment
-variable by setting the following in your environment:
+This fork does not collect usage metrics or telemetry. The `disable_metrics`
+config option and `CRUSH_DISABLE_METRICS` environment variable are retained for
+compatibility with upstream Crush, and the [`DO_NOT_TRACK`](https://donottrack.sh/)
+convention is also respected, but no metrics are sent regardless.
 
 ```bash
 export CRUSH_DISABLE_METRICS=1
 ```
-
-Or by setting the following in your config:
 
 ```json
 {
@@ -898,9 +704,6 @@ Or by setting the following in your config:
   }
 }
 ```
-
-Crush also respects the [`DO_NOT_TRACK`](https://donottrack.sh/) convention
-which can be enabled via `export DO_NOT_TRACK=1`.
 
 ## Q&A
 
@@ -917,28 +720,19 @@ Installing an extra tool might be needed on Unix-like environments.
 
 ## Contributing
 
-See the [contributing guide](https://github.com/charmbracelet/crush?tab=contributing-ov-file#contributing).
-
-## Whatcha think?
-
-We’d love to hear your thoughts on this project. Need help? We gotchu. You can find us on:
-
-- [Twitter](https://twitter.com/charmcli)
-- [Slack][slack]
-- [Discord][discord]
-- [The Fediverse](https://mastodon.social/@charmcli)
-- [Bluesky](https://bsky.app/profile/charm.land)
-
-[slack]: https://charm.land/slack
-[discord]: https://charm.land/discord
+Contributions to this fork are welcome — open an issue or pull request on
+[github.com/taigrr/crush](https://github.com/taigrr/crush). For the upstream
+project, see its [contributing guide](https://github.com/charmbracelet/crush?tab=contributing-ov-file#contributing).
 
 ## License
 
-[FSL-1.1-MIT](https://github.com/charmbracelet/crush/raw/main/LICENSE.md)
+Upstream Crush is [FSL-1.1-MIT](https://github.com/taigrr/crush/raw/main/LICENSE.md),
+converting to MIT on 2028-04-24. Fork modifications by taigrr are licensed
+under MIT, effective immediately.
 
 ---
 
-Part of [Charm](https://charm.land).
+A fork of [Crush](https://github.com/charmbracelet/crush), part of [Charm](https://charm.land).
 
 <a href="https://charm.land/"><img alt="The Charm logo" width="400" src="https://stuff.charm.sh/charm-banner-softy.jpg" /></a>
 

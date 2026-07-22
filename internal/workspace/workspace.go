@@ -186,6 +186,7 @@ type Workspace interface {
 	BaseDir() string             // Project base directory (not worktree-aware)
 	EffectiveWorkingDir() string // Launch cwd; may differ from BaseDir() for linked worktrees
 	GitBranch() string
+	GitBranchForDir(dir string) string // Branch for a specific dir (e.g. an attached session's working dir)
 	Resolver() config.VariableResolver
 
 	// Session context for worktree-aware working directory

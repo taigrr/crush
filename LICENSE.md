@@ -7,6 +7,13 @@ FSL-1.1-MIT
 ## Notice
 
 Copyright 2025-2026 Charmbracelet, Inc.
+Copyright 2026 taigrr (fork modifications)
+
+Fork modifications by taigrr (changes in this repository that are not part of
+upstream Charm Crush) are licensed under the MIT license, effective
+immediately. The upstream Software remains under FSL-1.1-MIT and converts to
+the MIT license on 2028-04-24 (the second anniversary of this fork), as
+described in the Grant of Future License below.
 
 ## Terms and Conditions
 

@@ -616,7 +616,17 @@ func (w *ClientWorkspace) invalidateWorktreeCache() {
 }
 
 func (w *ClientWorkspace) GitBranch() string {
-	dir := w.WorkingDir()
+	return w.GitBranchForDir(w.WorkingDir())
+}
+
+// GitBranchForDir returns the current git branch for the given directory,
+// or empty when dir is blank or not inside a git repository. Display code
+// uses this to show the branch of an attached session's own working
+// directory, which may differ from this client's launch cwd.
+func (w *ClientWorkspace) GitBranchForDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
 	cmd := exec.CommandContext(context.Background(), "git", "branch", "--show-current")
 	cmd.Dir = dir
 	out, err := cmd.Output()

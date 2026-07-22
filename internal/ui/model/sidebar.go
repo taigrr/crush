@@ -149,9 +149,15 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	cfgRootPath := m.com.Workspace.BaseDir()
 	cfgRoot := common.PrettyPath(t, styles.WrenchIcon+" "+cfgRootPath, width)
 
-	// Effective working dir (user's launch cwd) with folder icon.
+	// Effective working dir for this session. Prefer the session's own
+	// recorded working dir so attaching to a session that was started in
+	// a different worktree shows that worktree, not this client's launch
+	// cwd. Falls back to the client's launch cwd when unrecorded.
 	// Only shown when different from the config root (e.g. linked worktrees).
 	effectivePath := m.com.Workspace.EffectiveWorkingDir()
+	if m.session.WorkingDir != "" {
+		effectivePath = m.session.WorkingDir
+	}
 	var cwdLine string
 	if effectivePath != cfgRootPath {
 		cwdLine = common.PrettyPath(t, styles.FolderIcon+" "+effectivePath, width)
@@ -172,7 +178,7 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	}
 	if activeWorktree != nil {
 		gitInfo = t.Sidebar.WorkingDir.Render("⑂ " + activeWorktree.Name)
-	} else if branch := m.com.Workspace.GitBranch(); branch != "" {
+	} else if branch := m.com.Workspace.GitBranchForDir(effectivePath); branch != "" {
 		gitInfo = t.Sidebar.WorkingDir.Render(styles.GitBranchIcon + " " + branch)
 	}
 
