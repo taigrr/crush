@@ -240,8 +240,10 @@ func TestLoadShellConfig_SourceInclude(t *testing.T) {
 	includePath := filepath.Join(dir, "shared.sh")
 	require.NoError(t, os.WriteFile(includePath, []byte(includeContent), 0o644))
 
-	// Create the main script that sources the include.
-	script := `source ` + includePath + `
+	// Create the main script that sources the include. Use forward
+	// slashes so the path survives the bash interpreter on Windows,
+	// where backslashes would be treated as escape characters.
+	script := `source ` + filepath.ToSlash(includePath) + `
 provider add anthropic --api-key "main-key"`
 	path := filepath.Join(dir, "crushrc")
 
