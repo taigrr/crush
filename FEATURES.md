@@ -340,24 +340,276 @@ Per-model `context_mode` field: `"standard"`, `"extended"`, or
 
 ---
 
-## Spec Document
+## Native Neovim Bridge
 
-Full design spec: `docs/specs/WORKTREES_AND_SNAPSHOTS.md` (643 lines)
-covering architecture, flows, UI wireframes, API design, and
-implementation phases.
+New package: `internal/editor/`
+
+A direct Neovim integration that replaces the older neocrush daemon. Crush
+talks to Neovim over an msgpack bridge so it can open files and jump to
+1-indexed line/column locations from inside a session. A per-client editor
+bridge means each connected client drives its own editor.
+
+---
+
+## Milestones
+
+New package: `internal/milestone/`
+
+Auto-generated progress markers that summarize what happened across a
+session. A milestone is generated for every crossed 10-message boundary
+(with backfill for existing sessions).
+
+- Wired through the coordinator and app
+- Server API endpoint plus workspace method
+- Milestones dialog (Ctrl+Q) that scrolls to the relevant turn
+- Database migration `20260604000000_add_milestones_table.sql`
+
+---
+
+## Procedures
+
+New package: `internal/procedures/`
+
+Reusable, user-authored workflow templates discovered from disk and
+injected into the coder system prompt, so the agent can follow saved
+step-by-step procedures.
+
+---
+
+## Embeddings & Hybrid Search
+
+New packages: `internal/embedding/`, `internal/historysearch/`
+
+- **Embeddings table** (`20260615000000_add_embeddings_table.sql`) with
+  full embedding generation and storage
+- **Hybrid search** combining vector similarity and keyword matching over
+  past sessions
+- `crush search` and `crush embeddings` CLI subcommands
+- `search_history` tool with filters and a `list_sessions` tool
+- Sidebar embeddings status and an embeddings dialog with backfill
+  confirmation
+
+---
+
+## New Tools
+
+Beyond `search_history` / `list_sessions` above:
+
+- **`multi_view`** — batched multi-file reads in a single call; the coder
+  prompt nudges the model to use it.
+- **`context7`** — native tool for pulling up-to-date, version-accurate
+  library docs; also surfaced in the coder prompt and wired into agentic
+  fetch.
+- **LSP tools** — `lsp_definition`, `lsp_references`, `lsp_rename`, and
+  `lsp_document_symbols` (backed by powernap).
+- **`reload_config`** — reload `crush.json` from disk without restarting
+  (also available as the `crush reload` CLI).
+- **Editor bridge tools** — `editor_context`, `show_locations`, and editor
+  notifications let the agent read the user's open buffer and push
+  locations into Neovim.
+- **Denied-tool diff** — show a diff view for tool calls that were denied.
+
+---
+
+## Goal Mode
+
+New: `internal/agent/goal.go`
+
+An autonomous, turn-budgeted agent loop invoked with `/goal`. After each
+turn a cheap evaluator checks whether the stated goal is met; while it is
+unmet and within the turn budget (default 25, hard-capped), Crush injects a
+fresh continuation directive and runs another turn. Mirrors Claude Code's
+agent-evaluator turn cap so a runaway evaluator can't loop forever.
+
+---
+
+## Slash Commands
+
+New: `internal/ui/model/slash.go`
+
+Inline, `/`-prefixed commands typed at the chat prompt — distinct from the
+command palette and user-defined custom commands:
+
+| Command     | Action                                            |
+| ----------- | ------------------------------------------------- |
+| `/btw`      | Inject an out-of-band note into the conversation  |
+| `/export`   | Export the session transcript to Markdown         |
+| `/continue` | Continue the last session                         |
+| `/goal`     | Start autonomous goal mode (see above)            |
+| `/rename`   | Rename the current session                        |
+| `/cwd`      | Show or change the session working directory      |
+
+---
+
+## Session Export
+
+New: `internal/ui/model/export.go`
+
+Render the active session's full transcript to a Markdown file (via
+`/export [name]`), resolved relative to the session working directory.
+
+---
+
+## Paste Handling
+
+New: `internal/ui/model/paste.go`
+
+Smart paste: detects MIME type, saves pasted images as attachments, treats
+pasted text over a threshold as a file attachment, and recognizes pasted
+file paths (attaching them when they all exist) instead of dumping raw
+text into the prompt.
+
+---
+
+## Bang Mode & Shell Messages
+
+- **Bang mode** (`!`) executes shell commands directly from the prompt.
+- New **Shell** message role with expandable UI rendering; the command and
+  its output are stored as separate parts.
+- Non-interactive env vars are set for these shells to prevent editor
+  hangs.
+- Sessions auto-create on a bang command as the first message.
+
+---
+
+## CLI Subcommands
+
+New commands under `internal/cmd/`:
+
+| Command            | Purpose                                                   |
+| ------------------ | --------------------------------------------------------- |
+| `crush search`     | Search conversation history (hybrid embedding + keyword)  |
+| `crush embeddings` | Manage the global embedding model (`set`/`list`/`status`/`backfill`) |
+| `crush db`         | Low-level database maintenance and migrations             |
+| `crush reload`     | Reload config from disk in the running server             |
+| `crush shutdown`   | Shut down the background Crush server                      |
+
+---
+
+## Bundled Ripgrep
+
+The bash tool now guarantees `rg` (ripgrep) is available and instructs the
+model to use it instead of `grep` for content searches.
+
+---
+
+## Adversarial Review Workflow
+
+Bun-style parallel reviewer agents power a write → review → fix loop. Two
+independent read-only reviewers run in parallel over a diff, harden the
+fan-out, and coordinate with per-session permission dialogs.
+
+---
+
+## Sysadmin Mode
+
+An ephemeral, in-session toggle that temporarily bypasses the sysadmin
+command filter (renamed from "banned" commands) when the user explicitly
+opts in.
+
+---
+
+## Themes
+
+New: `internal/ui/styles/lua.go`, `themes.go`, `themes_community.go`
+
+- **Named theme registry** with builtin theme lookup and `ResolveTheme`
+- **User Lua themes** loaded from `GlobalThemesDir`
+- **Theme picker dialog** with live preview, esc-cancel, enter-confirm
+- Configured theme applied at startup (falls back to provider default)
+- Cascading header/logo/gradient **brand-surface tokens** exposed to Lua
+- Diff and syntax colors extracted into themeable tokens (lint test
+  forbids raw hex in themed UI)
+- Bundled community themes: **Tokyo Night, Catppuccin, Dracula, Nord,
+  Gruvbox, Rosé Pine, Cyberpunk, VS Code Dark**
+- New `options.tui.theme` config field
+
+---
+
+## Image Rendering
+
+Inline rendering of image attachments using the **Kitty graphics
+protocol** (kgp). Large images in the file picker are downscaled instead
+of rejected, with per-image and aggregate image limits sourced from
+catwalk per-model metadata.
+
+---
+
+## Low-Bandwidth / Reduced-Motion Mode
+
+A TUI toggle that reduces motion and downshifts already-running spinners,
+for slow links and SSH sessions.
+
+---
+
+## Session Navigator & Session UX
+
+- **Left session navigator sidebar** with cross-workspace session listing
+  and runtime workspace switching (sessions capped per workspace with an
+  overflow picker row)
+- **Read/unread state**, per-session working directory, and a workspace
+  registry (migration
+  `20260620000000_add_session_working_dir_and_read_state.sql`)
+- Recent sessions on the landing screen
+- Animated session **title reveal** with blinking cursor; auto re-title
+  after 10 user messages
+- Ctrl+F toggles fullscreen chat; image picker moved to Ctrl+I
+
+---
+
+## Client/Server & Sync
+
+- Client/server mode **enabled by default**
+- One shared **workspace per directory** across multiple clients
+- **Row-level DB sync protocol** (`internal/sync/`, migration
+  `20260612120000_add_sync_metadata.sql`); see `docs/sync-spec.md`
+- Multi-client permission coordination: prompts auto-close when another
+  client responds; idempotent permission resolution
+- Config changes broadcast to all connected clients
+- Data-directory lock refuses to open a dir already in use by another
+  Crush instance
+- Server stays alive while the agent is busy after all clients detach
+
+---
+
+## Notifications
+
+- Configurable notification **backend** with a picker
+- Terminal **bell** support
+- Notifications for **SSH terminals**
+- Ctrl+Y yolo-mode toggle with notification
+
+---
+
+## Provider Additions
+
+- **Amazon Bedrock Europe** region support
+- **Bedrock Mantle** OpenAI endpoint for GPT-5.5 (us-east-2 override)
+- Improved detection of pre-existing AWS credentials
+
+---
+
+## Spec Documents
+
+Full design specs live under `docs/specs/`:
+
+- `WORKTREES_AND_SNAPSHOTS.md` — snapshots, worktrees, forking
+- `EMBEDDINGS_AND_VECTOR_SEARCH.md` — embeddings and hybrid search
+- `ROADMAP.md` — improvement roadmap and phase findings
+- `docs/sync-spec.md` — client-side row-level DB sync protocol
 
 ---
 
 ## Summary by the Numbers
 
-| Metric            | Value                                |
-| ----------------- | ------------------------------------ |
-| Files changed     | 321                                  |
-| Lines added       | ~10,986                              |
-| Lines removed     | ~4,455                               |
-| Net new code      | ~6,531                               |
-| New packages      | 3 (`checkpoint`, `worktree`, `fork`) |
-| Deleted packages  | 1 (`event`)                          |
-| New DB migrations | 3                                    |
-| New UI dialogs    | 5                                    |
-| New API endpoints | ~10                                  |
+| Metric            | Value                                                                                                       |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- |
+| Files changed     | ~601                                                                                                        |
+| Lines added       | ~49,800                                                                                                     |
+| Lines removed     | ~10,600                                                                                                     |
+| Net new code      | ~39,200                                                                                                     |
+| New packages      | 8+ (`checkpoint`, `worktree`, `fork`, `milestone`, `procedures`, `embedding`, `editor`, `historysearch`, …) |
+| Deleted packages  | 1 (`event`)                                                                                                 |
+| New DB migrations | 7                                                                                                           |
+| New UI dialogs    | 10+                                                                                                         |
+| New API endpoints | ~10                                                                                                         |

@@ -14,6 +14,111 @@
 > taigrr, with additional changes. Install it with
 > `go install github.com/taigrr/crush@latest`.
 
+## Why This Fork?
+
+This fork tracks upstream Crush but adds a large set of features and a
+privacy-first stance. If you want more control over your workflow, editor
+integration, and your data, here's what you get on top of upstream. For a
+deeper technical breakdown see [FEATURES.md](./FEATURES.md).
+
+### Privacy & Independence
+
+- **No telemetry.** The entire PostHog analytics package is removed — no
+  event tracking, no machine fingerprinting. No usage data leaves your
+  machine.
+- **Self-contained.** Renamed to `github.com/taigrr/crush` and built on
+  taigrr forks of `fantasy` and `catwalk`. Providers are compiled in from
+  an embedded catalog, so there's no network provider fetching.
+
+### Editor Integration
+
+- **Native Neovim bridge.** A direct Neovim integration (replacing the
+  older neocrush daemon) so Crush can open files and drive your editor
+  from inside a session.
+
+### Checkpoints, Worktrees & Forking
+
+- **Automatic snapshots.** Every user message checkpoints your filesystem
+  into a private git repo (`.crush/git/`) that never touches your own
+  `.git`. Restore or diff any point in the conversation.
+- **Real git worktrees.** Run parallel branches of work in isolated
+  directories with per-session working dirs, plus merge/rebase support and
+  post-create hooks (`bun i`, `go mod download`, …).
+- **Conversation forking.** Fork a session from any message, optionally
+  into its own worktree.
+
+### Context Management
+
+- **Dynamic 1M-token context.** Per-model `standard` / `extended` /
+  `dynamic` modes; `dynamic` auto-switches to a 1M window as you fill the
+  standard one, then summarizes near the limit.
+
+### Sessions
+
+- Cross-workspace session navigator sidebar with runtime workspace
+  switching.
+- Session read/unread state, per-session working directory, and
+  archive/unarchive.
+- Recent sessions on the landing screen, animated title reveal, and
+  automatic re-titling.
+
+### Themes & UI
+
+- Named theme registry plus **user Lua themes** and a live-preview theme
+  picker.
+- Bundled community themes: Tokyo Night, Catppuccin, Dracula, Nord,
+  Gruvbox, Rosé Pine, Cyberpunk, and VS Code Dark.
+- Inline **image rendering** for attachments via the Kitty graphics
+  protocol.
+- **Low-bandwidth / reduced-motion** mode for slow links and SSH.
+- Milestones dialog, git branch and active-worktree indicators in the
+  header.
+
+### New Tools
+
+- `multi_view` for batched file reads.
+- LSP-powered `lsp_definition`, `lsp_references`, `lsp_rename`, and
+  `lsp_document_symbols`.
+- Native `context7` tool for up-to-date library docs.
+- `search_history` and `list_sessions` with hybrid embedding search
+  (`crush search` / `crush embeddings` CLIs).
+- `reload_config` tool and editor-bridge tools (open buffer context, jump
+  to locations in Neovim).
+- Diff view for denied tool calls.
+
+### Agent Workflow
+
+- **Bang mode** (`!`) for direct shell execution, with a dedicated Shell
+  message role.
+- **Goal mode** (`/goal`): an autonomous, turn-budgeted loop that keeps
+  working until a stated goal is met.
+- **Slash commands** at the prompt: `/goal`, `/export`, `/continue`,
+  `/rename`, `/cwd`, `/btw`.
+- **Session export** to Markdown, and smart paste (images, long text, and
+  file paths become attachments).
+- **Milestones**: auto-generated progress markers across a session.
+- **Procedures** injected into the system prompt for reusable workflows.
+- **Parallel adversarial review** agents for a write → review → fix loop.
+- Ephemeral **sysadmin mode** toggle to bypass the command filter.
+- Bundled **ripgrep** enforcement for fast content search.
+- Message queueing and deferred model/context changes while the agent is
+  busy.
+
+### CLI & Client/Server
+
+- Extra subcommands: `crush search`, `crush embeddings`, `crush db`,
+  `crush reload`, `crush shutdown`.
+- Client/server mode by default, sharing one workspace per directory
+  across multiple clients with row-level DB sync and multi-client
+  permission coordination.
+- Configurable notification backends, terminal bell support, and SSH
+  terminal notifications.
+
+### Providers
+
+- Amazon Bedrock Europe, Bedrock Mantle (GPT-5.5), and improved AWS
+  credential detection.
+
 ## Features
 
 - **Multi-Model:** choose from a wide range of LLMs or add your own via OpenAI- or Anthropic-compatible APIs
@@ -432,14 +537,25 @@ focused _and_ your terminal supports reporting the focus state.
 {
   "$schema": "https://charm.land/crush.json",
   "options": {
-    "disable_notifications": false, // default
+    "notification_style": "auto", // default
   },
 }
 ```
 
-To disable desktop notifications, set `disable_notifications` to `true` in your
-configuration. On macOS, notifications currently lack icons due to platform
-limitations.
+The `notification_style` option controls how notifications are delivered:
+
+| Value      | Behavior                                                                    |
+| ---------- | --------------------------------------------------------------------------- |
+| `auto`     | Default. `native` for local sessions, `osc` for SSH (auto-detects OSC 99/777) |
+| `native`   | Native desktop notifications                                                |
+| `osc`      | OSC escape-sequence notifications (works over SSH)                          |
+| `bell`     | Terminal bell only                                                          |
+| `disabled` | No notifications                                                            |
+
+To turn notifications off entirely, set `notification_style` to `disabled`.
+The older `disable_notifications` boolean is deprecated in favor of
+`notification_style`. On macOS, notifications currently lack icons due to
+platform limitations.
 
 ### Initialization
 

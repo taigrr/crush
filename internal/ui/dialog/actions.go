@@ -72,6 +72,10 @@ type (
 	ActionToggleTransparentBackground struct{}
 	ActionToggleLowBandwidth          struct{}
 	ActionInitializeProject           struct{}
+	// ActionReview requests an adversarial review of the current change:
+	// the coder computes the diff and fans out to the review tool's
+	// parallel reviewers.
+	ActionReview struct{}
 	ActionSummarize                   struct {
 		SessionID string
 	}

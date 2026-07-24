@@ -200,6 +200,14 @@ type (
 	}
 )
 
+// reviewCommandPrompt is the instruction sent to the coder when the user
+// invokes the /review slash command. It drives the write -> review -> fix
+// loop: the coder picks the right diff base and fans out to the review
+// tool's parallel adversarial reviewers.
+const reviewCommandPrompt = "Run an adversarial review of the current change using the `review` tool. " +
+	"Determine the correct diff command for the repo state (feature branch, on the base branch, or no git), " +
+	"pass it to `review` along with the goal of the change, then triage the reviewers' findings and fix any real defects."
+
 // UI represents the main user interface model.
 type UI struct {
 	com          *common.Common
@@ -1991,6 +1999,18 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	case dialog.ActionReloadConfig:
 		cmds = append(cmds, m.reloadConfig())
 		m.dialog.CloseDialog(dialog.CommandsID)
+
+	case dialog.ActionReview:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		if !m.hasSession() {
+			cmds = append(cmds, util.ReportWarn("Start a session before requesting a review."))
+			break
+		}
+		if m.isAgentBusy() {
+			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before requesting a review..."))
+			break
+		}
+		cmds = append(cmds, m.sendMessage(reviewCommandPrompt))
 
 	case dialog.ActionSelectModel:
 		if cmd := m.handleSelectModel(msg); cmd != nil {
