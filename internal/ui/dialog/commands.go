@@ -545,8 +545,6 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	// Add milestones command if there's an active session.
 	if c.hasSession {
 		commands = append(commands, NewCommandItem(c.com.Styles, "milestones", "View Milestones", "ctrl+q", ActionOpenDialog{DialogID: MilestonesID}))
-		commands = append(commands, NewCommandItem(c.com.Styles, "review", "Review Changes", "", ActionReview{}).
-			WithDescription("Run two adversarial reviewers in parallel on the current change"))
 	}
 
 	// Add worktree commands if enabled.

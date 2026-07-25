@@ -92,6 +92,17 @@ var builtinSlashCommands = []slashCommand{
 			return m.handleCwd(args)
 		},
 	},
+	{
+		name:            "review",
+		description:     "Run two adversarial reviewers in parallel on the current change",
+		requiresSession: true,
+		run: func(m *UI, _ string) tea.Cmd {
+			// The `review` tool description and the coder prompt already
+			// document how to pick the diff base and run the loop, so
+			// this only needs to trigger it.
+			return m.sendMessage("Review the current change with the `review` tool, then fix any real issues the reviewers surface.")
+		},
+	},
 }
 
 // splitSlash splits a trimmed prompt value into a slash verb and its
