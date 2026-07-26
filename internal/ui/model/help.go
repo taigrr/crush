@@ -58,6 +58,15 @@ func (m *UI) ShortHelp() []key.Binding {
 			if m.pillsExpanded && hasIncompleteTodos(m.session.Todos) && m.promptQueue > 0 {
 				binds = append(binds, k.Chat.PillLeft)
 			}
+			if m.rightSidebarScrollable && !m.isCompact && !m.chatFullscreen {
+				binds = append(binds, k.Chat.FocusRightSidebar)
+			}
+		case uiFocusRightSidebar:
+			binds = append(
+				binds,
+				k.Chat.UpDown,
+				k.Chat.FocusChat,
+			)
 		}
 	default:
 		// TODO: other states
@@ -181,6 +190,12 @@ func (m *UI) FullHelp() [][]key.Binding {
 			if m.pillsExpanded && hasIncompleteTodos(m.session.Todos) && m.promptQueue > 0 {
 				binds = append(binds, []key.Binding{k.Chat.PillLeft})
 			}
+		case uiFocusRightSidebar:
+			binds = append(
+				binds,
+				[]key.Binding{k.Chat.UpDown},
+				[]key.Binding{k.Chat.FocusChat},
+			)
 		}
 	default:
 		if m.session == nil {

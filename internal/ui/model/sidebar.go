@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/ultraviolet/layout"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/logo"
 	"github.com/taigrr/crush/internal/ui/styles"
@@ -211,12 +211,10 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 		blocks...,
 	)
 
-	var remainingHeightArea image.Rectangle
-	layout.Vertical(
-		layout.Len(lipgloss.Height(sidebarHeader)),
-		layout.Fill(1),
-	).Split(m.layout.sidebar).Assign(new(image.Rectangle), &remainingHeightArea)
-	remainingHeight := remainingHeightArea.Dy() - 6
+	// Render all sections at their full size, then virtual-scroll the
+	// joined content. Give a very large available height so nothing is
+	// truncated by the per-section limits.
+	const maxAvailableHeight = 100000
 	filesCount := 0
 	for _, f := range m.sessionFiles {
 		if f.Additions == 0 && f.Deletions == 0 {
@@ -236,29 +234,63 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 
 	skillsCount := len(m.skillStatusItems())
 
-	maxFiles, maxLSPs, maxMCPs, maxSkills := getDynamicHeightLimits(remainingHeight, filesCount, lspsCount, mcpsCount, skillsCount)
+	maxFiles, maxLSPs, maxMCPs, maxSkills := getDynamicHeightLimits(maxAvailableHeight, filesCount, lspsCount, mcpsCount, skillsCount)
 
 	lspSection := m.lspInfo(width, maxLSPs, true)
 	mcpSection := m.mcpInfo(width, maxMCPs, true)
 	skillsSection := m.skillsInfo(width, maxSkills, true)
 	filesSection := m.filesInfo(m.com.Workspace.WorkingDir(), width, maxFiles, true)
 
+	// Build the full sidebar content.
+	fullContent := lipgloss.JoinVertical(
+		lipgloss.Left,
+		sidebarHeader,
+		filesSection,
+		"",
+		lspSection,
+		"",
+		mcpSection,
+		"",
+		skillsSection,
+	)
+
+	// Split into lines for virtual scrolling and update scroll bookkeeping.
+	lines := strings.Split(fullContent, "\n")
+	totalLines := len(lines)
+	m.rightSidebarScrollable = totalLines > height
+	m.rightSidebarMaxOffsetVal = max(0, totalLines-height)
+
+	// Clamp the offset in case content shrank since the last frame.
+	if m.rightSidebarOffset > m.rightSidebarMaxOffsetVal {
+		m.rightSidebarOffset = m.rightSidebarMaxOffsetVal
+	}
+
+	end := min(m.rightSidebarOffset+height, totalLines)
+	visibleStr := strings.Join(lines[m.rightSidebarOffset:end], "\n")
+
+	// Show the scrollbar only while the sidebar is focused and scrollable.
+	scrollbarVisible := m.rightSidebarScrollable && m.focus == uiFocusRightSidebar
+
+	contentWidth := width
+	if scrollbarVisible {
+		contentWidth = width - 1
+	}
+
 	uv.NewStyledString(
 		lipgloss.NewStyle().
-			MaxWidth(width).
+			MaxWidth(contentWidth).
 			MaxHeight(height).
-			Render(
-				lipgloss.JoinVertical(
-					lipgloss.Left,
-					sidebarHeader,
-					filesSection,
-					"",
-					lspSection,
-					"",
-					mcpSection,
-					"",
-					skillsSection,
-				),
-			),
+			Render(visibleStr),
 	).Draw(scr, area)
+
+	if scrollbarVisible {
+		scrollbar := common.Scrollbar(m.com.Styles, height, totalLines, height, m.rightSidebarOffset)
+		if scrollbar != "" {
+			scrollbarArea := image.Rectangle{
+				Min: image.Point{X: area.Max.X - 1, Y: area.Min.Y},
+				Max: area.Max,
+			}
+			uv.NewStyledString(scrollbar).Draw(scr, scrollbarArea)
+		}
+	}
 }

@@ -99,6 +99,7 @@ const (
 	uiFocusEditor
 	uiFocusMain
 	uiFocusLeftSidebar
+	uiFocusRightSidebar
 )
 
 type uiState uint8
@@ -282,6 +283,12 @@ type UI struct {
 	// uiFocusLeftSidebar.
 	leftSidebar        *SessionsSidebar
 	leftSidebarVisible bool
+
+	// Right info-sidebar virtual scroll state. rightSidebarScrollable and
+	// rightSidebarMaxOffsetVal are recomputed each frame in drawSidebar.
+	rightSidebarOffset       int
+	rightSidebarScrollable   bool
+	rightSidebarMaxOffsetVal int
 
 	// chatFullscreen hides both the left navigator and the right info
 	// sidebar so the chat uses the full width (toggled with ctrl+f).
@@ -645,6 +652,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setState(uiChat, m.focus)
 		m.session = msg.session
 		m.sessionFiles = msg.files
+		m.rightSidebarOffset = 0
 		// Set active session for worktree-aware working directory.
 		m.com.Workspace.SetActiveSessionID(m.session.ID)
 		if cmd := m.syncPermissionDialogForSession(); cmd != nil {
@@ -683,6 +691,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setState(uiChat, m.focus)
 		m.session = msg.session
 		m.sessionFiles = msg.files
+		m.rightSidebarOffset = 0
 		m.com.Workspace.SetActiveSessionID(m.session.ID)
 		if cmd := m.syncPermissionDialogForSession(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -1031,6 +1040,17 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Otherwise handle mouse wheel for chat.
 		switch m.state {
 		case uiChat:
+			// Scroll the right info sidebar when the pointer is over it.
+			if m.rightSidebarScrollable && !m.isCompact && !m.chatFullscreen &&
+				image.Pt(msg.X, msg.Y).In(m.layout.sidebar) {
+				switch msg.Button {
+				case tea.MouseWheelUp:
+					m.rightSidebarOffset = max(0, m.rightSidebarOffset-MouseScrollThreshold)
+				case tea.MouseWheelDown:
+					m.rightSidebarOffset = min(m.rightSidebarOffset+MouseScrollThreshold, m.rightSidebarMaxOffsetVal)
+				}
+				break
+			}
 			switch msg.Button {
 			case tea.MouseWheelUp:
 				if cmd := m.chat.ScrollByAndAnimate(-MouseScrollThreshold); cmd != nil {
@@ -1472,6 +1492,11 @@ func (m *UI) handleClickFocus(msg tea.MouseClickMsg) (cmd tea.Cmd) {
 	case m.state != uiChat:
 		return nil
 	case image.Pt(msg.X, msg.Y).In(m.layout.sidebar):
+		if m.focus != uiFocusRightSidebar && !m.isCompact && !m.chatFullscreen && m.hasSession() && m.rightSidebarScrollable {
+			m.focus = uiFocusRightSidebar
+			m.textarea.Blur()
+			m.chat.Blur()
+		}
 		return nil
 	case m.focus != uiFocusEditor && image.Pt(msg.X, msg.Y).In(m.layout.editor):
 		m.focus = uiFocusEditor
@@ -2671,6 +2696,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				m.focus = uiFocusEditor
 				cmds = append(cmds, m.textarea.Focus())
 				m.chat.Blur()
+			case key.Matches(msg, m.keyMap.Chat.FocusRightSidebar):
+				if m.state == uiChat && !m.isCompact && !m.chatFullscreen && m.hasSession() && m.rightSidebarScrollable {
+					m.focus = uiFocusRightSidebar
+					m.chat.Blur()
+				}
 			case key.Matches(msg, m.keyMap.Chat.NewSession):
 				if !m.hasSession() {
 					break
@@ -2757,6 +2787,33 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				} else {
 					handleGlobalKeys(msg)
 				}
+			}
+		case uiFocusRightSidebar:
+			if m.state != uiChat || m.isCompact || m.chatFullscreen || !m.hasSession() || !m.rightSidebarScrollable {
+				m.focus = uiFocusMain
+				m.chat.Focus()
+				break
+			}
+			switch {
+			case key.Matches(msg, m.keyMap.Chat.Up):
+				m.rightSidebarOffset = max(0, m.rightSidebarOffset-4)
+			case key.Matches(msg, m.keyMap.Chat.Down):
+				if m.rightSidebarOffset < m.rightSidebarMaxOffsetVal {
+					m.rightSidebarOffset = min(m.rightSidebarOffset+4, m.rightSidebarMaxOffsetVal)
+				}
+			case key.Matches(msg, m.keyMap.Chat.Home):
+				m.rightSidebarOffset = 0
+			case key.Matches(msg, m.keyMap.Chat.End):
+				m.rightSidebarOffset = m.rightSidebarMaxOffsetVal
+			case key.Matches(msg, m.keyMap.Chat.FocusChat):
+				m.focus = uiFocusMain
+				m.chat.Focus()
+			case key.Matches(msg, m.keyMap.Tab):
+				m.focus = uiFocusEditor
+				cmds = append(cmds, m.textarea.Focus())
+				m.chat.Blur()
+			default:
+				handleGlobalKeys(msg)
 			}
 		default:
 			handleGlobalKeys(msg)
@@ -4025,6 +4082,7 @@ func (m *UI) newSession() tea.Cmd {
 	}
 
 	m.session = nil
+	m.rightSidebarOffset = 0
 	m.sessionFiles = nil
 	m.sessionFileReads = nil
 	// Clear active session for worktree-aware working directory.

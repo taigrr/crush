@@ -50,6 +50,8 @@ type KeyMap struct {
 		Copy                key.Binding
 		ClearHighlight      key.Binding
 		Expand              key.Binding
+		FocusRightSidebar   key.Binding
+		FocusChat           key.Binding
 	}
 
 	Initialize struct {
@@ -210,6 +212,14 @@ func DefaultKeyMap() KeyMap {
 	km.Chat.Up = key.NewBinding(
 		key.WithKeys("up", "ctrl+k", "k"),
 		key.WithHelp("↑", "up"),
+	)
+	km.Chat.FocusRightSidebar = key.NewBinding(
+		key.WithKeys("l"),
+		key.WithHelp("l", "focus sidebar"),
+	)
+	km.Chat.FocusChat = key.NewBinding(
+		key.WithKeys("h"),
+		key.WithHelp("h", "focus chat"),
 	)
 	km.Chat.UpDown = key.NewBinding(
 		key.WithKeys("up", "down"),
