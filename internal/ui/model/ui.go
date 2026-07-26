@@ -290,6 +290,11 @@ type UI struct {
 	rightSidebarScrollable   bool
 	rightSidebarMaxOffsetVal int
 
+	// shellCancel cancels the in-flight bang-mode (!) shell command. It is
+	// non-nil only while a command is running; the cancellation propagates
+	// through the client HTTP request to the server's shell.Run context.
+	shellCancel context.CancelFunc
+
 	// chatFullscreen hides both the left navigator and the right info
 	// sidebar so the chat uses the full width (toggled with ctrl+f).
 	chatFullscreen bool
@@ -1077,6 +1082,16 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+		}
+	case shellCommandFinishedMsg:
+		if m.shellCancel != nil {
+			m.shellCancel = nil
+		}
+		// Report a genuine failure, but stay quiet on context cancellation
+		// (the user pressed cancel) and on a non-zero exit, which is normal
+		// shell behavior already reflected in the persisted output.
+		if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
+			cmds = append(cmds, util.ReportError(fmt.Errorf("shell: %w", msg.err)))
 		}
 	case anim.StepMsg:
 		if m.state == uiChat {
@@ -2458,6 +2473,12 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 	// Handle cancel key when agent is busy.
 	if key.Matches(msg, m.keyMap.Chat.Cancel) {
+		// Cancel a running bang-mode shell command first, if any.
+		if m.shellCancel != nil {
+			m.shellCancel()
+			m.shellCancel = nil
+			return tea.Batch(cmds...)
+		}
 		if m.isAgentBusy() {
 			if cmd := m.cancelAgent(); cmd != nil {
 				cmds = append(cmds, cmd)
@@ -4001,17 +4022,26 @@ func (m *UI) runShellCommand(command string) tea.Cmd {
 		m.setState(uiChat, m.focus)
 	}
 	sessionID := m.session.ID
+	// Run under a cancellable context so the Cancel key (esc/ctrl+c) can
+	// abort a long-running command. Cancelling the client HTTP request
+	// propagates to the server's shell.Run via its request context.
+	ctx, cancel := context.WithCancel(context.Background())
+	m.shellCancel = cancel
 	cmds = append(cmds, func() tea.Msg {
-		_, err := m.com.Workspace.AgentRunShellCommand(context.Background(), sessionID, command)
-		if err != nil {
-			return util.InfoMsg{
-				Type: util.InfoTypeError,
-				Msg:  fmt.Sprintf("shell: %v", err),
-			}
-		}
-		return nil
+		// Release the context when the command returns; cancelling twice is
+		// harmless, so the Cancel key can still abort it mid-run.
+		defer cancel()
+		_, err := m.com.Workspace.AgentRunShellCommand(ctx, sessionID, command)
+		return shellCommandFinishedMsg{err: err}
 	})
 	return tea.Batch(cmds...)
+}
+
+// shellCommandFinishedMsg is emitted when a bang-mode shell command
+// completes (or is cancelled), so the model can clear its cancel func and
+// surface any error.
+type shellCommandFinishedMsg struct {
+	err error
 }
 
 const cancelTimerDuration = 2 * time.Second

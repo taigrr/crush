@@ -20,7 +20,7 @@ events plumbed through our SSE bus.
 | # | Upstream feature | Our status | Effort | Worth? |
 |---|------------------|-----------|--------|--------|
 | 1 | **Streaming output + pending spinner** (`6814ccfc`,`6db54b3a`) | We block; long builds show nothing until done | Large (SSE shell events) | ~ maybe |
-| 2 | **Cancel mid-run** (`47ed0f3a`) | `runShellCommand` uses `context.Background()` — NOT cancelable; process-group kill wiring exists but unreachable | Medium | [x] yes |
+| 2 | **Cancel mid-run** (`47ed0f3a`) | DONE — Cancel key aborts a running `!` command via a cancellable context propagated to the server's `shell.Run` | — | [DONE] |
 | 3 | **Interleave stderr/stdout** (`48e9cca2`) | We append stderr after all stdout — can misorder | Small (shared writer) | [x] yes |
 | 4 | **Include bang cmds in history** (`f342edf0`) | Check: does `!cmd` enter prompt history? | Small | [~] |
 | 5 | **Engage on paste starting with `!`** (`7e4bd6a0`) | Prefix-at-start only | Small | [~] |
