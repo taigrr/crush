@@ -502,8 +502,12 @@ github.com/taigrr/catwalk v0.51.0-fork h1:sEGyaMd5yu6tRtcZMuXfoSbFO80gWx7QBBAykM
 github.com/taigrr/catwalk v0.51.0-fork/go.mod h1:ubk9j5UnYbn2N1uwy3D4Us8AxPSXDxcBLRdDxlPPWTQ=
 github.com/taigrr/catwalk v0.51.1-fork h1:SbwA/gRqNdxSpNENs0CMXQ02YDI5F+AegiqrYoKLmtg=
 github.com/taigrr/catwalk v0.51.1-fork/go.mod h1:ubk9j5UnYbn2N1uwy3D4Us8AxPSXDxcBLRdDxlPPWTQ=
+github.com/taigrr/catwalk v0.51.3-fork h1:IjLz1eTLbFlgef+8xPq8HSa9Ewn6FwrkEMGzCiq8pk4=
+github.com/taigrr/catwalk v0.51.3-fork/go.mod h1:X1axRtrwz46qnkRkyXpj0obhCASciprQfgbaB4CR8Eo=
 github.com/taigrr/fantasy v0.26.0-fork h1:9EjvnqUxCdpSxf+8itPug9eD/+euqZ4wwNcOiAPIgkM=
 github.com/taigrr/fantasy v0.26.0-fork/go.mod h1:iym6pOCbFeU+PcGSFMkJMi5fn+peqytgTR8pBkgpx3w=
+github.com/taigrr/fantasy v0.26.1-fork h1:DZYv6AyY349ih5p0qOGhL+4GLKdm5yKAfEjPlnX3FUE=
+github.com/taigrr/fantasy v0.26.1-fork/go.mod h1:Fkd09wouXRCxgSeKRDrDfsGYSm5Pl/T91alsV1VRzbU=
 github.com/tidwall/gjson v1.14.2/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=
 github.com/tidwall/gjson v1.19.0 h1:xwxm7n691Uf3u5OFjzngavjGTh55KX5q/9w9xHW88JU=
 github.com/tidwall/gjson v1.19.0/go.mod h1:V37/opeE/JbLUOfH0QTXiNez2l0RUjYUhpT4szFQAfc=

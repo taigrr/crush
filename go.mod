@@ -60,8 +60,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/swaggo/http-swagger/v2 v2.0.2
 	github.com/swaggo/swag v1.16.6
-	github.com/taigrr/catwalk v0.51.1-fork
-	github.com/taigrr/fantasy v0.26.0-fork
+	github.com/taigrr/catwalk v0.51.3-fork
+	github.com/taigrr/fantasy v0.26.1-fork
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/yuin/gopher-lua v1.1.2
