@@ -768,6 +768,30 @@ func (w *ClientWorkspace) RefreshMCPTools(ctx context.Context, name string) {
 	_ = w.client.RefreshMCPTools(ctx, w.workspaceID(), name)
 }
 
+func (w *ClientWorkspace) MCPAuthenticate(ctx context.Context, name string) error {
+	return w.client.MCPAuthenticate(ctx, w.workspaceID(), name)
+}
+
+func (w *ClientWorkspace) MCPPendingAuth() []mcp.PendingAuthServer {
+	pending, err := w.client.MCPPendingAuth(context.Background(), w.workspaceID())
+	if err != nil {
+		return nil
+	}
+	result := make([]mcp.PendingAuthServer, 0, len(pending))
+	for _, p := range pending {
+		result = append(result, mcp.PendingAuthServer{Name: p.Name, URL: p.URL})
+	}
+	return result
+}
+
+func (w *ClientWorkspace) MCPAuthURL(name string) string {
+	url, err := w.client.MCPAuthURL(context.Background(), w.workspaceID(), name)
+	if err != nil {
+		return ""
+	}
+	return url
+}
+
 func (w *ClientWorkspace) ReadMCPResource(ctx context.Context, name, uri string) ([]MCPResourceContents, error) {
 	contents, err := w.client.ReadMCPResource(ctx, w.workspaceID(), name, uri)
 	if err != nil {

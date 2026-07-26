@@ -5,9 +5,9 @@ package mcp
 import (
 	"testing"
 
-	"github.com/taigrr/crush/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/config"
 )
 
 // TestCreateTransport_StdioProcessGroup pins that a stdio MCP child is spawned
@@ -18,7 +18,7 @@ func TestCreateTransport_StdioProcessGroup(t *testing.T) {
 	t.Parallel()
 
 	m := config.MCPConfig{Type: config.MCPStdio, Command: "echo", Args: []string{"hi"}}
-	tr, err := createTransport(t.Context(), m, shellResolverWithPath(t, nil))
+	tr, _, err := createTransport(t.Context(), nil, "test", m, shellResolverWithPath(t, nil))
 	require.NoError(t, err)
 
 	ct, ok := tr.(*mcp.CommandTransport)

@@ -400,6 +400,43 @@ func (c *controllerV1) handlePostWorkspaceMCPRefreshTools(w http.ResponseWriter,
 	w.WriteHeader(http.StatusOK)
 }
 
+// handlePostWorkspaceMCPAuthenticate initiates the OAuth flow for an MCP server.
+func (c *controllerV1) handlePostWorkspaceMCPAuthenticate(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	var req proto.MCPNameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+
+	if err := c.backend.MCPAuthenticate(r.Context(), id, req.Name); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleGetWorkspaceMCPPendingAuth lists MCP servers awaiting OAuth.
+func (c *controllerV1) handleGetWorkspaceMCPPendingAuth(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	pending := c.backend.MCPPendingAuth(id)
+	result := make([]proto.PendingAuthServer, 0, len(pending))
+	for _, p := range pending {
+		result = append(result, proto.PendingAuthServer{Name: p.Name, URL: p.URL})
+	}
+	jsonEncode(w, result)
+}
+
+// handleGetWorkspaceMCPAuthURL returns the current OAuth authorization URL.
+func (c *controllerV1) handleGetWorkspaceMCPAuthURL(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	name := r.URL.Query().Get("name")
+	url := c.backend.MCPAuthURL(id, name)
+	jsonEncode(w, map[string]string{"url": url})
+}
+
 // handlePostWorkspaceMCPReadResource reads a resource from an MCP server.
 //
 //	@Summary		Read MCP resource

@@ -46,7 +46,7 @@ require (
 	github.com/jordanella/go-ansi-paintbrush v0.0.0-20240728195301-b7ad996ecf3d
 	github.com/lucasb-eyer/go-colorful v1.4.0
 	github.com/mattn/go-isatty v0.0.24
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.7.0-pre.3.0.20260724080706-e761950d9795
 	github.com/ncruces/go-sqlite3 v0.35.2
 	github.com/neovim/go-client v1.2.1
 	github.com/nxadm/tail v1.4.11
@@ -69,6 +69,7 @@ require (
 	go.uber.org/goleak v1.3.0
 	golang.org/x/image v0.44.0
 	golang.org/x/net v0.57.0
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/text v0.40.0
@@ -213,7 +214,6 @@ require (
 	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect
 	golang.org/x/mod v0.38.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.48.0 // indirect

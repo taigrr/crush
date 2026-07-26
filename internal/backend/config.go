@@ -308,6 +308,35 @@ func (b *Backend) RefreshMCPTools(ctx context.Context, workspaceID, name string)
 	return nil
 }
 
+// MCPAuthenticate initiates the OAuth flow for a named MCP server. The
+// browser and callback listener run in this (server) process, which for
+// the local daemon is the same machine as the user.
+func (b *Backend) MCPAuthenticate(ctx context.Context, workspaceID, name string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	return mcptools.AuthenticateMCP(ctx, ws.Cfg, name)
+}
+
+// MCPPendingAuth returns the MCP servers awaiting OAuth authorization.
+func (b *Backend) MCPPendingAuth(workspaceID string) []mcptools.PendingAuthServer {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return nil
+	}
+	return mcptools.PendingAuthMCPs(ws.Cfg)
+}
+
+// MCPAuthURL returns the current OAuth authorization URL for a named MCP
+// server, or empty if none is in progress.
+func (b *Backend) MCPAuthURL(workspaceID, name string) string {
+	if _, err := b.GetWorkspace(workspaceID); err != nil {
+		return ""
+	}
+	return mcptools.MCPAuthURL(name)
+}
+
 // ReadMCPResource reads a resource from a named MCP server.
 func (b *Backend) ReadMCPResource(ctx context.Context, workspaceID, name, uri string) ([]MCPResourceContents, error) {
 	ws, err := b.GetWorkspace(workspaceID)

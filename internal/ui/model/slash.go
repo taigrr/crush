@@ -103,6 +103,14 @@ var builtinSlashCommands = []slashCommand{
 			return m.sendMessage("Review the current change with the `review` tool, then fix any real issues the reviewers surface.")
 		},
 	},
+	{
+		name:        "mcp-auth",
+		argHint:     "[server | (empty for all pending)]",
+		description: "Authenticate an OAuth MCP server via the browser",
+		run: func(m *UI, args string) tea.Cmd {
+			return m.handleMCPAuth(args)
+		},
+	},
 }
 
 // splitSlash splits a trimmed prompt value into a slash verb and its

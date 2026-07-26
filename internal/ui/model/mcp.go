@@ -1,14 +1,17 @@
 package model
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/util"
 )
 
 // mcpInfo renders the MCP status section showing active MCP clients and their
@@ -85,6 +88,9 @@ func mcpList(t *styles.Styles, mcps []mcp.ClientInfo, width, maxItems int) strin
 		case mcp.StateDisabled:
 			icon = t.Resource.DisabledIcon.String()
 			description = t.Resource.StatusText.Render("disabled")
+		case mcp.StateNeedsAuth:
+			icon = t.Resource.ErrorIcon.String()
+			description = t.Resource.StatusText.Render("needs auth (run /mcp-auth)")
 		default:
 			icon = t.Resource.OfflineIcon.String()
 		}
@@ -104,4 +110,33 @@ func mcpList(t *styles.Styles, mcps []mcp.ClientInfo, width, maxItems int) strin
 		return lipgloss.JoinVertical(lipgloss.Left, visibleItems...)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, renderedMcps...)
+}
+
+// handleMCPAuth authenticates OAuth MCP servers. With no argument it
+// authenticates every server currently awaiting auth; with a name it
+// authenticates just that server. The browser flow runs server-side (the
+// local daemon), so it opens on the user's machine.
+func (m *UI) handleMCPAuth(args string) tea.Cmd {
+	name := strings.TrimSpace(args)
+
+	var targets []string
+	if name != "" {
+		targets = []string{name}
+	} else {
+		for _, p := range m.com.Workspace.MCPPendingAuth() {
+			targets = append(targets, p.Name)
+		}
+	}
+	if len(targets) == 0 {
+		return util.ReportInfo("No MCP servers are awaiting authentication")
+	}
+
+	return func() tea.Msg {
+		for _, target := range targets {
+			if err := m.com.Workspace.MCPAuthenticate(context.Background(), target); err != nil {
+				return util.InfoMsg{Type: util.InfoTypeError, Msg: fmt.Sprintf("MCP %q auth failed: %v", target, err)}
+			}
+		}
+		return util.InfoMsg{Type: util.InfoTypeInfo, Msg: fmt.Sprintf("Authenticated %d MCP server(s)", len(targets))}
+	}
 }

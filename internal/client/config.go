@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/oauth"
@@ -299,6 +300,57 @@ func (c *Client) RefreshMCPTools(ctx context.Context, id, name string) error {
 		return fmt.Errorf("failed to refresh MCP tools: status code %d", rsp.StatusCode)
 	}
 	return nil
+}
+
+// MCPAuthenticate initiates the OAuth flow for a named MCP server.
+func (c *Client) MCPAuthenticate(ctx context.Context, id, name string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/mcp/authenticate", id), nil, jsonBody(struct {
+		Name string `json:"name"`
+	}{Name: name}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return fmt.Errorf("failed to authenticate MCP: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to authenticate MCP: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
+// MCPPendingAuth returns MCP servers awaiting OAuth authorization.
+func (c *Client) MCPPendingAuth(ctx context.Context, id string) ([]proto.PendingAuthServer, error) {
+	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/mcp/pending-auth", id), nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pending MCP auth: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get pending MCP auth: status code %d", rsp.StatusCode)
+	}
+	var pending []proto.PendingAuthServer
+	if err := json.NewDecoder(rsp.Body).Decode(&pending); err != nil {
+		return nil, fmt.Errorf("failed to decode pending MCP auth: %w", err)
+	}
+	return pending, nil
+}
+
+// MCPAuthURL returns the current OAuth authorization URL for a named MCP server.
+func (c *Client) MCPAuthURL(ctx context.Context, id, name string) (string, error) {
+	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/mcp/auth-url", id), url.Values{"name": {name}}, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to get MCP auth URL: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to get MCP auth URL: status code %d", rsp.StatusCode)
+	}
+	var result struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(rsp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode MCP auth URL: %w", err)
+	}
+	return result.URL, nil
 }
 
 // ReadMCPResource reads a resource from a named MCP server.
