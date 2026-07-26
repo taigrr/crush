@@ -23,6 +23,7 @@ import (
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/agent/prompt"
 	"github.com/taigrr/crush/internal/agent/tools"
+	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/embedding"
@@ -747,6 +748,13 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	})
 
 	c.readyWg.Go(func() error {
+		// Wait for MCP servers to finish registering their tools before
+		// building the initial tool list. This ensures the tool set includes
+		// all MCP tools, not just fast-to-init ones — slow stdio servers
+		// (e.g. Python via uv) otherwise register too late to appear.
+		if err := mcp.WaitForInit(ctx); err != nil {
+			return err
+		}
 		tools, err := c.buildTools(ctx, agent, isSubAgent)
 		if err != nil {
 			return err
