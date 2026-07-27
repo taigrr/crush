@@ -909,9 +909,10 @@ func loadFromConfigPaths(configPaths []string) (*Config, []string, error) {
 	var loaded []string
 
 	// Track directories that have both crush.json and crushrc to warn
-	// about potential confusion.
-	jsonDirs := make(map[string]bool)
-	shDirs := make(map[string]bool)
+	// about potential confusion, along with the top-level keys each
+	// defines so we can report conflicts.
+	jsonDirKeys := make(map[string]map[string]bool)
+	shDirKeys := make(map[string]map[string]bool)
 
 	for _, path := range configPaths {
 		data, err := os.ReadFile(path)
@@ -927,29 +928,45 @@ func loadFromConfigPaths(configPaths []string) (*Config, []string, error) {
 
 		dir := filepath.Dir(path)
 		if isShellConfig(path) {
-			shDirs[dir] = true
 			jsonBytes, err := shellconfig.LoadShellConfig(path, data)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to load shell config %s: %w", path, err)
 			}
 			if len(jsonBytes) > 0 {
+				addTopLevelKeys(shDirKeys, dir, jsonBytes)
 				configs = append(configs, jsonBytes)
 				loaded = append(loaded, path)
 			}
 		} else {
-			jsonDirs[dir] = true
 			if !json.Valid(data) {
 				return nil, nil, fmt.Errorf("invalid JSON in config file %s", path)
 			}
+			addTopLevelKeys(jsonDirKeys, dir, data)
 			configs = append(configs, data)
 			loaded = append(loaded, path)
 		}
 	}
 
-	// Warn if both a JSON config and a crushrc exist in the same directory.
-	for dir := range jsonDirs {
-		if shDirs[dir] {
-			slog.Warn("Found both a JSON config and a crushrc in the same directory; merging with crushrc taking precedence", "dir", dir)
+	// Warn if both a JSON config and a crushrc exist in the same directory,
+	// naming any overlapping top-level keys.
+	for dir, jKeys := range jsonDirKeys {
+		sKeys, ok := shDirKeys[dir]
+		if !ok {
+			continue
+		}
+		var conflicts []string
+		for k := range jKeys {
+			if sKeys[k] {
+				conflicts = append(conflicts, k)
+			}
+		}
+		slices.Sort(conflicts)
+		if len(conflicts) > 0 {
+			slog.Warn("Found both a JSON config and a crushrc in the same directory; merging with crushrc taking precedence",
+				"dir", dir, "conflicting_keys", strings.Join(conflicts, ", "))
+		} else {
+			slog.Warn("Found both a JSON config and a crushrc in the same directory; merging with crushrc taking precedence",
+				"dir", dir)
 		}
 	}
 
@@ -958,6 +975,20 @@ func loadFromConfigPaths(configPaths []string) (*Config, []string, error) {
 		return nil, nil, err
 	}
 	return cfg, loaded, nil
+}
+
+// addTopLevelKeys records the top-level JSON keys present in data into the
+// set for dir.
+func addTopLevelKeys(m map[string]map[string]bool, dir string, data []byte) {
+	keys := m[dir]
+	if keys == nil {
+		keys = make(map[string]bool)
+		m[dir] = keys
+	}
+	gjson.ParseBytes(data).ForEach(func(key, _ gjson.Result) bool {
+		keys[key.String()] = true
+		return true
+	})
 }
 
 func loadFromBytes(configs [][]byte) (*Config, error) {

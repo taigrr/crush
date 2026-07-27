@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -183,6 +184,49 @@ func TestLoadFromConfigPaths_InvalidJSON(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
+	})
+}
+
+// TestLoadFromConfigPaths_ConflictWarningNamesKeys verifies that when a JSON
+// config and a crushrc coexist in the same directory, the merge warning names
+// the overlapping top-level keys so incremental migrations can spot stale
+// duplicates.
+func TestLoadFromConfigPaths_ConflictWarningNamesKeys(t *testing.T) {
+	capture := func(t *testing.T) *strings.Builder {
+		t.Helper()
+		var buf strings.Builder
+		prev := slog.Default()
+		slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+		t.Cleanup(func() { slog.SetDefault(prev) })
+		return &buf
+	}
+
+	t.Run("names overlapping keys", func(t *testing.T) {
+		buf := capture(t)
+		tmpDir := t.TempDir()
+		jsonPath := filepath.Join(tmpDir, "crush.json")
+		rcPath := filepath.Join(tmpDir, "crushrc")
+		require.NoError(t, os.WriteFile(jsonPath, []byte(`{"options":{"debug":true},"providers":{}}`), 0o644))
+		require.NoError(t, os.WriteFile(rcPath, []byte("option debug true\n"), 0o644))
+
+		_, _, err := loadFromConfigPaths([]string{jsonPath, rcPath})
+		require.NoError(t, err)
+		require.Contains(t, buf.String(), "crushrc taking precedence")
+		require.Contains(t, buf.String(), `"conflicting_keys":"options"`)
+	})
+
+	t.Run("omits keys attribute when nothing overlaps", func(t *testing.T) {
+		buf := capture(t)
+		tmpDir := t.TempDir()
+		jsonPath := filepath.Join(tmpDir, "crush.json")
+		rcPath := filepath.Join(tmpDir, "crushrc")
+		require.NoError(t, os.WriteFile(jsonPath, []byte(`{"providers":{}}`), 0o644))
+		require.NoError(t, os.WriteFile(rcPath, []byte("option debug true\n"), 0o644))
+
+		_, _, err := loadFromConfigPaths([]string{jsonPath, rcPath})
+		require.NoError(t, err)
+		require.Contains(t, buf.String(), "crushrc taking precedence")
+		require.NotContains(t, buf.String(), "conflicting_keys")
 	})
 }
 
