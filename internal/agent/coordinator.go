@@ -738,8 +738,18 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		WorkingDir:           c.workingDir,
 	})
 
+	// The readiness goroutines below run asynchronously and outlive the
+	// caller of buildAgent. In the daemon, buildAgent is reached via an
+	// InitAgent HTTP handler whose request context is cancelled the moment
+	// the handler returns. Because readyWg is an errgroup, a cancellation
+	// here would be cached and returned by every future run, permanently
+	// wedging the coordinator (messages send but never produce output).
+	// Detach from the request lifetime so only real build failures poison
+	// readiness.
+	readyCtx := context.WithoutCancel(ctx)
+
 	c.readyWg.Go(func() error {
-		systemPrompt, err := prompt.Build(ctx, large.Model.Provider(), large.Model.Model(), c.cfg)
+		systemPrompt, err := prompt.Build(readyCtx, large.Model.Provider(), large.Model.Model(), c.cfg)
 		if err != nil {
 			return err
 		}
@@ -752,10 +762,10 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		// building the initial tool list. This ensures the tool set includes
 		// all MCP tools, not just fast-to-init ones — slow stdio servers
 		// (e.g. Python via uv) otherwise register too late to appear.
-		if err := mcp.WaitForInit(ctx); err != nil {
+		if err := mcp.WaitForInit(readyCtx); err != nil {
 			return err
 		}
-		tools, err := c.buildTools(ctx, agent, isSubAgent)
+		tools, err := c.buildTools(readyCtx, agent, isSubAgent)
 		if err != nil {
 			return err
 		}

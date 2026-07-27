@@ -18,13 +18,21 @@ var titlePrompt []byte
 func titlePromptFromMessages(msgs []message.Message, latestPrompt string) string {
 	var sb strings.Builder
 	for _, msg := range msgs {
-		if msg.Role != message.User {
+		var role string
+		switch msg.Role {
+		case message.User:
+			role = "User"
+		case message.Assistant:
+			role = "Assistant"
+		default:
 			continue
 		}
 		text := strings.TrimSpace(msg.Content().Text)
 		if text == "" {
 			continue
 		}
+		sb.WriteString(role)
+		sb.WriteString(": ")
 		sb.WriteString(text)
 		sb.WriteString("\n\n")
 	}
