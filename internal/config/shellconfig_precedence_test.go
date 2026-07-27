@@ -21,15 +21,15 @@ func TestShellConfigDotCrushrcTakesPrecedence(t *testing.T) {
 	dataDir := t.TempDir()
 	require.NoError(t, os.WriteFile(
 		filepath.Join(workDir, "crushrc"),
-		[]byte("option notification-style bell\n"), 0o644,
+		[]byte("option notifications bell\n"), 0o644,
 	))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(workDir, ".crushrc"),
-		[]byte("option notification-style osc\n"), 0o644,
+		[]byte("option notifications osc\n"), 0o644,
 	))
 
 	store, err := config.Load(workDir, dataDir, false)
 	require.NoError(t, err)
-	require.Equal(t, "osc", store.Config().Options.NotificationStyle,
+	require.Equal(t, "osc", store.Config().Options.Notifications,
 		".crushrc should win over crushrc")
 }

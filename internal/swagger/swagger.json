@@ -3050,9 +3050,6 @@
                 "disable_metrics": {
                     "type": "boolean"
                 },
-                "disable_notifications": {
-                    "type": "boolean"
-                },
                 "disable_provider_auto_update": {
                     "type": "boolean"
                 },
@@ -3069,6 +3066,9 @@
                     }
                 },
                 "initialize_as": {
+                    "type": "string"
+                },
+                "notifications": {
                     "type": "string"
                 },
                 "progress": {

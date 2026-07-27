@@ -233,7 +233,7 @@ func optionKeyMap(key string) (jsonKey string, inverted bool) {
 	case "metrics":
 		return "disable_metrics", true
 	case "notifications":
-		return "disable_notifications", true
+		return "notifications", false
 	case "auto-summarize":
 		return "disable_auto_summarize", true
 	case "provider-auto-update":
@@ -246,8 +246,6 @@ func optionKeyMap(key string) (jsonKey string, inverted bool) {
 		return "data_directory", false
 	case "initialize-as":
 		return "initialize_as", false
-	case "notification-style":
-		return "notification_style", false
 
 	// List fields. Keys are singular because each call appends one value.
 	case "context-path":
@@ -268,7 +266,7 @@ func isBoolOption(jsonKey string) bool {
 	switch jsonKey {
 	case "debug", "debug_lsp", "disable_auto_summarize",
 		"disable_provider_auto_update", "disable_default_providers",
-		"disable_metrics", "disable_notifications", "auto_lsp", "progress":
+		"disable_metrics", "auto_lsp", "progress":
 		return true
 	default:
 		return false

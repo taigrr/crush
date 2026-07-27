@@ -456,7 +456,6 @@ Boolean Keys:
   auto-lsp                       automatically configure language servers
   progress                       show progress indicators
   metrics                        send anonymous usage metrics
-  notifications                  enable desktop notifications (deprecated)
   auto-summarize                 automatically summarize long conversations
   provider-auto-update           update the provider catalog automatically
   default-providers              include built-in providers
@@ -465,7 +464,7 @@ Boolean Keys:
 String Keys:
   data-directory string           directory for project data and state
   initialize-as string             context filename created by crush init
-  notification-style string        notification style: auto, native, osc, bell,
+  notifications string             notification style: auto, native, osc, bell,
                                    or disabled
   attribution-trailer-style string attribution trailer: none, co-authored-by,
                                    or assisted-by

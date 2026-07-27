@@ -550,7 +550,7 @@ focused _and_ your terminal supports reporting the focus state.
 
 ```bash
 # Choose auto, native, osc, bell, or disabled.
-option notification-style disabled
+option notifications disabled
 ```
 
 `auto` uses native notifications locally and OSC notifications over SSH when

@@ -1017,15 +1017,18 @@ func hasAWSCredentials(env env.Env) bool {
 }
 
 // migrateDisableNotifications migrates the deprecated disable_notifications
-// field to notification_style. It checks both the user config (~/.config) and
-// data config (~/.local) files. If disable_notifications is true, it sets
-// notification_style to "disabled" in the data file. Regardless of value, it
-// removes disable_notifications from any file that contains it.
+// and notification_style fields to the unified notifications field. It checks
+// both the user config (~/.config) and data config (~/.local) files. If
+// disable_notifications is true, it sets notifications to "disabled" in the
+// data file. If notification_style is set, it moves the value to notifications.
+// Regardless of value, it removes the deprecated fields from any file that
+// contains them.
 func migrateDisableNotifications() {
 	globalConfig := GlobalConfig()
 	dataConfig := GlobalConfigData()
 
 	var wasDisabled bool
+	var styleValue string
 	filesToClean := []string{}
 
 	for _, path := range []string{globalConfig, dataConfig} {
@@ -1033,11 +1036,21 @@ func migrateDisableNotifications() {
 		if err != nil {
 			continue
 		}
+		needsClean := false
 		if gjson.Get(string(data), "options.disable_notifications").Exists() {
-			filesToClean = append(filesToClean, path)
+			needsClean = true
 			if gjson.Get(string(data), "options.disable_notifications").Bool() {
 				wasDisabled = true
 			}
+		}
+		if v := gjson.Get(string(data), "options.notification_style"); v.Exists() {
+			needsClean = true
+			if styleValue == "" {
+				styleValue = v.String()
+			}
+		}
+		if needsClean {
+			filesToClean = append(filesToClean, path)
 		}
 	}
 
@@ -1045,32 +1058,39 @@ func migrateDisableNotifications() {
 		return
 	}
 
-	// If notifications were disabled, persist the equivalent notification_style.
-	if wasDisabled {
+	// Determine the value to persist: notification_style takes precedence,
+	// then disable_notifications: true maps to "disabled".
+	migratedValue := styleValue
+	if migratedValue == "" && wasDisabled {
+		migratedValue = "disabled"
+	}
+
+	if migratedValue != "" {
 		data, err := os.ReadFile(dataConfig)
 		if err == nil {
-			if !gjson.Get(string(data), "options.notification_style").Exists() {
-				updated, err := sjson.Set(string(data), "options.notification_style", "disabled")
+			if !gjson.Get(string(data), "options.notifications").Exists() {
+				updated, err := sjson.Set(string(data), "options.notifications", migratedValue)
 				if err == nil {
 					if err := atomicWriteFile(dataConfig, []byte(updated), 0o600); err != nil {
-						slog.Warn("Failed to migrate disable_notifications to notification_style", "error", err)
+						slog.Warn("Failed to migrate to notifications field", "error", err)
 					} else {
-						slog.Info("Migrated disable_notifications: true to notification_style: disabled")
+						slog.Info("Migrated notification settings to notifications field", "value", migratedValue)
 					}
 				}
 			}
 		}
 	}
 
-	// Remove disable_notifications from all files that contain it.
+	// Remove deprecated fields from all files that contain them.
 	for _, path := range filesToClean {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			continue
 		}
-		updated, err := sjson.Delete(string(data), "options.disable_notifications")
-		if err != nil {
-			slog.Warn("Failed to remove deprecated disable_notifications field", "path", path, "error", err)
+		updated := string(data)
+		updated, _ = sjson.Delete(updated, "options.disable_notifications")
+		updated, _ = sjson.Delete(updated, "options.notification_style")
+		if updated == string(data) {
 			continue
 		}
 		if err := atomicWriteFile(path, []byte(updated), 0o600); err != nil {

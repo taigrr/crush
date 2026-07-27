@@ -53,7 +53,7 @@ func TestOption_String(t *testing.T) {
 
 	dir := t.TempDir()
 	script := `option data-directory .crush
-option notification-style osc`
+option notifications osc`
 	path := filepath.Join(dir, "crushrc")
 
 	jsonBytes, err := LoadShellConfig(path, []byte(script))
@@ -64,7 +64,7 @@ option notification-style osc`
 
 	opts := result["options"].(map[string]any)
 	require.Equal(t, ".crush", opts["data_directory"])
-	require.Equal(t, "osc", opts["notification_style"])
+	require.Equal(t, "osc", opts["notifications"])
 }
 
 func TestOption_List(t *testing.T) {
@@ -185,8 +185,7 @@ func TestOption_InvertedBool(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	script := `option metrics false
-option notifications true`
+	script := `option metrics false`
 	path := filepath.Join(dir, "crushrc")
 
 	jsonBytes, err := LoadShellConfig(path, []byte(script))
@@ -197,7 +196,6 @@ option notifications true`
 
 	opts := result["options"].(map[string]any)
 	require.Equal(t, true, opts["disable_metrics"])
-	require.Equal(t, false, opts["disable_notifications"])
 }
 
 func TestOption_UnknownKey(t *testing.T) {
