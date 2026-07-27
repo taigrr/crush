@@ -168,6 +168,17 @@ provider add deepseek \
   --api-key "${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY}"
 ```
 
+Headers whose value resolves to the empty string (an unset `$VAR`, a
+`$(...)` that prints nothing, or a literal `""`) are dropped from the
+outgoing request. This makes env-gated headers safe:
+
+```bash
+provider add openai \
+  --extra-header OpenAI-Organization "$OPENAI_ORG_ID"
+```
+
+If `OPENAI_ORG_ID` is unset, the header is simply not sent.
+
 #### `provider remove`
 
 Remove a provider and all custom models registered on it.
@@ -293,6 +304,9 @@ mcp add github --type http \
   --url "https://api.githubcopilot.com/mcp/" \
   --header Authorization "Bearer $GH_PAT"
 ```
+
+As with providers, a header whose value resolves to the empty string is
+dropped from the outgoing request.
 
 #### `mcp remove`
 
