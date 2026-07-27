@@ -308,9 +308,10 @@ $HOME/.local/share/crush/crush.json
 
 #### A note on security
 
-Config (both `crushrc` and `crush.json`) is trusted code. Both `crushrc` run in
-a full shell. Don't launch Crush in a directory whose config you haven't
-reviewed, and don't randomly `source` files from the internet into your config.
+Both `crushrc` and `crush.json` are trusted code; `crushrc` runs in a full
+shell, and any `$(...)` in `crush.json` runs at load time. Don't launch Crush
+in a directory whose config you haven't reviewed, and don't randomly `source`
+files from the internet into your config.
 
 ### LSPs
 

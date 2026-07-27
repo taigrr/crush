@@ -73,7 +73,7 @@ Not breaking the config API is really important to us! That said, you can
 target specific Crush versions with `$CRUSH_VERSION`:
 
 ```bash
-if [[ $CURSH_VERSION == "0.85.*" ]]; then
+if [[ $CRUSH_VERSION == "0.85.*" ]]; then
     option debug true
 fi
 ```
