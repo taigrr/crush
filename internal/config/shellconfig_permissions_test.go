@@ -31,6 +31,8 @@ func loadCrushShErr(t *testing.T, script string) (*config.ConfigStore, error) {
 	t.Setenv("HOME", isolated)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(isolated, ".config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(isolated, ".local", "share"))
+	t.Setenv("CRUSH_GLOBAL_CONFIG", filepath.Join(isolated, ".config", "crush"))
+	t.Setenv("CRUSH_GLOBAL_DATA", filepath.Join(isolated, ".local", "share", "crush"))
 
 	workDir := t.TempDir()
 	dataDir := t.TempDir()
