@@ -141,20 +141,6 @@ func handleOption(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		return nil
 	}
 
-	// Integer fields
-	if isIntOption(jsonKey) {
-		if val == "" {
-			return usage(stderr, fmt.Sprintf("option: %s requires a value", key))
-		}
-		n, err := strconv.Atoi(val)
-		if err != nil {
-			return usage(stderr, fmt.Sprintf("option: %s expects an integer, got %q", key, val))
-		}
-		o[jsonKey] = n
-		slog.Info("Option set in shell config", "key", key, "value", n)
-		return nil
-	}
-
 	// String fields
 	if val == "" {
 		return usage(stderr, fmt.Sprintf("option: %s requires a value", key))
@@ -271,10 +257,6 @@ func isBoolOption(jsonKey string) bool {
 	default:
 		return false
 	}
-}
-
-func isIntOption(_ string) bool {
-	return false
 }
 
 func isListOption(jsonKey string) bool {
