@@ -27,6 +27,22 @@ mcp rm github`)
 	require.NotContains(t, result["mcp"].(map[string]any), "github")
 }
 
+func TestMCPOAuthFlags(t *testing.T) {
+	t.Parallel()
+
+	result := loadScript(t, `mcp add secure --type http --url "https://mcp.example.com" \
+  --oauth true \
+  --oauth-client-id "my-client" \
+  --oauth-client-secret "my-secret" \
+  --oauth-callback-port 8085`)
+
+	m := result["mcp"].(map[string]any)["secure"].(map[string]any)
+	require.Equal(t, true, m["oauth"])
+	require.Equal(t, "my-client", m["oauth_client_id"])
+	require.Equal(t, "my-secret", m["oauth_client_secret"])
+	require.Equal(t, float64(8085), m["oauth_callback_port"])
+}
+
 func TestMCPUnknownSubcommand(t *testing.T) {
 	t.Parallel()
 

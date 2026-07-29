@@ -502,6 +502,7 @@ func (m *UI) Init() tea.Cmd {
 	if cmd := m.dispatchBusyRefresh(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	cmds = append(cmds, m.checkPendingMCPAuth())
 	return tea.Batch(cmds...)
 }
 
@@ -544,6 +545,10 @@ func selectNotificationBackend(caps common.Capabilities, cfg *config.Config) not
 	if cfg != nil && cfg.Options != nil && cfg.Options.Notifications != "" {
 		switch cfg.Options.Notifications {
 		case "native":
+			if !notification.NativeSupported {
+				slog.Debug("Native notifications unavailable on this platform; using OSC backend", "osc99_supported", caps.OSC99Notifications)
+				return notification.NewOSCBackend(notification.Icon, caps.OSC99Notifications)
+			}
 			slog.Debug("Using native backend (user preference)")
 			return notification.NewNativeBackend(notification.Icon)
 		case "osc":
@@ -573,9 +578,10 @@ func selectNotificationBackend(caps common.Capabilities, cfg *config.Config) not
 
 	// Local sessions: prefer OSC on macOS because the native backend (beeep)
 	// uses terminal-notifier or AppleScript, which is slow and doesn't display
-	// icons properly. OSC 99 provides a more polished experience with icon support.
-	if runtime.GOOS == "darwin" {
-		slog.Debug("Selected OSCBackend for local macOS session", "osc99_supported", caps.OSC99Notifications)
+	// icons properly. Also prefer OSC where native notifications are unavailable
+	// (illumos/solaris). OSC 99 provides a polished experience with icon support.
+	if runtime.GOOS == "darwin" || !notification.NativeSupported {
+		slog.Debug("Selected OSCBackend for local session", "osc99_supported", caps.OSC99Notifications, "native_supported", notification.NativeSupported)
 		return notification.NewOSCBackend(notification.Icon, caps.OSC99Notifications)
 	}
 
@@ -768,6 +774,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case mcpStateChangedMsg:
 		m.mcpStates = msg.states
+		// Auto-open the MCP auth dialog if any servers need authentication.
+		if cmd := m.openMCPAuthDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case mcpPromptsLoadedMsg:
 		m.mcpPrompts = msg.Prompts
 		dia := m.dialog.Dialog(dialog.CommandsID)
@@ -1287,6 +1297,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			slog.Warn("Unexpected Kitty graphics response",
 				"response", string(msg.Payload),
 				"options", msg.Options)
+		}
+	case dialog.ActionMCPAuthStarted:
+		cmds = append(cmds, m.authenticateMCP(msg.Ctx, msg.Name))
+	case dialog.ActionMCPAuthComplete, dialog.ActionMCPAuthErrored:
+		if m.dialog.HasDialogs() {
+			if cmd := m.handleDialogMsg(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	default:
 		if m.dialog.HasDialogs() {
@@ -3885,8 +3903,8 @@ func (m *UI) attachSkill(skillID, name string) tea.Cmd {
 
 // sendMessage sends a message with the given content and attachments.
 func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.Cmd {
-	if !m.com.Workspace.AgentIsReady() {
-		return util.ReportError(fmt.Errorf("coder agent is not initialized"))
+	if err := m.com.Workspace.AgentReadyErr(); err != nil {
+		return util.ReportError(err)
 	}
 
 	// Start the turn timer.

@@ -15,6 +15,8 @@ import (
 //	    [--env KEY VALUE ...] [--url URL] [--header KEY VALUE ...]
 //	    [--timeout N] [--disabled true|false]
 //	    [--disabled-tools TOOL ...] [--enabled-tools TOOL ...]
+//	    [--oauth true|false] [--oauth-client-id ID]
+//	    [--oauth-client-secret SECRET] [--oauth-callback-port PORT]
 //	mcp remove <name>   (alias: rm)
 //
 // "add" defines or updates an MCP server; repeated calls with the same <name>
@@ -40,7 +42,7 @@ func handleMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 
 func mcpAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	if len(args) < 3 {
-		return usage(stderr, "usage: mcp add <name> --type stdio|sse|http [--command CMD] [--args ARG ...] [--env KEY VALUE ...] [--url URL] [--header KEY VALUE ...] [--timeout N] [--disabled true|false] [--disabled-tools TOOL ...] [--enabled-tools TOOL ...]")
+		return usage(stderr, "usage: mcp add <name> --type stdio|sse|http [--command CMD] [--args ARG ...] [--env KEY VALUE ...] [--url URL] [--header KEY VALUE ...] [--timeout N] [--disabled true|false] [--disabled-tools TOOL ...] [--enabled-tools TOOL ...] [--oauth true|false] [--oauth-client-id ID] [--oauth-client-secret SECRET] [--oauth-callback-port PORT]")
 	}
 	name := args[2]
 	slog.Info("MCP server defined in shell config", "name", name)
@@ -114,6 +116,30 @@ func mcpAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 				return usage(stderr, err.Error())
 			}
 			m["enabled_tools"] = appendArr(m, "enabled_tools", v)
+		case "--oauth":
+			v, err := flagBool(args, &i, "oauth")
+			if err != nil {
+				return usage(stderr, err.Error())
+			}
+			m["oauth"] = v
+		case "--oauth-client-id":
+			v, err := flagStr(args, &i, "oauth-client-id")
+			if err != nil {
+				return usage(stderr, err.Error())
+			}
+			m["oauth_client_id"] = v
+		case "--oauth-client-secret":
+			v, err := flagStr(args, &i, "oauth-client-secret")
+			if err != nil {
+				return usage(stderr, err.Error())
+			}
+			m["oauth_client_secret"] = v
+		case "--oauth-callback-port":
+			v, err := flagInt(args, &i, "oauth-callback-port")
+			if err != nil {
+				return usage(stderr, err.Error())
+			}
+			m["oauth_callback_port"] = v
 		default:
 			return usage(stderr, fmt.Sprintf("mcp add: unknown flag %s", args[i]))
 		}

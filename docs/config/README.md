@@ -295,8 +295,12 @@ Flags:
       --header key value         HTTP header (repeatable)
       --timeout int              startup timeout in seconds
       --disabled bool            disable without removing
-      --disabled-tools string    deny a server tool (repeatable)
-      --enabled-tools string     allow only these server tools (repeatable)
+      --disabled-tools string       deny a server tool (repeatable)
+      --enabled-tools string        allow only these server tools (repeatable)
+      --oauth bool                  enable OAuth 2.1 flow (HTTP only)
+      --oauth-client-id string      pre-registered OAuth client ID
+      --oauth-client-secret string  pre-registered OAuth client secret
+      --oauth-callback-port int     fixed localhost port for the OAuth callback
 ```
 
 ```bash
@@ -476,7 +480,7 @@ Boolean Keys:
   attribution-generated-with     add the Generated with Crush line
 
 String Keys:
-  data-directory string           directory for project data and state
+  data-directory string            directory for project data and state
   initialize-as string             context filename created by crush init
   notifications string             notification style: auto, native, osc, bell,
                                    or disabled
