@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/lipgloss/v2"
 	"charm.land/log/v2"
 	"github.com/charmbracelet/crush/internal/client"
 	"github.com/charmbracelet/crush/internal/config"
@@ -24,7 +23,6 @@ import (
 	"github.com/charmbracelet/crush/internal/ui/styles"
 	"github.com/charmbracelet/crush/internal/workspace"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/exp/charmtone"
 	"github.com/charmbracelet/x/term"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -185,30 +183,19 @@ func runNonInteractive(
 
 	var (
 		spinner   *format.Spinner
-		stdoutTTY bool
 		stderrTTY bool
-		stdinTTY  bool
 		progress  bool
 	)
 
-	stdoutTTY = term.IsTerminal(os.Stdout.Fd())
 	stderrTTY = term.IsTerminal(os.Stderr.Fd())
-	stdinTTY = term.IsTerminal(os.Stdin.Fd())
 	progress = ws.Config.Options.Progress == nil || *ws.Config.Options.Progress
 
 	if !hideSpinner && stderrTTY {
 		t := styles.ThemeForProvider(ws.Config.Models[config.SelectedModelTypeLarge].Provider)
 
-		hasDarkBG := true
-		if stdinTTY && stdoutTTY {
-			hasDarkBG = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
-		}
-		defaultFG := lipgloss.LightDark(hasDarkBG)(charmtone.Pepper, t.WorkingLabelColor)
-
 		spinner = format.NewSpinner(ctx, cancel, anim.Settings{
 			Size:        10,
 			Label:       "Generating",
-			LabelColor:  defaultFG,
 			GradColorA:  t.WorkingGradFromColor,
 			GradColorB:  t.WorkingGradToColor,
 			CycleColors: true,

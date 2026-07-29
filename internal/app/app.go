@@ -17,7 +17,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/agent/notify"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
@@ -43,7 +42,6 @@ import (
 	"github.com/charmbracelet/crush/internal/update"
 	"github.com/charmbracelet/crush/internal/version"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/exp/charmtone"
 	"github.com/charmbracelet/x/term"
 )
 
@@ -285,35 +283,19 @@ func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt,
 
 	var (
 		spinner   *format.Spinner
-		stdoutTTY bool
 		stderrTTY bool
-		stdinTTY  bool
 		progress  bool
 	)
 
-	if f, ok := output.(*os.File); ok {
-		stdoutTTY = term.IsTerminal(f.Fd())
-	}
 	stderrTTY = term.IsTerminal(os.Stderr.Fd())
-	stdinTTY = term.IsTerminal(os.Stdin.Fd())
 	progress = app.config.Config().Options.Progress == nil || *app.config.Config().Options.Progress
 
 	if !hideSpinner && stderrTTY {
 		t := styles.ThemeForProvider(app.config.Config().Models[config.SelectedModelTypeLarge].Provider)
 
-		// Detect background color to set the appropriate color for the
-		// spinner's 'Generating...' text. Without this, that text would be
-		// unreadable in light terminals.
-		hasDarkBG := true
-		if f, ok := output.(*os.File); ok && stdinTTY && stdoutTTY {
-			hasDarkBG = lipgloss.HasDarkBackground(os.Stdin, f)
-		}
-		defaultFG := lipgloss.LightDark(hasDarkBG)(charmtone.Pepper, t.WorkingLabelColor)
-
 		spinner = format.NewSpinner(ctx, cancel, anim.Settings{
 			Size:        10,
 			Label:       "Generating",
-			LabelColor:  defaultFG,
 			GradColorA:  t.WorkingGradFromColor,
 			GradColorB:  t.WorkingGradToColor,
 			CycleColors: true,
