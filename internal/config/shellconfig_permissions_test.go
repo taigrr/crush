@@ -73,3 +73,20 @@ permissions deny bash`)
 
 	require.Equal(t, []string{"bash", "sourcegraph"}, store.Config().Options.DisabledTools)
 }
+
+// When a tool is both allowed and denied, deny wins: the tool lands in
+// disabled_tools which removes it from the agent entirely, regardless of
+// its presence in the allow-list.
+func TestShellConfigPermissionsDenyWinsOverAllow(t *testing.T) {
+	store := loadCrushSh(t, `permissions allow bash view
+permissions deny bash`)
+
+	require.ElementsMatch(t, []string{"bash", "view"}, store.Config().Permissions.AllowedTools)
+	require.Equal(t, []string{"bash"}, store.Config().Options.DisabledTools)
+
+	// SetupAgents resolves the effective tool set; denied tools are excluded.
+	cfg := store.Config()
+	cfg.SetupAgents()
+	require.NotContains(t, cfg.Agents[config.AgentCoder].AllowedTools, "bash")
+	require.Contains(t, cfg.Agents[config.AgentCoder].AllowedTools, "view")
+}
