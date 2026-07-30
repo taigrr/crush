@@ -10,18 +10,19 @@ import (
 // the context (which may carry a ConfigBuilder), and I/O streams.
 type BuiltinHandler func(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error
 
-// extraBuiltins holds additional builtin handlers registered by other
-// packages via RegisterBuiltin. This avoids an import cycle: shell cannot
-// import shellconfig (because shellconfig imports shell), so shellconfig
-// registers its handlers at init time and they are dispatched here.
-var extraBuiltins map[string]BuiltinHandler
+// builtins holds all in-process builtin handlers, including jq (registered
+// in this package) and config builtins (registered by shellconfig via
+// RegisterBuiltin to avoid an import cycle). Dispatched by builtinHandler in
+// run.go.
+var builtins = make(map[string]BuiltinHandler)
 
-// RegisterBuiltin registers a builtin command handler. Must be called before
-// any shell execution (typically in init()). If a handler is already
-// registered for the same name, the new one replaces it.
+func init() {
+	RegisterBuiltin("jq", handleJQ)
+}
+
+// RegisterBuiltin registers a builtin command handler. Must be called during
+// init(), before any shell execution. If a handler is already registered for
+// the same name, the new one replaces it.
 func RegisterBuiltin(name string, handler BuiltinHandler) {
-	if extraBuiltins == nil {
-		extraBuiltins = make(map[string]BuiltinHandler)
-	}
-	extraBuiltins[name] = handler
+	builtins[name] = handler
 }
