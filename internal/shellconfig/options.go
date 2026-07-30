@@ -57,14 +57,14 @@ func handleOption(ctx context.Context, args []string, stdin io.Reader, stdout, s
 			return usage(stderr, "usage: option reset <list-key>")
 		}
 		target := args[2]
-		jsonKey, _ := optionKeyMap(target)
-		if jsonKey == "" {
+		spec, ok := optionSpecs[target]
+		if !ok {
 			return usage(stderr, fmt.Sprintf("option: unknown key %q", target))
 		}
-		if !isListOption(jsonKey) {
+		if spec.kind != optList {
 			return usage(stderr, fmt.Sprintf("option: reset only applies to list options, %q is not one", target))
 		}
-		o[jsonKey] = []any{}
+		o[spec.jsonKey] = []any{}
 		slog.Info("Option list reset in shell config", "key", target)
 		return nil
 	}
@@ -107,24 +107,23 @@ func handleOption(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		return nil
 	}
 
-	jsonKey, inverted := optionKeyMap(key)
-	if jsonKey == "" {
+	spec, ok := optionSpecs[key]
+	if !ok {
 		return usage(stderr, fmt.Sprintf("option: unknown key %q", key))
 	}
 
-	// List fields: append to array
-	if isListOption(jsonKey) {
+	switch spec.kind {
+	case optList:
 		if val == "" {
 			return usage(stderr, fmt.Sprintf("option: %s requires a value", key))
 		}
-		o[jsonKey] = appendArr(o, jsonKey, val)
+		o[spec.jsonKey] = appendArr(o, spec.jsonKey, val)
 		slog.Info("Option set in shell config", "key", key, "value", val)
 		return nil
-	}
 
-	// Boolean fields: if no value, default to true. Inverted keys store the
-	// negation, so a positive key like "metrics" maps onto "disable_metrics".
-	if isBoolOption(jsonKey) {
+	case optBool:
+		// If no value, default to true. Inverted keys store the negation,
+		// so a positive key like "metrics" maps onto "disable_metrics".
 		bv := true
 		if val != "" {
 			parsed, err := parseBool(val)
@@ -133,28 +132,74 @@ func handleOption(ctx context.Context, args []string, stdin io.Reader, stdout, s
 			}
 			bv = parsed
 		}
-		if inverted {
+		if spec.inverted {
 			bv = !bv
 		}
-		o[jsonKey] = bv
-		slog.Info("Option set in shell config", "key", key, "value", o[jsonKey])
+		o[spec.jsonKey] = bv
+		slog.Info("Option set in shell config", "key", key, "value", o[spec.jsonKey])
+		return nil
+
+	default: // optString
+		if val == "" {
+			return usage(stderr, fmt.Sprintf("option: %s requires a value", key))
+		}
+		o[spec.jsonKey] = val
+		slog.Info("Option set in shell config", "key", key, "value", val)
 		return nil
 	}
-
-	// String fields
-	if val == "" {
-		return usage(stderr, fmt.Sprintf("option: %s requires a value", key))
-	}
-	o[jsonKey] = val
-	slog.Info("Option set in shell config", "key", key, "value", val)
-	return nil
 }
 
-// optionKeyMap maps user-facing kebab-case keys to JSON field names. The
-// second return value reports whether the key's boolean value must be
-// inverted before storing: several config fields are phrased negatively
-// (disable_metrics), but users set the positive sense (metrics false).
-// Returns an empty jsonKey for unknown keys.
+// optionKind is the value type of a user-facing option key.
+type optionKind int
+
+const (
+	optString optionKind = iota
+	optBool
+	optList
+)
+
+// optionSpec describes one user-facing option key: the JSON field it writes,
+// its value type, and (for booleans) whether the stored value is the inverse
+// of what the user typed. Several config fields are phrased negatively
+// (disable_metrics) but exposed positively (metrics), so "metrics false"
+// stores "disable_metrics true".
+type optionSpec struct {
+	jsonKey  string
+	kind     optionKind
+	inverted bool
+}
+
+// optionSpecs maps user-facing kebab-case keys to their JSON field and type.
+// This is the single source of truth for option key handling; the kind field
+// drives parsing so there is no separate bool/list enumeration to drift out
+// of sync.
+var optionSpecs = map[string]optionSpec{
+	// Boolean fields (stored as-is).
+	"debug":     {jsonKey: "debug", kind: optBool},
+	"debug-lsp": {jsonKey: "debug_lsp", kind: optBool},
+	"auto-lsp":  {jsonKey: "auto_lsp", kind: optBool},
+	"progress":  {jsonKey: "progress", kind: optBool},
+
+	// Boolean fields exposed positively but stored as their negation.
+	"metrics":              {jsonKey: "disable_metrics", kind: optBool, inverted: true},
+	"auto-summarize":       {jsonKey: "disable_auto_summarize", kind: optBool, inverted: true},
+	"provider-auto-update": {jsonKey: "disable_provider_auto_update", kind: optBool, inverted: true},
+	"default-providers":    {jsonKey: "disable_default_providers", kind: optBool, inverted: true},
+
+	// String fields.
+	"notifications":  {jsonKey: "notifications", kind: optString},
+	"data-directory": {jsonKey: "data_directory", kind: optString},
+	"initialize-as":  {jsonKey: "initialize_as", kind: optString},
+
+	// List fields. Keys are singular because each call appends one value.
+	"context-path":        {jsonKey: "context_paths", kind: optList},
+	"global-context-path": {jsonKey: "global_context_paths", kind: optList},
+	"skill-path":          {jsonKey: "skills_paths", kind: optList},
+	"disable-skill":       {jsonKey: "disabled_skills", kind: optList},
+}
+
+// optionUI implements "option ui <key> <value>" for TUI-specific settings
+// that live under options.tui rather than as top-level options.
 func optionUI(options map[string]any, args []string, stderr io.Writer) error {
 	if len(args) != 4 {
 		return usage(stderr, "usage: option ui <compact|diff|transparent|scrollbar|completions-max-depth|completions-max-items> <value>")
@@ -201,71 +246,6 @@ func optionUI(options map[string]any, args []string, stderr io.Writer) error {
 
 	slog.Info("UI option set in shell config", "key", key, "value", value)
 	return nil
-}
-
-func optionKeyMap(key string) (jsonKey string, inverted bool) {
-	switch key {
-	// Boolean fields (stored as-is).
-	case "debug":
-		return "debug", false
-	case "debug-lsp":
-		return "debug_lsp", false
-	case "auto-lsp":
-		return "auto_lsp", false
-	case "progress":
-		return "progress", false
-
-	// Boolean fields exposed positively but stored as their negation.
-	case "metrics":
-		return "disable_metrics", true
-	case "notifications":
-		return "notifications", false
-	case "auto-summarize":
-		return "disable_auto_summarize", true
-	case "provider-auto-update":
-		return "disable_provider_auto_update", true
-	case "default-providers":
-		return "disable_default_providers", true
-
-	// String fields
-	case "data-directory":
-		return "data_directory", false
-	case "initialize-as":
-		return "initialize_as", false
-
-	// List fields. Keys are singular because each call appends one value.
-	case "context-path":
-		return "context_paths", false
-	case "global-context-path":
-		return "global_context_paths", false
-	case "skill-path":
-		return "skills_paths", false
-	case "disable-skill":
-		return "disabled_skills", false
-
-	default:
-		return "", false
-	}
-}
-
-func isBoolOption(jsonKey string) bool {
-	switch jsonKey {
-	case "debug", "debug_lsp", "disable_auto_summarize",
-		"disable_provider_auto_update", "disable_default_providers",
-		"disable_metrics", "auto_lsp", "progress":
-		return true
-	default:
-		return false
-	}
-}
-
-func isListOption(jsonKey string) bool {
-	switch jsonKey {
-	case "context_paths", "global_context_paths", "skills_paths", "disabled_skills":
-		return true
-	default:
-		return false
-	}
 }
 
 func parseBool(s string) (bool, error) {
