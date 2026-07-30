@@ -229,7 +229,7 @@ func TestLoadFromConfigPaths_ConflictWarningNamesKeys(t *testing.T) {
 		require.Contains(t, buf.String(), `"conflicting_keys":"options"`)
 	})
 
-	t.Run("omits keys attribute when nothing overlaps", func(t *testing.T) {
+	t.Run("no warning when nothing overlaps", func(t *testing.T) {
 		buf := capture(t)
 		tmpDir := t.TempDir()
 		jsonPath := filepath.Join(tmpDir, "crush.json")
@@ -239,8 +239,8 @@ func TestLoadFromConfigPaths_ConflictWarningNamesKeys(t *testing.T) {
 
 		_, _, err := loadFromConfigPaths(context.Background(), []string{jsonPath, rcPath})
 		require.NoError(t, err)
-		require.Contains(t, buf.String(), "crushrc taking precedence")
-		require.NotContains(t, buf.String(), "conflicting_keys")
+		require.NotContains(t, buf.String(), "crushrc taking precedence",
+			"disjoint coexistence should not warn")
 	})
 }
 

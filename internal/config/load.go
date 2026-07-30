@@ -955,8 +955,9 @@ func loadFromConfigPaths(ctx context.Context, configPaths []string) (*Config, []
 		}
 	}
 
-	// Warn if both a JSON config and a crushrc exist in the same directory,
-	// naming any overlapping top-level keys.
+	// Warn if both a JSON config and a crushrc exist in the same directory
+	// and define overlapping top-level keys. Disjoint coexistence is
+	// intentional and not worth warning about.
 	for dir, jKeys := range jsonDirKeys {
 		sKeys, ok := shDirKeys[dir]
 		if !ok {
@@ -968,13 +969,10 @@ func loadFromConfigPaths(ctx context.Context, configPaths []string) (*Config, []
 				conflicts = append(conflicts, k)
 			}
 		}
-		slices.Sort(conflicts)
 		if len(conflicts) > 0 {
+			slices.Sort(conflicts)
 			slog.Warn("Found both a JSON config and a crushrc in the same directory; merging with crushrc taking precedence",
 				"dir", dir, "conflicting_keys", strings.Join(conflicts, ", "))
-		} else {
-			slog.Warn("Found both a JSON config and a crushrc in the same directory; merging with crushrc taking precedence",
-				"dir", dir)
 		}
 	}
 
