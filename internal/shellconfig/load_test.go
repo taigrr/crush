@@ -185,6 +185,31 @@ func TestLoadShellConfig_Permissions(t *testing.T) {
 	require.Equal(t, "view", tools[1])
 }
 
+// TestLoadShellConfig_PermissionsDeny verifies that `permissions deny` writes
+// to options.disabled_tools (not permissions.disabled_tools). This
+// cross-section write is load-bearing: deny wins over allow because
+// disabled_tools removes a tool from the agent entirely. Pin the destination
+// so a rename or relocation of disabled_tools can't silently break it.
+func TestLoadShellConfig_PermissionsDeny(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	script := `permissions deny bash sourcegraph`
+	path := filepath.Join(dir, "crushrc")
+
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
+	require.NoError(t, err)
+
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(jsonBytes, &result))
+
+	opts := result["options"].(map[string]any)
+	disabled := opts["disabled_tools"].([]any)
+	require.Equal(t, []any{"bash", "sourcegraph"}, disabled)
+	require.NotContains(t, result, "permissions",
+		"deny must not create a permissions section")
+}
+
 // TestLoadShellConfig_Hook verifies the hook builtin.
 func TestLoadShellConfig_Hook(t *testing.T) {
 	t.Parallel()

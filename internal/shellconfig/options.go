@@ -173,6 +173,10 @@ type optionSpec struct {
 // This is the single source of truth for option key handling; the kind field
 // drives parsing so there is no separate bool/list enumeration to drift out
 // of sync.
+//
+// Not exhaustive by design: options with nested structure (option ui ...) or
+// conditional logic (option attribution-...) are handled as special cases in
+// handleOption above and do not appear here.
 var optionSpecs = map[string]optionSpec{
 	// Boolean fields (stored as-is).
 	"debug":     {jsonKey: "debug", kind: optBool},

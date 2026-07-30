@@ -93,8 +93,17 @@ func modelAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	}
 
 	p := childMap(providers, provider)
+	// Re-adding a model id replaces the existing entry, matching the
+	// update-in-place behavior of `provider add` and `lsp add`.
 	modelsArr, _ := p["models"].([]any)
-	p["models"] = append(modelsArr, model)
+	kept := make([]any, 0, len(modelsArr)+1)
+	for _, item := range modelsArr {
+		if m, ok := item.(map[string]any); ok && m["id"] == id {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	p["models"] = append(kept, model)
 
 	slog.Info("Model added in shell config", "provider", provider, "model", id)
 	return nil

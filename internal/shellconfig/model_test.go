@@ -35,6 +35,21 @@ model add openai/gpt-5.6-sol --name "GPT 5.6 Sol" --context-window 200000 --can-
 	require.Equal(t, true, m["can_reason"])
 }
 
+// TestModelAddReplacesDuplicateID verifies that re-adding a model id updates
+// the existing entry in place rather than appending a duplicate, matching the
+// update-in-place behavior of `provider add` and `lsp add`.
+func TestModelAddReplacesDuplicateID(t *testing.T) {
+	t.Parallel()
+
+	result := loadScript(t, `provider add openai --api-key k
+model add openai/gpt-x --name "first"
+model add openai/gpt-x --name "second"`)
+
+	models := result["providers"].(map[string]any)["openai"].(map[string]any)["models"].([]any)
+	require.Len(t, models, 1, "re-adding a model id must not create a duplicate")
+	require.Equal(t, "second", models[0].(map[string]any)["name"])
+}
+
 func TestModelAddPricingFlags(t *testing.T) {
 	t.Parallel()
 
