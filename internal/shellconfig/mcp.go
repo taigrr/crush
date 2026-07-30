@@ -40,6 +40,24 @@ func handleMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 	}
 }
 
+// mcpAddFlags is the declarative flag surface for `mcp add`.
+var mcpAddFlags = []flagSpec{
+	{name: "--type", jsonKey: "type", kind: flagString, op: opSet},
+	{name: "--command", jsonKey: "command", kind: flagString, op: opSet},
+	{name: "--args", jsonKey: "args", kind: flagString, op: opAppend},
+	{name: "--env", child: "env", kind: flagKeyValue, op: opSetChild},
+	{name: "--url", jsonKey: "url", kind: flagString, op: opSet},
+	{name: "--header", child: "headers", kind: flagKeyValue, op: opSetChild},
+	{name: "--timeout", jsonKey: "timeout", kind: flagInt, op: opSet},
+	{name: "--disabled", jsonKey: "disabled", kind: flagBool, op: opSet},
+	{name: "--disabled-tools", jsonKey: "disabled_tools", kind: flagString, op: opAppend},
+	{name: "--enabled-tools", jsonKey: "enabled_tools", kind: flagString, op: opAppend},
+	{name: "--oauth", jsonKey: "oauth", kind: flagBool, op: opSet},
+	{name: "--oauth-client-id", jsonKey: "oauth_client_id", kind: flagString, op: opSet},
+	{name: "--oauth-client-secret", jsonKey: "oauth_client_secret", kind: flagString, op: opSet},
+	{name: "--oauth-callback-port", jsonKey: "oauth_callback_port", kind: flagInt, op: opSet},
+}
+
 func mcpAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	if len(args) < 3 {
 		return usage(stderr, "usage: mcp add <name> --type stdio|sse|http [--command CMD] [--args ARG ...] [--env KEY VALUE ...] [--url URL] [--header KEY VALUE ...] [--timeout N] [--disabled true|false] [--disabled-tools TOOL ...] [--enabled-tools TOOL ...] [--oauth true|false] [--oauth-client-id ID] [--oauth-client-secret SECRET] [--oauth-callback-port PORT]")
@@ -53,96 +71,8 @@ func mcpAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 		m["type"] = "stdio"
 	}
 
-	i := 3
-	for i < len(args) {
-		switch args[i] {
-		case "--type":
-			v, err := flagStr(args, &i, "type")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["type"] = v
-		case "--command":
-			v, err := flagStr(args, &i, "command")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["command"] = v
-		case "--args":
-			v, err := flagStr(args, &i, "args")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["args"] = appendArr(m, "args", v)
-		case "--env":
-			k, v, err := flagKeyValue(args, &i, "env")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			childMap(m, "env")[k] = v
-		case "--url":
-			v, err := flagStr(args, &i, "url")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["url"] = v
-		case "--header":
-			k, v, err := flagKeyValue(args, &i, "header")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			childMap(m, "headers")[k] = v
-		case "--timeout":
-			v, err := flagInt(args, &i, "timeout")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["timeout"] = v
-		case "--disabled":
-			v, err := flagBool(args, &i, "disabled")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["disabled"] = v
-		case "--disabled-tools":
-			v, err := flagStr(args, &i, "disabled-tools")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["disabled_tools"] = appendArr(m, "disabled_tools", v)
-		case "--enabled-tools":
-			v, err := flagStr(args, &i, "enabled-tools")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["enabled_tools"] = appendArr(m, "enabled_tools", v)
-		case "--oauth":
-			v, err := flagBool(args, &i, "oauth")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["oauth"] = v
-		case "--oauth-client-id":
-			v, err := flagStr(args, &i, "oauth-client-id")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["oauth_client_id"] = v
-		case "--oauth-client-secret":
-			v, err := flagStr(args, &i, "oauth-client-secret")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["oauth_client_secret"] = v
-		case "--oauth-callback-port":
-			v, err := flagInt(args, &i, "oauth-callback-port")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			m["oauth_callback_port"] = v
-		default:
-			return usage(stderr, fmt.Sprintf("mcp add: unknown flag %s", args[i]))
-		}
+	if err := applyFlags(mcpAddFlags, args, 3, m, "mcp add", stderr); err != nil {
+		return err
 	}
 
 	slog.Debug("MCP recorded", "name", name)

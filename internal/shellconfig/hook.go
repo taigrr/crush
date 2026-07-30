@@ -37,6 +37,14 @@ func handleHook(ctx context.Context, args []string, stdin io.Reader, stdout, std
 	}
 }
 
+// hookAddFlags is the declarative flag surface for `hook add`.
+var hookAddFlags = []flagSpec{
+	{name: "--command", jsonKey: "command", kind: flagString, op: opSet},
+	{name: "--matcher", jsonKey: "matcher", kind: flagString, op: opSet},
+	{name: "--timeout", jsonKey: "timeout", kind: flagInt, op: opSet},
+	{name: "--name", jsonKey: "name", kind: flagString, op: opSet},
+}
+
 func hookAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	if len(args) < 3 {
 		return usage(stderr, "usage: hook add <event> --command CMD [--name NAME] [--matcher REGEX] [--timeout N]")
@@ -45,36 +53,8 @@ func hookAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	slog.Info("Hook defined in shell config", "event", event)
 	h := map[string]any{}
 
-	i := 3
-	for i < len(args) {
-		switch args[i] {
-		case "--command":
-			v, err := flagStr(args, &i, "command")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			h["command"] = v
-		case "--matcher":
-			v, err := flagStr(args, &i, "matcher")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			h["matcher"] = v
-		case "--timeout":
-			v, err := flagInt(args, &i, "timeout")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			h["timeout"] = v
-		case "--name":
-			v, err := flagStr(args, &i, "name")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			h["name"] = v
-		default:
-			return usage(stderr, fmt.Sprintf("hook add: unknown flag %s", args[i]))
-		}
+	if err := applyFlags(hookAddFlags, args, 3, h, "hook add", stderr); err != nil {
+		return err
 	}
 
 	if _, ok := h["command"]; !ok {
@@ -89,26 +69,22 @@ func hookAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	return nil
 }
 
+// hookRemoveFlags is the declarative flag surface for `hook remove`.
+var hookRemoveFlags = []flagSpec{
+	{name: "--name", jsonKey: "name", kind: flagString, op: opSet},
+}
+
 func hookRemove(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	if len(args) < 3 {
 		return usage(stderr, "usage: hook remove <event> [--name NAME]")
 	}
 	event := args[2]
 
-	var name string
-	i := 3
-	for i < len(args) {
-		switch args[i] {
-		case "--name":
-			v, err := flagStr(args, &i, "name")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			name = v
-		default:
-			return usage(stderr, fmt.Sprintf("hook remove: unknown flag %s", args[i]))
-		}
+	flags := map[string]any{}
+	if err := applyFlags(hookRemoveFlags, args, 3, flags, "hook remove", stderr); err != nil {
+		return err
 	}
+	name, _ := flags["name"].(string)
 
 	hooks := b.section("hooks")
 

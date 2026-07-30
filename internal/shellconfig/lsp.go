@@ -38,6 +38,19 @@ func handleLSP(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 	}
 }
 
+// lspAddFlags is the declarative flag surface for `lsp add`.
+var lspAddFlags = []flagSpec{
+	{name: "--command", jsonKey: "command", kind: flagString, op: opSet},
+	{name: "--args", jsonKey: "args", kind: flagString, op: opAppend},
+	{name: "--env", child: "env", kind: flagKeyValue, op: opSetChild},
+	{name: "--filetypes", jsonKey: "filetypes", kind: flagString, op: opAppend},
+	{name: "--root-markers", jsonKey: "root_markers", kind: flagString, op: opAppend},
+	{name: "--timeout", jsonKey: "timeout", kind: flagInt, op: opSet},
+	{name: "--disabled", jsonKey: "disabled", kind: flagBool, op: opSet},
+	{name: "--init-options", jsonKey: "init_options", kind: flagJSONAny, op: opSet},
+	{name: "--options", jsonKey: "options", kind: flagJSONAny, op: opSet},
+}
+
 func lspAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	if len(args) < 3 {
 		return usage(stderr, "usage: lsp add <name> --command CMD [--args ARG ...] [--env KEY VALUE ...] [--filetypes TYPE ...] [--root-markers MARKER ...] [--timeout N] [--disabled true|false] [--init-options JSON] [--options JSON]")
@@ -46,74 +59,8 @@ func lspAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	slog.Info("LSP server defined in shell config", "name", name)
 	l := childMap(b.section("lsp"), name)
 
-	i := 3
-	for i < len(args) {
-		switch args[i] {
-		case "--command":
-			v, err := flagStr(args, &i, "command")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			l["command"] = v
-		case "--args":
-			v, err := flagStr(args, &i, "args")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			l["args"] = appendArr(l, "args", v)
-		case "--env":
-			k, v, err := flagKeyValue(args, &i, "env")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			childMap(l, "env")[k] = v
-		case "--filetypes":
-			v, err := flagStr(args, &i, "filetypes")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			l["filetypes"] = appendArr(l, "filetypes", v)
-		case "--root-markers":
-			v, err := flagStr(args, &i, "root-markers")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			l["root_markers"] = appendArr(l, "root_markers", v)
-		case "--timeout":
-			v, err := flagInt(args, &i, "timeout")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			l["timeout"] = v
-		case "--disabled":
-			v, err := flagBool(args, &i, "disabled")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			l["disabled"] = v
-		case "--init-options":
-			v, err := flagStr(args, &i, "init-options")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			var parsed any
-			if err := jsonUnmarshal([]byte(v), &parsed); err != nil {
-				return usage(stderr, fmt.Sprintf("lsp add: --init-options expects valid JSON, got %q: %s", v, err))
-			}
-			l["init_options"] = parsed
-		case "--options":
-			v, err := flagStr(args, &i, "options")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			var parsed any
-			if err := jsonUnmarshal([]byte(v), &parsed); err != nil {
-				return usage(stderr, fmt.Sprintf("lsp add: --options expects valid JSON, got %q: %s", v, err))
-			}
-			l["options"] = parsed
-		default:
-			return usage(stderr, fmt.Sprintf("lsp add: unknown flag %s", args[i]))
-		}
+	if err := applyFlags(lspAddFlags, args, 3, l, "lsp add", stderr); err != nil {
+		return err
 	}
 
 	slog.Debug("LSP recorded", "name", name)

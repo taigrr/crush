@@ -59,6 +59,20 @@ func splitProviderModel(s string) (provider, id string, ok bool) {
 	return provider, id, true
 }
 
+// modelAddFlags is the declarative flag surface for `model add`.
+var modelAddFlags = []flagSpec{
+	{name: "--name", jsonKey: "name", kind: flagString, op: opSet},
+	{name: "--context-window", jsonKey: "context_window", kind: flagInt64, op: opSet},
+	{name: "--default-max-tokens", jsonKey: "default_max_tokens", kind: flagInt64, op: opSet},
+	{name: "--can-reason", jsonKey: "can_reason", kind: flagBool, op: opSet},
+	{name: "--supports-images", jsonKey: "supports_attachments", kind: flagBool, op: opSet},
+	{name: "--price-input", jsonKey: "cost_per_1m_in", kind: flagFloat, op: opSet},
+	{name: "--price-output", jsonKey: "cost_per_1m_out", kind: flagFloat, op: opSet},
+	{name: "--price-cache-create", jsonKey: "cost_per_1m_out_cached", kind: flagFloat, op: opSet},
+	{name: "--price-cache-hit", jsonKey: "cost_per_1m_in_cached", kind: flagFloat, op: opSet},
+	{name: "--reasoning-effort", jsonKey: "default_reasoning_effort", kind: flagString, op: opSet},
+}
+
 func modelAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	if len(args) < 3 {
 		return usage(stderr, "usage: model add <provider>/<id> [--name NAME] [--context-window N] [--default-max-tokens N] [--can-reason true|false] [--supports-images true|false] [--price-input F] [--price-output F] [--price-cache-create F] [--price-cache-hit F] [--reasoning-effort low|medium|high]")
@@ -74,73 +88,8 @@ func modelAdd(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	}
 
 	model := map[string]any{"id": id}
-
-	i := 3
-	for i < len(args) {
-		switch args[i] {
-		case "--name":
-			v, err := flagStr(args, &i, "name")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			model["name"] = v
-		case "--context-window":
-			v, err := flagInt(args, &i, "context-window")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			model["context_window"] = int64(v)
-		case "--default-max-tokens":
-			v, err := flagInt(args, &i, "default-max-tokens")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			model["default_max_tokens"] = int64(v)
-		case "--can-reason":
-			v, err := flagBool(args, &i, "can-reason")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			model["can_reason"] = v
-		case "--supports-images":
-			v, err := flagBool(args, &i, "supports-images")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			model["supports_attachments"] = v
-		case "--price-input":
-			v, err := flagFloat64(args, &i, "price-input")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			model["cost_per_1m_in"] = v
-		case "--price-output":
-			v, err := flagFloat64(args, &i, "price-output")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			model["cost_per_1m_out"] = v
-		case "--price-cache-create":
-			v, err := flagFloat64(args, &i, "price-cache-create")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			model["cost_per_1m_out_cached"] = v
-		case "--price-cache-hit":
-			v, err := flagFloat64(args, &i, "price-cache-hit")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			model["cost_per_1m_in_cached"] = v
-		case "--reasoning-effort":
-			v, err := flagStr(args, &i, "reasoning-effort")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			model["default_reasoning_effort"] = v
-		default:
-			return usage(stderr, fmt.Sprintf("model add: unknown flag %s", args[i]))
-		}
+	if err := applyFlags(modelAddFlags, args, 3, model, "model add", stderr); err != nil {
+		return err
 	}
 
 	p := childMap(providers, provider)
@@ -180,6 +129,25 @@ func modelRemove(b *ConfigBuilder, args []string, stderr io.Writer) error {
 	return nil
 }
 
+// modelSelectFlags is the declarative flag surface for `model large`/`small`.
+var modelSelectFlags = []flagSpec{
+	{name: "--think", jsonKey: "think", kind: flagBool, op: opSet, boolTrue: true},
+	{name: "--reasoning-effort", jsonKey: "reasoning_effort", kind: flagString, op: opSet},
+	{name: "--max-tokens", jsonKey: "max_tokens", kind: flagInt, op: opSet},
+	{name: "--temperature", jsonKey: "temperature", kind: flagFloat, op: opSet},
+	{name: "--top-p", jsonKey: "top_p", kind: flagFloat, op: opSet, validate: func(v any) error {
+		f := v.(float64)
+		if f < 0 || f > 1 {
+			return fmt.Errorf("--top-p expects a value between 0 and 1, got %v", f)
+		}
+		return nil
+	}},
+	{name: "--top-k", jsonKey: "top_k", kind: flagInt, op: opSet},
+	{name: "--frequency-penalty", jsonKey: "frequency_penalty", kind: flagFloat, op: opSet},
+	{name: "--presence-penalty", jsonKey: "presence_penalty", kind: flagFloat, op: opSet},
+	{name: "--provider-options", child: "provider_options", kind: flagJSONObject, op: opMergeChild},
+}
+
 func modelSelect(b *ConfigBuilder, args []string, stdout, stderr io.Writer) error {
 	slot := args[1]
 
@@ -206,66 +174,8 @@ func modelSelect(b *ConfigBuilder, args []string, stdout, stderr io.Writer) erro
 	sel["provider"] = provider
 	sel["model"] = id
 
-	i := 3
-	for i < len(args) {
-		switch args[i] {
-		case "--think":
-			sel["think"] = true
-			i++
-		case "--reasoning-effort":
-			v, err := flagStr(args, &i, "reasoning-effort")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			sel["reasoning_effort"] = v
-		case "--max-tokens":
-			v, err := flagInt(args, &i, "max-tokens")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			sel["max_tokens"] = v
-		case "--temperature":
-			v, err := flagFloat64(args, &i, "temperature")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			sel["temperature"] = v
-		case "--top-p":
-			v, err := flagFloat64(args, &i, "top-p")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			if v < 0 || v > 1 {
-				return usage(stderr, fmt.Sprintf("model %s: --top-p expects a value between 0 and 1, got %v", slot, v))
-			}
-			sel["top_p"] = v
-		case "--top-k":
-			v, err := flagInt(args, &i, "top-k")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			sel["top_k"] = v
-		case "--frequency-penalty":
-			v, err := flagFloat64(args, &i, "frequency-penalty")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			sel["frequency_penalty"] = v
-		case "--presence-penalty":
-			v, err := flagFloat64(args, &i, "presence-penalty")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			sel["presence_penalty"] = v
-		case "--provider-options":
-			v, err := flagJSONObject(args, &i, "provider-options")
-			if err != nil {
-				return usage(stderr, err.Error())
-			}
-			mergeMap(childMap(sel, "provider_options"), v)
-		default:
-			return usage(stderr, fmt.Sprintf("model %s: unknown flag %s", slot, args[i]))
-		}
+	if err := applyFlags(modelSelectFlags, args, 3, sel, "model "+slot, stderr); err != nil {
+		return err
 	}
 
 	slog.Info("Model selected in shell config", "slot", slot, "provider", provider, "model", id)
