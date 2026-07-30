@@ -44,7 +44,7 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 
 	configPaths := lookupConfigs(workingDir)
 
-	cfg, loadedPaths, err := loadFromConfigPaths(configPaths)
+	cfg, loadedPaths, err := loadFromConfigPaths(context.Background(), configPaths)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config from paths %v: %w", configPaths, err)
 	}
@@ -912,7 +912,7 @@ func lookupConfigs(cwd string) []string {
 	return append(configPaths, foundConfigs...)
 }
 
-func loadFromConfigPaths(configPaths []string) (*Config, []string, error) {
+func loadFromConfigPaths(ctx context.Context, configPaths []string) (*Config, []string, error) {
 	var configs [][]byte
 	var loaded []string
 
@@ -936,7 +936,7 @@ func loadFromConfigPaths(configPaths []string) (*Config, []string, error) {
 
 		dir := filepath.Dir(path)
 		if isShellConfig(path) {
-			jsonBytes, err := shellconfig.LoadShellConfig(path, data)
+			jsonBytes, err := shellconfig.LoadShellConfig(ctx, path, data)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to load shell config %s: %w", path, err)
 			}

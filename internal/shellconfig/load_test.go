@@ -1,10 +1,12 @@
 package shellconfig
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/shell"
 	"github.com/charmbracelet/crush/internal/version"
@@ -19,7 +21,7 @@ func TestLoadShellConfig_Provider(t *testing.T) {
 	path := filepath.Join(dir, "crushrc")
 
 	t.Setenv("OPENAI_API_KEY", "test-key-123")
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 	require.NotNil(t, jsonBytes)
 
@@ -43,7 +45,7 @@ func TestLoadShellConfig_FlagBoolCaseInsensitive(t *testing.T) {
 	script := `provider add openai --api-key key --disable TRUE`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -63,7 +65,7 @@ func TestLoadShellConfig_MultipleProviders(t *testing.T) {
 provider add anthropic --api-key "key2"`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -84,7 +86,7 @@ func TestLoadShellConfig_Model(t *testing.T) {
 model small anthropic/claude-3-5-haiku`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -110,7 +112,7 @@ func TestLoadShellConfig_MCP(t *testing.T) {
 mcp add local-server --type http --url "http://localhost:3000/mcp" --header "Authorization" "Bearer token"`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -143,7 +145,7 @@ func TestLoadShellConfig_LSP(t *testing.T) {
 	script := `lsp add gopls --command gopls --filetypes go --filetypes mod --root-markers go.mod --timeout 60`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -170,7 +172,7 @@ func TestLoadShellConfig_Permissions(t *testing.T) {
 	script := `permissions allow bash view`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -191,7 +193,7 @@ func TestLoadShellConfig_Hook(t *testing.T) {
 	script := `hook add PreToolUse --command "echo running" --matcher "bash" --timeout 10 --name "my-hook"`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -217,7 +219,7 @@ option metrics false
 option debug`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -247,7 +249,7 @@ func TestLoadShellConfig_SourceInclude(t *testing.T) {
 provider add anthropic --api-key "main-key"`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -270,7 +272,7 @@ fi`
 	path := filepath.Join(dir, "crushrc")
 
 	t.Setenv("USE_ANTHROPIC", "1")
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -288,7 +290,7 @@ func TestLoadShellConfig_CrushVersionEnv(t *testing.T) {
 	script := `provider add openai --api-key "$CRUSH_VERSION"`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -307,7 +309,7 @@ func TestLoadShellConfig_CommandSubstitution(t *testing.T) {
 	script := `provider add openai --api-key "$(echo dynamic-key)"`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -325,7 +327,7 @@ func TestLoadShellConfig_EnvVarExpansion(t *testing.T) {
 	path := filepath.Join(dir, "crushrc")
 
 	t.Setenv("MY_API_KEY", "env-key-456")
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -344,7 +346,7 @@ func TestLoadShellConfig_UnknownFlag(t *testing.T) {
 	script := `provider add openai --bogus-flag "value"`
 	path := filepath.Join(dir, "crushrc")
 
-	_, err := LoadShellConfig(path, []byte(script))
+	_, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.Error(t, err)
 }
 
@@ -356,7 +358,7 @@ func TestLoadShellConfig_MissingRequiredArgs(t *testing.T) {
 	script := `provider`
 	path := filepath.Join(dir, "crushrc")
 
-	_, err := LoadShellConfig(path, []byte(script))
+	_, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.Error(t, err)
 }
 
@@ -369,7 +371,7 @@ func TestLoadShellConfig_NoBuiltins(t *testing.T) {
 	script := `echo "just a normal script"`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 	require.Nil(t, jsonBytes)
 }
@@ -378,7 +380,7 @@ func TestLoadShellConfig_ProviderJSONFlagsRequireObjects(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "crushrc")
-	_, err := LoadShellConfig(path, []byte(`provider add custom --extra-body '[]'`))
+	_, err := LoadShellConfig(t.Context(), path, []byte(`provider add custom --extra-body '[]'`))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "expects a JSON object")
 }
@@ -391,7 +393,7 @@ func TestLoadShellConfig_ExtraHeader(t *testing.T) {
 	script := `provider add custom --api-key "key" --extra-header "X-Custom" "value123"`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -437,7 +439,7 @@ option data-directory .crush
 option metrics false`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 	require.NotNil(t, jsonBytes)
 
@@ -498,4 +500,35 @@ func TestConfigBuilder_NoBuilderInContext(t *testing.T) {
 		Env:     os.Environ(),
 	})
 	require.NoError(t, err)
+}
+
+// TestLoadShellConfig_RespectsContextCancellation verifies that a hanging
+// crushrc cannot block config loading indefinitely. Config loads run on the
+// startup and reload critical paths while the config store's write lock is
+// held, so a runaway script (a busy loop, a hung command substitution) must
+// be interruptible via the context rather than wedging the whole store. The
+// test bounds its own wait so a regression can't hang CI.
+func TestLoadShellConfig_RespectsContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "crushrc")
+	script := `while true; do :; done`
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	t.Cleanup(cancel)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := LoadShellConfig(ctx, path, []byte(script))
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		require.Error(t, err, "a cancelled crushrc must fail, not succeed")
+		require.True(t, shell.IsInterrupt(err),
+			"expected an interrupt/cancellation error, got: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("LoadShellConfig did not return after context cancellation")
+	}
 }

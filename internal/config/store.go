@@ -1110,7 +1110,7 @@ func (s *ConfigStore) reloadFromDiskLocked(ctx context.Context) error {
 	migrateDisableNotifications()
 
 	configPaths := lookupConfigs(s.workingDir)
-	cfg, loadedPaths, err := loadFromConfigPaths(configPaths)
+	cfg, loadedPaths, err := loadFromConfigPaths(ctx, configPaths)
 	if err != nil {
 		return fmt.Errorf("failed to reload config: %w", err)
 	}

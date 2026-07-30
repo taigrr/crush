@@ -16,7 +16,7 @@ func TestOption_Bool(t *testing.T) {
 option progress false`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -36,7 +36,7 @@ option progress False
 option metrics YES`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -56,7 +56,7 @@ func TestOption_String(t *testing.T) {
 option notifications osc`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -75,7 +75,7 @@ func TestOption_List(t *testing.T) {
 option context-path CRUSH.md`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -97,7 +97,7 @@ option skill-path ./b
 option reset skill-path`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -117,7 +117,7 @@ option reset skill-path
 option skill-path ./mine`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -136,7 +136,7 @@ func TestOption_ResetUnknownKey(t *testing.T) {
 	script := `option reset bogus-key`
 	path := filepath.Join(dir, "crushrc")
 
-	_, err := LoadShellConfig(path, []byte(script))
+	_, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown key")
 }
@@ -148,7 +148,7 @@ func TestOption_ResetNonListKey(t *testing.T) {
 	script := `option reset debug`
 	path := filepath.Join(dir, "crushrc")
 
-	_, err := LoadShellConfig(path, []byte(script))
+	_, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "not one")
 }
@@ -157,7 +157,7 @@ func TestOption_UIUnknownKey(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "crushrc")
-	_, err := LoadShellConfig(path, []byte(`option ui bogus true`))
+	_, err := LoadShellConfig(t.Context(), path, []byte(`option ui bogus true`))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown key")
 }
@@ -170,7 +170,7 @@ func TestOption_BoolShorthand(t *testing.T) {
 option metrics`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -188,7 +188,7 @@ func TestOption_InvertedBool(t *testing.T) {
 	script := `option metrics false`
 	path := filepath.Join(dir, "crushrc")
 
-	jsonBytes, err := LoadShellConfig(path, []byte(script))
+	jsonBytes, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.NoError(t, err)
 
 	var result map[string]any
@@ -205,7 +205,7 @@ func TestOption_UnknownKey(t *testing.T) {
 	script := `option bogus-key value`
 	path := filepath.Join(dir, "crushrc")
 
-	_, err := LoadShellConfig(path, []byte(script))
+	_, err := LoadShellConfig(t.Context(), path, []byte(script))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown key")
 }
