@@ -1207,8 +1207,10 @@ func (s *ConfigStore) reloadFromDiskLocked(ctx context.Context) error {
 		return setupErr
 	}
 
-	// Rebuild staleness tracking
-	s.captureStalenessSnapshot(loadedPaths)
+	// Rebuild staleness tracking. Track every discovered config path, not
+	// just the ones that loaded, so a config file created after this reload
+	// is detected as a change on the next staleness check.
+	s.captureStalenessSnapshot(append(slices.Clone(configPaths), loadedPaths...))
 
 	return nil
 }

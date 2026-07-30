@@ -151,7 +151,10 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 	store.SetupAgents()
 
 	// Capture initial staleness snapshot
-	store.captureStalenessSnapshot(loadedPaths)
+	// Capture initial staleness snapshot. Track every discovered config path,
+	// not just the ones that loaded, so a config file created after startup
+	// (e.g. a crushrc added mid-session) is detected as a change.
+	store.captureStalenessSnapshot(append(slices.Clone(configPaths), loadedPaths...))
 
 	return store, nil
 }

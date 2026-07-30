@@ -101,3 +101,36 @@ func TestReloadFromDisk_HangingCrushrcIsInterruptible(t *testing.T) {
 	require.Equal(t, "bell", store.Config().Options.Notifications,
 		"in-memory config must be preserved when a reload is cancelled")
 }
+
+// TestLoad_TracksNotYetCreatedGlobalCrushrc verifies that config.Load tracks
+// the global crushrc path even when the file does not exist yet, so a crushrc
+// created after startup is detected as a staleness change. Previously only
+// successfully-loaded paths were tracked, so a mid-session global crushrc went
+// unnoticed until something else triggered a reload.
+//
+// Project-level crushrc files are discovered by walking the tree for existing
+// files, so a not-yet-created project crushrc is still only picked up on the
+// next reload; the global path is the common case this covers.
+func TestLoad_TracksNotYetCreatedGlobalCrushrc(t *testing.T) {
+	workDir, dataDir := isolateReloadEnv(t)
+	globalRC := filepath.Join(t.TempDir(), "crushrc")
+	t.Setenv("CRUSH_GLOBAL_CONFIG", filepath.Dir(globalRC))
+
+	// A provider must be configured so Load runs past its early
+	// "not configured" return and reaches the staleness snapshot capture.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workDir, "crushrc"),
+		[]byte("provider add openai --api-key k\n"), 0o644))
+
+	// Load with no global crushrc present.
+	store, err := config.Load(workDir, dataDir, false)
+	require.NoError(t, err)
+	require.False(t, store.ConfigStaleness().Dirty, "fresh load should be clean")
+
+	// Create the global crushrc after startup.
+	require.NoError(t, os.WriteFile(globalRC, []byte("option debug true\n"), 0o644))
+
+	staleness := store.ConfigStaleness()
+	require.True(t, staleness.Dirty, "creating a global crushrc must be detected")
+	require.Contains(t, staleness.Changed, globalRC)
+}
