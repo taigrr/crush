@@ -542,8 +542,8 @@ func (m *UI) sendNotification(n notification.Notification) tea.Cmd {
 // change.
 func selectNotificationBackend(caps common.Capabilities, cfg *config.Config) notification.Backend {
 	// Check for explicit user preference first.
-	if cfg != nil && cfg.Options != nil && cfg.Options.NotificationStyle != "" {
-		switch cfg.Options.NotificationStyle {
+	if cfg != nil && cfg.Options != nil && cfg.Options.Notifications != "" {
+		switch cfg.Options.Notifications {
 		case "native":
 			if !notification.NativeSupported {
 				slog.Debug("Native notifications unavailable on this platform; using OSC backend", "osc99_supported", caps.OSC99Notifications)
@@ -563,7 +563,7 @@ func selectNotificationBackend(caps common.Capabilities, cfg *config.Config) not
 		case "auto":
 			// Fall through to auto-detection below.
 		default:
-			slog.Warn("Unknown notification style, using auto", "style", cfg.Options.NotificationStyle)
+			slog.Warn("Unknown notification style, using auto", "style", cfg.Options.Notifications)
 		}
 	}
 
@@ -607,7 +607,7 @@ func (m *UI) updateNotificationBackend() {
 // focused, and notifications must not be disabled in config.
 func (m *UI) shouldSendNotification() bool {
 	cfg := m.com.Config()
-	if cfg != nil && cfg.Options != nil && cfg.Options.NotificationStyle == "disabled" {
+	if cfg != nil && cfg.Options != nil && cfg.Options.Notifications == "disabled" {
 		return false
 	}
 	return m.caps.ReportFocusEvents && !m.notifyWindowFocused
@@ -1795,8 +1795,8 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	case dialog.ActionSelectNotificationStyle:
 		cfg := m.com.Config()
 		if cfg != nil && cfg.Options != nil {
-			cfg.Options.NotificationStyle = msg.Style
-			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "options.notification_style", msg.Style); err != nil {
+			cfg.Options.Notifications = msg.Style
+			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "options.notifications", msg.Style); err != nil {
 				cmds = append(cmds, util.ReportError(err))
 			} else {
 				cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Notifications set to: "+msg.Style)))

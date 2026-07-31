@@ -3057,9 +3057,6 @@ const docTemplate = `{
                 "disable_metrics": {
                     "type": "boolean"
                 },
-                "disable_notifications": {
-                    "type": "boolean"
-                },
                 "disable_provider_auto_update": {
                     "type": "boolean"
                 },
@@ -3076,6 +3073,9 @@ const docTemplate = `{
                     }
                 },
                 "initialize_as": {
+                    "type": "string"
+                },
+                "notifications": {
                     "type": "string"
                 },
                 "progress": {

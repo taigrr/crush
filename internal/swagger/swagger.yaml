@@ -332,8 +332,6 @@ definitions:
         type: boolean
       disable_metrics:
         type: boolean
-      disable_notifications:
-        type: boolean
       disable_provider_auto_update:
         type: boolean
       disabled_skills:
@@ -345,6 +343,8 @@ definitions:
           type: string
         type: array
       initialize_as:
+        type: string
+      notifications:
         type: string
       progress:
         type: boolean
