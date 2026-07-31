@@ -250,27 +250,15 @@ Crush’s default model listing is managed in [Catwalk](https://github.com/charm
 > Crush ships with a builtin skill for configuring itself. Most of the time
 > you can just tell what you want it to configure and it will get the job done.
 
-Crush runs great with no configuration. That said, if you do
-need or want to customize Crush, configuration can be added either local to the
-project itself, or globally, with the following priority:
-
-| Priority | Unix-like                 | Windows                               |
-| -------- | ------------------------- | ------------------------------------- |
-| 1        | `./.crushrc`              | `.\.crushrc`                          |
-| 2        | `./crushrc`               | `.\crushrc`                           |
-| 3        | `~/.config/crush/crushrc` | `%USERPROFILE%\.config\crush\crushrc` |
-
-(Crush respects the [XDG Base Directory Specification][xdg], so your paths
-may differ depending on your `XDG_CONFIG_HOME` value. Data directories such as
-`~/.local/share/crush` and `%LOCALAPPDATA%\crush` contain JSON state only; Crush
-does not execute a `crushrc` from them.)
-
-[xdg]: https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
+Crush runs great with no configuration. That said, if you do need or want to
+customize Crush, you can, with a `crushrc`.
 
 A `crushrc` is just Bash with some Crush-specific builtins. It’s a lot like
 a `.bashrc`, just for your Crush. Because Crush has a native, built-in Bash
 interpreter, Bash-based config works identically across all platforms, including
 Windows.
+
+For example:
 
 ```bash
 # Add Ollama.
@@ -294,8 +282,24 @@ mcp add github \
   --header Authorization "Bearer $(op read 'op://my-secret-key')"
 ```
 
-What about the old JSON format? It’s still supported, but deprecated. See:
-[the config docs](./docs/config/) for details.
+Configuration can be added either local to the project itself, or globally,
+with the following priority:
+
+| Priority | Unix-like                 | Windows                               |
+| -------- | ------------------------- | ------------------------------------- |
+| 1        | `./.crushrc`              | `.\.crushrc`                          |
+| 2        | `./crushrc`               | `.\crushrc`                           |
+| 3        | `~/.config/crush/crushrc` | `%USERPROFILE%\.config\crush\crushrc` |
+
+(Crush respects the [XDG Base Directory Specification][xdg], so your paths
+may differ depending on your `XDG_CONFIG_HOME` value. Data directories such as
+`~/.local/share/crush` and `%LOCALAPPDATA%\crush` contain JSON state only; Crush
+does not execute a `crushrc` from them.)
+
+[xdg]: https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html
+
+What about the old JSON format? It’s still supported, but it should be
+consdiered deprecated. See: [the config docs](./docs/config/) for details.
 
 > [!TIP]
 > You can override the user and data config locations by setting:
