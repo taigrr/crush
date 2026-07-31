@@ -62,8 +62,8 @@ func splitProviderModel(s string) (provider, id string, ok bool) {
 // modelAddFlags is the declarative flag surface for `model add`.
 var modelAddFlags = []flagSpec{
 	{name: "--name", jsonKey: "name", kind: flagString, op: opSet},
-	{name: "--context-window", jsonKey: "context_window", kind: flagInt64, op: opSet},
-	{name: "--default-max-tokens", jsonKey: "default_max_tokens", kind: flagInt64, op: opSet},
+	{name: "--context-window", jsonKey: "context_window", kind: flagInt, op: opSet},
+	{name: "--default-max-tokens", jsonKey: "default_max_tokens", kind: flagInt, op: opSet},
 	{name: "--can-reason", jsonKey: "can_reason", kind: flagBool, op: opSet},
 	{name: "--supports-images", jsonKey: "supports_attachments", kind: flagBool, op: opSet},
 	{name: "--price-input", jsonKey: "cost_per_1m_in", kind: flagFloat, op: opSet},
@@ -140,7 +140,7 @@ func modelRemove(b *ConfigBuilder, args []string, stderr io.Writer) error {
 
 // modelSelectFlags is the declarative flag surface for `model large`/`small`.
 var modelSelectFlags = []flagSpec{
-	{name: "--think", jsonKey: "think", kind: flagBool, op: opSet, boolTrue: true},
+	{name: "--think", jsonKey: "think", kind: flagBoolTrue, op: opSet},
 	{name: "--reasoning-effort", jsonKey: "reasoning_effort", kind: flagString, op: opSet},
 	{name: "--max-tokens", jsonKey: "max_tokens", kind: flagInt, op: opSet},
 	{name: "--temperature", jsonKey: "temperature", kind: flagFloat, op: opSet},

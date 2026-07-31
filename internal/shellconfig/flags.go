@@ -15,8 +15,10 @@ type flagKind int
 const (
 	flagString flagKind = iota
 	flagBool
+	// flagBoolTrue is a valueless boolean flag (e.g. --think) that stores
+	// true when present, without consuming an argument.
+	flagBoolTrue
 	flagInt
-	flagInt64
 	flagFloat
 	// flagKeyValue consumes two args (KEY VALUE) and stores them as a map
 	// entry, e.g. --env NAME VALUE.
@@ -54,12 +56,8 @@ type flagSpec struct {
 	op      flagOp
 	child   string // child map name for opSetChild / opMergeChild
 
-	// boolTrue marks a valueless boolean flag (e.g. --think) that sets
-	// target[jsonKey] = true when present.
-	boolTrue bool
-
 	// validate, if non-nil, checks the parsed value before it is stored.
-	// It receives the value as string, bool, int, int64, float64, or
+	// It receives the value as string, bool, int64, float64, or
 	// map[string]any depending on kind.
 	validate func(any) error
 }
@@ -73,12 +71,6 @@ func applyFlags(specs []flagSpec, args []string, start int, target map[string]an
 		spec, ok := findFlag(specs, args[i])
 		if !ok {
 			return usage(stderr, fmt.Sprintf("%s: unknown flag %s", cmd, args[i]))
-		}
-
-		if spec.boolTrue {
-			target[spec.jsonKey] = true
-			i++
-			continue
 		}
 
 		val, next, err := parseFlagValue(spec, args, i)
@@ -118,6 +110,9 @@ func parseFlagValue(spec flagSpec, args []string, i int) (any, int, error) {
 		}
 		return v, i + 2, nil
 
+	case flagBoolTrue:
+		return true, i + 1, nil
+
 	case flagBool:
 		v, err := nextArg(args, i, name)
 		if err != nil {
@@ -130,17 +125,6 @@ func parseFlagValue(spec flagSpec, args []string, i int) (any, int, error) {
 		return b, i + 2, nil
 
 	case flagInt:
-		v, err := nextArg(args, i, name)
-		if err != nil {
-			return nil, 0, err
-		}
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return nil, 0, fmt.Errorf("%s: --%s expects an integer, got %q", args[0], name, v)
-		}
-		return n, i + 2, nil
-
-	case flagInt64:
 		v, err := nextArg(args, i, name)
 		if err != nil {
 			return nil, 0, err
@@ -212,9 +196,12 @@ func storeFlag(target map[string]any, spec flagSpec, val any) {
 		arr, _ := target[spec.jsonKey].([]any)
 		target[spec.jsonKey] = append(arr, val)
 	case opSetChild:
-		kv := val.([2]string)
-		childMap(target, spec.child)[kv[0]] = kv[1]
+		if kv, ok := val.([2]string); ok {
+			childMap(target, spec.child)[kv[0]] = kv[1]
+		}
 	case opMergeChild:
-		maps.Copy(childMap(target, spec.child), val.(map[string]any))
+		if obj, ok := val.(map[string]any); ok {
+			maps.Copy(childMap(target, spec.child), obj)
+		}
 	}
 }
