@@ -926,6 +926,9 @@ func loadFromConfigPaths(ctx context.Context, configPaths []string) (*Config, []
 	shDirKeys := make(map[string]map[string]bool)
 
 	for _, path := range configPaths {
+		if path == "" {
+			continue
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -944,6 +947,9 @@ func loadFromConfigPaths(ctx context.Context, configPaths []string) (*Config, []
 				return nil, nil, fmt.Errorf("failed to load shell config %s: %w", path, err)
 			}
 			if len(jsonBytes) > 0 {
+				if !json.Valid(jsonBytes) {
+					return nil, nil, fmt.Errorf("shell config %s produced invalid JSON", path)
+				}
 				addTopLevelKeys(shDirKeys, dir, jsonBytes)
 				configs = append(configs, jsonBytes)
 				loaded = append(loaded, path)
