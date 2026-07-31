@@ -3,6 +3,7 @@ package shellconfig
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 // ConfigBuilder accumulates config state as config builtins execute during a
@@ -24,9 +25,14 @@ func newConfigBuilder() *ConfigBuilder {
 }
 
 // section returns the top-level object stored at key, creating it if absent.
+// Panics if the existing value is non-nil and not a map: that invariant
+// violation indicates a bug in a builtin handler, not user error.
 func (b *ConfigBuilder) section(key string) map[string]any {
 	m, ok := b.root[key].(map[string]any)
 	if !ok {
+		if b.root[key] != nil {
+			panic(fmt.Sprintf("shellconfig: section(%q) overwrites non-map value %T", key, b.root[key]))
+		}
 		m = make(map[string]any)
 		b.root[key] = m
 	}
@@ -44,9 +50,14 @@ func (b *ConfigBuilder) JSON() ([]byte, error) {
 }
 
 // childMap returns/creates the nested object parent[key].
+// Panics if the existing value is non-nil and not a map, same invariant as
+// section().
 func childMap(parent map[string]any, key string) map[string]any {
 	m, ok := parent[key].(map[string]any)
 	if !ok {
+		if parent[key] != nil {
+			panic(fmt.Sprintf("shellconfig: childMap(%q) overwrites non-map value %T", key, parent[key]))
+		}
 		m = make(map[string]any)
 		parent[key] = m
 	}
