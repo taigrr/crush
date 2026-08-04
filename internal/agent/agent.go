@@ -998,7 +998,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				// The TUI owns the display copy; we only persist the
 				// reason so the UI can show a REFUSED banner.
 				finishReason = message.FinishReasonContentFilter
-				slog.Warn("Provider content filter stopped the model",
+				slog.Warn(
+					"Provider content filter stopped the model",
 					"session_id", call.SessionID,
 					"finish_reason", string(stepResult.FinishReason),
 				)
