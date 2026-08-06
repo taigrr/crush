@@ -22,6 +22,8 @@ type PeekedSession struct {
 	LastFinishedAt int64
 	LastSeenAt     int64
 	Archived       bool
+	Color          string
+	Animal         string
 }
 
 // Unread reports whether the session finished a run more recently than it
@@ -84,6 +86,8 @@ SELECT
     updated_at,
     %s,
     %s,
+    %s,
+    %s,
     %s
 FROM sessions
 WHERE parent_session_id IS NULL
@@ -93,6 +97,8 @@ ORDER BY updated_at DESC`,
 		sel("last_finished_at", "0"),
 		sel("last_seen_at", "0"),
 		archivedProjection(cols),
+		sel("color", "''"),
+		sel("animal", "''"),
 		archivedFilter(cols),
 	)
 
@@ -110,6 +116,8 @@ ORDER BY updated_at DESC`,
 			finished   sql.NullInt64
 			seen       sql.NullInt64
 			archived   sql.NullInt64
+			color      sql.NullString
+			animal     sql.NullString
 		)
 		if err := rows.Scan(
 			&p.ID,
@@ -120,6 +128,8 @@ ORDER BY updated_at DESC`,
 			&finished,
 			&seen,
 			&archived,
+			&color,
+			&animal,
 		); err != nil {
 			return nil, err
 		}
@@ -127,6 +137,8 @@ ORDER BY updated_at DESC`,
 		p.LastFinishedAt = finished.Int64
 		p.LastSeenAt = seen.Int64
 		p.Archived = archived.Valid && archived.Int64 != 0
+		p.Color = color.String
+		p.Animal = animal.String
 		out = append(out, p)
 	}
 	if err := rows.Err(); err != nil {

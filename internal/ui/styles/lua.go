@@ -3,6 +3,7 @@ package styles
 import (
 	"fmt"
 	"image/color"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,6 +11,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/exp/charmtone"
+	"github.com/taigrr/crush/internal/swarm"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -232,6 +234,21 @@ type UserTheme struct {
 	Name   string
 	IsDark bool
 	Styles Styles
+
+	// Swarm holds the theme's optional swarm identity configuration —
+	// the palette used to hash session colors and the animal list.
+	// A separate top-level Lua table (swarm = { palette = "html",
+	// animals = { ... } }) keeps this decoupled from the visual
+	// Palette above; themes that don't set it inherit the built-in
+	// defaults.
+	Swarm SwarmThemeConfig
+}
+
+// SwarmThemeConfig mirrors the theme's swarm table. Empty values mean
+// "use the built-in default" (see internal/swarm.Default).
+type SwarmThemeConfig struct {
+	Palette string
+	Animals []string
 }
 
 // LoadUserThemes loads every *.lua theme file from dir. Files that fail to
@@ -392,5 +409,45 @@ func LoadThemeFile(path string) (UserTheme, error) {
 		Name:   name,
 		IsDark: isDark,
 		Styles: palette.toStyles(),
+		Swarm:  loadSwarmTheme(tbl),
 	}, nil
+}
+
+// loadSwarmTheme extracts the optional top-level `swarm` sub-table.
+// The table has the shape:
+//
+//	swarm = {
+//	  palette = "html",         -- optional, string
+//	  animals = { "cat", ... }, -- optional, list of strings
+//	}
+//
+// Any other keys are ignored. Missing or malformed values fall back to
+// the swarm package defaults so a partially-authored theme still works.
+func loadSwarmTheme(tbl *lua.LTable) SwarmThemeConfig {
+	v := tbl.RawGetString("swarm")
+	sub, ok := v.(*lua.LTable)
+	if !ok {
+		return SwarmThemeConfig{}
+	}
+	cfg := SwarmThemeConfig{}
+	if s, ok := sub.RawGetString("palette").(lua.LString); ok {
+		cfg.Palette = strings.TrimSpace(string(s))
+	}
+	if arr, ok := sub.RawGetString("animals").(*lua.LTable); ok {
+		arr.ForEach(func(_, val lua.LValue) {
+			if s, ok := val.(lua.LString); ok {
+				name := strings.TrimSpace(strings.ToLower(string(s)))
+				if name == "" {
+					return
+				}
+				if err := swarm.ValidateAnimalName(name); err != nil {
+					slog.Warn("Skipping invalid swarm animal name in theme",
+						"name", string(s), "reason", err.Error())
+					return
+				}
+				cfg.Animals = append(cfg.Animals, name)
+			}
+		})
+	}
+	return cfg
 }

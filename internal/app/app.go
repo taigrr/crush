@@ -198,6 +198,26 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 
 	app.setupEvents()
 
+	// Backfill swarm identities for any legacy sessions that predate
+	// the color/animal columns, and keep new sessions in sync via a
+	// pubsub subscription so identity is assigned before the target
+	// can be addressed. Wired onto app.eventsCtx / serviceEventsWG so
+	// the subscriber exits cleanly on Shutdown; backfill uses a
+	// background context so a quick shutdown of the caller
+	// (tests, short-lived subcommands) doesn't cancel the initial
+	// scan mid-way. Subscribing happens synchronously here so any
+	// session.Create that fires before the receiver goroutine
+	// starts is still buffered by the broker.
+	sessionEvents := app.Sessions.Subscribe(app.eventsCtx)
+	app.serviceEventsWG.Go(func() {
+		app.assignSwarmIdentityOnCreate(app.eventsCtx, sessionEvents)
+	})
+	go func() {
+		if err := app.backfillSwarmIdentities(context.Background()); err != nil {
+			slog.Warn("Swarm identity backfill failed", "error", err)
+		}
+	}()
+
 	// Check for updates in the background.
 	go app.checkForUpdates(ctx)
 

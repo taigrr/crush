@@ -193,6 +193,9 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/swaggo/files/v2 v2.0.2 // indirect
 	github.com/tadvi/systray v0.0.0-20190226123456-11a2b8fa57af // indirect
+	github.com/taigrr/animals v0.0.2 // indirect
+	github.com/taigrr/colorhash v0.7.0 // indirect
+	github.com/taigrr/simplecolorpalettes v0.9.8 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/u-root/u-root v0.16.0 // indirect

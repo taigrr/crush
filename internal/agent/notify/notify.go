@@ -15,6 +15,11 @@ const (
 	// TypeAgentError indicates the agent's turn terminated with an
 	// error. The error text is carried in Notification.Message.
 	TypeAgentError Type = "error"
+	// TypeSwarmReceived indicates that a cross-session swarm message
+	// was delivered to the session. The sender's color-animal address
+	// is carried in Notification.Message so unfocused clients can
+	// surface it without loading the session.
+	TypeSwarmReceived Type = "swarm_received"
 )
 
 // Notification represents a domain event published by the agent.

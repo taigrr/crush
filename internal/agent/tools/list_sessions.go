@@ -11,6 +11,7 @@ import (
 	"github.com/taigrr/fantasy"
 
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/swarm"
 )
 
 const (
@@ -99,8 +100,12 @@ func formatSessions(sessions []session.Session, current string, offset, total in
 		if s.ArchivedAt > 0 {
 			archived = " [archived]"
 		}
-		fmt.Fprintf(&b, "%s %s  %q  (%d msgs, updated %s)%s\n",
-			marker, s.ID, title, s.MessageCount,
+		address := ""
+		if s.Color != "" && s.Animal != "" {
+			address = swarm.FormatAddress(swarm.Identity{Color: s.Color, Animal: s.Animal}, s.ID) + "  "
+		}
+		fmt.Fprintf(&b, "%s %s  %s%q  (%d msgs, updated %s)%s\n",
+			marker, s.ID, address, title, s.MessageCount,
 			time.Unix(s.UpdatedAt, 0).Format(time.RFC3339), archived)
 	}
 	if last < total {

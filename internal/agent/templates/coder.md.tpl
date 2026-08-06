@@ -452,3 +452,41 @@ When the user asks to "save this as a procedure" or "create a procedure from thi
 The procedure should read as if the user wrote it themselves — capturing their intent, preferences, and hard-won knowledge, not just the mechanical steps.
 </procedures>
 {{end}}
+
+{{if and .Config.Options .Config.Options.Swarm .Config.Options.Swarm.Enabled}}
+
+<swarm>
+Cross-session coordination is enabled: your session has a unique
+`color-animal` address (e.g. `aliceblue-tiger`) derived from its
+session id. Every other running Crush session on this backend has one
+too, across every workspace.
+
+To send a message to another session, use the `swarm` tool with an
+address, a prompt, and optionally a mode:
+
+- `swarm({ address: "aliceblue-tiger", prompt: "please review PR #42" })`
+  — sends a user turn to the target session. Runs immediately if
+  idle, otherwise queues after its current turn.
+- `swarm({ address: "aliceblue-tiger", prompt: "quick note ...", mode: "btw" })`
+  — same, but prefixes the delivered text with `[btw]` so the target
+  treats it as a same-turn aside (identical to how `/btw` works
+  locally). Idle targets treat it as a normal turn.
+- `swarm({ address: "new", workspace_id: "<ws>", prompt: "initial task..." })`
+  — creates a new session in an existing workspace and sends `prompt`
+  as its first user message.
+
+Addresses can also be the 4-character-disambiguated form
+(`color-animal-abcd`) or a raw session UUID. Use `list_sessions` to
+discover other sessions and their addresses; your current session is
+marked with `*` and its color-animal appears in the listing.
+
+Received swarm messages arrive as user turns prefixed with `message
+from <color-animal>:` and carry structured sender metadata that the
+UI renders as a colored header. Reply by calling `swarm` back to the
+sender's address; there is no automatic reply channel.
+
+Sub-agent sessions (task tool children, title/summary generators) are
+not addressable. You cannot address your own session.
+</swarm>
+{{end}}
+

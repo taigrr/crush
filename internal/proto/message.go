@@ -107,6 +107,25 @@ func (tc TextContent) String() string {
 
 func (TextContent) isPart() {}
 
+// SwarmMessage is the proto twin of [message.SwarmMessage]: a
+// user-role part carrying a cross-session message from another
+// session, plus enough metadata for the UI to render a "colored
+// square + name" header.
+type SwarmMessage struct {
+	Text              string `json:"text"`
+	Body              string `json:"body"`
+	SenderSessionID   string `json:"sender_session_id"`
+	SenderColor       string `json:"sender_color"`
+	SenderAnimal      string `json:"sender_animal"`
+	SenderWorkspaceID string `json:"sender_workspace_id,omitempty"`
+	BTW               bool   `json:"btw,omitempty"`
+}
+
+// String returns the swarm message's text as a string.
+func (sm SwarmMessage) String() string { return sm.Text }
+
+func (SwarmMessage) isPart() {}
+
 // ImageURLContent represents an image URL part of a message.
 type ImageURLContent struct {
 	URL    string `json:"url"`
@@ -497,6 +516,7 @@ type partType string
 const (
 	reasoningType  partType = "reasoning"
 	textType       partType = "text"
+	swarmType      partType = "swarm_message"
 	imageURLType   partType = "image_url"
 	binaryType     partType = "binary"
 	toolCallType   partType = "tool_call"
@@ -521,6 +541,8 @@ func MarshalParts(parts []ContentPart) ([]byte, error) {
 			typ = reasoningType
 		case TextContent:
 			typ = textType
+		case SwarmMessage:
+			typ = swarmType
 		case ImageURLContent:
 			typ = imageURLType
 		case BinaryContent:
@@ -572,6 +594,12 @@ func UnmarshalParts(data []byte) ([]ContentPart, error) {
 			parts = append(parts, part)
 		case textType:
 			part := TextContent{}
+			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
+				return nil, err
+			}
+			parts = append(parts, part)
+		case swarmType:
+			part := SwarmMessage{}
 			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
 				return nil, err
 			}

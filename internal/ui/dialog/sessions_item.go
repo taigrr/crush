@@ -14,6 +14,7 @@ import (
 	"github.com/rivo/uniseg"
 	"github.com/sahilm/fuzzy"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
 )
@@ -133,7 +134,19 @@ func (s *SessionItem) Render(width int) string {
 		}
 	}
 
-	return renderItem(styles, s.Title, info, s.focused, width, s.cache, &s.m)
+	return renderItem(styles, decorateSessionTitle(s.Session.Color, s.Title), info, s.focused, width, s.cache, &s.m)
+}
+
+// decorateSessionTitle prepends the swarm color square to the title
+// so the picker line reads "<■> <title>". Falls back to a two-space
+// pad (one for the missing square, one for the trailing space) so
+// column widths stay stable across identity-less rows.
+func decorateSessionTitle(color, title string) string {
+	sq := common.SwarmSquare(color)
+	if sq == "" {
+		return "  " + title
+	}
+	return sq + " " + title
 }
 
 type ListItemStyles struct {

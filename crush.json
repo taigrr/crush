@@ -1,5 +1,10 @@
 {
   "$schema": "https://charm.land/crush.json",
+  "options": {
+    "swarm": {
+      "enabled": true
+    }
+  },
   "lsp": {
     "gopls": {
       "options": {

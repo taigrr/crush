@@ -548,6 +548,7 @@ type partType string
 const (
 	reasoningType  partType = "reasoning"
 	textType       partType = "text"
+	swarmType      partType = "swarm_message"
 	imageURLType   partType = "image_url"
 	binaryType     partType = "binary"
 	toolCallType   partType = "tool_call"
@@ -571,6 +572,8 @@ func marshalParts(parts []ContentPart) ([]byte, error) {
 			typ = reasoningType
 		case TextContent:
 			typ = textType
+		case SwarmMessage:
+			typ = swarmType
 		case ImageURLContent:
 			typ = imageURLType
 		case BinaryContent:
@@ -621,6 +624,12 @@ func unmarshalParts(data []byte) ([]ContentPart, error) {
 			parts = append(parts, part)
 		case textType:
 			part := TextContent{}
+			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
+				return nil, err
+			}
+			parts = append(parts, part)
+		case swarmType:
+			part := SwarmMessage{}
 			if err := json.Unmarshal(wrapper.Data, &part); err != nil {
 				return nil, err
 			}

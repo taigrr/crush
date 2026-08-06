@@ -50,13 +50,12 @@ func (s *store) upsert(ctx context.Context, signature string, src SourceType, so
 // has reports whether a vector already exists for the source under the
 // signature (used to skip re-embedding).
 func (s *store) has(ctx context.Context, signature string, src SourceType, sourceID string, chunkIdx int64) (bool, error) {
-	n, err := s.q.HasEmbedding(ctx, db.HasEmbeddingParams{
+	return s.q.HasEmbedding(ctx, db.HasEmbeddingParams{
 		SourceType: string(src),
 		SourceID:   sourceID,
 		ChunkIdx:   chunkIdx,
 		Signature:  signature,
 	})
-	return n > 0, err
 }
 
 // listBySignature returns all decoded vectors for the active signature,

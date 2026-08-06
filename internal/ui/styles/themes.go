@@ -120,6 +120,27 @@ func ResolveTheme(name, themesDir, providerID string) Styles {
 	return ThemeForProvider(providerID)
 }
 
+// ResolveSwarmTheme returns the SwarmThemeConfig for the named theme,
+// or the zero value (meaning "use the built-in defaults") when the
+// theme is a builtin or cannot be found. Builtin themes never
+// customize the swarm palette; user Lua themes may set the optional
+// top-level `swarm` sub-table (see loadSwarmTheme).
+func ResolveSwarmTheme(name, themesDir string) SwarmThemeConfig {
+	if normalizeThemeName(name) == "" || themesDir == "" {
+		return SwarmThemeConfig{}
+	}
+	if IsBuiltinTheme(name) {
+		return SwarmThemeConfig{}
+	}
+	themes, _ := LoadUserThemes(themesDir)
+	for _, t := range themes {
+		if normalizeThemeName(t.Name) == normalizeThemeName(name) {
+			return t.Swarm
+		}
+	}
+	return SwarmThemeConfig{}
+}
+
 // CharmtonePantera returns the Charmtone dark theme. It's the default style
 // for the UI.
 func CharmtonePantera() Styles {

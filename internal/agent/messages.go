@@ -15,7 +15,14 @@ import (
 )
 
 func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentCall) (message.Message, error) {
-	parts := []message.ContentPart{message.TextContent{Text: call.Prompt}}
+	var parts []message.ContentPart
+	if len(call.SwarmParts) > 0 {
+		for _, sp := range call.SwarmParts {
+			parts = append(parts, sp)
+		}
+	} else {
+		parts = append(parts, message.TextContent{Text: call.Prompt})
+	}
 	var attachmentParts []message.ContentPart
 	for _, attachment := range call.Attachments {
 		attachmentParts = append(attachmentParts, message.BinaryContent{Path: attachment.FilePath, MIMEType: attachment.MimeType, Data: attachment.Content})

@@ -69,6 +69,16 @@ type Session struct {
 	CreatedAt      int64
 	UpdatedAt      int64
 	ArchivedAt     int64
+
+	// Color and Animal form the session's swarm identity: a human
+	// readable address (e.g. "aliceblue" + "tiger") derived
+	// deterministically from the session id via the configured
+	// colorhash palette and animal list. They are backfilled at
+	// startup for legacy rows and reset on every Get so old cached
+	// values in memory stay authoritative even after DB writes
+	// elsewhere.
+	Color  string
+	Animal string
 }
 
 // Unread reports whether the session finished a run more recently than it
@@ -95,6 +105,15 @@ type Service interface {
 
 	// SetWorkingDir records the directory the session runs its tools in.
 	SetWorkingDir(ctx context.Context, id, dir string) error
+	// SetSwarmIdentity stores the color/animal pair used by the swarm
+	// tool to address the session across workspaces. Idempotent.
+	SetSwarmIdentity(ctx context.Context, id, color, animal string) error
+	// FindByColorAnimal returns every session that matches the
+	// color/animal pair. Callers disambiguate collisions using the
+	// short session-id suffix. Never returns sub-sessions (title,
+	// summary, task tool) because the swarm tool refuses to send to
+	// them anyway; the caller filters after this returns.
+	FindByColorAnimal(ctx context.Context, color, animal string) ([]Session, error)
 	// MarkFinished stamps the session's most recent run completion time.
 	MarkFinished(ctx context.Context, id string) error
 	// MarkSeen stamps the time the viewing client last opened the session,
@@ -335,6 +354,49 @@ func (s *service) Unarchive(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *service) SetSwarmIdentity(ctx context.Context, id, color, animal string) error {
+	rows, err := s.q.SetSessionSwarmIdentity(ctx, db.SetSessionSwarmIdentityParams{
+		ID:     id,
+		Color:  sql.NullString{String: color, Valid: color != ""},
+		Animal: sql.NullString{String: animal, Valid: animal != ""},
+	})
+	if err != nil {
+		return fmt.Errorf("setting session swarm identity: %w", err)
+	}
+	// The SQL WHERE clause skips rows that already have an
+	// identity, so parallel writers (startup backfill + Created
+	// subscriber) don't clobber each other and don't churn pubsub
+	// with redundant Update events. A no-op UPDATE is either a
+	// legitimate race (both writers arrived) or a missing session
+	// id; the caller cannot distinguish these from success, which
+	// is fine for the current call sites (all pass freshly-listed
+	// rows) but is worth logging at debug so config drift or
+	// missing-id bugs are diagnosable.
+	if rows == 0 {
+		slog.Debug("SetSwarmIdentity was a no-op",
+			"session_id", id, "color", color, "animal", animal)
+		return nil
+	}
+	s.publishByID(ctx, id)
+	return nil
+}
+
+func (s *service) FindByColorAnimal(ctx context.Context, color, animal string) ([]Session, error) {
+	dbSessions, err := s.q.FindSessionsByColorAnimal(ctx, db.FindSessionsByColorAnimalParams{
+		Color:  sql.NullString{String: color, Valid: color != ""},
+		Animal: sql.NullString{String: animal, Valid: animal != ""},
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Session, len(dbSessions))
+	for i, dbSession := range dbSessions {
+		out[i] = s.fromDBItem(dbSession)
+		s.applyEstimatedUsageState(&out[i])
+	}
+	return out, nil
+}
+
 func (s *service) SetWorkingDir(ctx context.Context, id, dir string) error {
 	if dir == "" {
 		return nil
@@ -417,6 +479,8 @@ func (s *service) fromDBItem(item db.Session) Session {
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
 		ArchivedAt:       item.ArchivedAt.Int64,
+		Color:            item.Color.String,
+		Animal:           item.Animal.String,
 	}
 }
 

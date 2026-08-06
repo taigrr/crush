@@ -89,6 +89,13 @@ internal/
 - **Help menu**: When adding a new global keybinding, always add it to
   `FullHelp()` in `internal/ui/model/ui.go` so it appears in the Ctrl+G
   help overlay.
+- **Swarm**: `internal/swarm/` derives per-session `color-animal`
+  identities from session UUIDs (`colorhash` + `animals`). Backend
+  cross-workspace routing lives in `internal/backend/swarm.go`; the
+  agent-facing tool is `internal/agent/tools/swarm.go` and is gated
+  behind `options.swarm.enabled`. Sender identity is stamped by the
+  backend from the sender's session row (untrusted tool input is
+  overwritten) to prevent spoofing.
 
 ## Build/Test/Lint Commands
 

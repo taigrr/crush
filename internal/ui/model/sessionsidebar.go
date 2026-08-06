@@ -431,10 +431,19 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		title = "(untitled)"
 	}
 
-	// Build the fixed-width prefix: bar + space + active + marker + space.
-	// Each glyph is a single cell, so the prefix is exactly 5 columns; use
-	// StringWidth to stay correct if a glyph is ever wider.
-	prefixRaw := bar + " " + active + marker + " "
+	// Swarm color square (one cell) rendered before the title. Empty
+	// when the session has no assigned color (freshly created before
+	// backfill runs, or the color name is not in the current
+	// palette).
+	square := common.SwarmSquare(sess.Color)
+	squareCell := " "
+	if square != "" {
+		squareCell = square
+	}
+
+	// Build the fixed-width prefix: bar + space + active + marker + square + space.
+	// Each glyph is a single cell.
+	prefixRaw := bar + " " + active + marker + squareCell + " "
 	prefixWidth := ansi.StringWidth(prefixRaw)
 	avail := max(1, width-prefixWidth)
 	title = ansi.Truncate(title, avail, "…")
@@ -446,6 +455,6 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		return t.Dialog.SelectedItem.UnsetPadding().Width(width).Render(line)
 	}
 
-	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + " "
+	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + squareCell + " "
 	return styledPrefix + t.Resource.Name.Render(title)
 }

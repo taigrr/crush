@@ -88,6 +88,14 @@ func (m *mockSessionService) SetWorkingDir(context.Context, string, string) erro
 	return nil
 }
 
+func (m *mockSessionService) SetSwarmIdentity(context.Context, string, string, string) error {
+	return nil
+}
+
+func (m *mockSessionService) FindByColorAnimal(context.Context, string, string) ([]session.Session, error) {
+	return nil, nil
+}
+
 func (m *mockSessionService) MarkFinished(context.Context, string) error {
 	return nil
 }

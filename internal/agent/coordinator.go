@@ -39,6 +39,7 @@ import (
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
+	"github.com/taigrr/crush/internal/swarm"
 	"github.com/taigrr/crush/internal/worktree"
 	"github.com/taigrr/fantasy"
 	"golang.org/x/sync/errgroup"
@@ -115,6 +116,19 @@ type Coordinator interface {
 	GoalStatus(sessionID string) (condition string, turns, maxTurns int, active bool)
 }
 
+// SwarmConfigurable is implemented by concrete coordinators that
+// support the cross-workspace swarm tool. It is deliberately a
+// side-channel interface (rather than a method on [Coordinator]) so
+// test mocks don't have to know about swarm.
+type SwarmConfigurable interface {
+	// SetSwarmBackend wires the swarm dispatcher and refreshes the
+	// coder agent's tool set so the swarm tool takes effect on the
+	// very next turn. Refreshing tools (rather than swapping the
+	// agent pointer) uses the csync-guarded tool slice so it is
+	// safe to call while a run is in flight.
+	SetSwarmBackend(ctx context.Context, be tools.SwarmBackend, workspaceID string, cfg func() swarm.Config) error
+}
+
 type coordinator struct {
 	cfg         *config.ConfigStore
 	sessions    session.Service
@@ -152,6 +166,55 @@ type coordinator struct {
 	// accumulates its child cost onto the shared parent session; without
 	// this lock the last writer wins and costs are silently dropped.
 	parentCostMu sync.Mutex
+
+	// swarmBackend, when non-nil and !isSubAgent, causes the swarm
+	// tool to be registered on the coder agent. It is set
+	// post-construction by the backend (which owns the cross-workspace
+	// index) via SetSwarmBackend so the coordinator doesn't have to
+	// import the backend package. workspaceID is stamped onto every
+	// outgoing swarm message so the receiving side knows where it
+	// originated.
+	swarmBackend     tools.SwarmBackend
+	swarmWorkspaceID string
+	// swarmConfig returns the runtime swarm identity config (theme
+	// palette + animals). Nil means "use defaults".
+	swarmConfig func() swarm.Config
+	// swarmMu guards the swarmBackend/workspaceID/config triple so
+	// SetSwarmBackend (which can be called from the backend at any
+	// time) races cleanly against buildAgent reads on the run
+	// goroutine.
+	swarmMu sync.Mutex
+}
+
+// SetSwarmBackend wires the cross-workspace swarm dispatcher into
+// the coordinator and refreshes the coder agent's tool set so the
+// swarm tool takes effect immediately. Refreshing tools (rather than
+// rebuilding the agent) matches UpdateModels's approach and avoids
+// swapping the c.currentAgent pointer that other goroutines read
+// without locking. Guarded by swarmMu so concurrent callers
+// serialise. Passing nil be removes the tool on the next refresh.
+func (c *coordinator) SetSwarmBackend(ctx context.Context, be tools.SwarmBackend, workspaceID string, cfg func() swarm.Config) error {
+	c.swarmMu.Lock()
+	c.swarmBackend = be
+	c.swarmWorkspaceID = workspaceID
+	c.swarmConfig = cfg
+	c.swarmMu.Unlock()
+
+	// Skip when the coder agent hasn't been built yet (defensive —
+	// production callers always InitCoderAgent first).
+	if c.currentAgent == nil {
+		return nil
+	}
+	agentCfg, ok := c.cfg.Config().Agents[config.AgentCoder]
+	if !ok {
+		return errCoderAgentNotConfigured
+	}
+	newTools, err := c.buildTools(ctx, agentCfg, false)
+	if err != nil {
+		return err
+	}
+	c.currentAgent.SetTools(newTools)
+	return nil
 }
 
 func NewCoordinator(
@@ -399,6 +462,10 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	currentPrompt := prompt
 	currentAttachments := attachments
 	currentAccept := accept
+	// Consume SwarmParts (if any) on this coordinator entry: only the
+	// first user message on this dispatch carries them. Subsequent
+	// goal-driven continuations run as ordinary text turns.
+	currentSwarmParts := SwarmPartsFromContext(ctx)
 
 	runOnce := func() (*fantasy.AgentResult, error) {
 		run := func() (*fantasy.AgentResult, error) {
@@ -406,6 +473,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 				SessionID:        sessionID,
 				RunID:            runID,
 				Prompt:           currentPrompt,
+				SwarmParts:       currentSwarmParts,
 				Attachments:      currentAttachments,
 				MaxOutputTokens:  maxTokens,
 				ProviderOptions:  mergedOptions,
@@ -458,6 +526,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		currentPrompt = contPrompt
 		currentAttachments = nil
 		currentAccept = nil
+		currentSwarmParts = nil
 	}
 
 	if hasLatest && c.runComplete != nil {
@@ -847,6 +916,27 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewMultiViewTool(viewTool),
 		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.workingDir),
 	)
+
+	// Swarm tool: only offered to main agents (not task/reviewer
+	// sub-agents), and only when the backend has plumbed the
+	// cross-workspace swarm dispatcher and the global config gate is
+	// on. Sub-agents get workflow-scoped sessions that must not be
+	// addressable, and the config gate makes swarm entirely absent
+	// when disabled so its guidance never bleeds into the coder
+	// prompt.
+	c.swarmMu.Lock()
+	swarmBackend := c.swarmBackend
+	swarmWorkspaceID := c.swarmWorkspaceID
+	swarmConfigFn := c.swarmConfig
+	c.swarmMu.Unlock()
+	if !isSubAgent && swarmBackend != nil && c.cfg.Config().Options.SwarmEnabled() {
+		if swarmConfigFn == nil {
+			swarmConfigFn = swarm.Default
+		}
+		allTools = append(allTools, tools.NewSwarmTool(
+			swarmBackend, c.sessions, swarmConfigFn, swarmWorkspaceID,
+		))
+	}
 
 	// Editor bridge tools. The bridge is resolved per-turn from the
 	// request context (the originating client's editor), so these are

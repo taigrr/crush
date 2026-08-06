@@ -589,6 +589,43 @@ for slow links and SSH sessions.
 
 ---
 
+## Swarm (Cross-Session Coordination)
+
+Opt-in feature (`options.swarm.enabled`) that lets one session send a
+user-turn message to another session on the same backend, including
+across workspaces.
+
+Highlights:
+
+- Every session gets a deterministic `color-animal` identity derived
+  from its UUID via `colorhash` + a sorted animals list. Full
+  disambiguated form is `color-animal-<4hex>`.
+- New `swarm` tool exposed to main agents only. Params: `address`
+  (color-animal / with-shorthash / raw UUID / `"new"`), `prompt`,
+  optional `mode` (`queue` default, `btw` prefixes `[btw]`),
+  `workspace_id` (for `new`), `title` (for `new`).
+- Cross-workspace address resolution via `Backend.LookupSwarmAddress`;
+  per-workspace DB errors are collected but never mask a real match.
+- Delivered as a `SwarmMessage` content part with structured sender
+  metadata (color, animal, workspace) — the TUI renders a colored
+  square + address in the sender header; the LLM sees the prefixed
+  text `"message from color-animal: <body>"`.
+- Sender identity is stamped by the backend from the sender's
+  session row (not from tool input), preventing prompt-injected
+  spoofing.
+- Sub-sessions (task-tool children, title/summary generators) and
+  archived sessions are non-addressable.
+- New session creation (`address: "new"`) is transactional: if the
+  initial send fails, the freshly-created session is archived so
+  retries don't accumulate ghosts.
+- Palette + animal list are configurable per user theme via a
+  top-level `swarm = { palette, animals }` sub-table in the Lua
+  theme file.
+- Identities are backfilled at startup and assigned to new sessions
+  via a pubsub subscriber; both writers are idempotent.
+
+---
+
 ## Spec Documents
 
 Full design specs live under `docs/specs/`:

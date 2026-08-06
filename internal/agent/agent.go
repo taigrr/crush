@@ -62,6 +62,15 @@ type SessionAgentCall struct {
 	// ambiguous when concurrent turns share the same session.
 	RunID            string
 	Prompt           string
+	// SwarmParts, when non-empty, replaces the default single
+	// TextContent user-message part with these SwarmMessage parts
+	// (see message.SwarmMessage). Used by Backend.SwarmSend so the
+	// receiving session's transcript records structured sender
+	// metadata (color, animal, workspace) instead of a plain text
+	// prefix. Prompt is still set to the concatenated user-visible
+	// text so downstream queue-drop / log paths that read only the
+	// prompt keep working.
+	SwarmParts       []message.SwarmMessage
 	ProviderOptions  fantasy.ProviderOptions
 	Attachments      []message.Attachment
 	MaxOutputTokens  int64

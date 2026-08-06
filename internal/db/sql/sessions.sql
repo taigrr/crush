@@ -108,3 +108,27 @@ WHERE id = ?;
 UPDATE sessions
 SET working_dir = ?
 WHERE id = ?;
+
+-- name: SetSessionSwarmIdentity :execrows
+-- Only assign the identity if the row does not already have BOTH
+-- fields set, so concurrent writers (startup backfill + Created-event
+-- subscriber) can't clobber a persisted identity with a
+-- differently-derived one when the palette/animal config changes
+-- between callers. The conjunction (rather than disjunction) protects
+-- half-populated rows from having the set field overwritten.
+UPDATE sessions
+SET color = ?,
+    animal = ?
+WHERE id = ?
+  AND (color IS NULL OR color = '')
+  AND (animal IS NULL OR animal = '');
+
+-- name: ListSessionsMissingSwarmIdentity :many
+SELECT id
+FROM sessions
+WHERE color IS NULL OR animal IS NULL OR color = '' OR animal = '';
+
+-- name: FindSessionsByColorAnimal :many
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal
+FROM sessions
+WHERE color = ? AND animal = ? AND archived_at IS NULL;

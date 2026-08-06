@@ -148,6 +148,15 @@ type AgentMessage struct {
 	RunID       string       `json:"run_id,omitempty"`
 	Prompt      string       `json:"prompt"`
 	Attachments []Attachment `json:"attachments,omitempty"`
+	// SwarmParts, when set, replaces the default TextContent user
+	// message with one or more [SwarmMessage] parts. Used by
+	// [Backend.SwarmSend] so the receiving session records
+	// structured sender metadata (color, animal, workspace) instead
+	// of a plain text prefix. The Prompt field must still be set to
+	// the concatenated user-visible text so downstream code that
+	// treats prompts as strings (queue drop notifications, run
+	// logs) keeps working.
+	SwarmParts []SwarmMessage `json:"swarm_parts,omitempty"`
 }
 
 // ShellCommandRequest represents a request to run a shell command directly.
@@ -193,6 +202,12 @@ type SessionOverview struct {
 	UpdatedAt  int64  `json:"updated_at"`
 	IsBusy     bool   `json:"is_busy"`
 	Unread     bool   `json:"unread"`
+	// Color and Animal are the session's swarm identity (see
+	// [session.Session.Color] / .Animal). Empty when the session
+	// has not yet been backfilled; the picker/sidebar should fall
+	// back to no color square in that case.
+	Color  string `json:"color,omitempty"`
+	Animal string `json:"animal,omitempty"`
 }
 
 // WorkspaceOverview groups a workspace's sessions for the picker. Attached

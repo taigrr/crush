@@ -86,6 +86,8 @@ func (b *Backend) ListWorkspaceOverviews(ctx context.Context) ([]proto.Workspace
 					UpdatedAt:  p.UpdatedAt,
 					IsBusy:     false, // not attached: no live state
 					Unread:     p.Unread(),
+					Color:      p.Color,
+					Animal:     p.Animal,
 				})
 			}
 			sortSessionOverviews(ov.Sessions)
@@ -120,6 +122,8 @@ func (b *Backend) attachedSessionOverviews(ctx context.Context, ws *Workspace) [
 			UpdatedAt:  s.UpdatedAt,
 			IsBusy:     busy,
 			Unread:     unreadSession(s),
+			Color:      s.Color,
+			Animal:     s.Animal,
 		})
 	}
 	return out

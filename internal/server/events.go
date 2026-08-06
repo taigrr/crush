@@ -276,6 +276,16 @@ func messageToProto(m message.Message) proto.Message {
 		switch v := p.(type) {
 		case message.TextContent:
 			msg.Parts = append(msg.Parts, proto.TextContent{Text: v.Text})
+		case message.SwarmMessage:
+			msg.Parts = append(msg.Parts, proto.SwarmMessage{
+				Text:              v.Text,
+				Body:              v.Body,
+				SenderSessionID:   v.SenderSessionID,
+				SenderColor:       v.SenderColor,
+				SenderAnimal:      v.SenderAnimal,
+				SenderWorkspaceID: v.SenderWorkspaceID,
+				BTW:               v.BTW,
+			})
 		case message.ReasoningContent:
 			msg.Parts = append(msg.Parts, proto.ReasoningContent{
 				Thinking:   v.Thinking,

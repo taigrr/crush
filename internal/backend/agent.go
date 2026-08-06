@@ -118,6 +118,27 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 	// from. See coordinator.workingDir.
 	ctx = tools.WithWorkingDir(ctx, b.clientCwd(ws, msg.ClientID))
 
+	// Convert proto SwarmParts (if any) into their message twins so
+	// the coordinator threads them onto the created user message via
+	// SessionAgentCall.SwarmParts. This is how a cross-session swarm
+	// send arrives at its target with structured sender metadata
+	// instead of a plain text prefix.
+	if len(msg.SwarmParts) > 0 {
+		parts := make([]message.SwarmMessage, len(msg.SwarmParts))
+		for i, p := range msg.SwarmParts {
+			parts[i] = message.SwarmMessage{
+				Text:              p.Text,
+				Body:              p.Body,
+				SenderSessionID:   p.SenderSessionID,
+				SenderColor:       p.SenderColor,
+				SenderAnimal:      p.SenderAnimal,
+				SenderWorkspaceID: p.SenderWorkspaceID,
+				BTW:               p.BTW,
+			}
+		}
+		ctx = agent.WithSwarmParts(ctx, parts)
+	}
+
 	_, err := ws.AgentCoordinator.RunAccepted(ctx, accept, msg.SessionID, msg.Prompt, proto.AttachmentsToMessage(msg.Attachments)...)
 	if err == nil || errors.Is(err, context.Canceled) {
 		return
@@ -172,7 +193,22 @@ func (b *Backend) InitAgent(ctx context.Context, workspaceID string) error {
 		return err
 	}
 
-	return ws.InitCoderAgent(ctx)
+	if err := ws.InitCoderAgent(ctx); err != nil {
+		return err
+	}
+
+	// Wire the swarm shim into the coordinator. SetSwarmBackend
+	// refreshes the coder agent's tool set so the swarm tool is
+	// present on the very first turn (the coordinator's
+	// constructor already built an agent without the tool because
+	// the backend hadn't reached this point yet). Test mocks that
+	// don't implement SwarmConfigurable are silently skipped.
+	if setter, ok := ws.AgentCoordinator.(agent.SwarmConfigurable); ok {
+		if err := setter.SetSwarmBackend(ctx, &swarmShim{b: b}, workspaceID, ws.App.SwarmConfig); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // UpdateAgent reloads the agent model configuration.

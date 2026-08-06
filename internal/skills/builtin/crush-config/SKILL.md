@@ -201,6 +201,9 @@ reviewed.
     "attribution": {
       "trailer_style": "assisted-by",
       "generated_with": true
+    },
+    "swarm": {
+      "enabled": false
     }
   }
 }
@@ -311,6 +314,93 @@ return {
 Select a theme from the command palette ("Select Theme"). The picker shows a
 live preview as you move the selection; `enter` confirms and persists it,
 `esc` cancels and restores the previous theme.
+
+### Theme-provided swarm identity
+
+A user theme may set an optional top-level `swarm` sub-table that
+overrides the palette Crush hashes into for cross-session swarm
+addresses, and the animal-name list. Both fields are optional; omitted
+values fall back to the built-in defaults (`html` palette, full
+`animals.Names()` list).
+
+```lua
+return {
+  name = "Midnight",
+  -- ... normal color fields ...
+
+  swarm = {
+    palette = "html",            -- currently only "html" is wired up
+    animals = { "tiger", "otter", "quokka", "polar-bear" },
+  },
+}
+```
+
+Constraints:
+
+- Every animal name must be lowercase and non-empty; hyphenated names
+  are allowed. A name whose final hyphen-separated token is exactly 4
+  lowercase hex characters (e.g. `"deer-abcd"`) will break address
+  parsing and should be avoided.
+- Color names must exist in the referenced palette (currently the
+  `w3schools` HTML named colors, e.g. `aliceblue`, `tomato`).
+
+Changing the palette/animals of a theme after sessions already have
+persisted identities will not silently rename them. Existing rows keep
+their color/animal; only sessions created afterwards use the new
+mapping.
+
+## Swarm (cross-session coordination)
+
+Swarm lets one Crush session send a message to another session — in
+the same workspace or in a different workspace on the same backend —
+addressed by a human-readable `color-animal` identifier derived
+deterministically from the session's UUID (via a colorhash palette
+and an animals list). Off by default; opt in globally:
+
+```json
+{
+  "options": {
+    "swarm": {
+      "enabled": true
+    }
+  }
+}
+```
+
+When enabled, main agents (coder) get a `swarm` tool that accepts:
+
+- `address`: `color-animal` (e.g. `aliceblue-tiger`),
+  `color-animal-<4hex>` disambiguated form, a raw session UUID, or
+  the literal `"new"`.
+- `prompt`: the message body. The receiving side sees a user turn
+  with the text prefixed `message from <color-animal>:` and carries
+  structured sender metadata (color, animal, workspace) for the UI.
+- `mode`: `queue` (default; enqueue as next user turn) or `btw`
+  (prefix `[btw]`, same way `/btw` interjects into a running turn).
+- `workspace_id`: required only with `address: "new"`. The tool
+  creates a new session in that existing workspace and sends
+  `prompt` as its initial user message.
+- `title`: optional title for `address: "new"`; defaults to the
+  first line of the prompt.
+
+Restrictions:
+
+- Sub-sessions (task-tool children, title/summary generators) are
+  never addressable.
+- A session cannot address itself.
+- Archived sessions are excluded from address lookups.
+- Ambiguous `color-animal` matches (rare) return an error asking the
+  caller to retry with the shorthash form.
+
+Sessions get their identity assigned at creation time (via a pubsub
+subscriber) and any legacy rows are backfilled at startup. The
+sidebar and session picker render a colored square before each
+title using the session's color; `list_sessions` includes the
+canonical `color-animal-<shorthash>` form beside each session id.
+
+See also the receiver-side notification type `swarm_received`
+published on the target workspace's notification broker so unfocused
+clients can surface a toast without loading the session.
 
 ## Embedding (hybrid history search)
 

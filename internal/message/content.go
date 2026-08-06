@@ -72,6 +72,38 @@ func (tc TextContent) String() string {
 
 func (TextContent) isPart() {}
 
+// SwarmMessage is a user-role content part injected by the swarm tool
+// when another session sends a message to this one. It carries both
+// the plain-text body (so the LLM sees the message as ordinary user
+// text) and structured metadata about the sender so the UI can render
+// a "colored square + name" header without regex-parsing text.
+//
+// The Text field is what the model reads (already prefixed with
+// "message from <color-animal>:"). Body is the un-prefixed original
+// message. Sender fields identify the origin session across
+// workspaces.
+type SwarmMessage struct {
+	Text            string `json:"text"`
+	Body            string `json:"body"`
+	SenderSessionID string `json:"sender_session_id"`
+	SenderColor     string `json:"sender_color"`
+	SenderAnimal    string `json:"sender_animal"`
+	// SenderWorkspaceID is the workspace the message originated from.
+	// Empty if the sender workspace is unknown (e.g. a message
+	// injected by a legacy path).
+	SenderWorkspaceID string `json:"sender_workspace_id,omitempty"`
+	// BTW is true when the sender used btw mode (message folded into
+	// the receiver's current turn) rather than the default queued
+	// mode.
+	BTW bool `json:"btw,omitempty"`
+}
+
+func (sm SwarmMessage) String() string {
+	return sm.Text
+}
+
+func (SwarmMessage) isPart() {}
+
 type ImageURLContent struct {
 	URL    string `json:"url"`
 	Detail string `json:"detail,omitempty"`
@@ -146,6 +178,16 @@ func (m *Message) Content() TextContent {
 	for _, part := range m.Parts {
 		if c, ok := part.(TextContent); ok {
 			return c
+		}
+		if sm, ok := part.(SwarmMessage); ok {
+			// Return the full prefixed text so LLM-facing paths
+			// (userToAIMessage, IsThinking, title generation) all
+			// preserve the "message from <sender>:" header that
+			// tells the model a cross-session swarm message
+			// arrived. Callers that need the un-prefixed body
+			// specifically should walk m.Parts and match
+			// SwarmMessage explicitly.
+			return TextContent{Text: sm.Text}
 		}
 	}
 	return TextContent{}
