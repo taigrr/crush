@@ -112,7 +112,7 @@ func NewRenameTool(lspManager *lsp.Manager, permissions permission.Service, work
 
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {
-				return fantasy.ToolResponse{}, fmt.Errorf("session_id is required for rename")
+				return fantasy.NewTextErrorResponse("session_id is required for rename"), nil
 			}
 
 			ok, err := permissions.Request(ctx, permission.CreatePermissionRequest{

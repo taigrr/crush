@@ -116,12 +116,12 @@ func NewViewTool(
 			// Check if file is outside working directory and request permission if needed
 			absWorkingDir, err := filepath.Abs(wd)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("error resolving working directory: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("error resolving working directory: %s", err)), nil
 			}
 
 			absFilePath, err := filepath.Abs(filePath)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("error resolving file path: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("error resolving file path: %s", err)), nil
 			}
 
 			relPath, err := filepath.Rel(absWorkingDir, absFilePath)
@@ -130,7 +130,7 @@ func NewViewTool(
 
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {
-				return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for accessing files outside working directory")
+				return fantasy.NewTextErrorResponse("session ID is required for accessing files outside working directory"), nil
 			}
 
 			// Request permission for files outside working directory, unless it's a skill file.
@@ -184,7 +184,7 @@ func NewViewTool(
 
 					return fantasy.NewTextErrorResponse(fmt.Sprintf("File not found: %s", filePath)), nil
 				}
-				return fantasy.ToolResponse{}, fmt.Errorf("error accessing file: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("error accessing file: %s", err)), nil
 			}
 
 			// Check if it's a directory
@@ -214,7 +214,7 @@ func NewViewTool(
 
 				imageData, readErr := os.ReadFile(filePath)
 				if readErr != nil {
-					return fantasy.ToolResponse{}, fmt.Errorf("error reading image file: %w", readErr)
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("error reading image file: %s", readErr)), nil
 				}
 
 				// Some tools save files with a mismatched extension
@@ -239,7 +239,7 @@ func NewViewTool(
 					return fantasy.NewTextErrorResponse(fmt.Sprintf("Content section is too large (%d bytes). Maximum size is %d bytes",
 						tooLarge.Size, tooLarge.Max)), nil
 				}
-				return fantasy.ToolResponse{}, fmt.Errorf("error reading file: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("error reading file: %s", err)), nil
 			}
 			if !utf8.ValidString(content) {
 				return fantasy.NewTextErrorResponse("File content is not valid UTF-8"), nil

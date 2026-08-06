@@ -60,7 +60,7 @@ func NewWriteTool(
 
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {
-				return fantasy.ToolResponse{}, fmt.Errorf("session_id is required")
+				return fantasy.NewTextErrorResponse("session_id is required"), nil
 			}
 
 			wd := workingDir(ctx)
@@ -84,12 +84,12 @@ func NewWriteTool(
 					return fantasy.NewTextErrorResponse(fmt.Sprintf("File %s already contains the exact content. No changes made.", filePath)), nil
 				}
 			} else if !os.IsNotExist(err) {
-				return fantasy.ToolResponse{}, fmt.Errorf("error checking file: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("error checking file: %s", err)), nil
 			}
 
 			dir := filepath.Dir(filePath)
 			if err = os.MkdirAll(dir, 0o755); err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("error creating directory: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("error creating directory: %s", err)), nil
 			}
 
 			oldContent := ""
@@ -137,7 +137,7 @@ func NewWriteTool(
 
 			err = os.WriteFile(filePath, []byte(params.Content), 0o644)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("error writing file: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("error writing file: %s", err)), nil
 			}
 
 			// Check if file exists in history
@@ -146,7 +146,7 @@ func NewWriteTool(
 				_, err = files.Create(ctx, sessionID, filePath, oldContent)
 				if err != nil {
 					// Log error but don't fail the operation
-					return fantasy.ToolResponse{}, fmt.Errorf("error creating file history: %w", err)
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("file was written but recording its history failed: %s", err)), nil
 				}
 			}
 			if file.Content != oldContent {

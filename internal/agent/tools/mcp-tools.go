@@ -99,7 +99,7 @@ func (m *Tool) Info() fantasy.ToolInfo {
 func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolResponse, error) {
 	sessionID := GetSessionFromContext(ctx)
 	if sessionID == "" {
-		return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for creating a new file")
+		return fantasy.NewTextErrorResponse("session ID is required to invoke an MCP tool"), nil
 	}
 
 	// Skip permission for whitelisted Docker MCP tools.

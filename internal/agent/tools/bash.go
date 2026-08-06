@@ -209,7 +209,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {
-				return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for executing shell command")
+				return fantasy.NewTextErrorResponse("session ID is required for executing shell command"), nil
 			}
 			if !isSafeReadOnly {
 				p, err := permissions.Request(
@@ -240,7 +240,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				// Use background context so it continues after tool returns
 				bgShell, err := bgManager.Start(context.Background(), execWorkingDir, blockFuncs(permissions.SysadminMode()), params.Command, params.Description)
 				if err != nil {
-					return fantasy.ToolResponse{}, fmt.Errorf("error starting background shell: %w", err)
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("error starting background shell: %s", err)), nil
 				}
 
 				// Wait a short time to detect fast failures (blocked commands, syntax errors, etc.)
@@ -254,7 +254,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 					interrupted := shell.IsInterrupt(execErr)
 					exitCode := shell.ExitCode(execErr)
 					if exitCode == 0 && !interrupted && execErr != nil {
-						return fantasy.ToolResponse{}, fmt.Errorf("[Job %s] error executing command: %w", bgShell.ID, execErr)
+						return fantasy.NewTextErrorResponse(fmt.Sprintf("[Job %s] error executing command: %s", bgShell.ID, execErr)), nil
 					}
 
 					stdout = formatOutput(stdout, stderr, execErr)
@@ -295,7 +295,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 			bgManager.Cleanup()
 			bgShell, err := bgManager.Start(context.Background(), execWorkingDir, blockFuncs(permissions.SysadminMode()), params.Command, params.Description)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("error starting shell: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("error starting shell: %s", err)), nil
 			}
 
 			// Wait for either completion, auto-background threshold, or context cancellation
@@ -338,7 +338,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				interrupted := shell.IsInterrupt(execErr)
 				exitCode := shell.ExitCode(execErr)
 				if exitCode == 0 && !interrupted && execErr != nil {
-					return fantasy.ToolResponse{}, fmt.Errorf("[Job %s] error executing command: %w", bgShell.ID, execErr)
+					return fantasy.NewTextErrorResponse(fmt.Sprintf("[Job %s] error executing command: %s", bgShell.ID, execErr)), nil
 				}
 
 				stdout = formatOutput(stdout, stderr, execErr)

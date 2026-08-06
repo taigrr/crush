@@ -136,13 +136,13 @@ func processMultiEditWithCreation(edit editContext, params MultiEditParams, call
 	if _, err := os.Stat(params.FilePath); err == nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("file already exists: %s", params.FilePath)), nil
 	} else if !os.IsNotExist(err) {
-		return fantasy.ToolResponse{}, fmt.Errorf("failed to access file: %w", err)
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to access file: %s", err)), nil
 	}
 
 	// Create parent directories
 	dir := filepath.Dir(params.FilePath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fantasy.ToolResponse{}, fmt.Errorf("failed to create parent directories: %w", err)
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to create parent directories: %s", err)), nil
 	}
 
 	// Start with the content from the first edit
@@ -167,7 +167,7 @@ func processMultiEditWithCreation(edit editContext, params MultiEditParams, call
 	// Get session and message IDs
 	sessionID := GetSessionFromContext(edit.ctx)
 	if sessionID == "" {
-		return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for creating a new file")
+		return fantasy.NewTextErrorResponse("session ID is required for creating a new file"), nil
 	}
 
 	// Check permissions
@@ -212,13 +212,13 @@ func processMultiEditWithCreation(edit editContext, params MultiEditParams, call
 	// Write the file
 	err = os.WriteFile(params.FilePath, []byte(currentContent), 0o644)
 	if err != nil {
-		return fantasy.ToolResponse{}, fmt.Errorf("failed to write file: %w", err)
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to write file: %s", err)), nil
 	}
 
 	// Update file history
 	_, err = edit.files.Create(edit.ctx, sessionID, params.FilePath, "")
 	if err != nil {
-		return fantasy.ToolResponse{}, fmt.Errorf("error creating file history: %w", err)
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("file was written but recording its history failed: %s", err)), nil
 	}
 
 	_, err = edit.files.CreateVersion(edit.ctx, sessionID, params.FilePath, currentContent)
@@ -257,7 +257,7 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 		if os.IsNotExist(err) {
 			return fantasy.NewTextErrorResponse(fmt.Sprintf("file not found: %s", params.FilePath)), nil
 		}
-		return fantasy.ToolResponse{}, fmt.Errorf("failed to access file: %w", err)
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to access file: %s", err)), nil
 	}
 
 	if fileInfo.IsDir() {
@@ -266,7 +266,7 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 
 	sessionID := GetSessionFromContext(edit.ctx)
 	if sessionID == "" {
-		return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for editing file")
+		return fantasy.NewTextErrorResponse("session ID is required for editing file"), nil
 	}
 
 	// Check if file was read before editing
@@ -289,7 +289,7 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 	// Read current file content
 	content, err := os.ReadFile(params.FilePath)
 	if err != nil {
-		return fantasy.ToolResponse{}, fmt.Errorf("failed to read file: %w", err)
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to read file: %s", err)), nil
 	}
 
 	oldContent, isCrlf := fsext.ToUnixLineEndings(string(content))
@@ -371,7 +371,7 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 	// Write the updated content
 	err = os.WriteFile(params.FilePath, []byte(currentContent), 0o644)
 	if err != nil {
-		return fantasy.ToolResponse{}, fmt.Errorf("failed to write file: %w", err)
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to write file: %s", err)), nil
 	}
 
 	// Update file history
@@ -379,7 +379,7 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 	if err != nil {
 		_, err = edit.files.Create(edit.ctx, sessionID, params.FilePath, oldContent)
 		if err != nil {
-			return fantasy.ToolResponse{}, fmt.Errorf("error creating file history: %w", err)
+			return fantasy.NewTextErrorResponse(fmt.Sprintf("file was written but recording its history failed: %s", err)), nil
 		}
 	}
 	if file.Content != oldContent {

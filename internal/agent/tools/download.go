@@ -85,7 +85,7 @@ func NewDownloadTool(permissions permission.Service, workingDir WorkingDirFunc, 
 
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {
-				return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for downloading files")
+				return fantasy.NewTextErrorResponse("session ID is required for downloading files"), nil
 			}
 
 			p, err := permissions.Request(
@@ -120,14 +120,17 @@ func NewDownloadTool(permissions permission.Service, workingDir WorkingDirFunc, 
 
 			req, err := http.NewRequestWithContext(requestCtx, "GET", params.URL, nil)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("failed to create request: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to create request: %s", err)), nil
 			}
 
 			req.Header.Set("User-Agent", "crush/1.0")
 
 			resp, err := client.Do(req)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("failed to download from URL: %w", err)
+				if ctx.Err() != nil {
+					return fantasy.ToolResponse{}, ctx.Err()
+				}
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to download from URL: %s", err)), nil
 			}
 			defer resp.Body.Close()
 
@@ -137,13 +140,13 @@ func NewDownloadTool(permissions permission.Service, workingDir WorkingDirFunc, 
 
 			// Create parent directories if they don't exist
 			if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("failed to create parent directories: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to create parent directories: %s", err)), nil
 			}
 
 			// Create the output file
 			outFile, err := os.Create(filePath)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("failed to create output file: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to create output file: %s", err)), nil
 			}
 			defer outFile.Close()
 
@@ -152,7 +155,10 @@ func NewDownloadTool(permissions permission.Service, workingDir WorkingDirFunc, 
 			// and any upstream server limits.
 			bytesWritten, err := io.Copy(outFile, resp.Body)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("failed to write file: %w", err)
+				if ctx.Err() != nil {
+					return fantasy.ToolResponse{}, ctx.Err()
+				}
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to write file: %s", err)), nil
 			}
 
 			contentType := resp.Header.Get("Content-Type")

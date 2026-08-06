@@ -100,7 +100,7 @@ func NewLsTool(permissions permission.Service, workingDir WorkingDirFunc, lsConf
 				// Directory is outside working directory, request permission
 				sessionID := GetSessionFromContext(ctx)
 				if sessionID == "" {
-					return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for accessing directories outside working directory")
+					return fantasy.NewTextErrorResponse("session ID is required for accessing directories outside working directory"), nil
 				}
 
 				granted, err := permissions.Request(

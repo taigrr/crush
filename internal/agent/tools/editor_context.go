@@ -40,7 +40,7 @@ func NewEditorContextTool() fantasy.AgentTool {
 			}
 			out, err := json.Marshal(ec)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("marshal editor context: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("marshal editor context: %s", err)), nil
 			}
 			return fantasy.NewTextResponse(string(out)), nil
 		},

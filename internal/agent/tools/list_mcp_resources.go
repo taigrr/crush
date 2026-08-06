@@ -40,7 +40,7 @@ func NewListMCPResourcesTool(cfg *config.ConfigStore, permissions permission.Ser
 
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {
-				return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for listing MCP resources")
+				return fantasy.NewTextErrorResponse("session ID is required for listing MCP resources"), nil
 			}
 
 			relPath := filepathext.SmartJoin(cfg.WorkingDir(), params.MCPName)

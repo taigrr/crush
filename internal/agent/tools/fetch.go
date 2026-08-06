@@ -62,7 +62,7 @@ func NewFetchTool(permissions permission.Service, workingDir WorkingDirFunc, cli
 
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {
-				return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for creating a new file")
+				return fantasy.NewTextErrorResponse("session ID is required for fetching a URL"), nil
 			}
 
 			p, err := permissions.Request(
@@ -100,14 +100,17 @@ func NewFetchTool(permissions permission.Service, workingDir WorkingDirFunc, cli
 
 			req, err := http.NewRequestWithContext(requestCtx, "GET", params.URL, nil)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("failed to create request: %w", err)
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to create request: %s", err)), nil
 			}
 
 			req.Header.Set("User-Agent", "crush/1.0")
 
 			resp, err := client.Do(req)
 			if err != nil {
-				return fantasy.ToolResponse{}, fmt.Errorf("failed to fetch URL: %w", err)
+				if ctx.Err() != nil {
+					return fantasy.ToolResponse{}, ctx.Err()
+				}
+				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to fetch URL: %s", err)), nil
 			}
 			defer resp.Body.Close()
 
@@ -117,6 +120,9 @@ func NewFetchTool(permissions permission.Service, workingDir WorkingDirFunc, cli
 
 			body, err := io.ReadAll(io.LimitReader(resp.Body, MaxFetchSize))
 			if err != nil {
+				if ctx.Err() != nil {
+					return fantasy.ToolResponse{}, ctx.Err()
+				}
 				return fantasy.NewTextErrorResponse("Failed to read response body: " + err.Error()), nil
 			}
 
