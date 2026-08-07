@@ -322,7 +322,7 @@ func DefaultKeyMap() KeyMap {
 		key.WithHelp("v", "visual select"),
 	)
 	km.SessionSidebar.ToggleSelect = key.NewBinding(
-		key.WithKeys(" "),
+		key.WithKeys("space", " "),
 		key.WithHelp("space", "toggle select"),
 	)
 	km.SessionSidebar.ArchiveSelect = key.NewBinding(
