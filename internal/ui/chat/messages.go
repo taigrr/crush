@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/dustin/go-humanize"
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/message"
@@ -350,7 +351,8 @@ func (a *AssistantInfoItem) renderContent(width int) string {
 		providerName = providerConfig.Name
 	}
 	provider := a.sty.Messages.AssistantInfoProvider.Render(fmt.Sprintf("via %s", providerName))
-	assistant := fmt.Sprintf("%s %s %s %s", icon, modelFormatted, provider, infoMsg)
+	since := a.sty.Messages.AssistantInfoDuration.Render(humanize.Time(finishTime))
+	assistant := fmt.Sprintf("%s %s %s %s %s", icon, modelFormatted, provider, infoMsg, since)
 	return common.Section(a.sty, assistant, width)
 }
 
