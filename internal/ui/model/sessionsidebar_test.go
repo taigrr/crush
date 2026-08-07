@@ -134,11 +134,12 @@ func TestSidebar_OverflowRowCapsSessions(t *testing.T) {
 	t.Parallel()
 	s := newTestSidebar(t)
 	s.SetOverviews([]proto.WorkspaceOverview{manySessions("/proj/a", 20)})
-	// Render with a tight body so the cap (min 5) applies: height-2 body.
-	s.Render(30, 9, true) // body = 7 -> single workspace, still capped by fit
+	// Render with a tight body so the cap (min 5) applies. At height 9 the
+	// 5-line fixed header (title + 3 summary + blank) leaves body = 4.
+	s.Render(30, 9, true)
 
-	// With one workspace and body height 7: header(1)+20 sessions = 21 > 7,
-	// so cap = max(5, 7-2)=5 sessions + overflow row.
+	// With one workspace and body height 4: header(1)+20 sessions = 21 > 4,
+	// so cap = max(5, 4-2)=5 sessions + overflow row.
 	// Navigate to the last selectable row: it must be the overflow row.
 	for range 10 {
 		s.MoveDown()
@@ -628,4 +629,117 @@ func TestSidebar_HeaderDropsAfterWorkspaceEmptied(t *testing.T) {
 	_, id, ok := s.Selected()
 	require.True(t, ok)
 	require.Equal(t, "a1", id)
+}
+
+// TestSidebar_SessionCounts verifies ready/working/total across a mix of
+// busy/idle sessions in multiple workspaces (archived sessions are already
+// excluded from overviews, so they simply don't appear).
+func TestSidebar_SessionCounts(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		{
+			Root:     "/proj/a",
+			Attached: true,
+			Sessions: []proto.SessionOverview{
+				{ID: "a1", Title: "idle"},
+				{ID: "a2", Title: "busy", IsBusy: true},
+			},
+		},
+		{Root: "/proj/empty"}, // contributes nothing
+		{
+			Root:     "/proj/b",
+			Attached: false,
+			Sessions: []proto.SessionOverview{
+				{ID: "b1", Title: "busy2", IsBusy: true},
+				{ID: "b2", Title: "idle2"},
+				{ID: "b3", Title: "idle3"},
+			},
+		},
+	})
+
+	c := s.SessionCounts()
+	require.Equal(t, 5, c.Total, "all visible sessions across workspaces")
+	require.Equal(t, 2, c.Working, "busy sessions (a2, b1)")
+	require.Equal(t, 3, c.Ready, "idle sessions (a1, b2, b3)")
+	require.Equal(t, c.Total, c.Ready+c.Working, "ready+working == total")
+}
+
+// TestSidebar_SessionCountsLiveOnRefresh verifies counts update when a
+// session's busy state changes across a SetOverviews refresh.
+func TestSidebar_SessionCountsLiveOnRefresh(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/a",
+		Attached: true,
+		Sessions: []proto.SessionOverview{{ID: "a1", Title: "x", IsBusy: true}},
+	}})
+	require.Equal(t, SessionCounts{Ready: 0, Working: 1, Total: 1}, s.SessionCounts())
+
+	// a1 finished its turn.
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/a",
+		Attached: true,
+		Sessions: []proto.SessionOverview{{ID: "a1", Title: "x", IsBusy: false}},
+	}})
+	require.Equal(t, SessionCounts{Ready: 1, Working: 0, Total: 1}, s.SessionCounts())
+}
+
+// TestSidebar_SummaryRendersInTopMatter verifies the 3 summary lines render
+// in the fixed header (above the list) and do not become selectable rows.
+func TestSidebar_SummaryRendersInTopMatter(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/a",
+		Attached: true,
+		Sessions: []proto.SessionOverview{
+			{ID: "a1", Title: "One"},
+			{ID: "a2", Title: "Two", IsBusy: true},
+		},
+	}})
+	out := s.Render(40, 20, true)
+	require.Contains(t, out, "ready")
+	require.Contains(t, out, "working")
+	require.Contains(t, out, "total")
+
+	// Summary lines are not rows: only the 2 sessions (+ header) exist as
+	// rows, none of them a summary line.
+	sessionRows := 0
+	for _, r := range s.rows {
+		if r.kind == sidebarRowSession {
+			sessionRows++
+		}
+	}
+	require.Equal(t, 2, sessionRows)
+	// Cursor still maps to a real session, unaffected by the fixed matter.
+	// (a2 is busy so it sorts to the top tier.)
+	_, id, ok := s.Selected()
+	require.True(t, ok)
+	require.Equal(t, "a2", id)
+}
+
+// TestSidebar_SummaryDroppedAtSmallHeight verifies the 3-line summary block
+// is omitted at very small heights so short terminals still show session
+// rows (fixed header falls back to title + blank).
+func TestSidebar_SummaryDroppedAtSmallHeight(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/a",
+		Attached: true,
+		Sessions: []proto.SessionOverview{{ID: "a1", Title: "OnlyOne"}},
+	}})
+
+	// Tall enough: summary present.
+	tall := s.Render(30, 20, true)
+	require.Contains(t, tall, "ready")
+	require.Contains(t, tall, "total")
+
+	// Very short: summary dropped, but the session row still renders.
+	short := s.Render(30, 5, true)
+	require.NotContains(t, short, "ready")
+	require.NotContains(t, short, "working")
+	require.Contains(t, short, "OnlyOne", "session row must still show at small height")
 }

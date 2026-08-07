@@ -108,6 +108,41 @@ func (s *SessionsSidebar) WorkspaceCount() int {
 	return len(s.overviews)
 }
 
+// SessionCounts summarizes the visible sessions across ALL workspaces the
+// sidebar shows. Definitions:
+//   - Working: sessions with an in-flight agent turn (IsBusy) — the SAME
+//     signal the busy tier in sortSessions and the row busy dot use.
+//   - Ready: visible (non-archived) sessions that are NOT busy.
+//   - Total: all visible (non-archived) sessions, INCLUDING any collapsed
+//     under a workspace's "…N more" overflow row.
+//
+// Empty workspaces contribute nothing (consistent with hidden headers).
+// ws.Sessions is the visible/non-archived set (see the invariant in
+// rebuildRows), so Total counts every shown-or-collapsed visible session.
+type SessionCounts struct {
+	Ready   int
+	Working int
+	Total   int
+}
+
+// SessionCounts computes the live ready/working/total tally. It reads
+// straight from the current overviews, so it is always in sync with the
+// latest SetOverviews / SetActiveSession refresh.
+func (s *SessionsSidebar) SessionCounts() SessionCounts {
+	var c SessionCounts
+	for _, ws := range s.overviews {
+		for _, sess := range ws.Sessions {
+			c.Total++
+			if sess.IsBusy {
+				c.Working++
+			} else {
+				c.Ready++
+			}
+		}
+	}
+	return c
+}
+
 // SetOverviews replaces the listed data and rebuilds the navigable rows,
 // keeping the cursor on the same session when possible.
 func (s *SessionsSidebar) SetOverviews(overviews []proto.WorkspaceOverview) {
@@ -679,11 +714,23 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 
 	// Match the right sidebar's aesthetic: a titled section header, then
 	// workspace group headers rendered as section lines, with resource-
-	// styled rows beneath.
-	lines := []string{common.Section(t, "Sessions", width), ""}
+	// styled rows beneath. The 3-line summary block is fixed top matter
+	// (like the section title), not a scrollable/selectable row — it does
+	// not participate in s.rows, so cursor/row-index math is unaffected.
+	//
+	// At very small heights, drop the summary block so short terminals
+	// still show session rows: below summaryMinHeight the fixed header is
+	// just the title + blank (2 lines), matching the pre-summary layout.
+	const summaryMinHeight = 8
+	lines := []string{common.Section(t, "Sessions", width)}
+	headerLines := 2 // title + trailing blank
+	if height >= summaryMinHeight {
+		lines = append(lines, s.summaryLines(width)...)
+		headerLines += 3 // the 3 summary lines
+	}
+	lines = append(lines, "")
 
-	// Reserve the two header lines above.
-	bodyHeight := max(1, height-2)
+	bodyHeight := max(1, height-headerLines)
 
 	// The per-workspace session cap depends on the available body height,
 	// so rebuild the row projection whenever it changes (e.g. terminal
@@ -726,6 +773,36 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 
 	_ = focused
 	return strings.Join(lines, "\n")
+}
+
+// summaryLines renders the fixed 3-line count block shown under the section
+// title: a green-dot "ready" line, a yellow-dot "working" line, and a plain
+// "total" line. The yellow BusyIcon matches the row busy dot exactly. The
+// green OnlineIcon is a summary-only "ready/idle" indicator — note that
+// session rows do NOT show a green dot for idle sessions (rows only show a
+// busy or unread dot), so this is not mirroring a per-row "ready dot"; it is
+// purely the summary's idle indicator, themed to the success color.
+func (s *SessionsSidebar) summaryLines(width int) []string {
+	t := s.com.Styles
+	c := s.SessionCounts()
+	ready := t.Resource.OnlineIcon.String() + " " +
+		t.Resource.AdditionalText.Render(fmt.Sprintf("%d ready %s", c.Ready, plural(c.Ready, "session")))
+	working := t.Resource.BusyIcon.String() + " " +
+		t.Resource.AdditionalText.Render(fmt.Sprintf("%d working %s", c.Working, plural(c.Working, "session")))
+	total := "  " + t.Resource.AdditionalText.Render(fmt.Sprintf("%d total %s", c.Total, plural(c.Total, "session")))
+	return []string{
+		ansi.Truncate(ready, width, "…"),
+		ansi.Truncate(working, width, "…"),
+		ansi.Truncate(total, width, "…"),
+	}
+}
+
+// plural returns the word with a trailing "s" unless n == 1.
+func plural(n int, word string) string {
+	if n == 1 {
+		return word
+	}
+	return word + "s"
 }
 
 // renderRows renders each navigable row to a styled line at the given width.
