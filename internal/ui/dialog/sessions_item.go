@@ -52,6 +52,9 @@ type SessionItem struct {
 	cache            map[int]string
 	updateTitleInput textinput.Model
 	focused          bool
+	// marked reports whether this session is in the popup's multi-select
+	// set; when true the row renders a ✓ prefix instead of the swarm square.
+	marked bool
 }
 
 // Finished implements list.Item. Session items are render-stable
@@ -138,8 +141,27 @@ func (s *SessionItem) Render(width int) string {
 	// color square prefixes the title. The square is passed as a
 	// separate rendered prefix (not concatenated into the title) so
 	// the fuzzy-match highlight byte offsets — computed against the
-	// bare s.Title — stay correctly anchored.
-	return renderItemWithPrefix(styles, s.Title, sessionTitlePrefix(s.Session.Color), info, s.focused, width, s.cache, &s.m)
+	// bare s.Title — stay correctly anchored. When the row is
+	// multi-selected, a ✓ replaces the square for a clear, consistent
+	// selection treatment (matching the sidebar).
+	prefix := sessionTitlePrefix(s.Session.Color)
+	if s.marked {
+		prefix = s.t.Tool.IconSuccess.String() + " "
+	}
+	return renderItemWithPrefix(styles, s.Title, prefix, info, s.focused, width, s.cache, &s.m)
+}
+
+// SetMarked sets whether this session is in the multi-select set, clearing
+// the render cache and bumping the version when it changes.
+func (s *SessionItem) SetMarked(marked bool) {
+	if s.marked == marked {
+		return
+	}
+	s.cache = nil
+	s.marked = marked
+	if s.Versioned != nil {
+		s.Bump()
+	}
 }
 
 // sessionTitlePrefix returns the inline prefix rendered before a
