@@ -10,6 +10,22 @@ import (
 	"path/filepath"
 )
 
+// OpenReadOnly opens a workspace's database at dataDir READ-ONLY (no
+// migrations, no data-dir lock, no writes) for cross-workspace fan-out
+// reads. It returns (nil, nil) when the database file does not exist, so
+// callers can skip an empty/uninitialized workspace without treating it as
+// an error. The caller owns the returned handle and must Close it.
+func OpenReadOnly(dataDir string) (*sql.DB, error) {
+	dbPath := filepath.Join(dataDir, "crush.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return openReadOnlyDB(dbPath)
+}
+
 // PeekedSession is a lightweight, read-only view of a session, sufficient
 // for the cross-workspace picker. It deliberately excludes heavy or
 // runtime-only fields (message history, live busy state).

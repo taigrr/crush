@@ -20,9 +20,10 @@ const searchDebounce = 250 * time.Millisecond
 // generation. If the generation is stale (the user kept typing) it is
 // dropped without running a search.
 type searchDebounceMsg struct {
-	gen      int
-	query    string
-	semantic *bool
+	gen           int
+	query         string
+	semantic      *bool
+	allWorkspaces bool
 }
 
 // searchResultMsg carries the outcome of a history search back to the
@@ -60,7 +61,7 @@ func (m *UI) handleSearchQueryChanged(a dialog.ActionSearchQueryChanged) tea.Cmd
 		cmds = append(cmds, a.InputCmd)
 	}
 	cmds = append(cmds, tea.Tick(searchDebounce, func(time.Time) tea.Msg {
-		return searchDebounceMsg{gen: gen, query: a.Query, semantic: a.Semantic}
+		return searchDebounceMsg{gen: gen, query: a.Query, semantic: a.Semantic, allWorkspaces: a.AllWorkspaces}
 	}))
 	return tea.Batch(cmds...)
 }
@@ -82,19 +83,20 @@ func (m *UI) handleSearchDebounce(msg searchDebounceMsg) tea.Cmd {
 		return m.cancelPreview()
 	}
 	palette.SetLoading(true)
-	return m.runSearchCmd(msg.gen, msg.query, msg.semantic)
+	return m.runSearchCmd(msg.gen, msg.query, msg.semantic, msg.allWorkspaces)
 }
 
 // runSearchCmd returns a tea.Cmd that performs the history search RPC and
 // wraps the outcome in a searchResultMsg tagged with the generation. The
 // palette searches all message roles (Scope "all") so a query can match
 // assistant replies, not just what the user typed.
-func (m *UI) runSearchCmd(gen int, query string, semantic *bool) tea.Cmd {
+func (m *UI) runSearchCmd(gen int, query string, semantic *bool, allWorkspaces bool) tea.Cmd {
 	return func() tea.Msg {
 		res, err := m.com.Workspace.SearchHistory(context.Background(), proto.SearchHistoryParams{
-			Query:    query,
-			Scope:    "all",
-			Semantic: semantic,
+			Query:         query,
+			Scope:         "all",
+			Semantic:      semantic,
+			AllWorkspaces: allWorkspaces,
 		})
 		return searchResultMsg{gen: gen, result: res, err: err}
 	}
@@ -134,17 +136,21 @@ func (m *UI) previewSearchResult(hit proto.SessionHit) tea.Cmd {
 	return m.schedulePreview(hit.SessionID, m.isCurrentWorkspace(hit.WorkspaceRoot))
 }
 
-// commitSearchResult closes the palette and loads the chosen session. Any
-// active live preview is discarded by the loadSessionMsg handler, which
-// resets the preview state when the committed session lands.
-//
-// TODO(cross-workspace): this loads hit.SessionID in the current
-// workspace only. Step 2 adds cross-workspace results; commit must then
-// route via hit.WorkspaceID (switching workspace first) so a foreign
-// session id is not loaded against the wrong workspace.
+// commitSearchResult closes the palette and opens the chosen session. For
+// a current-workspace hit it loads directly; for a foreign-workspace hit
+// (cross-workspace search) it switches this client to that workspace first
+// and then loads the session, reusing the same switch-then-open path the
+// sidebar uses. Any active live preview is discarded by the loadSessionMsg
+// / workspaceSwitchedMsg handlers when the committed session lands.
 func (m *UI) commitSearchResult(hit proto.SessionHit) tea.Cmd {
 	m.dialog.CloseDialog(dialog.SearchPaletteID)
-	return m.loadSession(hit.SessionID)
+	// A current-workspace hit (or one with no root — defensive: the
+	// backend always stamps a root, but never route an empty root into
+	// SwitchWorkspace, which would error) loads directly.
+	if hit.WorkspaceRoot == "" || m.isCurrentWorkspace(hit.WorkspaceRoot) {
+		return m.loadSession(hit.SessionID)
+	}
+	return m.switchWorkspaceAndLoad(hit.WorkspaceRoot, hit.SessionID)
 }
 
 // searchPalette returns the open search palette dialog, or nil.

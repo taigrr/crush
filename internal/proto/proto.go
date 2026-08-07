@@ -246,6 +246,11 @@ type SearchHistoryParams struct {
 	Scope    string `json:"scope,omitempty"`
 	Semantic *bool  `json:"semantic,omitempty"`
 	Limit    int    `json:"limit,omitempty"`
+	// AllWorkspaces opts into cross-workspace fan-out: when true the
+	// backend also searches every other known workspace (attached and
+	// registry-detached) and merges the results. When false (the
+	// default) only the requested workspace is searched — the fast path.
+	AllWorkspaces bool `json:"all_workspaces,omitempty"`
 	// Offset is reserved: session-level pagination is not yet supported
 	// (results collapse per session after a message-level candidate
 	// fetch, so a message offset would not align to session boundaries).
