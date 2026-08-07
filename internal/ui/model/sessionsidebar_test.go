@@ -1,9 +1,11 @@
 package model
 
 import (
+	"image"
 	"sort"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/ui/common"
@@ -742,4 +744,179 @@ func TestSidebar_SummaryDroppedAtSmallHeight(t *testing.T) {
 	require.NotContains(t, short, "ready")
 	require.NotContains(t, short, "working")
 	require.Contains(t, short, "OnlyOne", "session row must still show at small height")
+}
+
+// TestSidebar_ClickToActivateMapsRow verifies click-Y → row mapping with the
+// full 5-line header (summary shown) and no scroll: body line 0 is the first
+// row (a workspace header), line 1 the first session, etc.
+func TestSidebar_ClickToActivateMapsRow(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews()) // /proj/a: a1,a2 ; /proj/b: b1
+	height := 40
+	s.Render(30, height, true) // header = 5 (summary shown)
+
+	// rows: [wsA, a1, a2, wsB, b1]. Header is 5 lines; row i is at localY 5+i.
+	// Click a1 (row index 1) -> activatable, cursor on a1.
+	act, moved := s.ClickToActivate(5+1, height)
+	require.True(t, act)
+	require.True(t, moved)
+	_, id, ok := s.Selected()
+	require.True(t, ok)
+	require.Equal(t, "a1", id)
+
+	// Click b1 (row index 4).
+	act, _ = s.ClickToActivate(5+4, height)
+	require.True(t, act)
+	_, id, _ = s.Selected()
+	require.Equal(t, "b1", id)
+
+	// Click a workspace header row (index 0) -> not activatable but moved.
+	act, moved = s.ClickToActivate(5+0, height)
+	require.False(t, act)
+	require.True(t, moved)
+}
+
+// TestSidebar_ClickIgnoresFixedMatter verifies clicks on the title/summary
+// lines (localY < header) are no-ops.
+func TestSidebar_ClickIgnoresFixedMatter(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews())
+	s.Render(30, 40, true)
+	for y := 0; y < 5; y++ { // title + 3 summary + blank
+		act, moved := s.ClickToActivate(y, 40)
+		require.False(t, act, "fixed matter click must not activate (y=%d)", y)
+		require.False(t, moved, "fixed matter click must not move cursor (y=%d)", y)
+	}
+}
+
+// TestSidebar_ClickBelowLastRowIgnored verifies a click past the last row is
+// a no-op.
+func TestSidebar_ClickBelowLastRowIgnored(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews()) // 5 rows
+	s.Render(30, 40, true)
+	act, moved := s.ClickToActivate(5+100, 40)
+	require.False(t, act)
+	require.False(t, moved)
+}
+
+// TestSidebar_ClickWithScrollOffset verifies the mapping accounts for the
+// scroll offset: after scrolling, body line 0 maps to s.scroll.
+func TestSidebar_ClickWithScrollOffset(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		manySessions("/proj/a", 20),
+		manySessions("/proj/b", 20),
+		manySessions("/proj/c", 20),
+	})
+	// Small body so the list scrolls: height 12 -> header 5, body 7. Several
+	// workspaces make the projected rows exceed the body.
+	s.Render(30, 12, true)
+	// Move cursor to the bottom so scroll advances.
+	for range 60 {
+		s.MoveDown()
+	}
+	s.Render(30, 12, true)
+	require.Greater(t, s.scroll, 0, "list should have scrolled")
+
+	// Body line 0 now corresponds to row index s.scroll. Clicking it must
+	// select that exact row's session (row kind session in this single-ws
+	// projection where row 0 is the header, so pick a body line that lands
+	// on a session row).
+	header := s.fixedHeaderHeight(12)
+	// Find a visible session row and its body line.
+	wantIdx := -1
+	for i := s.scroll; i < len(s.rows); i++ {
+		if s.rows[i].kind == sidebarRowSession {
+			wantIdx = i
+			break
+		}
+	}
+	require.GreaterOrEqual(t, wantIdx, 0)
+	bodyLine := wantIdx - s.scroll
+	act, _ := s.ClickToActivate(header+bodyLine, 12)
+	require.True(t, act)
+	_, gotID, ok := s.Selected()
+	require.True(t, ok)
+	wantID := s.overviews[s.rows[wantIdx].wsIdx].Sessions[s.rows[wantIdx].sessIdx].ID
+	require.Equal(t, wantID, gotID)
+}
+
+// TestSidebar_ClickSmallHeaderNoSummary verifies mapping at small height
+// where the summary block is dropped (header = 2).
+func TestSidebar_ClickSmallHeaderNoSummary(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews())
+	height := 6 // < summaryMinHeight(8): header = 2
+	s.Render(30, height, true)
+	require.Equal(t, 2, s.fixedHeaderHeight(height))
+	// Row 1 (a1) is at localY 2+1.
+	act, _ := s.ClickToActivate(2+1, height)
+	require.True(t, act)
+	_, id, _ := s.Selected()
+	require.Equal(t, "a1", id)
+}
+
+// TestSidebar_ClickClearsSelection verifies a click clears an in-progress
+// multi-select and does not enter visual mode.
+func TestSidebar_ClickClearsSelection(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews())
+	s.Render(30, 40, true)
+	s.ToggleVisualMode() // visual + a1 selected
+	s.MoveDown()
+	require.NotEmpty(t, s.SelectedSessionIDs())
+
+	s.ClickToActivate(5+1, 40) // click a1
+	require.Empty(t, s.SelectedSessionIDs(), "click clears multi-selection")
+	require.False(t, s.VisualMode(), "click does not enter visual mode")
+}
+
+// TestHandleLeftSidebarClick_RectGating verifies handleLeftSidebarClick only
+// consumes clicks inside the sidebar rect, and translates screen-Y through
+// the rect origin. A header click inside the rect is consumed (handled) but
+// returns no command; a click outside the rect is not handled (falls
+// through to chat/other routers).
+func TestHandleLeftSidebarClick_RectGating(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews())
+	rect := image.Rect(0, 3, 30, 43) // origin at y=3, height 40
+	s.Render(rect.Dx(), rect.Dy(), true)
+
+	m := &UI{
+		keyMap:             DefaultKeyMap(),
+		leftSidebar:        s,
+		leftSidebarVisible: true,
+	}
+	m.layout.leftSidebar = rect
+
+	// Click outside the rect (to the right) -> not handled.
+	_, handled := m.handleLeftSidebarClick(tea.MouseClickMsg{X: 100, Y: 10})
+	require.False(t, handled, "click outside sidebar rect must not be handled")
+
+	// Click on the first workspace header row: rect origin y=3 + header(5) +
+	// row 0 => screen Y = 3+5+0 = 8. Consumed, no command, focus set.
+	cmd, handled := m.handleLeftSidebarClick(tea.MouseClickMsg{X: 2, Y: 3 + 5 + 0})
+	require.True(t, handled, "header click inside rect is consumed")
+	require.Nil(t, cmd, "header click has no activate command")
+	require.Equal(t, uiFocusLeftSidebar, m.focus, "click focuses the sidebar")
+}
+
+// TestHandleLeftSidebarClick_HiddenIgnored verifies clicks are ignored when
+// the sidebar is not visible.
+func TestHandleLeftSidebarClick_HiddenIgnored(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews())
+	m := &UI{keyMap: DefaultKeyMap(), leftSidebar: s, leftSidebarVisible: false}
+	m.layout.leftSidebar = image.Rect(0, 0, 30, 40)
+	_, handled := m.handleLeftSidebarClick(tea.MouseClickMsg{X: 2, Y: 6})
+	require.False(t, handled)
 }

@@ -1074,6 +1074,15 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// Left session navigator click-to-open. Handle before the other
+		// click routers so a sidebar click isn't misrouted to the chat.
+		if cmd, handled := m.handleLeftSidebarClick(msg); handled {
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+
 		if cmd := m.handleClickFocus(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
