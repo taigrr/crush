@@ -150,37 +150,68 @@ func (c *Client) SubscribeEvents(ctx context.Context, id string) (<-chan any, er
 	go func() {
 		defer rsp.Body.Close()
 		defer close(events)
-
-		scr := bufio.NewReader(rsp.Body)
-		for {
-			line, readErr := scr.ReadBytes('\n')
-			// ReadBytes returns a final, newline-less line together with
-			// io.EOF, so parse what we got before deciding to break;
-			// otherwise the last event in the stream would be dropped.
-			if ev, ok := parseSSELine(line); ok {
-				if !sendEvent(ctx, events, ev) {
-					return
-				}
-			}
-			if errors.Is(readErr, io.EOF) {
-				break
-			}
-			if readErr != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				slog.Error("Reading from events stream", "error", readErr)
-				select {
-				case <-time.After(time.Second * 2):
-				case <-ctx.Done():
-					return
-				}
-				continue
-			}
-		}
+		streamEvents(ctx, rsp.Body, events, readErrorRetryDelay)
 	}()
 
 	return events, nil
+}
+
+// readErrorRetryDelay is how long streamEvents waits after a non-EOF
+// read error before retrying. Overridable in tests to avoid real
+// multi-second sleeps.
+var readErrorRetryDelay = 2 * time.Second
+
+// maxConsecutiveReadErrors bounds how many times a non-EOF read error
+// is tolerated in a row before giving up on this connection and
+// closing events. A couple of retries ride out brief blips on an
+// otherwise-live connection; retrying forever would mean a truly dead
+// connection (e.g. a reset TCP socket) never surfaces as closed,
+// silently starving callers of any further events with no way to tell
+// "lost connection" apart from "still working". Closing lets the
+// caller (ClientWorkspace) open a fresh connection instead of retrying
+// reads on a socket that can never recover.
+const maxConsecutiveReadErrors = 3
+
+// streamEvents reads SSE frames from body, parsing and forwarding each
+// to events until the stream ends (EOF), the context is cancelled, or
+// too many consecutive non-EOF read errors occur. It is split out from
+// SubscribeEvents so it can be unit-tested against a crafted reader.
+func streamEvents(ctx context.Context, body io.Reader, events chan any, retryDelay time.Duration) {
+	consecutiveErrors := 0
+
+	scr := bufio.NewReader(body)
+	for {
+		line, readErr := scr.ReadBytes('\n')
+		// ReadBytes returns a final, newline-less line together with
+		// io.EOF, so parse what we got before deciding to break;
+		// otherwise the last event in the stream would be dropped.
+		if ev, ok := parseSSELine(line); ok {
+			if !sendEvent(ctx, events, ev) {
+				return
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			consecutiveErrors++
+			slog.Error("Reading from events stream", "error", readErr, "consecutive_errors", consecutiveErrors)
+			if consecutiveErrors >= maxConsecutiveReadErrors {
+				slog.Error("Giving up on events stream after repeated read errors")
+				break
+			}
+			select {
+			case <-time.After(retryDelay):
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
+		consecutiveErrors = 0
+	}
 }
 
 // parseSSELine parses a single Server-Sent Events line into a typed pubsub

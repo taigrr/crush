@@ -13,6 +13,7 @@ import (
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/workspace"
 	"github.com/taigrr/crush/internal/worktree"
 )
 
@@ -141,6 +142,17 @@ func renderHeaderDetails(
 	t := com.Styles
 
 	var parts []string
+
+	// Connection status, shown first (most attention-grabbing spot)
+	// and only while there is something to report, mirroring the
+	// lspErrorCount>0 convention below. Compact mode has no sidebar,
+	// so this is the only surface for the indicator here.
+	switch com.Workspace.ConnectionState() {
+	case workspace.ConnectionStateConnecting:
+		parts = append(parts, t.Resource.BusyIcon.String()+" connecting")
+	case workspace.ConnectionStateReconnecting:
+		parts = append(parts, t.Resource.ErrorIcon.String()+" reconnecting")
+	}
 
 	if lspErrorCount > 0 {
 		parts = append(parts, t.LSP.ErrorDiagnostic.Render(fmt.Sprintf("%s%d", styles.LSPErrorIcon, lspErrorCount)))

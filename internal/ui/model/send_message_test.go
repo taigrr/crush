@@ -31,6 +31,10 @@ type sendWorkspace struct {
 
 func (w *sendWorkspace) Config() *config.Config { return nil }
 
+func (w *sendWorkspace) ConnectionState() workspace.ConnectionState {
+	return workspace.ConnectionStateConnected
+}
+
 func (w *sendWorkspace) ServerVersion(ctx context.Context) (proto.VersionInfo, error) {
 	return w.serverVer, w.serverVerErr
 }

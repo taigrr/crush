@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/swarm"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/logo"
@@ -210,7 +210,16 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	if swarmLine != "" {
 		blocks = append(blocks, swarmLine)
 	}
-	blocks = append(blocks,
+	// Connection status, shown just above the session title (between
+	// the identity block and the title) only while something needs
+	// attention (starting up or reconnecting), so it is noticed
+	// without adding clutter once healthy. Read live from the
+	// workspace so the sidebar and header share one source of truth.
+	if connLine := connectionStatusLine(t, m.com.Workspace.ConnectionState(), width); connLine != "" {
+		blocks = append(blocks, connLine)
+	}
+	blocks = append(
+		blocks,
 		title,
 		"",
 		cfgRoot,
