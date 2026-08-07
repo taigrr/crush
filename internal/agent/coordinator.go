@@ -519,6 +519,19 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		if originalErr != nil || ctx.Err() != nil {
 			break
 		}
+		// A nil result means no turn actually executed here: either
+		// the call was queued because the session was already busy,
+		// or it was canceled on entry (see sessionAgent.Run's queued
+		// and cancel-on-entry paths, which both return (nil, nil)).
+		// In the queued case, the active run owns the goal
+		// continuation loop for this session; advancing here would
+		// spin, re-evaluating the goal and re-enqueuing on every
+		// iteration while the real turn is still running. In the
+		// canceled case there's nothing to continue from either way,
+		// so breaking is correct in both.
+		if result == nil {
+			break
+		}
 		cont, contPrompt := c.currentAgent.AdvanceGoal(ctx, sessionID)
 		if !cont {
 			break
