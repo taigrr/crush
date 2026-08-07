@@ -47,13 +47,15 @@ type ActionPreviewSession struct {
 }
 
 // ActionSearchQueryChanged is emitted by the search palette when the
-// query text or semantic toggle changes. The UI owns the debounce: it
-// bumps a generation counter and schedules a search command. InputCmd
+// query text, semantic toggle, or inline global flag changes. The UI owns
+// the debounce: it bumps a generation counter and schedules a search
+// command. AllWorkspaces requests cross-workspace fan-out. InputCmd
 // carries the textinput's own cmd (cursor blink) so it isn't lost.
 type ActionSearchQueryChanged struct {
-	Query    string
-	Semantic *bool
-	InputCmd tea.Cmd
+	Query         string
+	Semantic      *bool
+	AllWorkspaces bool
+	InputCmd      tea.Cmd
 }
 
 // ActionPreviewSearchResult is emitted as the search palette selection

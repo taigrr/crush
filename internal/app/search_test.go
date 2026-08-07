@@ -13,20 +13,20 @@ func TestResolveSearchLimits(t *testing.T) {
 	t.Parallel()
 
 	// Non-positive → default.
-	sl, cl := resolveSearchLimits(0)
+	sl, cl := ResolveSearchLimits(0)
 	require.Equal(t, searchDefaultSessionLimit, sl)
 	require.Equal(t, max(searchDefaultSessionLimit*searchSessionCandidateFactor, searchMinCandidates), cl)
 
-	sl, _ = resolveSearchLimits(-5)
+	sl, _ = ResolveSearchLimits(-5)
 	require.Equal(t, searchDefaultSessionLimit, sl)
 
 	// Small positive → floored candidate window.
-	sl, cl = resolveSearchLimits(3)
+	sl, cl = ResolveSearchLimits(3)
 	require.Equal(t, 3, sl)
 	require.Equal(t, searchMinCandidates, cl)
 
 	// Hostile huge limit → clamped, candidate bounded.
-	sl, cl = resolveSearchLimits(1_000_000)
+	sl, cl = ResolveSearchLimits(1_000_000)
 	require.Equal(t, searchMaxSessionLimit, sl)
 	require.Equal(t, searchMaxSessionLimit*searchSessionCandidateFactor, cl)
 }

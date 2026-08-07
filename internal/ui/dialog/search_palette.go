@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"fmt"
+	"strings"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -41,7 +42,13 @@ type SearchPalette struct {
 	semanticUsed bool
 	// loading reports whether a search is in flight, for the footer.
 	loading bool
-	query   string
+	// query is the effective search text (with any inline global flag
+	// stripped); the raw text the user typed stays in the input box.
+	query string
+	// allWorkspaces is set when the query carries the inline global flag
+	// (a trailing "/g", optionally regex-wrapped as "/term/g"). It opts
+	// into cross-workspace fan-out for this query; the footer shows it.
+	allWorkspaces bool
 
 	keyMap struct {
 		Select         key.Binding
@@ -111,7 +118,7 @@ func (s *SearchPalette) HandleMsg(msg tea.Msg) Action {
 			return ActionClose{}
 		case key.Matches(msg, s.keyMap.ToggleSemantic):
 			s.toggleSemantic()
-			return ActionSearchQueryChanged{Query: s.query, Semantic: s.semantic}
+			return ActionSearchQueryChanged{Query: s.query, Semantic: s.semantic, AllWorkspaces: s.allWorkspaces}
 		case key.Matches(msg, s.keyMap.Previous):
 			if s.list.IsSelectedFirst() {
 				s.list.SelectLast()
@@ -141,22 +148,49 @@ func (s *SearchPalette) HandleMsg(msg tea.Msg) Action {
 }
 
 // updateInput feeds a key/paste message to the query input and, only when
-// the query text actually changed, emits ActionSearchQueryChanged so the
-// UI schedules a debounced search. Cursor-only keys (arrows, home/end)
-// therefore don't trigger redundant searches. Any input cmd is carried
-// through so the input stays responsive.
+// the effective query (or its global flag) actually changed, emits
+// ActionSearchQueryChanged so the UI schedules a debounced search. The raw
+// text stays in the input box; the inline global flag is parsed off it.
+// Cursor-only keys (arrows, home/end) therefore don't trigger redundant
+// searches. Any input cmd is carried through so the input stays responsive.
 func (s *SearchPalette) updateInput(msg tea.Msg) Action {
-	prev := s.input.Value()
+	prevQuery, prevGlobal := s.query, s.allWorkspaces
 	var cmd tea.Cmd
 	s.input, cmd = s.input.Update(msg)
-	s.query = s.input.Value()
-	if s.query == prev {
+	s.query, s.allWorkspaces = parseSearchQuery(s.input.Value())
+	if s.query == prevQuery && s.allWorkspaces == prevGlobal {
 		if cmd != nil {
 			return ActionCmd{Cmd: cmd}
 		}
 		return nil
 	}
-	return ActionSearchQueryChanged{Query: s.query, Semantic: s.semantic, InputCmd: cmd}
+	return ActionSearchQueryChanged{
+		Query:         s.query,
+		Semantic:      s.semantic,
+		AllWorkspaces: s.allWorkspaces,
+		InputCmd:      cmd,
+	}
+}
+
+// parseSearchQuery strips the inline cross-workspace global flag off the
+// raw query and reports whether it was present. The flag is a trailing
+// "/g"; the user may also wrap the term regex-style as "/term/g", in which
+// case the leading slash is stripped too. Returns the trimmed effective
+// query and whether global (all-workspaces) mode was requested.
+func parseSearchQuery(raw string) (query string, global bool) {
+	q := strings.TrimSpace(raw)
+	if strings.HasSuffix(q, "/g") && len(q) > 2 {
+		stripped := strings.TrimSuffix(q, "/g")
+		stripped = strings.TrimPrefix(stripped, "/") // support the "/term/g" regex-style wrap
+		stripped = strings.TrimSpace(stripped)
+		// Only treat it as the global flag when a real search term
+		// remains; otherwise (e.g. "//g") fall back to a literal query so
+		// the footer can't show "global" with nothing to search.
+		if stripped != "" {
+			return stripped, true
+		}
+	}
+	return q, false
 }
 
 // toggleSemantic cycles the semantic override: config-default → off →
@@ -277,7 +311,7 @@ func (s *SearchPalette) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 func (s *SearchPalette) titleInfo() string {
 	t := s.com.Styles
 	if s.loading {
-		return t.Dialog.Sessions.InfoBlurred.Render(" searching… ")
+		return t.Dialog.Sessions.InfoBlurred.Render(s.withScope(" searching… "))
 	}
 	var mode string
 	switch {
@@ -295,7 +329,17 @@ func (s *SearchPalette) titleInfo() string {
 	default:
 		mode = "substring"
 	}
-	return t.Dialog.Sessions.InfoBlurred.Render(fmt.Sprintf(" %s ", mode))
+	return t.Dialog.Sessions.InfoBlurred.Render(s.withScope(fmt.Sprintf(" %s ", mode)))
+}
+
+// withScope appends a "· global" marker to the footer text when the
+// inline all-workspaces flag is active, so cross-workspace mode is visible
+// (it is otherwise a hidden, power-user query flag).
+func (s *SearchPalette) withScope(mode string) string {
+	if s.allWorkspaces {
+		return strings.TrimRight(mode, " ") + " · global "
+	}
+	return mode
 }
 
 // ShortHelp implements help.KeyMap.

@@ -343,12 +343,13 @@ const (
 	searchMaxSessionLimit = 200
 )
 
-// resolveSearchLimits turns a client-supplied session limit into the
+// ResolveSearchLimits turns a client-supplied session limit into the
 // effective (sessionLimit, candidateLimit) pair: it applies the default
 // when non-positive, clamps to searchMaxSessionLimit so a hostile Limit
 // can't force an unbounded candidate fetch, then derives the over-fetch
-// candidate window.
-func resolveSearchLimits(limit int) (sessionLimit, candidateLimit int) {
+// candidate window. Exported so the cross-workspace fan-out (backend) can
+// size its per-workspace candidate fetch identically.
+func ResolveSearchLimits(limit int) (sessionLimit, candidateLimit int) {
 	sessionLimit = limit
 	if sessionLimit <= 0 {
 		sessionLimit = searchDefaultSessionLimit
@@ -370,24 +371,28 @@ func resolveSearchLimits(limit int) (sessionLimit, candidateLimit int) {
 // WorkspaceID/WorkspaceRoot so cross-workspace callers can group and
 // route results.
 func (app *App) SearchHistory(ctx context.Context, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error) {
-	sessionLimit, candidateLimit := resolveSearchLimits(params.Limit)
+	sessionLimit, candidateLimit := ResolveSearchLimits(params.Limit)
 
-	emb := embedding.Build(db.New(app.dbConn), app.config.EmbeddingParams())
-	res, err := historysearch.Search(ctx, app.Messages, app.Sessions, emb, params.Query, historysearch.Options{
-		Scope:    historysearch.Scope(params.Scope),
-		Semantic: params.Semantic,
-		Limit:    candidateLimit,
-		// Offset is intentionally not forwarded: it would page the
-		// message-level candidate window, which does not align to
-		// session boundaries after collapse (pages would repeat or drop
-		// sessions). Session-level pagination is not supported in this
-		// form; params.Offset is reserved for a future implementation.
-		Offset: 0,
-	})
+	res, err := app.SearchHistoryHits(ctx, params.Query, historysearch.Scope(params.Scope), params.Semantic, candidateLimit)
 	if err != nil {
 		return proto.SearchHistoryResult{}, err
 	}
 	return collapseToSessions(res, sessionLimit), nil
+}
+
+// SearchHistoryHits runs the hybrid search over this workspace and returns
+// the RAW, ranked message-level hits without the per-session collapse. The
+// cross-workspace fan-out uses this so it can merge message-level hits from
+// several workspaces and re-rank globally before collapsing once. Offset is
+// intentionally not forwarded (see SearchHistory).
+func (app *App) SearchHistoryHits(ctx context.Context, query string, scope historysearch.Scope, semantic *bool, candidateLimit int) (embedding.SearchResult, error) {
+	emb := embedding.Build(db.New(app.dbConn), app.config.EmbeddingParams())
+	return historysearch.Search(ctx, app.Messages, app.Sessions, emb, query, historysearch.Options{
+		Scope:    scope,
+		Semantic: semantic,
+		Limit:    candidateLimit,
+		Offset:   0,
+	})
 }
 
 // collapseToSessions dedups per-message hits by session, keeping the
