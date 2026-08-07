@@ -16,6 +16,10 @@ import (
 
 const maxFilename = 15
 
+// closeGlyph is the click-to-remove affordance rendered after each
+// attachment chip's filename (non-deleting mode only).
+const closeGlyph = "×"
+
 type Keymap struct {
 	DeleteMode,
 	DeleteAll,
@@ -38,6 +42,24 @@ type Attachments struct {
 
 func (m *Attachments) List() []message.Attachment { return m.list }
 func (m *Attachments) Reset()                     { m.list = nil }
+
+// HandleMouseClick handles a click at display column x (relative to the
+// start of the rendered attachment row) within a row rendered at the
+// given width. It removes the attachment chip under the click, if any,
+// and reports whether the click was handled. This is additive to the
+// existing keyboard delete-mode flow: clicks are only honored outside of
+// delete-mode so the two removal paths never fight over the same input.
+func (m *Attachments) HandleMouseClick(x, width int) bool {
+	if m.deleting || len(m.list) == 0 {
+		return false
+	}
+	idx := m.renderer.AttachmentAt(m.list, width, x)
+	if idx < 0 {
+		return false
+	}
+	m.list = slices.Delete(m.list, idx, idx+1)
+	return true
+}
 
 func (m *Attachments) Update(msg tea.Msg) bool {
 	switch msg := msg.(type) {
@@ -108,15 +130,11 @@ type Renderer struct {
 func (r *Renderer) Render(attachments []message.Attachment, deleting bool, width int) string {
 	var chips []string
 
-	maxItemWidth := lipgloss.Width(r.imageStyle.String() + r.normalStyle.Render(strings.Repeat("x", maxFilename)))
+	maxItemWidth := r.maxItemWidth(deleting)
 	fits := int(math.Floor(float64(width)/float64(maxItemWidth))) - 1
 
 	for i, att := range attachments {
-		filename := filepath.Base(att.FileName)
-		// Truncate if needed.
-		if ansi.StringWidth(filename) > maxFilename {
-			filename = ansi.Truncate(filename, maxFilename, "…")
-		}
+		filename := r.filename(att)
 
 		if deleting {
 			chips = append(
@@ -129,6 +147,7 @@ func (r *Renderer) Render(attachments []message.Attachment, deleting bool, width
 				chips,
 				r.icon(att).String(),
 				r.normalStyle.Render(filename),
+				r.deletingStyle.Render(closeGlyph),
 			)
 		}
 
@@ -139,6 +158,61 @@ func (r *Renderer) Render(attachments []message.Attachment, deleting bool, width
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Left, chips...)
+}
+
+// maxItemWidth is the per-chip width budget used to decide how many chips
+// fit before the "N more…" indicator. The close glyph is only rendered in
+// non-deleting mode, so it only counts toward the budget there — otherwise
+// delete-mode would under-count how many chips fit.
+func (r *Renderer) maxItemWidth(deleting bool) int {
+	w := lipgloss.Width(r.imageStyle.String() + r.normalStyle.Render(strings.Repeat("x", maxFilename)))
+	if !deleting {
+		w += lipgloss.Width(r.deletingStyle.Render(closeGlyph))
+	}
+	return w
+}
+
+// filename returns the (possibly truncated) display filename for an
+// attachment, shared by Render and AttachmentAt so hit-testing always
+// matches what was actually rendered.
+func (r *Renderer) filename(a message.Attachment) string {
+	filename := filepath.Base(a.FileName)
+	if ansi.StringWidth(filename) > maxFilename {
+		filename = ansi.Truncate(filename, maxFilename, "…")
+	}
+	return filename
+}
+
+// AttachmentAt returns the index of the attachment chip rendered at
+// display column x for a non-deleting-mode row rendered at the given
+// width, or -1 if x doesn't land on any chip (e.g. it's over padding or
+// the trailing "N more…" indicator). It mirrors the layout logic in
+// Render exactly so mouse hit-testing never disagrees with what's drawn.
+func (r *Renderer) AttachmentAt(attachments []message.Attachment, width, x int) int {
+	if x < 0 {
+		return -1
+	}
+
+	maxItemWidth := r.maxItemWidth(false)
+	fits := int(math.Floor(float64(width)/float64(maxItemWidth))) - 1
+
+	col := 0
+	for i, att := range attachments {
+		filename := r.filename(att)
+		chipWidth := lipgloss.Width(r.icon(att).String()) +
+			lipgloss.Width(r.normalStyle.Render(filename)) +
+			lipgloss.Width(r.deletingStyle.Render(closeGlyph))
+
+		if x >= col && x < col+chipWidth {
+			return i
+		}
+		col += chipWidth
+
+		if i == fits && len(attachments) > i {
+			break
+		}
+	}
+	return -1
 }
 
 func (r *Renderer) icon(a message.Attachment) lipgloss.Style {
