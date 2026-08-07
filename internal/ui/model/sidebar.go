@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"image"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/swarm"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/logo"
@@ -44,7 +45,12 @@ func (m *UI) modelInfo(width int) string {
 	if model != nil {
 		modelName = model.CatwalkCfg.Name
 	}
-	return common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits)
+	var turnStartedAt time.Time
+	if m.lastUserMessageTime > 0 {
+		turnStartedAt = time.Unix(m.lastUserMessageTime, 0)
+	}
+	turnActive := m.viewedSessionBusy()
+	return common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits, turnStartedAt, turnActive)
 }
 
 // reasoningInfoFor builds the sidebar's reasoning label for a model: the
@@ -210,7 +216,8 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	if swarmLine != "" {
 		blocks = append(blocks, swarmLine)
 	}
-	blocks = append(blocks,
+	blocks = append(
+		blocks,
 		title,
 		"",
 		cfgRoot,

@@ -349,6 +349,25 @@ type UI struct {
 	todoSpinner    spinner.Model
 	todoIsSpinning bool
 
+	// elapsedTicking is true while a 1s ticker is running to drive the
+	// sidebar's live turn-elapsed indicator during an in-flight turn. It
+	// is armed when a turn becomes active and stops once the agent goes
+	// idle.
+	elapsedTicking bool
+
+	// viewedSessionBusyCached caches whether the currently VIEWED session
+	// has a turn in flight. It is the source of truth consulted on the
+	// Draw path (sidebar turn-elapsed timer, ticker arming) so the
+	// busy/elapsed check specifically does not issue a synchronous backend
+	// RPC while painting. This is scoped to the busy state only — it is
+	// NOT a blanket guarantee that the sidebar's Draw path is RPC-free:
+	// modelInfo() → selectedLargeModel() → AgentIsReady() still round-trips
+	// per frame (pre-existing; tracked as a separate follow-up to cache
+	// the model/ready state off the draw path). The cache is refreshed only
+	// off the hot path — from the agent/message pubsub events that already
+	// drive spinner state, from the 1s elapsed tick, and on session load.
+	viewedSessionBusyCached bool
+
 	// titleAnim drives the session-title reveal animation.
 	titleAnim titleAnimState
 
@@ -606,6 +625,16 @@ func (m *UI) scheduleVersionCheck() tea.Cmd {
 // versionCheckTickMsg triggers a periodic server version check.
 type versionCheckTickMsg struct{}
 
+// elapsedTickMsg drives the sidebar's live turn-elapsed indicator once per
+// second while a turn is in flight.
+type elapsedTickMsg struct{}
+
+// scheduleElapsedTick returns a command that fires an elapsedTickMsg after
+// one second, used to re-render the sidebar's live elapsed timer.
+func (m *UI) scheduleElapsedTick() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg { return elapsedTickMsg{} })
+}
+
 // Update handles updates to the UI model.
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -614,6 +643,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if queueSize != m.promptQueue {
 			m.promptQueue = queueSize
 			m.updateLayoutAndSize()
+		}
+		// This block already runs per-message (never on the Draw path) and
+		// only when the workspace is busy, so it's a cheap place to refresh
+		// the cached per-session busy flag and (re)arm the 1s elapsed
+		// ticker when the VIEWED session's turn is in flight.
+		if cmd := m.refreshViewedSessionBusy(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
 	// Update terminal capabilities
@@ -630,6 +666,20 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.serverVersionStr = msg.version
 	case versionCheckTickMsg:
 		cmds = append(cmds, m.checkServerVersion(), m.scheduleVersionCheck())
+	case elapsedTickMsg:
+		// Re-query the viewed session's busy state off the Draw path and
+		// keep ticking (re-rendering the sidebar's live elapsed timer)
+		// only while it is still in flight; otherwise stop so an idle
+		// session does no periodic work even if other sessions remain
+		// busy. This tick is also what clears the cached flag when the
+		// whole workspace goes idle and the top-of-Update refresh no
+		// longer runs.
+		m.refreshViewedSessionBusy()
+		if m.viewedSessionBusyCached {
+			cmds = append(cmds, m.scheduleElapsedTick())
+		} else {
+			m.elapsedTicking = false
+		}
 	case tea.ModeReportMsg:
 		m.updateNotificationBackend()
 	case uv.UnknownOscEvent:
@@ -687,6 +737,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.historyReset()
 		cmds = append(cmds, m.loadPromptHistory())
 		m.updateLayoutAndSize()
+		// Refresh the per-session busy cache for the newly viewed session
+		// so the sidebar's turn-elapsed timer reflects THIS session right
+		// away (and arms the ticker if it is already mid-turn).
+		cmds = append(cmds, m.refreshViewedSessionBusy())
 
 	case loadSessionAndSwitchWorktreeMsg:
 		// First do all the session loading (same as loadSessionMsg).
@@ -720,6 +774,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.historyReset()
 		cmds = append(cmds, m.loadPromptHistory())
 		m.updateLayoutAndSize()
+		cmds = append(cmds, m.refreshViewedSessionBusy())
 		// Now switch the worktree.
 		cmds = append(cmds, m.switchWorktree(msg.session.ID, msg.worktreeID))
 
@@ -981,6 +1036,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if cmd := m.handleClickFocus(msg); cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+
+		if m.handleAttachmentClick(msg) {
+			return m, tea.Batch(cmds...)
 		}
 
 		switch m.state {
@@ -1267,6 +1326,10 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 	toolResultMap := chat.BuildToolResultMap(msgPtrs)
 	if len(msgPtrs) > 0 {
 		m.lastUserMessageTime = msgPtrs[0].CreatedAt
+	} else {
+		// Reset so the sidebar's turn-elapsed indicator doesn't carry
+		// over a stale timestamp from a previously viewed session.
+		m.lastUserMessageTime = 0
 	}
 
 	// Add messages to chat with linked tool results
@@ -2952,7 +3015,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		main := uv.NewStyledString(m.landingView())
 		main.Draw(scr, layout.main)
 
-		editor := uv.NewStyledString(m.renderEditorView(scr.Bounds().Dx()))
+		editor := uv.NewStyledString(m.renderEditorView(m.editorContentWidth()))
 		editor.Draw(scr, layout.editor)
 
 	case uiChat:
@@ -2967,11 +3030,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 			uv.NewStyledString(m.pillsView).Draw(scr, layout.pills)
 		}
 
-		editorWidth := scr.Bounds().Dx()
-		if !m.isCompact {
-			editorWidth -= layout.sidebar.Dx()
-		}
-		editor := uv.NewStyledString(m.renderEditorView(editorWidth))
+		editor := uv.NewStyledString(m.renderEditorView(m.editorContentWidth()))
 		editor.Draw(scr, layout.editor)
 
 		// Draw details overlay in compact mode when open
@@ -3764,6 +3823,33 @@ func (m *UI) isAgentBusy() bool {
 		m.com.Workspace.AgentIsBusy()
 }
 
+// viewedSessionBusy reports whether the CURRENTLY VIEWED session has a turn
+// in flight, read from a cached flag so this specific check does not issue a
+// backend RPC on the Draw path (see viewedSessionBusyCached for the caveat
+// about the pre-existing selectedLargeModel RPC). The cache is refreshed off
+// the hot path by refreshViewedSessionBusy.
+func (m *UI) viewedSessionBusy() bool {
+	return m.viewedSessionBusyCached
+}
+
+// refreshViewedSessionBusy re-queries the backend for the viewed session's
+// busy state and updates the cached flag. It must only be called from the
+// Update path (in response to events / ticks), never from Draw, because
+// AgentIsReady/AgentIsSessionBusy perform synchronous HTTP round-trips. It
+// returns a command to arm the 1s elapsed ticker when the viewed session
+// has just become (or is) busy and the ticker isn't already running.
+func (m *UI) refreshViewedSessionBusy() tea.Cmd {
+	busy := m.hasSession() &&
+		m.com.Workspace.AgentIsReady() &&
+		m.com.Workspace.AgentIsSessionBusy(m.session.ID)
+	m.viewedSessionBusyCached = busy
+	if busy && !m.elapsedTicking {
+		m.elapsedTicking = true
+		return m.scheduleElapsedTick()
+	}
+	return nil
+}
+
 // hasSession returns true if there is an active session with a valid ID.
 func (m *UI) hasSession() bool {
 	return m.session != nil && m.session.ID != ""
@@ -3773,6 +3859,44 @@ func (m *UI) hasSession() bool {
 func (m *UI) randomizePlaceholders() {
 	m.workingPlaceholder = workingPlaceholders[rand.Intn(len(workingPlaceholders))]
 	m.readyPlaceholder = readyPlaceholders[rand.Intn(len(readyPlaceholders))]
+}
+
+// editorContentWidth returns the width the editor block (attachments row
+// + textarea) is rendered at. It must exactly match the width passed to
+// renderEditorView in Draw so mouse hit-testing on the attachments row
+// agrees with what was actually drawn.
+func (m *UI) editorContentWidth() int {
+	w := m.width
+	if m.state == uiChat && !m.isCompact {
+		w -= m.layout.sidebar.Dx()
+	}
+	return w
+}
+
+// handleAttachmentClick handles a click on the pending-attachments row of
+// the composer (always the first line of the rendered editor block, see
+// renderEditorView). Attachment chips are removable by click; this is
+// additive to the existing keyboard delete-mode flow and does not touch
+// it. Returns true when the click landed on an attachment chip and was
+// handled.
+func (m *UI) handleAttachmentClick(msg tea.MouseClickMsg) bool {
+	if len(m.attachments.List()) == 0 {
+		return false
+	}
+	// The completions popup renders upward from the textarea cursor and
+	// the compact details overlay can both cover the attachments row; if
+	// either is open a click there belongs to the overlay, not a chip.
+	if m.completionsOpen || (m.isCompact && m.detailsOpen) {
+		return false
+	}
+	if msg.Y != m.layout.editor.Min.Y {
+		return false
+	}
+	if !image.Pt(msg.X, msg.Y).In(m.layout.editor) {
+		return false
+	}
+	x := msg.X - m.layout.editor.Min.X
+	return m.attachments.HandleMouseClick(x, m.editorContentWidth())
 }
 
 // renderEditorView renders the editor view with attachments if any.
@@ -4178,6 +4302,8 @@ func (m *UI) newSession() tea.Cmd {
 	m.rightSidebarOffset = 0
 	m.sessionFiles = nil
 	m.sessionFileReads = nil
+	// No viewed session means no in-flight turn to time.
+	m.viewedSessionBusyCached = false
 	// Clear active session for worktree-aware working directory.
 	m.com.Workspace.SetActiveSessionID("")
 	// Close any permission dialog bound to the session we just left.
