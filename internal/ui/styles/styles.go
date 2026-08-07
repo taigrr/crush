@@ -205,8 +205,6 @@ type Styles struct {
 		Cost                 lipgloss.Style // "$0.42" cost readout
 		HypercreditIcon      lipgloss.Style // Hypercredit icon (◆)
 		HypercreditText      lipgloss.Style // Remaining Hypercredits text
-		Elapsed              lipgloss.Style // Elapsed turn time ("2m55s")
-		Since                lipgloss.Style // Humanized "since" timestamp
 	}
 
 	// Resource styles the LSP/MCP/skills sidebar lists: their heading,

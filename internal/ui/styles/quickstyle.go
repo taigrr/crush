@@ -838,8 +838,6 @@ func quickStyle(o quickStyleOpts) Styles {
 	s.ModelInfo.Cost = lipgloss.NewStyle().Foreground(o.fgMoreSubtle)
 	s.ModelInfo.HypercreditIcon = lipgloss.NewStyle().Foreground(o.hypercredit)
 	s.ModelInfo.HypercreditText = lipgloss.NewStyle().Foreground(o.fgMoreSubtle)
-	s.ModelInfo.Elapsed = lipgloss.NewStyle().Foreground(o.fgMoreSubtle)
-	s.ModelInfo.Since = lipgloss.NewStyle().Foreground(o.fgMostSubtle)
 
 	// ResourceGroup
 	s.Resource.DefaultTitleFg = o.fgMoreSubtle
