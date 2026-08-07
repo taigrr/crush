@@ -208,6 +208,8 @@ func sessionToProto(s session.Session) proto.Session {
 		Todos:            todosToProto(s.Todos),
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
+		Color:            s.Color,
+		Animal:           s.Animal,
 	}
 }
 

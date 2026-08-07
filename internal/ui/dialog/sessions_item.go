@@ -134,19 +134,24 @@ func (s *SessionItem) Render(width int) string {
 		}
 	}
 
-	return renderItem(styles, decorateSessionTitle(s.Session.Color, s.Title), info, s.focused, width, s.cache, &s.m)
+	// Single-line row matching the left session sidebar: the swarm
+	// color square prefixes the title. The square is passed as a
+	// separate rendered prefix (not concatenated into the title) so
+	// the fuzzy-match highlight byte offsets — computed against the
+	// bare s.Title — stay correctly anchored.
+	return renderItemWithPrefix(styles, s.Title, sessionTitlePrefix(s.Session.Color), info, s.focused, width, s.cache, &s.m)
 }
 
-// decorateSessionTitle prepends the swarm color square to the title
-// so the picker line reads "<■> <title>". Falls back to a two-space
-// pad (one for the missing square, one for the trailing space) so
-// column widths stay stable across identity-less rows.
-func decorateSessionTitle(color, title string) string {
+// sessionTitlePrefix returns the inline prefix rendered before a
+// session title in the picker: the swarm color square + space,
+// matching the left session sidebar. Sessions without an assigned
+// color get a two-space pad so titles stay column-aligned.
+func sessionTitlePrefix(color string) string {
 	sq := common.SwarmSquare(color)
 	if sq == "" {
-		return "  " + title
+		return "  "
 	}
-	return sq + " " + title
+	return sq + " "
 }
 
 type ListItemStyles struct {
@@ -157,6 +162,15 @@ type ListItemStyles struct {
 }
 
 func renderItem(t ListItemStyles, title string, info string, focused bool, width int, cache map[int]string, m *fuzzy.Match) string {
+	return renderItemWithPrefix(t, title, "", info, focused, width, cache, m)
+}
+
+// renderItemWithPrefix is renderItem with an optional inline prefix
+// (e.g. a swarm color square) rendered before the title. The prefix
+// is NOT part of the fuzzy-match highlight computation, so match byte
+// offsets stay anchored to the bare title; the prefix's display width
+// is deducted from the space available for the (truncated) title.
+func renderItemWithPrefix(t ListItemStyles, title, prefix string, info string, focused bool, width int, cache map[int]string, m *fuzzy.Match) string {
 	if cache == nil {
 		cache = make(map[int]string)
 	}
@@ -185,9 +199,10 @@ func renderItem(t ListItemStyles, title string, info string, focused bool, width
 		infoWidth = lipgloss.Width(infoText)
 	}
 
-	title = ansi.Truncate(title, max(0, lineWidth-infoWidth), "…")
+	prefixWidth := lipgloss.Width(prefix)
+	title = ansi.Truncate(title, max(0, lineWidth-infoWidth-prefixWidth), "…")
 	titleWidth := lipgloss.Width(title)
-	gap := strings.Repeat(" ", max(0, lineWidth-titleWidth-infoWidth))
+	gap := strings.Repeat(" ", max(0, lineWidth-titleWidth-infoWidth-prefixWidth))
 	content := title
 	if m != nil && len(m.MatchedIndexes) > 0 {
 		var lastPos int
@@ -218,7 +233,7 @@ func renderItem(t ListItemStyles, title string, info string, focused bool, width
 		content = strings.Join(parts, "")
 	}
 
-	content = style.Render(content + gap + infoText)
+	content = style.Render(prefix + content + gap + infoText)
 	cache[width] = content
 	return content
 }

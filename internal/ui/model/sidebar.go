@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/taigrr/crush/internal/swarm"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/logo"
 	"github.com/taigrr/crush/internal/ui/styles"
@@ -145,6 +147,26 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 
 	title := m.renderSessionTitle(t.Sidebar.SessionTitle, width)
 
+	// Swarm identity line: "<colorblock> <color-animal>" shown above
+	// the session title so the session's addressable name is visible
+	// alongside its summary. Empty when the session has no assigned
+	// identity yet.
+	var swarmLine string
+	if m.session != nil && m.session.Color != "" && m.session.Animal != "" {
+		square := common.SwarmSquare(m.session.Color)
+		addr := swarm.FormatAddress(
+			swarm.Identity{Color: m.session.Color, Animal: m.session.Animal},
+			m.session.ID,
+		)
+		label := t.Sidebar.WorkingDir.Render(addr)
+		if square != "" {
+			swarmLine = square + " " + label
+		} else {
+			swarmLine = label
+		}
+		swarmLine = ansi.Truncate(swarmLine, width, "…")
+	}
+
 	// Config root (always the .crush/ project root) with wrench icon.
 	cfgRootPath := m.com.Workspace.BaseDir()
 	cfgRoot := common.PrettyPath(t, styles.WrenchIcon+" "+cfgRootPath, width)
@@ -184,10 +206,15 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 
 	blocks := []string{
 		sidebarLogo,
+	}
+	if swarmLine != "" {
+		blocks = append(blocks, swarmLine)
+	}
+	blocks = append(blocks,
 		title,
 		"",
 		cfgRoot,
-	}
+	)
 	if cwdLine != "" {
 		blocks = append(blocks, cwdLine)
 	}

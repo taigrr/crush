@@ -27,6 +27,12 @@ type Session struct {
 	UpdatedAt        int64   `json:"updated_at"`
 	IsBusy           bool    `json:"is_busy"`
 	AttachedClients  int     `json:"attached_clients"`
+	// Color and Animal are the session's swarm identity (see
+	// [session.Session.Color] / .Animal). Empty when the session
+	// has not yet been backfilled; UI code should fall back to no
+	// address label / no color square in that case.
+	Color  string `json:"color,omitempty"`
+	Animal string `json:"animal,omitempty"`
 }
 
 // Todo represents a single todo entry on a session in the proto layer.

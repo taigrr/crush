@@ -1239,6 +1239,8 @@ func protoToSession(s proto.Session) session.Session {
 		Cost:             s.Cost,
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
+		Color:            s.Color,
+		Animal:           s.Animal,
 	}
 }
 
@@ -1348,6 +1350,8 @@ func sessionToProto(s session.Session) proto.Session {
 		Cost:             s.Cost,
 		CreatedAt:        s.CreatedAt,
 		UpdatedAt:        s.UpdatedAt,
+		Color:            s.Color,
+		Animal:           s.Animal,
 	}
 }
 
