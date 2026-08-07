@@ -6,11 +6,9 @@ import (
 	"image/color"
 	"strconv"
 	"strings"
-	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/dustin/go-humanize"
 	"github.com/taigrr/crush/internal/agent/hyper"
 	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/ui/styles"
@@ -42,50 +40,26 @@ type ModelContextInfo struct {
 }
 
 // ModelInfo renders model information including name, provider, reasoning
-// settings, and optional context usage/cost. When turnStartedAt is
-// non-zero it renders a humanized "since" timestamp for the most recent
-// turn; when turnActive is also true it additionally renders a live
-// elapsed-time indicator (e.g. "2m55s") for the in-flight turn. Once the
-// turn finishes (turnActive false) the climbing elapsed timer is dropped
-// and only the humanized "since" remains, so an idle session never shows
-// an ever-growing timer.
-func ModelInfo(t *styles.Styles, modelName, providerName, reasoningInfo string, context *ModelContextInfo, width int, hyperCredits *int, turnStartedAt time.Time, turnActive bool) string {
+// settings, and optional context usage/cost.
+func ModelInfo(t *styles.Styles, modelName, providerName, reasoningInfo string, context *ModelContextInfo, width int, hyperCredits *int) string {
 	modelIcon := t.ModelInfo.Icon.Render(styles.ModelIcon)
 	renderedModelName := t.ModelInfo.Name.Render(modelName)
-	turnInfo := formatTurnInfo(t, turnStartedAt, turnActive)
 
-	// Build first line with model name and optionally provider (and turn
-	// timing) on the same line, falling back progressively as space runs
-	// out: model+provider+turn, then model+provider, then just model.
+	// Build first line with model name and optionally provider on the same line
 	var firstLine string
-	turnOnFirstLine := false
 	if providerName != "" {
 		providerInfo := t.ModelInfo.Provider.Render(fmt.Sprintf("via %s", providerName))
 		modelWithProvider := fmt.Sprintf("%s %s %s", modelIcon, renderedModelName, providerInfo)
-		modelWithProviderAndTurn := modelWithProvider
-		if turnInfo != "" {
-			modelWithProviderAndTurn = fmt.Sprintf("%s %s", modelWithProvider, turnInfo)
-		}
 
-		switch {
-		case turnInfo != "" && lipgloss.Width(modelWithProviderAndTurn) <= width:
-			firstLine = modelWithProviderAndTurn
-			turnOnFirstLine = true
-		case lipgloss.Width(modelWithProvider) <= width:
+		// Check if it fits on one line
+		if lipgloss.Width(modelWithProvider) <= width {
 			firstLine = modelWithProvider
-		default:
+		} else {
 			// If it doesn't fit, put provider on next line
 			firstLine = fmt.Sprintf("%s %s", modelIcon, renderedModelName)
 		}
 	} else {
 		firstLine = fmt.Sprintf("%s %s", modelIcon, renderedModelName)
-		if turnInfo != "" {
-			withTurn := fmt.Sprintf("%s %s", firstLine, turnInfo)
-			if lipgloss.Width(withTurn) <= width {
-				firstLine = withTurn
-				turnOnFirstLine = true
-			}
-		}
 	}
 
 	parts := []string{firstLine}
@@ -94,11 +68,6 @@ func ModelInfo(t *styles.Styles, modelName, providerName, reasoningInfo string, 
 	if providerName != "" && !strings.Contains(firstLine, "via") {
 		providerInfo := fmt.Sprintf("via %s", providerName)
 		parts = append(parts, t.ModelInfo.ProviderFallback.Render(providerInfo))
-	}
-
-	// If turn timing didn't fit on the first line, give it its own line.
-	if turnInfo != "" && !turnOnFirstLine {
-		parts = append(parts, t.ModelInfo.ProviderFallback.Render(turnInfo))
 	}
 
 	if reasoningInfo != "" {
@@ -120,28 +89,6 @@ func ModelInfo(t *styles.Styles, modelName, providerName, reasoningInfo string, 
 	return lipgloss.NewStyle().Width(width).Render(
 		lipgloss.JoinVertical(lipgloss.Left, parts...),
 	)
-}
-
-// formatTurnInfo renders turn timing for the sidebar. When turnStartedAt
-// is the zero value it returns "" (no turn yet). Otherwise it always
-// includes a humanized "since" timestamp, and — only while the turn is
-// active — a leading live elapsed-time indicator. This deliberately drops
-// the elapsed timer once the turn finishes so an idle session doesn't show
-// an ever-climbing counter.
-func formatTurnInfo(t *styles.Styles, turnStartedAt time.Time, active bool) string {
-	if turnStartedAt.IsZero() {
-		return ""
-	}
-	since := t.ModelInfo.Since.Render(humanize.Time(turnStartedAt))
-	if !active {
-		return since
-	}
-	elapsed := time.Since(turnStartedAt).Truncate(time.Second)
-	if elapsed < 0 {
-		elapsed = 0
-	}
-	elapsedStr := t.ModelInfo.Elapsed.Render(elapsed.String())
-	return fmt.Sprintf("%s %s", elapsedStr, since)
 }
 
 // formatTokensAndCost formats token usage and cost with appropriate units

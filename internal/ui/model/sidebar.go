@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"image"
 	"strings"
-	"time"
 
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
@@ -45,12 +44,7 @@ func (m *UI) modelInfo(width int) string {
 	if model != nil {
 		modelName = model.CatwalkCfg.Name
 	}
-	var turnStartedAt time.Time
-	if m.lastUserMessageTime > 0 {
-		turnStartedAt = time.Unix(m.lastUserMessageTime, 0)
-	}
-	turnActive := m.viewedSessionBusy()
-	return common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits, turnStartedAt, turnActive)
+	return common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits)
 }
 
 // reasoningInfoFor builds the sidebar's reasoning label for a model: the
