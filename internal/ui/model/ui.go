@@ -766,7 +766,28 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dialog.CloseFrontDialog()
 
 	case pubsub.Event[session.Session]:
+		// Keep the navigator (and landing screen, which renders the
+		// same overviews) in sync with the set of sessions. Only
+		// structural changes — a session created or deleted — or a
+		// rename of the *currently viewed* session warrant a refresh.
+		// We deliberately do NOT refresh on every UpdatedEvent:
+		// sessions are re-saved on every cost/token/message-count
+		// bump during a live turn, and loadWorkspaceOverviews is a
+		// blocking cross-workspace fetch (a REST round-trip in client
+		// mode) — refreshing per bump would hammer the server. The
+		// navigator is skipped while focused so a rebuild does not
+		// move the cursor out from under the user mid-navigation (it
+		// refreshes on next open).
+		refreshNav := func() {
+			if (m.leftSidebarVisible && m.focus != uiFocusLeftSidebar) || m.state == uiLanding {
+				cmds = append(cmds, m.loadWorkspaceOverviews())
+			}
+		}
+		if msg.Type == pubsub.CreatedEvent {
+			refreshNav()
+		}
 		if msg.Type == pubsub.DeletedEvent {
+			refreshNav()
 			if m.session != nil && m.session.ID == msg.Payload.ID {
 				if cmd := m.newSession(); cmd != nil {
 					cmds = append(cmds, cmd)
@@ -780,6 +801,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.session = &msg.Payload
 			if msg.Payload.Title != "" && msg.Payload.Title != prevTitle {
 				cmds = append(cmds, m.startTitleAnimation(msg.Payload.Title))
+				// The visible session was renamed; the navigator
+				// shows titles, so refresh it too.
+				refreshNav()
 			}
 			if !prevHasInProgress && hasInProgressTodo(m.session.Todos) {
 				m.todoIsSpinning = true
