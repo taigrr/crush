@@ -9,9 +9,11 @@ import (
 	_ "image/png"  // PNG decoding.
 	"os"
 	"strings"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/attachments"
 	"github.com/taigrr/crush/internal/ui/common"
@@ -83,17 +85,40 @@ func (m *UserMessageItem) RawRender(width int) string {
 		return m.renderHighlighted(content, cappedWidth, height)
 	}
 
-	renderer := common.MarkdownRenderer(m.sty, cappedWidth)
-	mu := common.LockMarkdownRenderer(renderer)
-
-	mu.Lock()
-	result, err := renderer.Render(msgContent)
-	mu.Unlock()
-
-	if err != nil {
-		content = msgContent
+	// User messages are shown verbatim: no markdown/HTML rendering so
+	// that literal characters like angle brackets are preserved. Strip
+	// any raw ANSI escape sequences the source text may carry (e.g.
+	// pasted terminal output), normalize CRLF/CR, and drop any
+	// remaining C0/C1 control bytes (BEL, backspace, etc. can relocate
+	// the cursor or trigger side effects just like a bare \r) so none
+	// of it can leak into the rendered UI. Then word-wrap to the
+	// available width and re-apply the themed base foreground per line
+	// (markdown rendering used to carry this color implicitly;
+	// ansi.Wrap emits no styling at all).
+	sanitized := ansi.Strip(msgContent)
+	sanitized = strings.ReplaceAll(sanitized, "\r\n", "\n")
+	sanitized = strings.ReplaceAll(sanitized, "\r", "\n")
+	sanitized = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, sanitized)
+	if cappedWidth > 0 {
+		content = ansi.Wrap(sanitized, cappedWidth, "")
 	} else {
-		content = strings.TrimSuffix(result, "\n")
+		content = sanitized
+	}
+	content = strings.TrimSuffix(content, "\n")
+	if content != "" {
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			lines[i] = m.sty.Messages.NoContent.Render(line)
+		}
+		content = strings.Join(lines, "\n")
 	}
 
 	if len(m.message.BinaryContent()) > 0 {
