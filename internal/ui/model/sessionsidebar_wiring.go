@@ -4,6 +4,8 @@ import (
 	"context"
 	"image"
 
+	"charm.land/bubbles/v2/key"
+
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/proto"
@@ -36,6 +38,7 @@ func (m *UI) loadWorkspaceOverviews() tea.Cmd {
 func (m *UI) toggleLeftSidebar() tea.Cmd {
 	if m.leftSidebarVisible {
 		m.leftSidebarVisible = false
+		m.leftSidebar.ClearSelection()
 		if m.focus == uiFocusLeftSidebar {
 			m.setFocusAfterSidebarClose()
 		}
@@ -44,6 +47,7 @@ func (m *UI) toggleLeftSidebar() tea.Cmd {
 	}
 	m.leftSidebarVisible = true
 	m.focus = uiFocusLeftSidebar
+	m.leftSidebar.SetCurrentRoot(m.com.Workspace.BaseDir())
 	if m.session != nil {
 		m.leftSidebar.SetActiveSession(m.session.ID)
 	}
@@ -52,8 +56,11 @@ func (m *UI) toggleLeftSidebar() tea.Cmd {
 }
 
 // setFocusAfterSidebarClose restores a sensible focus when the sidebar
-// loses focus (editor in chat/landing, else none).
+// loses focus (editor in chat/landing, else none). It also drops any
+// pending multi-selection so a selection never outlives a focus session
+// (preventing an accidental bulk archive after close/reopen).
 func (m *UI) setFocusAfterSidebarClose() {
+	m.leftSidebar.ClearSelection()
 	switch m.state {
 	case uiChat, uiLanding:
 		m.focus = uiFocusEditor
@@ -67,22 +74,152 @@ func (m *UI) setFocusAfterSidebarClose() {
 // sidebar is focused. It returns the command to run and whether the key was
 // consumed.
 func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
-	switch msg.String() {
-	case "up", "k":
+	// Vim-style navigation mirrors the right info sidebar: j/k move,
+	// g/Home jumps to the top, G/End to the bottom.
+	switch {
+	case key.Matches(msg, m.keyMap.Chat.Up):
 		m.leftSidebar.MoveUp()
 		return nil, true
-	case "down", "j":
+	case key.Matches(msg, m.keyMap.Chat.Down):
 		m.leftSidebar.MoveDown()
 		return nil, true
+	case key.Matches(msg, m.keyMap.Chat.Home):
+		m.leftSidebar.MoveTop()
+		return nil, true
+	case key.Matches(msg, m.keyMap.Chat.End):
+		m.leftSidebar.MoveBottom()
+		return nil, true
+	case key.Matches(msg, m.keyMap.SessionSidebar.VisualSelect):
+		m.leftSidebar.ToggleVisualMode()
+		return nil, true
+	case key.Matches(msg, m.keyMap.SessionSidebar.ToggleSelect):
+		m.leftSidebar.ToggleSelected()
+		return nil, true
+	case key.Matches(msg, m.keyMap.SessionSidebar.ArchiveSelect):
+		return m.archiveSelectedSessions(), true
+	}
+	switch msg.String() {
 	case "enter", "l":
 		return m.activateLeftSidebarSelection(), true
 	case "esc", "h":
+		// Esc first exits visual selection / clears a pending multi-
+		// selection; only when there is nothing selected does it close
+		// the sidebar. "h" always closes.
+		if msg.String() == "esc" && (m.leftSidebar.VisualMode() || m.leftSidebar.SelectionCount() > 0) {
+			m.leftSidebar.ClearSelection()
+			return nil, true
+		}
 		m.leftSidebarVisible = false
 		m.setFocusAfterSidebarClose()
 		m.updateLayoutAndSize()
 		return nil, true
 	}
 	return nil, false
+}
+
+// archiveSelectedSessions archives the selected sessions in the CURRENT
+// workspace. Sessions from other workspaces and the active session are
+// skipped (the client archive API only reaches the attached workspace).
+// The selection is NOT cleared here: it is trimmed to the failures only
+// after the archive command reports, so failures stay selected for a retry.
+func (m *UI) archiveSelectedSessions() tea.Cmd {
+	toArchive, skippedActive, skippedWorkspace := m.leftSidebar.ArchivableSelection()
+	if len(toArchive) == 0 {
+		if skippedActive+skippedWorkspace > 0 {
+			return util.ReportWarn("Selected sessions can't be archived from here; nothing to archive")
+		}
+		return util.ReportInfo("No sessions selected")
+	}
+	survivor := m.leftSidebar.SurvivingNeighbor(toArchive)
+	return m.archiveSessionsCmd(toArchive, survivor, skippedActive+skippedWorkspace)
+}
+
+// sessionsArchivedMsg reports the outcome of a bulk archive: the refreshed
+// overviews (nil if the refresh itself failed), which IDs failed (so they
+// stay selected), how many succeeded, how many were skipped as
+// out-of-workspace, and the neighbor session to focus.
+type sessionsArchivedMsg struct {
+	overviews  []proto.WorkspaceOverview
+	failed     []string
+	succeeded  int
+	skipped    int
+	survivorID string
+}
+
+// archiveSessionsCmd archives the given session IDs off the Update
+// goroutine. It attempts EVERY id (deterministic order, set by the caller)
+// and collects the individual failures rather than aborting on the first,
+// so the outcome is stable. It refreshes the overviews afterwards; if that
+// refresh fails it still emits sessionsArchivedMsg (with nil overviews) so
+// the successfully-archived IDs are dropped from the selection and only the
+// failures remain — never leaving now-gone sessions selected.
+func (m *UI) archiveSessionsCmd(ids []string, survivorID string, skipped int) tea.Cmd {
+	return func() tea.Msg {
+		succeeded := 0
+		var failed []string
+		for _, id := range ids {
+			if err := m.com.Workspace.ArchiveSession(context.Background(), id); err != nil {
+				failed = append(failed, id)
+				continue
+			}
+			succeeded++
+		}
+		overviews, err := m.com.Workspace.ListWorkspaceOverviews(context.Background())
+		if err != nil {
+			// Refresh failed, but archives may have succeeded: still report
+			// so the selection is trimmed to the failures (overviews nil).
+			return sessionsArchivedMsg{
+				failed:     failed,
+				succeeded:  succeeded,
+				skipped:    skipped,
+				survivorID: survivorID,
+			}
+		}
+		return sessionsArchivedMsg{
+			overviews:  overviews,
+			failed:     failed,
+			succeeded:  succeeded,
+			skipped:    skipped,
+			survivorID: survivorID,
+		}
+	}
+}
+
+// activeSessionArchivedMsg reports the outcome of archiving the current
+// (active) session from the main window. nextSessionID is the session to
+// switch to afterwards (most-recently-updated remaining in the current
+// workspace), or empty when none remain (switch to the empty landing
+// state so the user never keeps viewing an archived session).
+type activeSessionArchivedMsg struct {
+	err           error
+	nextSessionID string
+}
+
+// archiveCurrentSession archives the active session, then resolves the
+// switch-away target off the Update goroutine: the most-recently-updated
+// remaining session in the current workspace (ListSessions is ordered by
+// updated_at desc), or empty if the workspace has no other sessions.
+func (m *UI) archiveCurrentSession() tea.Cmd {
+	if m.session == nil {
+		return nil
+	}
+	archivedID := m.session.ID
+	return func() tea.Msg {
+		if err := m.com.Workspace.ArchiveSession(context.Background(), archivedID); err != nil {
+			return activeSessionArchivedMsg{err: err}
+		}
+		next := ""
+		sessions, err := m.com.Workspace.ListSessions(context.Background())
+		if err == nil {
+			for _, s := range sessions {
+				if s.ID != archivedID {
+					next = s.ID
+					break
+				}
+			}
+		}
+		return activeSessionArchivedMsg{nextSessionID: next}
+	}
 }
 
 // activateLeftSidebarSelection switches to the session under the cursor. If

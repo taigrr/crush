@@ -905,8 +905,65 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleCancelTimerExpired(msg)
 	case workspaceOverviewsMsg:
 		m.leftSidebar.SetOverviews(msg.overviews)
+		m.leftSidebar.SetCurrentRoot(m.com.Workspace.BaseDir())
 		if m.session != nil {
 			m.leftSidebar.SetActiveSession(m.session.ID)
+		}
+	case sessionsArchivedMsg:
+		// Only touch the sidebar's live selection/cursor while it is still
+		// visible and focused. If the user closed it after pressing `a`,
+		// the round-1 close-clears-selection rule already dropped the
+		// selection; re-populating it here (on partial failure) would
+		// resurrect a hidden selection that a later `a` could bulk-archive.
+		sidebarActive := m.leftSidebarVisible && m.focus == uiFocusLeftSidebar
+		if msg.overviews != nil {
+			m.leftSidebar.SetOverviews(msg.overviews)
+			m.leftSidebar.SetCurrentRoot(m.com.Workspace.BaseDir())
+			if m.session != nil {
+				m.leftSidebar.SetActiveSession(m.session.ID)
+			}
+		}
+		if sidebarActive {
+			// Keep only the sessions that failed to archive selected so the
+			// user can retry them; a fully successful archive clears it.
+			m.leftSidebar.SetSelection(msg.failed)
+			if msg.survivorID != "" {
+				m.leftSidebar.FocusSessionID(msg.survivorID)
+			}
+		} else {
+			m.leftSidebar.ClearSelection()
+		}
+		switch {
+		case len(msg.failed) > 0:
+			cmds = append(cmds, util.ReportError(fmt.Errorf(
+				"Archived %d session(s); %d failed", msg.succeeded, len(msg.failed),
+			)))
+		case msg.succeeded > 0 && msg.skipped > 0:
+			cmds = append(cmds, util.ReportInfo(fmt.Sprintf(
+				"Archived %d session(s); skipped %d (active or not in this workspace)", msg.succeeded, msg.skipped,
+			)))
+		case msg.succeeded > 0:
+			cmds = append(cmds, util.ReportInfo(fmt.Sprintf(
+				"Archived %d session(s)", msg.succeeded,
+			)))
+		}
+	case activeSessionArchivedMsg:
+		if msg.err != nil {
+			cmds = append(cmds, util.ReportError(msg.err))
+			break
+		}
+		// Never keep the user viewing the session they just archived:
+		// switch to the most-recent remaining session in the workspace, or
+		// drop to the empty landing state (newSession clears m.session and
+		// returns to uiLanding — it does not manufacture a fresh session).
+		if msg.nextSessionID != "" {
+			cmds = append(cmds, m.loadSession(msg.nextSessionID))
+		} else if cmd := m.newSession(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		cmds = append(cmds, util.ReportInfo("Session archived"))
+		if m.leftSidebarVisible {
+			cmds = append(cmds, m.loadWorkspaceOverviews())
 		}
 	case workspaceSwitchedMsg:
 		// The client re-targeted a new workspace; either open its session
@@ -1918,6 +1975,11 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionArchiveSession:
+		m.dialog.CloseDialog(dialog.ArchiveConfirmID)
+		if cmd := m.archiveCurrentSession(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.ActionToggleThinking:
 		cmds = append(cmds, func() tea.Msg {
 			cfg := m.com.Config()
@@ -2436,6 +2498,20 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		case key.Matches(msg, m.keyMap.Milestones):
 			if m.hasSession() {
 				if cmd := m.openMilestonesDialog(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+			return true
+		case key.Matches(msg, m.keyMap.ArchiveSession):
+			// ctrl+x archives the ACTIVE session. Suppress it while the left
+			// navigator is focused: there, `a` archives the multi-selection
+			// (which deliberately excludes the active session), so letting
+			// ctrl+x archive the active one would be surprising.
+			if m.focus == uiFocusLeftSidebar {
+				return true
+			}
+			if m.hasSession() {
+				if cmd := m.openArchiveConfirmDialog(); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 			}

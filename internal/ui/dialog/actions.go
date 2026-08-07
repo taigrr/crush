@@ -73,7 +73,10 @@ type (
 	ActionToggleLowBandwidth          struct{}
 	ActionToggleSwarmMode             struct{}
 	ActionInitializeProject           struct{}
-	ActionSummarize                   struct {
+	// ActionArchiveSession is emitted when the user confirms archiving the
+	// current (active) session in the archive-confirmation dialog.
+	ActionArchiveSession struct{}
+	ActionSummarize      struct {
 		SessionID string
 	}
 	// ActionSelectReasoningEffort is a message indicating a reasoning effort
