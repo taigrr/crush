@@ -189,7 +189,10 @@ func (r *AgentToolRenderContext) RenderTool(sty *styles.Styles, width int, opts 
 
 	// Build parts.
 	var parts []string
-	parts = append(parts, childTools.Enumerator(roundedEnumerator(2, taskTagWidth-5)).String())
+	parts = append(parts, childTools.
+		Enumerator(roundedEnumerator(2, taskTagWidth-5)).
+		Indenter(roundedIndenter(2, taskTagWidth-5)).
+		String())
 
 	// Show animation if still running.
 	if !opts.HasResult() && !opts.IsCanceled() {
@@ -356,7 +359,10 @@ func (r *AgenticFetchToolRenderContext) RenderTool(sty *styles.Styles, width int
 
 	// Build parts.
 	var parts []string
-	parts = append(parts, childTools.Enumerator(roundedEnumerator(2, promptTagWidth-5)).String())
+	parts = append(parts, childTools.
+		Enumerator(roundedEnumerator(2, promptTagWidth-5)).
+		Indenter(roundedIndenter(2, promptTagWidth-5)).
+		String())
 
 	// Show animation if still running.
 	if !opts.HasResult() && !opts.IsCanceled() {
@@ -552,7 +558,10 @@ func (r *ReviewToolRenderContext) RenderTool(sty *styles.Styles, width int, opts
 	}
 
 	var parts []string
-	parts = append(parts, childTools.Enumerator(roundedEnumerator(2, taskTagWidth-5)).String())
+	parts = append(parts, childTools.
+		Enumerator(roundedEnumerator(2, taskTagWidth-5)).
+		Indenter(roundedIndenter(2, taskTagWidth-5)).
+		String())
 
 	if !opts.HasResult() && !opts.IsCanceled() {
 		parts = append(parts, "", opts.Anim.Render())

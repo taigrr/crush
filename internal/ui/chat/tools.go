@@ -1153,6 +1153,29 @@ func roundedEnumerator(lPadding, width int) tree.Enumerator {
 	}
 }
 
+// roundedIndenter creates a tree indenter whose width matches
+// [roundedEnumerator] for the same (lPadding, width) arguments. The
+// lipgloss tree renderer uses the indenter both for the continuation
+// lines of multi-line children and as the prefix for nested subtrees.
+// The default indenter is a fixed 3 columns wide, so pairing it with a
+// wider custom enumerator misaligns wrapped tool output and floats the
+// vertical connector bars. Keeping the two in lockstep fixes that.
+func roundedIndenter(lPadding, width int) tree.Indenter {
+	if width == 0 {
+		width = 2
+	}
+	if lPadding == 0 {
+		lPadding = 1
+	}
+	return func(children tree.Children, index int) string {
+		padding := strings.Repeat(" ", lPadding)
+		if children.Length()-1 == index {
+			return padding + " " + strings.Repeat(" ", width)
+		}
+		return padding + "│" + strings.Repeat(" ", width)
+	}
+}
+
 // toolOutputMarkdownContent renders markdown content with optional truncation.
 func toolOutputMarkdownContent(sty *styles.Styles, content string, width int, expanded bool) string {
 	content = stringext.NormalizeSpace(content)
