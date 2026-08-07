@@ -972,6 +972,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 			tools.NewDefinitionTool(c.lspManager),
 			tools.NewDocumentSymbolsTool(c.lspManager, c.workingDir),
 			tools.NewRenameTool(c.lspManager, c.permissions, c.workingDir),
+			tools.NewReplaceSymbolTool(c.lspManager, c.permissions, c.history, c.filetracker, c.workingDir),
 			tools.NewLSPRestartTool(c.lspManager),
 		)
 	}
