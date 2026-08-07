@@ -261,6 +261,9 @@ type Workspace interface {
 	EmbedBackfill(ctx context.Context) (int, error)
 	// EmbedStatus reports the embedding index state for progress display.
 	EmbedStatus(ctx context.Context) (proto.EmbeddingStatus, error)
+	// SearchHistory runs hybrid history search and returns per-session
+	// hits tagged with their originating workspace.
+	SearchHistory(ctx context.Context, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error)
 	ImportCopilot() (*oauth.Token, bool)
 	RefreshOAuthToken(ctx context.Context, scope config.Scope, providerID string) error
 

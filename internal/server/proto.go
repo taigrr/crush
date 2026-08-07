@@ -1044,6 +1044,24 @@ func (c *controllerV1) handleGetWorkspaceEmbeddingsStatus(w http.ResponseWriter,
 	jsonEncode(w, status)
 }
 
+// handlePostWorkspaceHistorySearch runs hybrid history search over a
+// workspace and returns per-session hits.
+func (c *controllerV1) handlePostWorkspaceHistorySearch(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var params proto.SearchHistoryParams
+	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+	res, err := c.backend.SearchHistory(r.Context(), id, params)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, res)
+}
+
 // handlePostWorkspaceAgentSessionPromptClear clears the prompt queue for a session.
 //
 //	@Summary		Clear prompt queue

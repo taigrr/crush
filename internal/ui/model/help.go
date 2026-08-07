@@ -162,6 +162,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 			commands,
 			k.Models,
 			k.Sessions,
+			k.Search,
 			k.Milestones,
 			k.ToggleYolo,
 			k.Fullscreen,

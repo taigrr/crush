@@ -264,6 +264,12 @@ func (w *ClientWorkspace) EmbedStatus(ctx context.Context) (proto.EmbeddingStatu
 	return w.client.EmbeddingStatus(ctx, w.workspaceID())
 }
 
+// SearchHistory runs hybrid history search over this workspace and
+// returns per-session hits.
+func (w *ClientWorkspace) SearchHistory(ctx context.Context, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error) {
+	return w.client.SearchHistory(ctx, w.workspaceID(), params)
+}
+
 // -- Agent --
 
 func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) error {

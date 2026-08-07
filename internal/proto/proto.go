@@ -237,6 +237,48 @@ type EmbeddingStatus struct {
 	Total    int  `json:"total"`    // embeddable messages (embedded + pending)
 }
 
+// SearchHistoryParams configures a history search RPC. It mirrors
+// historysearch.Options but crosses the client/server boundary. Scope is
+// "user" (default) or "all"; Semantic overrides the hybrid_search config
+// default for this call (nil = use config).
+type SearchHistoryParams struct {
+	Query    string `json:"query"`
+	Scope    string `json:"scope,omitempty"`
+	Semantic *bool  `json:"semantic,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+	// Offset is reserved: session-level pagination is not yet supported
+	// (results collapse per session after a message-level candidate
+	// fetch, so a message offset would not align to session boundaries).
+	// It is currently ignored by the backend.
+	Offset int `json:"offset,omitempty"`
+}
+
+// SessionHit is one per-session search result: the search collapses the
+// underlying per-message hits by session (best-hit-wins), keeping the
+// top-scoring hit's snippet and metadata as the session's representative.
+// Every hit is tagged with its originating workspace so a cross-workspace
+// palette can group and route results (in single-workspace mode all hits
+// carry the same tag).
+type SessionHit struct {
+	SessionID     string    `json:"session_id"`
+	SessionTitle  string    `json:"session_title"`
+	WorkspaceID   string    `json:"workspace_id"`
+	WorkspaceRoot string    `json:"workspace_root"`
+	Score         float64   `json:"score"`
+	Match         string    `json:"match"`
+	Snippet       string    `json:"snippet"`
+	MessageID     string    `json:"message_id"`
+	Role          string    `json:"role"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// SearchHistoryResult is a ranked page of per-session hits.
+type SearchHistoryResult struct {
+	Hits         []SessionHit `json:"hits"`
+	Total        int          `json:"total"`
+	SemanticUsed bool         `json:"semantic_used"`
+}
+
 // AgentSession represents a session with its busy status.
 type AgentSession struct {
 	Session

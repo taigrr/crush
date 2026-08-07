@@ -13,6 +13,7 @@ import (
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
@@ -43,6 +44,29 @@ type ActionSelectSession struct {
 // session.
 type ActionPreviewSession struct {
 	SessionID string
+}
+
+// ActionSearchQueryChanged is emitted by the search palette when the
+// query text or semantic toggle changes. The UI owns the debounce: it
+// bumps a generation counter and schedules a search command. InputCmd
+// carries the textinput's own cmd (cursor blink) so it isn't lost.
+type ActionSearchQueryChanged struct {
+	Query    string
+	Semantic *bool
+	InputCmd tea.Cmd
+}
+
+// ActionPreviewSearchResult is emitted as the search palette selection
+// moves. The UI turns it into a live preview of the highlighted session
+// (current-workspace hits only; foreign-workspace hits are not previewed).
+type ActionPreviewSearchResult struct {
+	Hit proto.SessionHit
+}
+
+// ActionSelectSearchResult is emitted when a search result is confirmed
+// (enter). The UI loads the selected session.
+type ActionSelectSearchResult struct {
+	Hit proto.SessionHit
 }
 
 // ActionSelectModel is a message indicating a model has been selected.
