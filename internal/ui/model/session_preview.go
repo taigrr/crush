@@ -1,0 +1,198 @@
+package model
+
+import (
+	"context"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/ui/util"
+)
+
+// previewDebounce is how long the highlighted session must stay put before a
+// live preview load fires. Rapid j/k movement supersedes the pending load so
+// only the settled session is fetched.
+const previewDebounce = 150 * time.Millisecond
+
+// previewTickMsg fires after the debounce window; gen lets us drop stale
+// ticks when the cursor moved again before the timer elapsed.
+type previewTickMsg struct{ gen int }
+
+// previewLoadedMsg carries a fetched preview session's messages. id is the
+// session the load was for, so a load that resolved after the cursor moved
+// on can be dropped.
+type previewLoadedMsg struct {
+	id   string
+	msgs []message.Message
+}
+
+// schedulePreview debounces a live-preview load for the highlighted session.
+// It is a no-op (and cancels any pending/active preview back to the committed
+// view) when:
+//   - id is empty, or is already the committed session (nothing to preview);
+//   - currentWorkspace is false — previewing a foreign, non-attached
+//     workspace's session would require a heavy workspace attach/switch, so
+//     those load only on commit (enter). We leave the current view as-is.
+//
+// Otherwise it records the pending id, bumps the supersede generation, and
+// returns a tick command; the actual fetch happens on previewTickMsg.
+func (m *UI) schedulePreview(id string, currentWorkspace bool) tea.Cmd {
+	committed := ""
+	if m.session != nil {
+		committed = m.session.ID
+	}
+	if id == "" || id == committed || !currentWorkspace {
+		// Nothing to preview here: return to the committed view if we were
+		// previewing something else.
+		return m.cancelPreview()
+	}
+	if id == m.pendingPreviewID {
+		return nil // already waiting to load this exact id: pure no-op
+	}
+	if id == m.previewSessionID {
+		// Returning to the session already shown (e.g. A→B→A within the
+		// debounce window). Cancel any in-flight load for the intermediate
+		// session so its tick/result can't render over the shown one, and
+		// keep showing the current preview without a reload.
+		m.pendingPreviewID = ""
+		m.previewGen++
+		return nil
+	}
+	m.pendingPreviewID = id
+	m.previewGen++
+	gen := m.previewGen
+	return tea.Tick(previewDebounce, func(time.Time) tea.Msg {
+		return previewTickMsg{gen: gen}
+	})
+}
+
+// handlePreviewTick fires the actual load if the tick is still current.
+func (m *UI) handlePreviewTick(msg previewTickMsg) tea.Cmd {
+	if msg.gen != m.previewGen || m.pendingPreviewID == "" {
+		return nil // superseded by a newer move, or cancelled
+	}
+	return m.previewLoadCmd(m.pendingPreviewID)
+}
+
+// previewLoadCmd fetches a session's messages off the Update goroutine for an
+// ephemeral preview. It does NOT touch presence/LSP/CWD/history — only the
+// messages are read (current workspace only, guaranteed by schedulePreview).
+// On error it emits previewLoadFailedMsg so the pending id is cleared and a
+// later return to that session retries.
+func (m *UI) previewLoadCmd(id string) tea.Cmd {
+	return func() tea.Msg {
+		msgs, err := m.com.Workspace.ListMessages(context.Background(), id)
+		if err != nil {
+			return previewLoadFailedMsg{id: id, err: err}
+		}
+		return previewLoadedMsg{id: id, msgs: msgs}
+	}
+}
+
+// previewLoadFailedMsg reports a failed preview fetch.
+type previewLoadFailedMsg struct {
+	id  string
+	err error
+}
+
+// handlePreviewLoadFailed clears the pending id (if still current) so a
+// return to that session retries, and surfaces the error.
+func (m *UI) handlePreviewLoadFailed(msg previewLoadFailedMsg) tea.Cmd {
+	if msg.id == m.pendingPreviewID {
+		m.pendingPreviewID = ""
+	}
+	return util.ReportError(msg.err)
+}
+
+// handlePreviewLoaded renders a fetched preview into the chat view, unless
+// the cursor moved on to a different session while the load was in flight.
+func (m *UI) handlePreviewLoaded(msg previewLoadedMsg) tea.Cmd {
+	if msg.id != m.pendingPreviewID {
+		return nil // stale: cursor moved after the fetch started
+	}
+	m.previewSessionID = msg.id
+	m.pendingPreviewID = "" // load complete; no longer in-flight
+	// Render the preview messages read-only into the chat view. This reuses
+	// the normal renderer but does NOT change m.session, so the committed
+	// session stays the routing target for live events.
+	return m.setSessionMessages(msg.msgs)
+}
+
+// cancelPreview discards any pending/active preview and, if a preview was
+// showing, restores the committed session's view (reloading its messages so
+// anything that accumulated while previewing — e.g. a busy session still
+// generating — is picked up). If there is no committed session it clears the
+// chat. Returns a cmd (possibly nil) to run.
+//
+// Design note (see review round 2): previewing() is driven SOLELY by
+// previewSessionID, which is cleared here synchronously. We deliberately do
+// NOT hold a "restoring" flag across the async committed-message reload —
+// that flag had multiple leak paths (restore-fetch error, no-op/double
+// cancel, load-fail-after-supersede) that could wedge previewing() true
+// forever and silently drop all committed-session events. The tiny window
+// between clearing previewSessionID here and the restore render landing is
+// accepted (original LOW #6, deemed acceptable): committed events in that
+// window apply to the chat and converge with the restore reload.
+func (m *UI) cancelPreview() tea.Cmd {
+	m.pendingPreviewID = ""
+	if m.previewSessionID == "" {
+		// Nothing being previewed: do NOT bump the supersede generation
+		// (a no-op cancel must not orphan an unrelated in-flight restore).
+		return nil
+	}
+	m.previewSessionID = ""
+	m.previewGen++ // invalidate any in-flight tick/load for the preview
+	if m.session == nil {
+		m.chat.ClearMessages()
+		return nil
+	}
+	return m.reloadCommittedMessages(m.previewGen)
+}
+
+// reloadCommittedMessages re-fetches and re-renders the committed session's
+// messages into the chat view (used to restore after a preview is
+// cancelled). gen tags the restore so a stale restore (superseded by a new
+// preview scheduled after the cancel) is dropped. On error it emits a
+// previewRestoreMsg with nil msgs so the handler is still reached (no state
+// to unwind, but keeps behavior uniform).
+func (m *UI) reloadCommittedMessages(gen int) tea.Cmd {
+	if m.session == nil {
+		return nil
+	}
+	id := m.session.ID
+	return func() tea.Msg {
+		msgs, err := m.com.Workspace.ListMessages(context.Background(), id)
+		if err != nil {
+			return util.ReportError(err)()
+		}
+		return previewRestoreMsg{id: id, msgs: msgs, gen: gen}
+	}
+}
+
+// previewRestoreMsg carries the committed session's messages to re-render
+// after a preview is cancelled.
+type previewRestoreMsg struct {
+	id   string
+	msgs []message.Message
+	gen  int
+}
+
+// handlePreviewRestore re-renders the committed session, bailing when the
+// restore is stale: the supersede generation advanced, a new preview is
+// shown/pending since the cancel, or the committed session changed. There is
+// no flag to reset — previewing() no longer depends on restore state — so a
+// dropped restore can never wedge the view.
+func (m *UI) handlePreviewRestore(msg previewRestoreMsg) tea.Cmd {
+	if msg.gen != m.previewGen || m.previewSessionID != "" || m.pendingPreviewID != "" {
+		return nil
+	}
+	if m.session == nil || m.session.ID != msg.id {
+		return nil
+	}
+	return m.setSessionMessages(msg.msgs)
+}
+
+// previewing reports whether an ephemeral preview is currently shown. It is
+// driven solely by previewSessionID (set on load, cleared on cancel/commit),
+// so it can never be wedged true by a dropped/failed async restore.
+func (m *UI) previewing() bool { return m.previewSessionID != "" }

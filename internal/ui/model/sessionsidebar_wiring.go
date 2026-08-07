@@ -43,7 +43,8 @@ func (m *UI) toggleLeftSidebar() tea.Cmd {
 			m.setFocusAfterSidebarClose()
 		}
 		m.updateLayoutAndSize()
-		return nil
+		// Discard any live preview and restore the committed session.
+		return m.cancelPreview()
 	}
 	m.leftSidebarVisible = true
 	m.focus = uiFocusLeftSidebar
@@ -79,16 +80,16 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch {
 	case key.Matches(msg, m.keyMap.Chat.Up):
 		m.leftSidebar.MoveUp()
-		return nil, true
+		return m.scheduleSidebarPreview(), true
 	case key.Matches(msg, m.keyMap.Chat.Down):
 		m.leftSidebar.MoveDown()
-		return nil, true
+		return m.scheduleSidebarPreview(), true
 	case key.Matches(msg, m.keyMap.Chat.Home):
 		m.leftSidebar.MoveTop()
-		return nil, true
+		return m.scheduleSidebarPreview(), true
 	case key.Matches(msg, m.keyMap.Chat.End):
 		m.leftSidebar.MoveBottom()
-		return nil, true
+		return m.scheduleSidebarPreview(), true
 	case key.Matches(msg, m.keyMap.SessionSidebar.VisualSelect):
 		m.leftSidebar.ToggleVisualMode()
 		return nil, true
@@ -112,9 +113,29 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		m.leftSidebarVisible = false
 		m.setFocusAfterSidebarClose()
 		m.updateLayoutAndSize()
-		return nil, true
+		// Closing without committing discards any live preview and
+		// restores the session the user actually had open.
+		cancel := m.cancelPreview()
+		return cancel, true
 	}
 	return nil, false
+}
+
+// scheduleSidebarPreview debounces a live preview of the session now under
+// the sidebar cursor. Foreign-workspace sessions are not previewed (see
+// schedulePreview); a cursor on a header/overflow row (no session) cancels
+// any active preview back to the committed view. Preview is suppressed while
+// a multi-select/visual selection is in progress so the chat view doesn't
+// flicker while the user is building a selection.
+func (m *UI) scheduleSidebarPreview() tea.Cmd {
+	if m.leftSidebar.VisualMode() || m.leftSidebar.SelectionCount() > 0 {
+		return nil
+	}
+	root, id, ok := m.leftSidebar.Selected()
+	if !ok {
+		return m.cancelPreview()
+	}
+	return m.schedulePreview(id, m.isCurrentWorkspace(root))
 }
 
 // archiveSelectedSessions archives the selected sessions in the CURRENT

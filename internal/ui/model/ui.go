@@ -291,6 +291,16 @@ type UI struct {
 	leftSidebar        *SessionsSidebar
 	leftSidebarVisible bool
 
+	// Session live-preview state (see session_preview.go). While
+	// previewSessionID is non-empty the chat view shows an ephemeral,
+	// read-only render of a highlighted (but not committed) session; the
+	// committed session (m.session) is untouched and remains the routing
+	// key for live message events. previewGen supersedes stale debounced
+	// loads; pendingPreviewID is the id a scheduled load is waiting on.
+	previewSessionID string
+	pendingPreviewID string
+	previewGen       int
+
 	// Right info-sidebar virtual scroll state. rightSidebarScrollable and
 	// rightSidebarMaxOffsetVal are recomputed each frame in drawSidebar.
 	rightSidebarOffset       int
@@ -657,10 +667,30 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.leftSidebarVisible && m.focus != uiFocusLeftSidebar {
 			cmds = append(cmds, m.loadWorkspaceOverviews())
 		}
+	case previewTickMsg:
+		if cmd := m.handlePreviewTick(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case previewLoadedMsg:
+		if cmd := m.handlePreviewLoaded(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case previewLoadFailedMsg:
+		if cmd := m.handlePreviewLoadFailed(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case previewRestoreMsg:
+		if cmd := m.handlePreviewRestore(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case loadSessionMsg:
 		if m.forceCompactMode {
 			m.isCompact = true
 		}
+		// A real commit supersedes any live preview.
+		m.previewSessionID = ""
+		m.pendingPreviewID = ""
+		m.previewGen++
 		m.setState(uiChat, m.focus)
 		m.session = msg.session
 		m.sessionFiles = msg.files
@@ -832,14 +862,27 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Payload.SessionID != m.session.ID {
 			// This might be a child session message from an agent tool.
-			if cmd := m.handleChildSessionMessage(msg); cmd != nil {
-				cmds = append(cmds, cmd)
+			// Skip visible-chat mutation while previewing (nested tool
+			// items would otherwise render over the preview); the event is
+			// persisted server-side and picked up on restore.
+			if !m.previewing() {
+				if cmd := m.handleChildSessionMessage(msg); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
 			break
 		}
 		switch msg.Type {
 		case pubsub.CreatedEvent:
-			cmds = append(cmds, m.appendSessionMessage(msg.Payload))
+			// While a live preview is shown, the chat view belongs to the
+			// previewed (read-only) session, NOT the committed one. Skip the
+			// visible-chat mutation so the committed session's incoming
+			// messages don't clobber the preview; they are persisted
+			// server-side and picked up when the preview is cancelled and
+			// the committed session is reloaded.
+			if !m.previewing() {
+				cmds = append(cmds, m.appendSessionMessage(msg.Payload))
+			}
 			// Refresh prompt history once the user/shell message is
 			// actually persisted. Reloading here (rather than concurrently
 			// with the send) avoids a race where ListUserMessages reads the
@@ -849,9 +892,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, m.loadPromptHistory())
 			}
 		case pubsub.UpdatedEvent:
-			cmds = append(cmds, m.updateSessionMessage(msg.Payload))
+			if !m.previewing() {
+				cmds = append(cmds, m.updateSessionMessage(msg.Payload))
+			}
 		case pubsub.DeletedEvent:
-			m.chat.RemoveMessage(msg.Payload.ID)
+			if !m.previewing() {
+				m.chat.RemoveMessage(msg.Payload.ID)
+			}
 		}
 		// start the spinner if there is a new message
 		if hasInProgressTodo(m.session.Todos) && m.isAgentBusy() && !m.todoIsSpinning {
@@ -1868,6 +1915,14 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			defer fimage.ResetCache()
 		}
 
+		// Closing the session picker without committing discards any live
+		// preview and restores the committed session.
+		if m.dialog.ContainsDialog(dialog.SessionsID) {
+			if cmd := m.cancelPreview(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
 		m.dialog.CloseFrontDialog()
 
 		if isOnboarding {
@@ -1888,6 +1943,12 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	case dialog.ActionSelectSession:
 		m.dialog.CloseDialog(dialog.SessionsID)
 		cmds = append(cmds, m.loadSession(msg.Session.ID))
+	case dialog.ActionPreviewSession:
+		// Picker cursor moved: debounce a live preview (picker sessions are
+		// always current-workspace).
+		if cmd := m.schedulePreview(msg.SessionID, true); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 
 	// Milestones dialog messages.
 	case dialog.ActionScrollToTurn:

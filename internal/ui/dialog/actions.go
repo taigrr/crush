@@ -37,6 +37,14 @@ type ActionSelectSession struct {
 	Session session.Session
 }
 
+// ActionPreviewSession is emitted as the session picker's cursor moves to a
+// new session, so the model can live-preview it (debounced) in the chat view
+// behind the modal without committing. SessionID is the newly highlighted
+// session.
+type ActionPreviewSession struct {
+	SessionID string
+}
+
 // ActionSelectModel is a message indicating a model has been selected.
 type ActionSelectModel struct {
 	Provider       catwalk.Provider

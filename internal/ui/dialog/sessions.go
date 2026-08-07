@@ -359,6 +359,7 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 					s.list.SelectPrev()
 				}
 				s.list.ScrollToSelected()
+				return s.previewAction()
 			case key.Matches(msg, s.keyMap.Next):
 				s.list.Focus()
 				if s.list.IsSelectedLast() {
@@ -371,6 +372,7 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 					s.list.SelectNext()
 				}
 				s.list.ScrollToSelected()
+				return s.previewAction()
 			case key.Matches(msg, s.keyMap.EnterSelect):
 				// Enter vim-style multi-select mode (only when there are
 				// active, non-archived sessions to select).
@@ -521,6 +523,25 @@ func (s *Session) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 	DrawCenterCursor(scr, area, view, cur)
 	return cur
+}
+
+// previewAction returns an ActionPreviewSession for the currently selected
+// session so the model can live-preview it, or nil when the selection is not
+// a session (separator/none). All picker sessions are current-workspace, so
+// no workspace scoping is needed here.
+func (s *Session) previewAction() Action {
+	if s.isSelectedSeparator() {
+		return nil
+	}
+	item := s.list.SelectedItem()
+	if item == nil {
+		return nil
+	}
+	si, ok := item.(*SessionItem)
+	if !ok {
+		return nil
+	}
+	return ActionPreviewSession{SessionID: si.ID()}
 }
 
 func (s *Session) selectedSessionItem() *SessionItem {
