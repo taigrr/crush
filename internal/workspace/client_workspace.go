@@ -49,12 +49,42 @@ type ClientWorkspace struct {
 	// Subscription state for runtime workspace switching. program is the
 	// bubbletea program events are forwarded to; subCancel cancels the
 	// current event stream; switchRequested tells the subscribe loop the
-	// stream closed because of a switch (reconnect) rather than server
-	// shutdown (stop).
+	// stream closed because of a switch (reconnect) rather than an
+	// unexpected drop.
 	subMu           sync.Mutex
 	program         *tea.Program
 	subCancel       context.CancelFunc
 	switchRequested bool
+	connState       ConnectionState
+
+	// stopped is closed by Shutdown to stop the reconnect loop from
+	// sleeping through further backoff delays once the workspace is
+	// being torn down.
+	stopped  chan struct{}
+	stopOnce sync.Once
+
+	// reconnectNow is pulsed (non-blocking send) by SwitchWorkspace to
+	// abort an in-progress backoff sleep so the loop reconnects to the
+	// now-updated workspace immediately, rather than waiting out a
+	// stale backoff timer (up to reconnectMaxDelay) left over from a
+	// dropped connection. Buffered so a pulse sent while the loop is
+	// not sleeping is not lost; drained at the top of each iteration
+	// so it only affects the sleep that follows the switch.
+	reconnectNow chan struct{}
+
+	// subscribeEventsFn is normally client.SubscribeEvents; overridable
+	// in tests to simulate connection drops without a real server.
+	subscribeEventsFn func(ctx context.Context, id string) (<-chan any, error)
+
+	// reconnectDelayOverride, when non-zero, replaces reconnectBaseDelay
+	// for the reconnect backoff. Used by tests to avoid multi-second
+	// sleeps.
+	reconnectDelayOverride time.Duration
+
+	// backoffObserver, when non-nil, is called with each delay passed
+	// to waitBackoff. Test-only hook for asserting the backoff
+	// progression (e.g. that a switch resets it to the base delay).
+	backoffObserver func(time.Duration)
 
 	// Cached active worktree to avoid HTTP round-trips on every
 	// WorkingDir() call. cachedWorktreeValid distinguishes "checked
@@ -71,10 +101,14 @@ func NewClientWorkspace(c *client.Client, ws proto.Workspace) *ClientWorkspace {
 	if ws.Config != nil {
 		ws.Config.SetupAgents()
 	}
-	return &ClientWorkspace{
-		client: c,
-		ws:     ws,
+	w := &ClientWorkspace{
+		client:       c,
+		ws:           ws,
+		stopped:      make(chan struct{}),
+		reconnectNow: make(chan struct{}, 1),
 	}
+	w.subscribeEventsFn = c.SubscribeEvents
+	return w
 }
 
 // refreshWorkspace re-fetches the workspace from the server, updating
@@ -959,6 +993,33 @@ func (w *ClientWorkspace) SnapshotStats(ctx context.Context) (*checkpoint.Stats,
 
 // -- Lifecycle --
 
+// reconnectBaseDelay and reconnectMaxDelay bound the exponential
+// backoff used when the event stream drops unexpectedly (as opposed
+// to a deliberate SwitchWorkspace-triggered reconnect, which happens
+// immediately).
+const (
+	reconnectBaseDelay = 500 * time.Millisecond
+	reconnectMaxDelay  = 15 * time.Second
+)
+
+// nextBackoff doubles the delay, capped at reconnectMaxDelay.
+func nextBackoff(d time.Duration) time.Duration {
+	d *= 2
+	if d > reconnectMaxDelay {
+		return reconnectMaxDelay
+	}
+	return d
+}
+
+// initialBackoff returns the starting backoff delay, honoring
+// reconnectDelayOverride when set (tests).
+func (w *ClientWorkspace) initialBackoff() time.Duration {
+	if w.reconnectDelayOverride > 0 {
+		return w.reconnectDelayOverride
+	}
+	return reconnectBaseDelay
+}
+
 func (w *ClientWorkspace) Subscribe(program *tea.Program) {
 	defer log.RecoverPanic("ClientWorkspace.Subscribe", func() {
 		slog.Info("TUI subscription panic: attempting graceful shutdown")
@@ -969,49 +1030,258 @@ func (w *ClientWorkspace) Subscribe(program *tea.Program) {
 	w.program = program
 	w.subMu.Unlock()
 
-	// Reconnect loop: each iteration subscribes to the current workspace
-	// and consumes events until the stream closes. A close caused by a
-	// workspace switch (SwitchWorkspace cancels the stream and sets
-	// switchRequested) reconnects to the now-current workspace; a close
-	// for any other reason (server shutdown) ends the loop, preserving
-	// the original single-shot behavior.
+	w.subscribeLoop(program.Send)
+}
+
+// subscribeLoop is the reconnect loop, split out from Subscribe so
+// tests can drive it with a plain send func instead of a real
+// *tea.Program.
+//
+// Each iteration subscribes to the current workspace and consumes
+// events until the stream closes. A close caused by a workspace
+// switch (SwitchWorkspace cancels the stream and sets
+// switchRequested) reconnects to the now-current workspace
+// immediately; a close for any other reason (dropped connection,
+// server restart, or the initial connect failing because the
+// server/agent isn't up yet) retries with exponential backoff and
+// reports ConnectionStateReconnecting (if it was ever connected
+// before) or keeps reporting ConnectionStateConnecting (if not) until
+// it succeeds. The loop only returns once the workspace is shut down.
+func (w *ClientWorkspace) subscribeLoop(send func(tea.Msg)) {
+	everConnected := false
+	backoff := w.initialBackoff()
 	for {
 		ctx, cancel := context.WithCancel(context.Background())
 		w.subMu.Lock()
+		select {
+		case <-w.stopped:
+			// stopSubscribeLoop may have already fired and cancelled a
+			// stale (or nil) subCancel before we got here; checking
+			// stopped in the same critical section we store subCancel
+			// in guarantees we never open a connection nothing will
+			// ever be able to cancel.
+			w.subMu.Unlock()
+			cancel()
+			return
+		default:
+		}
 		w.subCancel = cancel
 		w.switchRequested = false
 		w.subMu.Unlock()
 
+		// Drain any pending switch pulse so it only ever aborts the
+		// backoff sleep that follows the switch, not a later one.
+		select {
+		case <-w.reconnectNow:
+		default:
+		}
+
 		wsID := w.workspaceID()
-		evc, err := w.client.SubscribeEvents(ctx, wsID)
+		evc, err := w.subscribeEventsFn(ctx, wsID)
 		if err != nil {
 			cancel()
 			slog.Error("Failed to subscribe to events", "error", err)
-			return
+			action, changed := w.prepReconnect(w.stateAfterDrop(everConnected))
+			switch action {
+			case reconnectStop:
+				return
+			case reconnectSwitch:
+				// A switch landed during the connect attempt: reconnect
+				// to the new workspace with a fresh backoff, not the
+				// grown delay from this failed connect.
+				backoff = w.initialBackoff()
+				continue
+			}
+			if changed && send != nil {
+				send(pubsub.Event[ConnectionEvent]{
+					Type:    pubsub.UpdatedEvent,
+					Payload: ConnectionEvent{State: w.stateAfterDrop(everConnected), Err: err},
+				})
+			}
+			switch w.waitBackoff(backoff) {
+			case backoffStopped:
+				return
+			case backoffSwitched:
+				// A switch aborted the sleep: reconnect immediately to
+				// the new workspace with a fresh backoff, not the grown
+				// delay carried over from this failed connect.
+				backoff = w.initialBackoff()
+			default:
+				backoff = nextBackoff(backoff)
+			}
+			continue
 		}
+
+		w.setConnState(send, ConnectionStateConnected, nil)
+		everConnected = true
+		backoff = w.initialBackoff()
 
 		// Send synthetic state-changed events to trigger UI refresh now
 		// that subscription is established. This ensures the UI gets fresh
 		// MCP/LSP states even if the actual state-change events were
 		// published before this subscription connected.
-		program.Send(pubsub.Event[mcp.Event]{
+		send(pubsub.Event[mcp.Event]{
 			Type:    pubsub.UpdatedEvent,
 			Payload: mcp.Event{Type: mcp.EventStateChanged},
 		})
-		program.Send(pubsub.Event[LSPEvent]{
+		send(pubsub.Event[LSPEvent]{
 			Type:    pubsub.UpdatedEvent,
 			Payload: LSPEvent{Type: LSPEventStateChanged},
 		})
 
-		w.consumeEvents(evc, program.Send)
+		w.consumeEvents(evc, send)
 		cancel()
 
-		w.subMu.Lock()
-		reconnect := w.switchRequested
-		w.subMu.Unlock()
-		if !reconnect {
+		// The stream ended. Decide, atomically, whether this was a
+		// deliberate stop (return), a workspace switch (reconnect now),
+		// or a genuine drop (report Reconnecting and back off). Holding
+		// subMu across the stop/switch check and the connState update
+		// closes the window where Shutdown/SwitchWorkspace could
+		// otherwise race a spurious "Reconnecting" flash.
+		action, changed := w.prepReconnect(ConnectionStateReconnecting)
+		switch action {
+		case reconnectStop:
 			return
+		case reconnectSwitch:
+			// A switch caused the stream to end: reconnect to the new
+			// workspace with a fresh backoff. (backoff is already the
+			// base delay here after a successful connect, but reset for
+			// symmetry with the connect-error site so the invariant
+			// holds on every path.)
+			backoff = w.initialBackoff()
+			continue
 		}
+		if changed && send != nil {
+			send(pubsub.Event[ConnectionEvent]{
+				Type:    pubsub.UpdatedEvent,
+				Payload: ConnectionEvent{State: ConnectionStateReconnecting},
+			})
+		}
+		switch w.waitBackoff(backoff) {
+		case backoffStopped:
+			return
+		case backoffSwitched:
+			// A switch aborted the sleep: reconnect immediately to the
+			// new workspace with a fresh backoff, not the grown delay
+			// carried over from this drop.
+			backoff = w.initialBackoff()
+		default:
+			backoff = nextBackoff(backoff)
+		}
+	}
+}
+
+// reconnectAction is the decision prepReconnect returns for how the
+// subscribe loop should proceed after a failed/dropped stream.
+type reconnectAction int
+
+const (
+	// reconnectBackoff: report the reconnect state (if changed) and
+	// wait out the backoff before retrying.
+	reconnectBackoff reconnectAction = iota
+	// reconnectStop: a deliberate shutdown is in progress; exit.
+	reconnectStop
+	// reconnectSwitch: a workspace switch was requested; reconnect
+	// immediately without reporting Reconnecting or backing off.
+	reconnectSwitch
+)
+
+// prepReconnect decides, under subMu, how the loop should proceed
+// after a stream failure/drop and — for the backoff case — updates the
+// cached connState to the given state, reporting whether it changed so
+// the caller can push an event. Doing the stop/switch check and the
+// connState mutation in one critical section prevents a deliberate
+// stop or switch from racing a spurious "Reconnecting" flash.
+func (w *ClientWorkspace) prepReconnect(state ConnectionState) (action reconnectAction, changed bool) {
+	w.subMu.Lock()
+	defer w.subMu.Unlock()
+	select {
+	case <-w.stopped:
+		return reconnectStop, false
+	default:
+	}
+	if w.switchRequested {
+		return reconnectSwitch, false
+	}
+	changed = w.connState != state
+	w.connState = state
+	return reconnectBackoff, changed
+}
+
+// stateAfterDrop returns the ConnectionState to report when a
+// connection attempt fails, depending on whether the client had ever
+// successfully connected before.
+func (w *ClientWorkspace) stateAfterDrop(everConnected bool) ConnectionState {
+	if everConnected {
+		return ConnectionStateReconnecting
+	}
+	return ConnectionStateConnecting
+}
+
+// setConnState updates the cached connection state and, if a send
+// func is attached, pushes a ConnectionEvent so the UI can react
+// immediately rather than waiting for the next poll.
+func (w *ClientWorkspace) setConnState(send func(tea.Msg), state ConnectionState, err error) {
+	w.subMu.Lock()
+	changed := w.connState != state
+	w.connState = state
+	w.subMu.Unlock()
+
+	if !changed || send == nil {
+		return
+	}
+	send(pubsub.Event[ConnectionEvent]{
+		Type:    pubsub.UpdatedEvent,
+		Payload: ConnectionEvent{State: state, Err: err},
+	})
+}
+
+// ConnectionState reports the current state of the event-stream
+// connection to the server.
+func (w *ClientWorkspace) ConnectionState() ConnectionState {
+	w.subMu.Lock()
+	defer w.subMu.Unlock()
+	return w.connState
+}
+
+// backoffResult reports why waitBackoff returned.
+type backoffResult int
+
+const (
+	// backoffElapsed: the full delay elapsed; retry with a further
+	// advanced backoff.
+	backoffElapsed backoffResult = iota
+	// backoffSwitched: a reconnect was requested (e.g. a workspace
+	// switch) and short-circuited the sleep; the caller should treat
+	// this as a fresh reconnect and reset the backoff to the base
+	// delay rather than advancing it.
+	backoffSwitched
+	// backoffStopped: the workspace was shut down during the sleep;
+	// the caller should exit.
+	backoffStopped
+)
+
+// waitBackoff sleeps for d, reporting why it woke: backoffElapsed when
+// the delay elapses, backoffSwitched when a reconnect was requested
+// via reconnectNow (e.g. a workspace switch) and short-circuited the
+// sleep, or backoffStopped — without sleeping the full duration — if
+// the workspace is shut down in the meantime. Distinguishing a switch
+// wake from a timer wake lets the caller restart the backoff from the
+// base delay for a switch (a fresh reconnect) instead of carrying over
+// the grown delay from the previous drop.
+func (w *ClientWorkspace) waitBackoff(d time.Duration) backoffResult {
+	if w.backoffObserver != nil {
+		w.backoffObserver(d)
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return backoffElapsed
+	case <-w.reconnectNow:
+		return backoffSwitched
+	case <-w.stopped:
+		return backoffStopped
 	}
 }
 
@@ -1043,8 +1313,19 @@ func (w *ClientWorkspace) SwitchWorkspace(ctx context.Context, path string) erro
 		return nil
 	}
 
-	// Signal the subscribe loop to reconnect to the new workspace by
-	// cancelling the current stream after marking the close as a switch.
+	// Signal the subscribe loop to reconnect to the new workspace.
+	w.requestSwitch()
+	return nil
+}
+
+// requestSwitch tells the subscribe loop that the current stream is
+// closing because of a deliberate workspace switch (not a drop), and
+// nudges it to reconnect immediately. It marks switchRequested,
+// cancels the live stream so consumeEvents returns, and pulses
+// reconnectNow so that if the loop is instead sleeping out a backoff
+// (from an earlier dropped connection) that sleep aborts at once
+// rather than waiting out a stale timer (up to reconnectMaxDelay).
+func (w *ClientWorkspace) requestSwitch() {
 	w.subMu.Lock()
 	w.switchRequested = true
 	cancel := w.subCancel
@@ -1052,7 +1333,10 @@ func (w *ClientWorkspace) SwitchWorkspace(ctx context.Context, path string) erro
 	if cancel != nil {
 		cancel()
 	}
-	return nil
+	select {
+	case w.reconnectNow <- struct{}{}:
+	default:
+	}
 }
 
 // ListWorkspaceOverviews returns all known workspaces (attached and
@@ -1079,7 +1363,22 @@ func (w *ClientWorkspace) consumeEvents(evc <-chan any, send func(tea.Msg)) {
 }
 
 func (w *ClientWorkspace) Shutdown() {
+	w.stopSubscribeLoop()
 	_ = w.client.DeleteWorkspace(context.Background(), w.workspaceID())
+}
+
+// stopSubscribeLoop signals the reconnect loop to stop: it closes the
+// stopped channel (so any pending backoff sleep returns immediately)
+// and cancels the current event-stream context (so a blocked
+// consumeEvents read unblocks too).
+func (w *ClientWorkspace) stopSubscribeLoop() {
+	w.subMu.Lock()
+	w.stopOnce.Do(func() { close(w.stopped) })
+	cancel := w.subCancel
+	w.subMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // translateEvent converts proto-typed SSE events into the domain types

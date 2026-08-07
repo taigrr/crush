@@ -93,3 +93,7 @@ type testWorkspace struct {
 func (w *testWorkspace) Config() *config.Config {
 	return w.cfg
 }
+
+func (w *testWorkspace) ConnectionState() workspace.ConnectionState {
+	return workspace.ConnectionStateConnected
+}

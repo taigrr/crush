@@ -32,6 +32,10 @@ func newCancelWorkspace() *cancelWorkspace {
 
 func (w *cancelWorkspace) Config() *config.Config { return nil }
 
+func (w *cancelWorkspace) ConnectionState() workspace.ConnectionState {
+	return workspace.ConnectionStateConnected
+}
+
 func (w *cancelWorkspace) AgentIsReady() bool { return w.ready }
 
 func (w *cancelWorkspace) AgentIsSessionBusy(sessionID string) bool {

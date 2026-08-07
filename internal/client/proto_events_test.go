@@ -3,9 +3,11 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +15,49 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 )
+
+// erroringReader returns a non-EOF error on every Read, counting the
+// attempts, to drive streamEvents' consecutive-read-error path.
+type erroringReader struct {
+	reads atomic.Int32
+}
+
+func (r *erroringReader) Read(_ []byte) (int, error) {
+	r.reads.Add(1)
+	return 0, errors.New("connection reset by peer")
+}
+
+// TestStreamEventsGivesUpAfterConsecutiveReadErrors verifies that a
+// connection producing repeated non-EOF read errors (e.g. a reset TCP
+// socket, which never yields a clean EOF) does not loop forever: after
+// maxConsecutiveReadErrors it closes the events channel so the caller
+// can reconnect instead of silently starving.
+func TestStreamEventsGivesUpAfterConsecutiveReadErrors(t *testing.T) {
+	t.Parallel()
+
+	rd := &erroringReader{}
+	events := make(chan any, 1)
+
+	done := make(chan struct{})
+	go func() {
+		// tiny retry delay so the test doesn't sleep the real 2s per error.
+		streamEvents(context.Background(), rd, events, time.Millisecond)
+		close(events)
+		close(done)
+	}()
+
+	select {
+	case _, ok := <-events:
+		require.False(t, ok, "events must be closed, not deliver a value")
+	case <-time.After(5 * time.Second):
+		t.Fatal("streamEvents did not give up on repeated read errors")
+	}
+	<-done
+
+	// It should stop at the cap, not keep reading forever.
+	require.Equal(t, int32(maxConsecutiveReadErrors), rd.reads.Load(),
+		"should give up exactly at maxConsecutiveReadErrors")
+}
 
 func TestParseSSELine(t *testing.T) {
 	t.Parallel()

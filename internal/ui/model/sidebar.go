@@ -216,6 +216,14 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	if swarmLine != "" {
 		blocks = append(blocks, swarmLine)
 	}
+	// Connection status, shown just above the session title (between
+	// the identity block and the title) only while something needs
+	// attention (starting up or reconnecting), so it is noticed
+	// without adding clutter once healthy. Read live from the
+	// workspace so the sidebar and header share one source of truth.
+	if connLine := connectionStatusLine(t, m.com.Workspace.ConnectionState(), width); connLine != "" {
+		blocks = append(blocks, connLine)
+	}
 	blocks = append(
 		blocks,
 		title,

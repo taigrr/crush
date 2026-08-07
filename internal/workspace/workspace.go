@@ -53,6 +53,46 @@ type LSPEvent struct {
 	DiagnosticCount int
 }
 
+// ConnectionState describes a client's connection to the server's live
+// event stream. It distinguishes a connection that has never been
+// established yet (the agent may still be initializing) from one that
+// was established and then dropped and is now being retried.
+type ConnectionState int
+
+const (
+	// ConnectionStateConnecting means the client has not yet
+	// established its first event-stream connection to the server.
+	ConnectionStateConnecting ConnectionState = iota
+	// ConnectionStateConnected means the event stream is up and
+	// events are flowing normally.
+	ConnectionStateConnected
+	// ConnectionStateReconnecting means the client was previously
+	// connected, the stream dropped, and it is now retrying with
+	// backoff.
+	ConnectionStateReconnecting
+)
+
+// String returns a short human-readable label for the state.
+func (s ConnectionState) String() string {
+	switch s {
+	case ConnectionStateConnected:
+		return "connected"
+	case ConnectionStateReconnecting:
+		return "reconnecting"
+	default:
+		return "connecting"
+	}
+}
+
+// ConnectionEvent is pushed to the TUI whenever the client's
+// connection state to the server changes. Unlike LSP/MCP events, this
+// is synthesized entirely client-side (by definition, no server
+// events can arrive while the connection is down).
+type ConnectionEvent struct {
+	State ConnectionState
+	Err   error
+}
+
 // AgentModel holds the model information exposed to the UI.
 type AgentModel struct {
 	CatwalkCfg catwalk.Model
@@ -264,6 +304,11 @@ type Workspace interface {
 	// Events
 	Subscribe(program *tea.Program)
 	Shutdown()
+	// ConnectionState reports the current state of the event-stream
+	// connection to the server. It complements the pushed
+	// ConnectionEvent (via Subscribe) with a pull-based snapshot for
+	// initial paint before any event has arrived.
+	ConnectionState() ConnectionState
 }
 
 // MCPResourceContents holds the contents of an MCP resource.
