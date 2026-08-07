@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,7 +95,7 @@ func TestFormatConversation(t *testing.T) {
 		},
 	}
 
-	out := formatConversation("My Chat", msgs)
+	out := formatConversation("My Chat", msgs, nil)
 
 	require.Contains(t, out, "# My Chat")
 	require.Contains(t, out, "## User\n\nhello there")
@@ -108,6 +109,120 @@ func TestFormatConversation(t *testing.T) {
 
 func TestFormatConversationEmptyTitle(t *testing.T) {
 	t.Parallel()
-	out := formatConversation("", nil)
+	out := formatConversation("", nil, nil)
 	require.Contains(t, out, "# Conversation")
+}
+
+func TestFormatConversationNoToolResultsStillExports(t *testing.T) {
+	t.Parallel()
+	msgs := []message.Message{
+		{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "hi"}}},
+		{Role: message.Assistant, Parts: []message.ContentPart{
+			message.TextContent{Text: "ok"},
+			message.ToolCall{ID: "c1", Name: "bash", Input: `{"command":"ls"}`},
+		}},
+	}
+	out := formatConversation("No Results", msgs, nil)
+	require.Contains(t, out, "### Tool: bash")
+	// Non-review tool: no result section is emitted.
+	require.NotContains(t, out, "**Result:**")
+}
+
+func TestFormatConversationReviewResult(t *testing.T) {
+	t.Parallel()
+	msgs := []message.Message{
+		{
+			ID:   "m1",
+			Role: message.Assistant,
+			Parts: []message.ContentPart{
+				message.ToolCall{ID: "call-1", Name: "review", Input: `{"command":"git diff"}`},
+			},
+		},
+		{
+			Role: message.Tool,
+			Parts: []message.ContentPart{
+				message.ToolResult{ToolCallID: "call-1", Name: "review", Content: "COMBINED SUMMARY of findings"},
+			},
+		},
+	}
+
+	loader := func(parentMessageID, reviewToolCallID string, reviewer int) []message.Message {
+		require.Equal(t, "m1", parentMessageID)
+		require.Equal(t, "call-1", reviewToolCallID)
+		return []message.Message{
+			{Role: message.Assistant, Parts: []message.ContentPart{
+				message.TextContent{Text: fmt.Sprintf("finding from reviewer %d", reviewer+1)},
+			}},
+		}
+	}
+
+	out := formatConversation("Review", msgs, loader)
+	require.Contains(t, out, "### Tool: review")
+	require.Contains(t, out, "**Result:**")
+	require.Contains(t, out, "COMBINED SUMMARY of findings")
+	require.Contains(t, out, "Reviewer 1")
+	require.Contains(t, out, "Reviewer 2")
+	require.Contains(t, out, "finding from reviewer 1")
+	require.Contains(t, out, "finding from reviewer 2")
+}
+
+func TestFormatConversationReviewErrorResult(t *testing.T) {
+	t.Parallel()
+	msgs := []message.Message{
+		{
+			ID:    "m1",
+			Role:  message.Assistant,
+			Parts: []message.ContentPart{message.ToolCall{ID: "call-1", Name: "review", Input: "{}"}},
+		},
+		{
+			Role: message.Tool,
+			Parts: []message.ContentPart{
+				message.ToolResult{ToolCallID: "call-1", Name: "review", Content: "command produced no output", IsError: true},
+			},
+		},
+	}
+	out := formatConversation("Review", msgs, nil)
+	require.Contains(t, out, "**Result (error):**")
+	require.Contains(t, out, "command produced no output")
+}
+
+func TestFormatConversationReviewEmptyErrorResult(t *testing.T) {
+	t.Parallel()
+	msgs := []message.Message{
+		{
+			ID:    "m1",
+			Role:  message.Assistant,
+			Parts: []message.ContentPart{message.ToolCall{ID: "call-1", Name: "review", Input: "{}"}},
+		},
+		{
+			Role: message.Tool,
+			Parts: []message.ContentPart{
+				message.ToolResult{ToolCallID: "call-1", Name: "review", Content: "  ", IsError: true},
+			},
+		},
+	}
+	// Empty/whitespace error content must still surface the failure marker.
+	out := formatConversation("Review", msgs, nil)
+	require.Contains(t, out, "**Result (error):**")
+	require.Contains(t, out, "(no output)")
+}
+
+func TestFormatConversationReviewMissingChildSessions(t *testing.T) {
+	t.Parallel()
+	msgs := []message.Message{
+		{
+			ID:    "m1",
+			Role:  message.Assistant,
+			Parts: []message.ContentPart{message.ToolCall{ID: "call-1", Name: "review", Input: "{}"}},
+		},
+		{
+			Role:  message.Tool,
+			Parts: []message.ContentPart{message.ToolResult{ToolCallID: "call-1", Name: "review", Content: "summary"}},
+		},
+	}
+	// Loader reports no messages for any reviewer (older session / missing).
+	loader := func(_, _ string, _ int) []message.Message { return nil }
+	out := formatConversation("Review", msgs, loader)
+	require.Contains(t, out, "summary")
+	require.NotContains(t, out, "Reviewer 1")
 }
