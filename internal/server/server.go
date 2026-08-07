@@ -136,6 +136,7 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("GET /v1/workspaces/{id}/embeddings/pending", c.handleGetWorkspaceEmbeddingsPending)
 	mux.HandleFunc("POST /v1/workspaces/{id}/embeddings/backfill", c.handlePostWorkspaceEmbeddingsBackfill)
 	mux.HandleFunc("GET /v1/workspaces/{id}/embeddings/status", c.handleGetWorkspaceEmbeddingsStatus)
+	mux.HandleFunc("POST /v1/workspaces/{id}/history/search", c.handlePostWorkspaceHistorySearch)
 	mux.HandleFunc("GET /v1/workspaces/{id}/lsps", c.handleGetWorkspaceLSPs)
 	mux.HandleFunc("GET /v1/workspaces/{id}/lsps/{lsp}/diagnostics", c.handleGetWorkspaceLSPDiagnostics)
 	mux.HandleFunc("POST /v1/workspaces/{id}/lsps/start", c.handlePostWorkspaceLSPStart)

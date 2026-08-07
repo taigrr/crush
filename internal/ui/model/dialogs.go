@@ -19,6 +19,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openSessionsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.SearchPaletteID:
+		if cmd := m.openSearchPaletteDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.ModelsID:
 		if cmd := m.openModelsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)

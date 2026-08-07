@@ -486,6 +486,25 @@ func (c *Client) EmbeddingStatus(ctx context.Context, id string) (proto.Embeddin
 	return status, nil
 }
 
+// SearchHistory runs hybrid history search over a workspace and returns
+// per-session hits.
+func (c *Client) SearchHistory(ctx context.Context, id string, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/history/search", id), nil, jsonBody(params),
+		http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return proto.SearchHistoryResult{}, fmt.Errorf("failed to search history: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return proto.SearchHistoryResult{}, fmt.Errorf("failed to search history: status code %d", rsp.StatusCode)
+	}
+	var res proto.SearchHistoryResult
+	if err := json.NewDecoder(rsp.Body).Decode(&res); err != nil {
+		return proto.SearchHistoryResult{}, fmt.Errorf("failed to decode search result: %w", err)
+	}
+	return res, nil
+}
+
 // GetAgentSessionGoal retrieves the active autonomous goal for a session.
 func (c *Client) GetAgentSessionGoal(ctx context.Context, id, sessionID string) (proto.GoalStatus, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal", id, sessionID), nil, nil)

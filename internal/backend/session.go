@@ -189,3 +189,24 @@ func (b *Backend) EmbeddingStatus(ctx context.Context, workspaceID string) (prot
 	}
 	return ws.EmbeddingStatus(ctx)
 }
+
+// SearchHistory runs hybrid search over a workspace's conversation
+// history and returns per-session hits tagged with the workspace's id and
+// root. In this single-workspace form every hit carries the same tag; the
+// cross-workspace fan-out layers additional workspaces on top under the
+// same result shape.
+func (b *Backend) SearchHistory(ctx context.Context, workspaceID string, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return proto.SearchHistoryResult{}, err
+	}
+	res, err := ws.SearchHistory(ctx, params)
+	if err != nil {
+		return proto.SearchHistoryResult{}, err
+	}
+	for i := range res.Hits {
+		res.Hits[i].WorkspaceID = ws.ID
+		res.Hits[i].WorkspaceRoot = ws.Path
+	}
+	return res, nil
+}

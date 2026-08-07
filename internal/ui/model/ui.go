@@ -392,6 +392,11 @@ type UI struct {
 		index    int
 		draft    string
 	}
+
+	// searchGen is the search palette's debounce generation counter. Each
+	// keystroke bumps it; the debounce tick and the eventual RPC carry the
+	// generation they were scheduled under and are dropped if stale.
+	searchGen int
 }
 
 // New creates a new instance of the [UI] model.
@@ -1322,6 +1327,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case creditsUpdatedMsg:
 		m.hyperCredits = &msg.credits
+	case searchDebounceMsg:
+		if cmd := m.handleSearchDebounce(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case searchResultMsg:
+		if cmd := m.handleSearchResult(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case forkCompletedMsg:
 		// Fork finished — close the progress dialog and switch to the new
 		// session.
@@ -1947,6 +1960,20 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		// Picker cursor moved: debounce a live preview (picker sessions are
 		// always current-workspace).
 		if cmd := m.schedulePreview(msg.SessionID, true); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+
+	// Search palette messages.
+	case dialog.ActionSearchQueryChanged:
+		if cmd := m.handleSearchQueryChanged(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case dialog.ActionPreviewSearchResult:
+		if cmd := m.previewSearchResult(msg.Hit); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case dialog.ActionSelectSearchResult:
+		if cmd := m.commitSearchResult(msg.Hit); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
@@ -2603,6 +2630,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			return true
 		case key.Matches(msg, m.keyMap.Sessions):
 			if cmd := m.toggleLeftSidebar(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return true
+		case key.Matches(msg, m.keyMap.Search):
+			if cmd := m.openSearchPaletteDialog(); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 			return true
