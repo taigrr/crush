@@ -61,6 +61,14 @@ type KeyMap struct {
 		Switch key.Binding
 	}
 
+	// SessionSidebar key maps drive the left session navigator's
+	// vim-style multi-select and bulk actions.
+	SessionSidebar struct {
+		VisualSelect  key.Binding
+		ToggleSelect  key.Binding
+		ArchiveSelect key.Binding
+	}
+
 	// Global key maps
 	Quit       key.Binding
 	Help       key.Binding
@@ -72,6 +80,9 @@ type KeyMap struct {
 	Tab        key.Binding
 	ToggleYolo key.Binding
 	Fullscreen key.Binding
+	// ArchiveSession opens the confirmation modal to archive the current
+	// (active) session from the main window.
+	ArchiveSession key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -115,6 +126,10 @@ func DefaultKeyMap() KeyMap {
 		Tab: key.NewBinding(
 			key.WithKeys("tab"),
 			key.WithHelp("tab", "change focus"),
+		),
+		ArchiveSession: key.NewBinding(
+			key.WithKeys("ctrl+x"),
+			key.WithHelp("ctrl+x", "archive session"),
 		),
 	}
 
@@ -300,6 +315,19 @@ func DefaultKeyMap() KeyMap {
 	km.Initialize.Enter = key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "select"),
+	)
+
+	km.SessionSidebar.VisualSelect = key.NewBinding(
+		key.WithKeys("v"),
+		key.WithHelp("v", "visual select"),
+	)
+	km.SessionSidebar.ToggleSelect = key.NewBinding(
+		key.WithKeys(" "),
+		key.WithHelp("space", "toggle select"),
+	)
+	km.SessionSidebar.ArchiveSelect = key.NewBinding(
+		key.WithKeys("a"),
+		key.WithHelp("a", "archive selected"),
 	)
 
 	return km

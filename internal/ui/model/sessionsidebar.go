@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -65,11 +66,30 @@ type SessionsSidebar struct {
 	// activeSessionID is the session currently open in the main pane, shown
 	// with a marker.
 	activeSessionID string
+
+	// currentRoot is the resolved root of the workspace this client is
+	// pointed at. Bulk archive is scoped to it because the client archive
+	// API can only reach the currently-attached workspace; selected
+	// sessions from other workspaces are skipped (and reported).
+	currentRoot string
+
+	// selected is the set of session IDs currently multi-selected for a
+	// bulk action (keyed by session ID so it survives re-sorts and
+	// row reprojection).
+	selected map[string]bool
+	// visualMode is true while vim-style visual selection is active: cursor
+	// movement sweeps a contiguous range into selected.
+	visualMode bool
+	// anchorID is the session ID where visual mode began. It is stored by
+	// ID (not row index) so an in-progress sweep survives row reprojection
+	// from a background refresh, resize, or re-sort. The swept range runs
+	// between the anchor's current row and the cursor.
+	anchorID string
 }
 
 // NewSessionsSidebar creates an empty sidebar bound to shared context.
 func NewSessionsSidebar(com *common.Common) *SessionsSidebar {
-	return &SessionsSidebar{com: com}
+	return &SessionsSidebar{com: com, selected: map[string]bool{}}
 }
 
 // AttachedSessions returns the sessions of the currently attached
@@ -93,13 +113,57 @@ func (s *SessionsSidebar) WorkspaceCount() int {
 func (s *SessionsSidebar) SetOverviews(overviews []proto.WorkspaceOverview) {
 	prevID := s.selectedSessionID()
 	s.overviews = overviews
+	s.sortSessions()
 	s.rebuildRows()
 	s.restoreCursor(prevID)
 }
 
 // SetActiveSession records which session is open so it can be marked.
 func (s *SessionsSidebar) SetActiveSession(id string) {
+	if s.activeSessionID == id {
+		return
+	}
 	s.activeSessionID = id
+	// Re-sort so the newly active session pins to the top of its
+	// workspace, then reproject rows keeping the cursor where possible.
+	prevID := s.selectedSessionID()
+	s.sortSessions()
+	s.rebuildRows()
+	s.restoreCursor(prevID)
+}
+
+// sortSessions orders each workspace's sessions. The primary key is the
+// same one the popup session picker uses — UpdatedAt (last-message time,
+// most recent first) — but with two deliberate additions the picker does
+// not have: the active session is pinned to the very top of its workspace,
+// and the server's busy → unread priority tiers are preserved. Keeping
+// those tiers matters because computeCaps relies on the pre-sort to keep
+// the most relevant sessions above the per-workspace overflow cap, so a
+// busy/unread session must not sink below an old-but-recently-updated one.
+//
+// Sort key: active first, then busy, then unread, then UpdatedAt desc.
+func (s *SessionsSidebar) sortSessions() {
+	for wi := range s.overviews {
+		sess := s.overviews[wi].Sessions
+		sort.SliceStable(sess, func(i, j int) bool {
+			a, b := sess[i], sess[j]
+			if s.activeSessionID != "" {
+				if a.ID == s.activeSessionID {
+					return true
+				}
+				if b.ID == s.activeSessionID {
+					return false
+				}
+			}
+			if a.IsBusy != b.IsBusy {
+				return a.IsBusy
+			}
+			if a.Unread != b.Unread {
+				return a.Unread
+			}
+			return a.UpdatedAt > b.UpdatedAt
+		})
+	}
 }
 
 func (s *SessionsSidebar) rebuildRows() {
@@ -235,6 +299,36 @@ func (s *SessionsSidebar) MoveDown() {
 	s.moveBy(1)
 }
 
+// MoveTop / MoveBottom jump the cursor to the first/last selectable row,
+// skipping workspace headers.
+func (s *SessionsSidebar) MoveTop() {
+	if len(s.rows) == 0 {
+		return
+	}
+	for i := range s.rows {
+		if s.selectableRow(i) {
+			s.cursor = i
+			s.ensureVisible()
+			s.extendVisual()
+			return
+		}
+	}
+}
+
+func (s *SessionsSidebar) MoveBottom() {
+	if len(s.rows) == 0 {
+		return
+	}
+	for i := len(s.rows) - 1; i >= 0; i-- {
+		if s.selectableRow(i) {
+			s.cursor = i
+			s.ensureVisible()
+			s.extendVisual()
+			return
+		}
+	}
+}
+
 func (s *SessionsSidebar) moveBy(dir int) {
 	if len(s.rows) == 0 {
 		return
@@ -248,8 +342,248 @@ func (s *SessionsSidebar) moveBy(dir int) {
 		if s.selectableRow(i) {
 			s.cursor = i
 			s.ensureVisible()
+			s.extendVisual()
 			return
 		}
+	}
+}
+
+// enterVisualMode toggles vim-style visual selection. Entering anchors the
+// sweep at the current cursor and selects the session under it; toggling it
+// off (or ClearSelection) exits and clears the whole selection.
+func (s *SessionsSidebar) ToggleVisualMode() {
+	if s.visualMode {
+		s.ClearSelection()
+		return
+	}
+	s.visualMode = true
+	s.anchorID = ""
+	if s.selected == nil {
+		s.selected = map[string]bool{}
+	}
+	if id, ok := s.sessionIDAt(s.cursor); ok {
+		s.anchorID = id
+		s.selected[id] = true
+	}
+}
+
+// ClearSelection exits visual mode and drops all selected sessions.
+func (s *SessionsSidebar) ClearSelection() {
+	s.visualMode = false
+	s.anchorID = ""
+	s.selected = map[string]bool{}
+}
+
+// ToggleSelected toggles the session under the cursor in/out of the
+// selection set. It works independently of visual mode, allowing a
+// non-contiguous selection.
+func (s *SessionsSidebar) ToggleSelected() {
+	id, ok := s.sessionIDAt(s.cursor)
+	if !ok {
+		return
+	}
+	if s.selected == nil {
+		s.selected = map[string]bool{}
+	}
+	if s.selected[id] {
+		delete(s.selected, id)
+	} else {
+		s.selected[id] = true
+	}
+}
+
+// extendVisual, while in visual mode, adds every session row between the
+// anchor and the cursor (inclusive) to the selection set. The anchor is
+// resolved from its session ID on demand so a row reprojection (background
+// refresh, resize, re-sort) between movements never corrupts the swept
+// range. Visual sweeping is additive: moving back over a range does not
+// deselect, matching the "space toggles discrete members" model.
+func (s *SessionsSidebar) extendVisual() {
+	if !s.visualMode {
+		return
+	}
+	if s.selected == nil {
+		s.selected = map[string]bool{}
+	}
+	anchorRow := s.rowForSessionID(s.anchorID)
+	if anchorRow < 0 {
+		// Anchor session vanished (e.g. archived elsewhere); re-anchor at
+		// the cursor so the sweep stays coherent.
+		if id, ok := s.sessionIDAt(s.cursor); ok {
+			s.anchorID = id
+		}
+		anchorRow = s.cursor
+	}
+	lo, hi := anchorRow, s.cursor
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	for i := lo; i <= hi; i++ {
+		if id, ok := s.sessionIDAt(i); ok {
+			s.selected[id] = true
+		}
+	}
+}
+
+// rowForSessionID returns the row index whose session has id, or -1.
+func (s *SessionsSidebar) rowForSessionID(id string) int {
+	if id == "" {
+		return -1
+	}
+	for i, r := range s.rows {
+		if r.kind != sidebarRowSession {
+			continue
+		}
+		if s.overviews[r.wsIdx].Sessions[r.sessIdx].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// sessionIDAt returns the session ID for the row at i, if it is a session
+// row.
+func (s *SessionsSidebar) sessionIDAt(i int) (string, bool) {
+	if i < 0 || i >= len(s.rows) {
+		return "", false
+	}
+	r := s.rows[i]
+	if r.kind != sidebarRowSession {
+		return "", false
+	}
+	return s.overviews[r.wsIdx].Sessions[r.sessIdx].ID, true
+}
+
+// VisualMode reports whether visual selection mode is active.
+func (s *SessionsSidebar) VisualMode() bool { return s.visualMode }
+
+// SelectionCount returns how many sessions are currently selected.
+func (s *SessionsSidebar) SelectionCount() int { return len(s.selected) }
+
+// SelectedSessionIDs returns the selected session IDs (unordered).
+func (s *SessionsSidebar) SelectedSessionIDs() []string {
+	ids := make([]string, 0, len(s.selected))
+	for id := range s.selected {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// ArchivableSelection returns the selected session IDs eligible for bulk
+// archive, in deterministic (sorted) order, together with the number of
+// selected sessions that were skipped. A session is skipped when it is the
+// active session (never archive the one the user is viewing) or when it does
+// not provably belong to the current workspace (the client archive API only
+// reaches the attached workspace; cross-workspace archive would require
+// switching workspaces, which the bulk path deliberately avoids).
+//
+// The workspace filter fails CLOSED: a session is archivable only when its
+// workspace root is KNOWN (present in the current overviews) AND equal to
+// currentRoot. Unknown ids (e.g. dropped by a background refresh) and every
+// id when currentRoot is unset are skipped, so a stale/foreign id is never
+// passed to ArchiveSession (which would otherwise report a false success —
+// db.ArchiveSession is an unconditional UPDATE that returns nil for a
+// nonexistent id).
+//
+// INVARIANT: currentRoot (set from workspace.BaseDir) and the overview Root
+// values must use identical path normalization; otherwise the current
+// workspace's own sessions would fail the root == currentRoot check and be
+// silently skipped. This is the same equality assumption isCurrentWorkspace
+// relies on.
+func (s *SessionsSidebar) ArchivableSelection() (ids []string, skippedActive, skippedWorkspace int) {
+	roots := s.sessionRoots()
+	for id := range s.selected {
+		if id == s.activeSessionID {
+			skippedActive++
+			continue
+		}
+		// Fail closed: require a known root equal to the current workspace.
+		root, ok := roots[id]
+		if s.currentRoot == "" || !ok || root != s.currentRoot {
+			skippedWorkspace++
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, skippedActive, skippedWorkspace
+}
+
+// sessionRoots maps each known session ID to its workspace root, for
+// workspace-scoping the bulk archive selection.
+func (s *SessionsSidebar) sessionRoots() map[string]string {
+	roots := make(map[string]string)
+	for _, ws := range s.overviews {
+		for _, sess := range ws.Sessions {
+			roots[sess.ID] = ws.Root
+		}
+	}
+	return roots
+}
+
+// SetCurrentRoot records the resolved root of the workspace this client is
+// pointed at, used to scope bulk archive to it.
+func (s *SessionsSidebar) SetCurrentRoot(root string) {
+	s.currentRoot = root
+}
+
+// SetSelection replaces the selection set with the given IDs (used to keep
+// only the sessions that failed to archive selected after a partial bulk
+// archive). It does not enter visual mode.
+func (s *SessionsSidebar) SetSelection(ids []string) {
+	s.selected = make(map[string]bool, len(ids))
+	for _, id := range ids {
+		s.selected[id] = true
+	}
+	s.visualMode = false
+	s.anchorID = ""
+}
+
+// SurvivingNeighbor returns the session ID nearest to the archived block
+// that will still exist after the given IDs are archived: the first session
+// below the block, else the first above it. Empty if none survive. Used to
+// keep the cursor near where it was instead of snapping to the top.
+func (s *SessionsSidebar) SurvivingNeighbor(archived []string) string {
+	if len(archived) == 0 {
+		return ""
+	}
+	gone := make(map[string]bool, len(archived))
+	for _, id := range archived {
+		gone[id] = true
+	}
+	lo, hi := -1, -1
+	for i, r := range s.rows {
+		if r.kind != sidebarRowSession {
+			continue
+		}
+		if gone[s.overviews[r.wsIdx].Sessions[r.sessIdx].ID] {
+			if lo < 0 {
+				lo = i
+			}
+			hi = i
+		}
+	}
+	if hi < 0 {
+		return ""
+	}
+	for i := hi + 1; i < len(s.rows); i++ {
+		if id, ok := s.sessionIDAt(i); ok && !gone[id] {
+			return id
+		}
+	}
+	for i := lo - 1; i >= 0; i-- {
+		if id, ok := s.sessionIDAt(i); ok && !gone[id] {
+			return id
+		}
+	}
+	return ""
+}
+
+// FocusSessionID moves the cursor onto the session with id if present.
+func (s *SessionsSidebar) FocusSessionID(id string) {
+	if row := s.rowForSessionID(id); row >= 0 {
+		s.cursor = row
+		s.ensureVisible()
 	}
 }
 
@@ -352,6 +686,16 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 		lines = append(lines, t.Resource.AdditionalText.Render("No sessions yet"))
 	}
 
+	// Sidebar-local hint while a multi-selection is active.
+	if n := len(s.selected); n > 0 {
+		mode := ""
+		if s.visualMode {
+			mode = "visual · "
+		}
+		hint := fmt.Sprintf("%s%d selected · a archive · esc clear", mode, n)
+		lines = append(lines, t.Resource.AdditionalText.Render(ansi.Truncate(hint, width, "…")))
+	}
+
 	_ = focused
 	return strings.Join(lines, "\n")
 }
@@ -367,7 +711,8 @@ func (s *SessionsSidebar) renderRows(width int) []string {
 			out = append(out, s.renderWorkspaceRow(t, s.overviews[r.wsIdx], width))
 		case sidebarRowSession:
 			ws := s.overviews[r.wsIdx]
-			out = append(out, s.renderSessionRow(t, ws.Sessions[r.sessIdx], width, selected))
+			sess := ws.Sessions[r.sessIdx]
+			out = append(out, s.renderSessionRow(t, sess, width, selected, s.selected[sess.ID]))
 		case sidebarRowOverflow:
 			out = append(out, s.renderOverflowRow(t, r.remaining, width, selected))
 		}
@@ -401,8 +746,10 @@ func (s *SessionsSidebar) renderWorkspaceRow(t *styles.Styles, ws proto.Workspac
 	return common.Section(t, name, width)
 }
 
-func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected bool) string {
-	// Status glyph: busy dot, unread dot, or blank.
+func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, marked bool) string {
+	// Status glyph: busy dot, unread dot, or blank. When the row is
+	// multi-selected, a check replaces the status dot so the selection is
+	// visually distinct from both the cursor bar and the active arrow.
 	statusStyle := t.Resource.OfflineIcon
 	switch {
 	case sess.IsBusy:
@@ -413,6 +760,9 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 	marker := " "
 	if sess.IsBusy || sess.Unread {
 		marker = statusStyle.String()
+	}
+	if marked {
+		marker = t.Resource.OnlineIcon.SetString(styles.CheckIcon).String()
 	}
 
 	// Active-session arrow, selection bar. The bar (▌) marks the cursor
@@ -455,6 +805,10 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		return t.Dialog.SelectedItem.UnsetPadding().Width(width).Render(line)
 	}
 
+	titleStyle := t.Resource.Name
+	if marked {
+		titleStyle = titleStyle.Bold(true)
+	}
 	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + squareCell + " "
-	return styledPrefix + t.Resource.Name.Render(title)
+	return styledPrefix + titleStyle.Render(title)
 }

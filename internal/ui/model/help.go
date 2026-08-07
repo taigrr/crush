@@ -102,6 +102,34 @@ func (m *UI) FullHelp() [][]key.Binding {
 		commands.SetHelp("/ or ctrl+p", "commands")
 	}
 
+	// When the left session navigator is focused, surface its vim-style
+	// navigation and multi-select/bulk-archive keys alongside the global
+	// keys that still work while it is open.
+	if m.leftSidebarVisible && m.focus == uiFocusLeftSidebar {
+		binds = append(
+			binds,
+			[]key.Binding{
+				commands,
+				k.Sessions,
+			},
+			[]key.Binding{
+				k.Chat.UpDown,
+				k.Chat.Home,
+				k.Chat.End,
+			},
+			[]key.Binding{
+				k.SessionSidebar.VisualSelect,
+				k.SessionSidebar.ToggleSelect,
+				k.SessionSidebar.ArchiveSelect,
+			},
+			[]key.Binding{
+				help,
+				k.Quit,
+			},
+		)
+		return binds
+	}
+
 	switch m.state {
 	case uiInitialize:
 		binds = append(binds,
@@ -139,7 +167,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 			k.Fullscreen,
 		)
 		if hasSession {
-			mainBinds = append(mainBinds, k.Chat.NewSession)
+			mainBinds = append(mainBinds, k.Chat.NewSession, k.ArchiveSession)
 		}
 
 		binds = append(binds, mainBinds)

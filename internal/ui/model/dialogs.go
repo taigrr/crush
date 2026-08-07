@@ -74,6 +74,20 @@ func (m *UI) openQuitDialog() tea.Cmd {
 	return nil
 }
 
+// openArchiveConfirmDialog opens the confirmation modal for archiving the
+// current (active) session.
+func (m *UI) openArchiveConfirmDialog() tea.Cmd {
+	if !m.hasSession() {
+		return nil
+	}
+	if m.dialog.ContainsDialog(dialog.ArchiveConfirmID) {
+		m.dialog.BringToFront(dialog.ArchiveConfirmID)
+		return nil
+	}
+	m.dialog.OpenDialog(dialog.NewArchiveConfirm(m.com))
+	return nil
+}
+
 // openModelsDialog opens the models dialog.
 func (m *UI) openModelsDialog() tea.Cmd {
 	if m.dialog.ContainsDialog(dialog.ModelsID) {
