@@ -170,6 +170,21 @@ func (s *SessionsSidebar) rebuildRows() {
 	s.rows = s.rows[:0]
 	caps := s.computeCaps()
 	for wi, ws := range s.overviews {
+		// Skip workspaces with no visible sessions entirely: don't emit a
+		// header (or overflow) row for a workspace that contributes zero
+		// navigable session rows (e.g. all its sessions are archived). An
+		// empty header would take space and be non-interactive.
+		//
+		// INVARIANT: ws.Sessions holds only VISIBLE (non-archived) sessions
+		// — the server-side overview (ListWorkspaceOverviews) omits archived
+		// ones, and proto.SessionOverview has no Archived field. So
+		// len(ws.Sessions)==0 means "no visible sessions". If a future change
+		// ever includes archived sessions here, a fully-archived workspace
+		// would have len>0 and its header would silently reappear; keep this
+		// check keyed to the visible set.
+		if len(ws.Sessions) == 0 {
+			continue
+		}
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowWorkspace, wsIdx: wi})
 		shown := min(len(ws.Sessions), caps[wi])
 		for si := range shown {
@@ -216,10 +231,22 @@ func (s *SessionsSidebar) computeCaps() []int {
 		return caps
 	}
 
-	// If everything fits, show all sessions with no overflow rows.
+	// If everything fits, show all sessions with no overflow rows. Empty
+	// workspaces contribute nothing (their header is suppressed in
+	// rebuildRows), so they don't count toward the height budget. This
+	// relies on the same invariant as rebuildRows: ws.Sessions is the
+	// visible (non-archived) set, so len==0 means "no visible sessions".
 	total := 0
+	nonEmpty := 0
 	for _, ws := range s.overviews {
+		if len(ws.Sessions) == 0 {
+			continue
+		}
+		nonEmpty++
 		total += 1 + len(ws.Sessions) // header + sessions
+	}
+	if nonEmpty == 0 {
+		return caps
 	}
 	if total <= h {
 		for i, ws := range s.overviews {
@@ -228,9 +255,10 @@ func (s *SessionsSidebar) computeCaps() []int {
 		return caps
 	}
 
-	// Even share: each workspace's block is h/n rows. Reserve one line for
-	// the header and one for the overflow row, then floor at the minimum.
-	perWorkspace := h / n
+	// Even share: each non-empty workspace's block is h/nonEmpty rows.
+	// Reserve one line for the header and one for the overflow row, then
+	// floor at the minimum.
+	perWorkspace := h / nonEmpty
 	cap := max(minSessionsPerWorkspace, perWorkspace-2)
 	for i := range caps {
 		caps[i] = cap
