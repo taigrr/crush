@@ -271,22 +271,29 @@ func (s *SearchPalette) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 // titleInfo renders the effective search mode next to the title so the
 // user can see whether semantic matching is active and whether a search
-// is running.
+// is running. It reflects the EFFECTIVE mode (via semanticUsed), not just
+// the requested override: forcing semantic on with no embedder configured
+// degrades to substring, and the footer shows that so it doesn't lie.
 func (s *SearchPalette) titleInfo() string {
 	t := s.com.Styles
-	mode := "substring"
-	if s.semanticUsed {
-		mode = "hybrid"
+	if s.loading {
+		return t.Dialog.Sessions.InfoBlurred.Render(" searching… ")
 	}
-	if s.semantic != nil {
-		if *s.semantic {
+	var mode string
+	switch {
+	case s.semantic != nil && *s.semantic:
+		// Semantic explicitly forced on; note when it degraded.
+		if s.semanticUsed {
 			mode = "semantic:on"
 		} else {
-			mode = "semantic:off"
+			mode = "semantic:on (substring)"
 		}
-	}
-	if s.loading {
-		mode = "searching…"
+	case s.semantic != nil && !*s.semantic:
+		mode = "semantic:off"
+	case s.semanticUsed:
+		mode = "hybrid"
+	default:
+		mode = "substring"
 	}
 	return t.Dialog.Sessions.InfoBlurred.Render(fmt.Sprintf(" %s ", mode))
 }

@@ -38,7 +38,6 @@ type ActionSelectSession struct {
 	Session session.Session
 }
 
-<<<<<<< HEAD
 // ActionPreviewSession is emitted as the session picker's cursor moves to a
 // new session, so the model can live-preview it (debounced) in the chat view
 // behind the modal without committing. SessionID is the newly highlighted

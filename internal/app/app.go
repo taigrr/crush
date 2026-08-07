@@ -336,7 +336,29 @@ const (
 	searchSessionCandidateFactor = 10
 	searchMinCandidates          = 200
 	searchDefaultSessionLimit    = 50
+	// searchMaxSessionLimit caps the client-supplied Limit so a hostile
+	// or buggy caller can't force an unbounded candidate fetch over the
+	// whole message corpus. SearchHistory is a public-ish RPC; Limit
+	// comes off the wire.
+	searchMaxSessionLimit = 200
 )
+
+// resolveSearchLimits turns a client-supplied session limit into the
+// effective (sessionLimit, candidateLimit) pair: it applies the default
+// when non-positive, clamps to searchMaxSessionLimit so a hostile Limit
+// can't force an unbounded candidate fetch, then derives the over-fetch
+// candidate window.
+func resolveSearchLimits(limit int) (sessionLimit, candidateLimit int) {
+	sessionLimit = limit
+	if sessionLimit <= 0 {
+		sessionLimit = searchDefaultSessionLimit
+	}
+	if sessionLimit > searchMaxSessionLimit {
+		sessionLimit = searchMaxSessionLimit
+	}
+	candidateLimit = max(sessionLimit*searchSessionCandidateFactor, searchMinCandidates)
+	return sessionLimit, candidateLimit
+}
 
 // SearchHistory runs hybrid (substring + semantic) search over this
 // workspace's conversation history and collapses the per-message hits to
@@ -348,11 +370,7 @@ const (
 // WorkspaceID/WorkspaceRoot so cross-workspace callers can group and
 // route results.
 func (app *App) SearchHistory(ctx context.Context, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error) {
-	sessionLimit := params.Limit
-	if sessionLimit <= 0 {
-		sessionLimit = searchDefaultSessionLimit
-	}
-	candidateLimit := max(sessionLimit*searchSessionCandidateFactor, searchMinCandidates)
+	sessionLimit, candidateLimit := resolveSearchLimits(params.Limit)
 
 	emb := embedding.Build(db.New(app.dbConn), app.config.EmbeddingParams())
 	res, err := historysearch.Search(ctx, app.Messages, app.Sessions, emb, params.Query, historysearch.Options{
