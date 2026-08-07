@@ -9,6 +9,7 @@ import (
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/dialog"
@@ -121,6 +122,24 @@ func (m *UI) handlePermissionNotification(notification permission.PermissionNoti
 	if d := m.dialog.Dialog(dialog.PermissionsID); d != nil {
 		if perm, ok := d.(*dialog.Permissions); ok && perm.ToolCallID() == notification.ToolCallID {
 			m.dialog.CloseDialog(dialog.PermissionsID)
+		}
+	}
+}
+
+// handleQuestionNotification dismisses an open question dialog whose
+// tool call ID matches a resolved (answered or cancelled) question, and
+// drops the cached pending request so it is not re-surfaced on a later
+// session switch. Mirrors handlePermissionNotification.
+func (m *UI) handleQuestionNotification(n question.Notification) {
+	if !n.Answered && !n.Cancelled {
+		return
+	}
+	if m.pendingQuestion != nil && m.pendingQuestion.ToolCallID == n.ToolCallID {
+		m.pendingQuestion = nil
+	}
+	if d := m.dialog.Dialog(dialog.QuestionID); d != nil {
+		if q, ok := d.(*dialog.Question); ok && q.ToolCallID() == n.ToolCallID {
+			m.dialog.CloseDialog(dialog.QuestionID)
 		}
 	}
 }

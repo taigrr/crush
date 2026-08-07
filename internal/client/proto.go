@@ -253,6 +253,10 @@ func decodeEvent(p pubsub.Payload) (any, bool) {
 		return unmarshalEvent[proto.PermissionRequest](p.Payload)
 	case pubsub.PayloadTypePermissionNotification:
 		return unmarshalEvent[proto.PermissionNotification](p.Payload)
+	case pubsub.PayloadTypeQuestionRequest:
+		return unmarshalEvent[proto.QuestionRequest](p.Payload)
+	case pubsub.PayloadTypeQuestionNotification:
+		return unmarshalEvent[proto.QuestionNotification](p.Payload)
 	case pubsub.PayloadTypeMessage:
 		return unmarshalEvent[proto.Message](p.Payload)
 	case pubsub.PayloadTypeSession:
@@ -793,6 +797,27 @@ func (c *Client) GrantPermission(ctx context.Context, id string, req proto.Permi
 	var resp proto.PermissionGrantResponse
 	if err := json.NewDecoder(rsp.Body).Decode(&resp); err != nil {
 		return false, fmt.Errorf("failed to decode grant permission response: %w", err)
+	}
+	return resp.Resolved, nil
+}
+
+// AnswerQuestion answers a pending question on a workspace. The
+// returned bool reports whether this call resolved the pending
+// request (true) or found it already resolved by a previous caller
+// (false). A false value is not an error — it just means another
+// subscriber resolved the same request first.
+func (c *Client) AnswerQuestion(ctx context.Context, id string, req proto.QuestionAnswer) (bool, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/questions/answer", id), nil, jsonBody(req), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return false, fmt.Errorf("failed to answer question: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("failed to answer question: status code %d", rsp.StatusCode)
+	}
+	var resp proto.QuestionAnswerResponse
+	if err := json.NewDecoder(rsp.Body).Decode(&resp); err != nil {
+		return false, fmt.Errorf("failed to decode answer question response: %w", err)
 	}
 	return resp.Resolved, nil
 }

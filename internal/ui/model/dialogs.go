@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/taigrr/crush/internal/fork"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/ui/dialog"
 	"github.com/taigrr/crush/internal/ui/util"
 )
@@ -458,6 +459,43 @@ func (m *UI) syncPermissionDialogForSession() tea.Cmd {
 		}
 	}
 	return m.openPermissionsDialog(*m.pendingPermission)
+}
+
+// openQuestionDialog opens the question dialog for a question request.
+func (m *UI) openQuestionDialog(req question.Request) tea.Cmd {
+	// Close any existing question dialog first.
+	m.dialog.CloseDialog(dialog.QuestionID)
+
+	m.dialog.OpenDialogWithGrace(dialog.NewQuestion(m.com, req))
+	return nil
+}
+
+// syncQuestionDialogForSession is the question-tool analog of
+// syncPermissionDialogForSession: it reconciles the question dialog
+// with the currently active session, closing a stale dialog for a
+// different session and re-surfacing the cached pending request when
+// the user switches back to the session it belongs to.
+func (m *UI) syncQuestionDialogForSession() tea.Cmd {
+	activeID := ""
+	if m.session != nil {
+		activeID = m.session.ID
+	}
+
+	if d := m.dialog.Dialog(dialog.QuestionID); d != nil {
+		if q, ok := d.(*dialog.Question); ok && q.SessionID() != activeID {
+			m.dialog.CloseDialog(dialog.QuestionID)
+		}
+	}
+
+	if m.pendingQuestion == nil || activeID == "" || m.pendingQuestion.SessionID != activeID {
+		return nil
+	}
+	if d := m.dialog.Dialog(dialog.QuestionID); d != nil {
+		if q, ok := d.(*dialog.Question); ok && q.ToolCallID() == m.pendingQuestion.ToolCallID {
+			return nil // already showing it
+		}
+	}
+	return m.openQuestionDialog(*m.pendingQuestion)
 }
 
 // handlePermissionNotification updates tool items when permission state changes.

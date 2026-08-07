@@ -810,6 +810,7 @@ func allToolNames() []string {
 		"show_locations",
 		"review",
 		"swarm",
+		"question",
 	}
 }
 

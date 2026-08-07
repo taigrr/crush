@@ -102,6 +102,40 @@ func TestDecodeEventDispatchesByType(t *testing.T) {
 	require.False(t, ok)
 }
 
+// TestDecodeEventDispatchesQuestionEvents is a regression test: the
+// server's wrapEvent/envelope emits PayloadTypeQuestionRequest and
+// PayloadTypeQuestionNotification (see internal/server/events.go), and
+// decodeEvent must recognize both or question dialogs never reach any
+// client — the agent's questions.Ask call would hang until the run is
+// cancelled with no dialog ever appearing.
+func TestDecodeEventDispatchesQuestionEvents(t *testing.T) {
+	t.Parallel()
+
+	reqInner, err := json.Marshal(pubsub.Event[proto.QuestionRequest]{
+		Type:    pubsub.CreatedEvent,
+		Payload: proto.QuestionRequest{ID: "q-1", SessionID: "s-1", ToolCallID: "call-1"},
+	})
+	require.NoError(t, err)
+
+	ev, ok := decodeEvent(pubsub.Payload{Type: pubsub.PayloadTypeQuestionRequest, Payload: reqInner})
+	require.True(t, ok)
+	reqEv, isReq := ev.(pubsub.Event[proto.QuestionRequest])
+	require.True(t, isReq, "expected pubsub.Event[proto.QuestionRequest], got %T", ev)
+	require.Equal(t, "q-1", reqEv.Payload.ID)
+
+	notifInner, err := json.Marshal(pubsub.Event[proto.QuestionNotification]{
+		Type:    pubsub.UpdatedEvent,
+		Payload: proto.QuestionNotification{ToolCallID: "call-1", Answered: true},
+	})
+	require.NoError(t, err)
+
+	ev, ok = decodeEvent(pubsub.Payload{Type: pubsub.PayloadTypeQuestionNotification, Payload: notifInner})
+	require.True(t, ok)
+	notifEv, isNotif := ev.(pubsub.Event[proto.QuestionNotification])
+	require.True(t, isNotif, "expected pubsub.Event[proto.QuestionNotification], got %T", ev)
+	require.True(t, notifEv.Payload.Answered)
+}
+
 // TestSubscribeEventsDeliversFinalUnterminatedEvent verifies the regression
 // fix: an SSE frame that arrives without a trailing newline (the server
 // closes the stream right after writing it) must still be delivered. Before

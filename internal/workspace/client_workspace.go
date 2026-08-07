@@ -26,6 +26,7 @@ import (
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/worktree"
@@ -457,6 +458,19 @@ func (w *ClientWorkspace) PermissionDeny(perm permission.PermissionRequest) bool
 			Params:      perm.Params,
 		},
 		Action: proto.PermissionDeny,
+	})
+	return resolved
+}
+
+// -- Questions --
+
+func (w *ClientWorkspace) QuestionAnswer(ans question.Answer) bool {
+	resolved, _ := w.client.AnswerQuestion(context.Background(), w.workspaceID(), proto.QuestionAnswer{
+		ID:         ans.ID,
+		SessionID:  ans.SessionID,
+		ToolCallID: ans.ToolCallID,
+		Selected:   ans.Selected,
+		Cancelled:  ans.Cancelled,
 	})
 	return resolved
 }
@@ -1438,6 +1452,28 @@ func translateEvent(ev any) tea.Msg {
 				ToolCallID: e.Payload.ToolCallID,
 				Granted:    e.Payload.Granted,
 				Denied:     e.Payload.Denied,
+			},
+		}
+	case pubsub.Event[proto.QuestionRequest]:
+		return pubsub.Event[question.Request]{
+			Type: e.Type,
+			Payload: question.Request{
+				ID:         e.Payload.ID,
+				SessionID:  e.Payload.SessionID,
+				ToolCallID: e.Payload.ToolCallID,
+				Kind:       question.Kind(e.Payload.Kind),
+				Prompt:     e.Payload.Prompt,
+				Options:    e.Payload.Options,
+			},
+		}
+	case pubsub.Event[proto.QuestionNotification]:
+		return pubsub.Event[question.Notification]{
+			Type: e.Type,
+			Payload: question.Notification{
+				SessionID:  e.Payload.SessionID,
+				ToolCallID: e.Payload.ToolCallID,
+				Answered:   e.Payload.Answered,
+				Cancelled:  e.Payload.Cancelled,
 			},
 		}
 	case pubsub.Event[proto.Message]:

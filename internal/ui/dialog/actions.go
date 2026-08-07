@@ -13,6 +13,7 @@ import (
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/common"
@@ -98,6 +99,12 @@ type (
 	ActionPermissionResponse struct {
 		Permission permission.PermissionRequest
 		Action     PermissionAction
+	}
+	// ActionQuestionResponse is emitted when the user answers (or
+	// cancels) a question dialog opened for a pending question.Request.
+	ActionQuestionResponse struct {
+		Request question.Request
+		Answer  question.Answer
 	}
 	// ActionRunCustomCommand is a message to run a custom command.
 	ActionRunCustomCommand struct {
