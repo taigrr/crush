@@ -477,3 +477,155 @@ func TestSidebar_SetSelectionTrimsToFailures(t *testing.T) {
 	require.Equal(t, []string{"b1"}, s.SelectedSessionIDs())
 	require.False(t, s.VisualMode())
 }
+
+// TestSidebar_HidesEmptyWorkspaceHeader verifies a workspace with zero
+// visible sessions emits neither a header nor any row, while a non-empty
+// workspace still shows its header + sessions.
+func TestSidebar_HidesEmptyWorkspaceHeader(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		{Root: "/proj/ghostws", Attached: false}, // no sessions
+		{
+			Root:     "/proj/full",
+			Attached: true,
+			Sessions: []proto.SessionOverview{{ID: "f1", Title: "One"}},
+		},
+	})
+	s.Render(30, 40, true)
+
+	// No row should reference the empty workspace.
+	for _, r := range s.rows {
+		require.NotEqual(t, "/proj/ghostws", s.overviews[r.wsIdx].Root,
+			"empty workspace must contribute no rows (incl. header)")
+	}
+	// The non-empty workspace's header + session are present; the empty
+	// workspace's unique basename must not appear anywhere in the output.
+	out := s.Render(30, 40, true)
+	require.Contains(t, out, "full")
+	require.Contains(t, out, "One")
+	require.NotContains(t, out, "ghostws", "empty workspace header must not render")
+}
+
+// TestSidebar_HeaderShownWhenNonEmpty is the positive control: a workspace
+// with >=1 session shows its header.
+func TestSidebar_HeaderShownWhenNonEmpty(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/a",
+		Attached: true,
+		Sessions: []proto.SessionOverview{{ID: "a1", Title: "One"}},
+	}})
+	s.Render(30, 40, true)
+	hasHeader := false
+	for _, r := range s.rows {
+		if r.kind == sidebarRowWorkspace {
+			hasHeader = true
+		}
+	}
+	require.True(t, hasHeader, "non-empty workspace should have a header row")
+}
+
+// TestSidebar_AllEmptyRendersPlaceholder verifies that when every workspace
+// is empty the body renders the empty placeholder, no stray header, no crash.
+func TestSidebar_AllEmptyRendersPlaceholder(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		{Root: "/proj/a"},
+		{Root: "/proj/b"},
+	})
+	out := s.Render(30, 20, true)
+	require.Empty(t, s.rows, "no rows when all workspaces are empty")
+	require.Contains(t, out, "No sessions yet")
+	_, _, ok := s.Selected()
+	require.False(t, ok)
+}
+
+// TestSidebar_RowIndexIntegrityWithHiddenHeader verifies cursor/row-index
+// mapping (sessionIDAt/rowForSessionID/Selected) stays correct when an empty
+// workspace's header is suppressed between two non-empty workspaces.
+func TestSidebar_RowIndexIntegrityWithHiddenHeader(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		{
+			Root:     "/proj/a",
+			Attached: true,
+			Sessions: []proto.SessionOverview{{ID: "a1", Title: "A1"}},
+		},
+		{Root: "/proj/empty"}, // suppressed
+		{
+			Root:     "/proj/b",
+			Attached: false,
+			Sessions: []proto.SessionOverview{{ID: "b1", Title: "B1"}},
+		},
+	})
+	s.Render(30, 40, true)
+
+	// Cursor starts on a1.
+	_, id, ok := s.Selected()
+	require.True(t, ok)
+	require.Equal(t, "a1", id)
+
+	// Down moves to b1, skipping the (present) /proj/b header and never
+	// landing in the suppressed empty workspace.
+	s.MoveDown()
+	root, id, ok := s.Selected()
+	require.True(t, ok)
+	require.Equal(t, "/proj/b", root)
+	require.Equal(t, "b1", id)
+
+	// Every session row maps back to its own id.
+	for i, r := range s.rows {
+		if r.kind != sidebarRowSession {
+			continue
+		}
+		gotID, ok := s.sessionIDAt(i)
+		require.True(t, ok)
+		require.Equal(t, s.overviews[r.wsIdx].Sessions[r.sessIdx].ID, gotID)
+	}
+}
+
+// TestSidebar_HeaderDropsAfterWorkspaceEmptied simulates a bulk archive
+// emptying a workspace: after a refresh with that workspace now empty, its
+// header is gone and the cursor lands on a valid remaining session.
+func TestSidebar_HeaderDropsAfterWorkspaceEmptied(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		{
+			Root:     "/proj/a",
+			Attached: true,
+			Sessions: []proto.SessionOverview{{ID: "a1", Title: "A1"}},
+		},
+		{
+			Root:     "/proj/b",
+			Attached: false,
+			Sessions: []proto.SessionOverview{{ID: "b1", Title: "B1"}},
+		},
+	})
+	s.Render(30, 40, true)
+	s.MoveDown() // cursor on b1
+	_, id, _ := s.Selected()
+	require.Equal(t, "b1", id)
+
+	// Refresh with /proj/b now empty (its only session archived).
+	s.SetOverviews([]proto.WorkspaceOverview{
+		{
+			Root:     "/proj/a",
+			Attached: true,
+			Sessions: []proto.SessionOverview{{ID: "a1", Title: "A1"}},
+		},
+		{Root: "/proj/b"}, // emptied
+	})
+	s.Render(30, 40, true)
+	for _, r := range s.rows {
+		require.NotEqual(t, "/proj/b", s.overviews[r.wsIdx].Root)
+	}
+	// Cursor snapped to a valid remaining session.
+	_, id, ok := s.Selected()
+	require.True(t, ok)
+	require.Equal(t, "a1", id)
+}
