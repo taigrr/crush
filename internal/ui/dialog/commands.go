@@ -578,6 +578,15 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	}
 	commands = append(commands, NewCommandItem(c.com.Styles, "toggle_low_bandwidth", lowBandwidthLabel, "", ActionToggleLowBandwidth{}))
 
+	// Cross-session swarm toggle. Global (not per-workspace) setting
+	// living in options.swarm.enabled; takes effect at runtime by
+	// refreshing the coder agent's tool set.
+	swarmLabel := "Enable Swarm Mode"
+	if cfg != nil && cfg.Options.SwarmEnabled() {
+		swarmLabel = "Disable Swarm Mode"
+	}
+	commands = append(commands, NewCommandItem(c.com.Styles, "toggle_swarm", swarmLabel, "", ActionToggleSwarmMode{}))
+
 	commands = append(
 		commands,
 		NewCommandItem(c.com.Styles, "quit", "Quit", "ctrl+c", tea.QuitMsg{}).WithAliases("exit"),

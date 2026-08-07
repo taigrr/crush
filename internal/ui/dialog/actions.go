@@ -71,6 +71,7 @@ type (
 	ActionConfirmBackfill             struct{}
 	ActionToggleTransparentBackground struct{}
 	ActionToggleLowBandwidth          struct{}
+	ActionToggleSwarmMode             struct{}
 	ActionInitializeProject           struct{}
 	ActionSummarize                   struct {
 		SessionID string

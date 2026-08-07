@@ -1963,6 +1963,34 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			return util.NewInfoMsg("Low-bandwidth mode " + status)
 		})
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionToggleSwarmMode:
+		cmds = append(cmds, func() tea.Msg {
+			cfg := m.com.Config()
+			if cfg == nil {
+				return util.ReportError(errors.New("configuration not found"))()
+			}
+			newValue := !cfg.Options.SwarmEnabled()
+			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "options.swarm.enabled", newValue); err != nil {
+				return util.ReportError(err)()
+			}
+			status := "disabled"
+			if newValue {
+				status = "enabled"
+			}
+			// Refresh the coder agent's tool set so the swarm tool
+			// appears/disappears immediately. InitCoderAgent
+			// reinitializes the coder agent, which is unsafe to do
+			// underneath an in-flight turn; when the agent is busy we
+			// leave the flip to the next natural buildTools instead.
+			if m.com.Workspace.AgentIsBusy() {
+				return util.NewInfoMsg("Swarm mode " + status + ". Will apply after the current turn.")
+			}
+			if err := m.com.Workspace.InitCoderAgent(context.Background()); err != nil {
+				return util.ReportError(err)()
+			}
+			return util.NewInfoMsg("Swarm mode " + status)
+		})
+		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionQuit:
 		cmds = append(cmds, tea.Quit)
 	case dialog.ActionEnableDockerMCP:

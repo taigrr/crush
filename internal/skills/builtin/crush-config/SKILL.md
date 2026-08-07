@@ -367,6 +367,12 @@ and an animals list). Off by default; opt in globally:
 }
 ```
 
+Swarm can also be toggled at runtime from the command palette
+("Enable/Disable Swarm Mode") without editing `crush.json`; the flip is
+persisted to the global config and the coder agent's tool set refreshes
+immediately (when the agent is idle) so the `swarm` tool appears or
+disappears without a restart.
+
 When enabled, main agents (coder) get a `swarm` tool that accepts:
 
 - `address`: `color-animal` (e.g. `aliceblue-tiger`),
