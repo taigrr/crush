@@ -1936,6 +1936,14 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			}
 		}
 
+		// Same for the search palette: closing without committing discards
+		// any live preview and restores the committed session view.
+		if m.dialog.ContainsDialog(dialog.SearchPaletteID) {
+			if cmd := m.cancelPreview(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
 		m.dialog.CloseFrontDialog()
 
 		if isOnboarding {

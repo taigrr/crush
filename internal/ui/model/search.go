@@ -78,7 +78,8 @@ func (m *UI) handleSearchDebounce(msg searchDebounceMsg) tea.Cmd {
 	}
 	if msg.query == "" {
 		palette.SetResults(nil, false)
-		return nil
+		// No selection to preview: restore the committed view.
+		return m.cancelPreview()
 	}
 	palette.SetLoading(true)
 	return m.runSearchCmd(msg.gen, msg.query, msg.semantic)
@@ -111,28 +112,31 @@ func (m *UI) handleSearchResult(msg searchResultMsg) tea.Cmd {
 	}
 	if msg.err != nil {
 		palette.SetResults(nil, false)
-		return util.ReportError(msg.err)
+		return tea.Batch(m.cancelPreview(), util.ReportError(msg.err))
 	}
 	palette.SetResults(msg.result.Hits, msg.result.SemanticUsed)
-	// Preview the top result as it becomes selected.
+	// Preview the top result as it becomes selected; when there are no
+	// hits, cancel any active preview so the committed view is restored
+	// instead of leaving a stale session shown behind the palette.
 	if hit, ok := palette.SelectedHit(); ok {
 		return m.previewSearchResult(hit)
 	}
-	return nil
+	return m.cancelPreview()
 }
 
 // previewSearchResult is the preview seam: as the palette selection moves,
-// the selected session should hot-load in the main screen using the
-// live-preview mechanism. That mechanism lives on an unmerged branch
-// (feat/session-live-preview); until it lands this is a no-op stub, so the
-// session only loads on commit. Wiring it later is a localized change to
-// this one method.
+// the highlighted session hot-loads (read-only, debounced) in the main
+// view via the shared live-preview mechanism. Only current-workspace hits
+// preview; a foreign-workspace hit (cross-workspace step 2) cancels any
+// active preview and loads only on commit, matching the sidebar's
+// foreign-workspace gating.
 func (m *UI) previewSearchResult(hit proto.SessionHit) tea.Cmd {
-	_ = hit
-	return nil
+	return m.schedulePreview(hit.SessionID, m.isCurrentWorkspace(hit.WorkspaceRoot))
 }
 
-// commitSearchResult closes the palette and loads the chosen session.
+// commitSearchResult closes the palette and loads the chosen session. Any
+// active live preview is discarded by the loadSessionMsg handler, which
+// resets the preview state when the committed session lands.
 //
 // TODO(cross-workspace): this loads hit.SessionID in the current
 // workspace only. Step 2 adds cross-workspace results; commit must then
