@@ -639,6 +639,10 @@
           },
           "type": "array",
           "description": "List of skill names to disable and hide from the agent"
+        },
+        "swarm": {
+          "$ref": "#/$defs/SwarmConfig",
+          "description": "Cross-session coordination (\"swarm\") settings"
         }
       },
       "additionalProperties": false,
@@ -858,6 +862,17 @@
           },
           "type": "array",
           "description": "Glob patterns to exclude from snapshots (e.g. node_modules)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SwarmConfig": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable cross-session swarm messaging (color-animal addressing)",
+          "default": false
         }
       },
       "additionalProperties": false,

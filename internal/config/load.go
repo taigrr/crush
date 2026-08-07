@@ -36,6 +36,10 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 	// Migrate deprecated disable_notifications before loading config.
 	migrateDisableNotifications()
 
+	// Drop a fresh schema.json next to the global config so editors can
+	// validate fork-specific fields without hitting a stale upstream URL.
+	go writeGlobalSchema()
+
 	configPaths := lookupConfigs(workingDir)
 
 	cfg, loadedPaths, err := loadFromConfigPaths(configPaths)
