@@ -200,7 +200,6 @@ func (s *Manager) startServer(ctx context.Context, name, filepath string, server
 	}
 
 	client, err := New(
-		ctx,
 		name,
 		cfg,
 		s.cfg.Resolver(),

@@ -43,8 +43,8 @@ type Client struct {
 	// Configuration for this LSP client
 	config config.LSPConfig
 
-	// Original context and resolver for recreating the client
-	ctx      context.Context
+	// resolver expands variables in the configured command/args/env
+	// when (re)creating the underlying server process.
 	resolver config.VariableResolver
 
 	// Diagnostic change callback
@@ -67,7 +67,6 @@ type Client struct {
 
 // New creates a new LSP client using the powernap implementation.
 func New(
-	ctx context.Context,
 	name string,
 	cfg config.LSPConfig,
 	resolver config.VariableResolver,
@@ -80,7 +79,6 @@ func New(
 		diagnostics: csync.NewVersionedMap[protocol.DocumentURI, []protocol.Diagnostic](),
 		openFiles:   csync.NewMap[string, *OpenFileInfo](),
 		config:      cfg,
-		ctx:         ctx,
 		debug:       debug,
 		resolver:    resolver,
 		cwd:         cwd,
@@ -224,7 +222,14 @@ func (c *Client) Restart() error {
 		openFiles = append(openFiles, string(uri))
 	}
 
-	closeCtx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
+	// Restart is an independent lifecycle operation, so derive its
+	// timeouts from a fresh background context rather than c.ctx. The
+	// stored c.ctx is whatever request/tool context first triggered this
+	// client's creation (e.g. a view or diagnostics tool call) and is
+	// almost always already cancelled by the time a restart is
+	// requested; inheriting it would make these timeouts born cancelled
+	// and cause Initialize to fail immediately with "context canceled".
+	closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := c.Close(closeCtx); err != nil {
@@ -240,7 +245,7 @@ func (c *Client) Restart() error {
 		return err
 	}
 
-	initCtx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+	initCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	c.SetServerState(StateStarting)
