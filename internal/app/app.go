@@ -40,6 +40,7 @@ import (
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/shell"
 	"github.com/taigrr/crush/internal/skills"
@@ -63,6 +64,7 @@ type App struct {
 	Messages    message.Service
 	History     history.Service
 	Permissions permission.Service
+	Questions   question.Service
 	FileTracker filetracker.Service
 	Checkpoints checkpoint.Service
 	Worktrees   worktree.Service
@@ -174,6 +176,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		Messages:    messages,
 		History:     files,
 		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
+		Questions:   question.NewQuestionService(),
 		FileTracker: filetracker.NewService(q),
 		Checkpoints: checkpoints,
 		Worktrees:   worktrees,
@@ -704,6 +707,8 @@ func (app *App) setupEvents() {
 	setupSubscriber(ctx, app.serviceEventsWG, "messages", app.Messages.Subscribe, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "permissions", app.Permissions.Subscribe, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "permissions-notifications", app.Permissions.SubscribeNotifications, app.events)
+	setupSubscriber(ctx, app.serviceEventsWG, "questions", app.Questions.Subscribe, app.events)
+	setupSubscriber(ctx, app.serviceEventsWG, "questions-notifications", app.Questions.SubscribeNotifications, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "history", app.History.Subscribe, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "fork-progress", app.Forks.SubscribeProgress, app.events)
 	setupSubscriber(ctx, app.serviceEventsWG, "agent-notifications", app.agentNotifications.Subscribe, app.events)
@@ -792,6 +797,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		app.Messages,
 		app.Checkpoints,
 		app.Permissions,
+		app.Questions,
 		app.History,
 		app.FileTracker,
 		app.Milestones,

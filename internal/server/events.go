@@ -16,6 +16,7 @@ import (
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
 )
@@ -70,6 +71,28 @@ func wrapEvent(ev any) *pubsub.Payload {
 				ToolCallID: e.Payload.ToolCallID,
 				Granted:    e.Payload.Granted,
 				Denied:     e.Payload.Denied,
+			},
+		})
+	case pubsub.Event[question.Request]:
+		return envelope(pubsub.PayloadTypeQuestionRequest, pubsub.Event[proto.QuestionRequest]{
+			Type: e.Type,
+			Payload: proto.QuestionRequest{
+				ID:         e.Payload.ID,
+				SessionID:  e.Payload.SessionID,
+				ToolCallID: e.Payload.ToolCallID,
+				Kind:       proto.QuestionKind(e.Payload.Kind),
+				Prompt:     e.Payload.Prompt,
+				Options:    e.Payload.Options,
+			},
+		})
+	case pubsub.Event[question.Notification]:
+		return envelope(pubsub.PayloadTypeQuestionNotification, pubsub.Event[proto.QuestionNotification]{
+			Type: e.Type,
+			Payload: proto.QuestionNotification{
+				SessionID:  e.Payload.SessionID,
+				ToolCallID: e.Payload.ToolCallID,
+				Answered:   e.Payload.Answered,
+				Cancelled:  e.Payload.Cancelled,
 			},
 		})
 	case pubsub.Event[message.Message]:
@@ -161,6 +184,10 @@ func sessionScopedEvent(ev any) (sessionID string, scoped bool) {
 	case pubsub.Event[permission.PermissionRequest]:
 		return e.Payload.SessionID, true
 	case pubsub.Event[permission.PermissionNotification]:
+		return e.Payload.SessionID, true
+	case pubsub.Event[question.Request]:
+		return e.Payload.SessionID, true
+	case pubsub.Event[question.Notification]:
 		return e.Payload.SessionID, true
 	default:
 		return "", false

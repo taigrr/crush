@@ -42,6 +42,7 @@ import (
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/stringext"
@@ -214,6 +215,12 @@ type UI struct {
 	// is not currently viewing and (b) re-surface it when the user
 	// switches back to that session. Cleared when the request resolves.
 	pendingPermission *permission.PermissionRequest
+
+	// pendingQuestion mirrors pendingPermission for the question tool:
+	// it caches the most recent unresolved question request this
+	// client has seen so it can be suppressed/re-surfaced across
+	// session switches the same way permission prompts are.
+	pendingQuestion *question.Request
 
 	// keeps track of read files while we don't have a session id
 	sessionFileReads []string
@@ -663,6 +670,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.syncPermissionDialogForSession(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		if cmd := m.syncQuestionDialogForSession(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
 		msgs, err := m.com.Workspace.ListMessages(context.Background(), m.session.ID)
 		if err != nil {
@@ -699,6 +709,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rightSidebarOffset = 0
 		m.com.Workspace.SetActiveSessionID(m.session.ID)
 		if cmd := m.syncPermissionDialogForSession(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if cmd := m.syncQuestionDialogForSession(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
@@ -901,6 +914,26 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case pubsub.Event[permission.PermissionNotification]:
 		m.handlePermissionNotification(msg.Payload)
+	case pubsub.Event[question.Request]:
+		// Mirrors the permission.PermissionRequest case above: cache
+		// the request so it can be re-surfaced on session switch, and
+		// only pop the dialog for the session the user is currently
+		// viewing.
+		q := msg.Payload
+		m.pendingQuestion = &q
+		if m.session != nil && q.SessionID == m.session.ID {
+			if cmd := m.openQuestionDialog(q); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if cmd := m.sendNotification(notification.Notification{
+			Title:   "Crush is waiting...",
+			Message: "The agent has a question for you.",
+		}); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case pubsub.Event[question.Notification]:
+		m.handleQuestionNotification(msg.Payload)
 	case cancelTimerExpiredMsg:
 		m.handleCancelTimerExpired(msg)
 	case workspaceOverviewsMsg:
@@ -2154,6 +2187,14 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		case dialog.PermissionDeny:
 			m.com.Workspace.PermissionDeny(msg.Permission)
 		}
+
+	case dialog.ActionQuestionResponse:
+		m.dialog.CloseDialog(dialog.QuestionID)
+		// Same eager-clear rationale as ActionPermissionResponse above.
+		if m.pendingQuestion != nil && m.pendingQuestion.ToolCallID == msg.Request.ToolCallID {
+			m.pendingQuestion = nil
+		}
+		m.com.Workspace.QuestionAnswer(msg.Answer)
 
 	case dialog.ActionFilePickerSelected:
 		cmds = append(cmds, tea.Sequence(
@@ -4171,6 +4212,7 @@ func (m *UI) newSession() tea.Cmd {
 	m.com.Workspace.SetActiveSessionID("")
 	// Close any permission dialog bound to the session we just left.
 	m.syncPermissionDialogForSession()
+	m.syncQuestionDialogForSession()
 	m.setState(uiLanding, uiFocusEditor)
 	m.textarea.Focus()
 	m.chat.Blur()

@@ -20,6 +20,7 @@ import (
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/worktree"
@@ -162,6 +163,18 @@ type Workspace interface {
 	PermissionSetSkipRequests(skip bool)
 	PermissionSysadminMode() bool
 	PermissionSetSysadminMode(enabled bool)
+
+	// Questions
+	//
+	// QuestionAnswer resolves a pending question (or reports it as
+	// cancelled via ans.Cancelled). It returns true if the call
+	// resolved the pending request and false if it had already been
+	// resolved by another subscriber (or is no longer pending). A
+	// false return is not an error; the dialog can still close
+	// locally because the resolution will arrive via the question
+	// notification event stream regardless of which client won the
+	// race.
+	QuestionAnswer(ans question.Answer) bool
 
 	// FileTracker
 	FileTrackerRecordRead(ctx context.Context, sessionID, path string)

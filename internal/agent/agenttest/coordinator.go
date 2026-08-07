@@ -14,6 +14,7 @@ import (
 	"github.com/taigrr/crush/internal/embedding"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/fantasy/providers/openaicompat"
 )
@@ -72,6 +73,7 @@ func NewCoordinator(
 		messages,
 		nil,
 		permission.NewPermissionService(workingDir, true, nil),
+		question.NewQuestionService(),
 		nil,
 		nil,
 		nil,

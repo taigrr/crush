@@ -37,6 +37,7 @@ import (
 	"github.com/taigrr/crush/internal/oauth/copilot"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/pubsub"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/swarm"
@@ -135,6 +136,7 @@ type coordinator struct {
 	messages    message.Service
 	checkpoints checkpoint.Service
 	permissions permission.Service
+	questions   question.Service
 	history     history.Service
 	filetracker filetracker.Service
 	milestones  milestone.Service
@@ -224,6 +226,7 @@ func NewCoordinator(
 	messages message.Service,
 	checkpoints checkpoint.Service,
 	permissions permission.Service,
+	questions question.Service,
 	history history.Service,
 	filetracker filetracker.Service,
 	milestones milestone.Service,
@@ -254,6 +257,7 @@ func NewCoordinator(
 		messages:            messages,
 		checkpoints:         checkpoints,
 		permissions:         permissions,
+		questions:           questions,
 		history:             history,
 		filetracker:         filetracker,
 		milestones:          milestones,
@@ -962,6 +966,21 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.WithContextGate(tools.NewEditorContextTool(), tools.EditorAttached),
 		tools.WithContextGate(tools.NewShowLocationsTool(), tools.EditorAttached),
 	)
+
+	// Question tool: last-resort escalation to the user for genuinely
+	// blocking, ambiguous, high-stakes decisions (see question.md).
+	// Only offered to main agents — sub-agents (task/reviewer) get
+	// workflow-scoped sessions and must not interrupt the user — and
+	// only when an interactive client can actually answer (mirrors the
+	// permission service's skip-requests signal; see
+	// tools.QuestionCapable). NewQuestionTool re-checks the same
+	// condition at call time as a defense-in-depth hard-fail.
+	if !isSubAgent {
+		allTools = append(
+			allTools,
+			tools.WithContextGate(tools.NewQuestionTool(c.permissions, c.questions), tools.QuestionCapable(c.permissions)),
+		)
+	}
 
 	// Add LSP tools if user has configured LSPs or auto_lsp is enabled (nil or true).
 	if len(c.cfg.Config().LSP) > 0 || c.cfg.Config().Options.AutoLSP == nil || *c.cfg.Config().Options.AutoLSP {
