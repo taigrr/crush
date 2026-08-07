@@ -478,7 +478,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		agentCfg := cfgPrime.Agents[config.AgentCoder]
 		model := cfgPrime.GetModelByType(agentCfg.Model)
 		if model != nil && model.SupportsImages {
-			commands = append(commands, NewCommandItem(c.com.Styles, "file_picker", "Open File Picker", "ctrl+f", ActionOpenDialog{
+			commands = append(commands, NewCommandItem(c.com.Styles, "file_picker", "Open File Picker", "", ActionOpenDialog{
 				DialogID: FilePickerID,
 			}))
 		}

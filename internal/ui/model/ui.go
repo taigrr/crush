@@ -2421,6 +2421,17 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			}
 			return true
 		case key.Matches(msg, m.keyMap.Fullscreen):
+			// In compact mode there is no persistent right sidebar for
+			// chatFullscreen to hide (the compact layout branch never
+			// reads it), which made ctrl+f silently do nothing whenever
+			// compact mode was forced via the "Toggle Sidebar" command.
+			// Delegate to the compact mode's own panel toggle (ctrl+d)
+			// instead so ctrl+f always does something.
+			if m.isCompact {
+				m.detailsOpen = !m.detailsOpen
+				m.updateLayoutAndSize()
+				return true
+			}
 			// Fullscreen chat: hide both the left navigator and the right
 			// info sidebar. Leaving fullscreen restores the right sidebar;
 			// the left navigator stays closed (reopen with ctrl+s).
