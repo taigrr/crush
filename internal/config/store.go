@@ -746,7 +746,7 @@ func (s *ConfigStore) ReloadFromDisk(ctx context.Context) error {
 }
 
 // reloadFromDiskLocked performs the actual reload. Caller must hold reloadMu.
-func (s *ConfigStore) reloadFromDiskLocked(ctx context.Context) error {
+func (s *ConfigStore) reloadFromDiskLocked(_ context.Context) error {
 	// Migrate deprecated disable_notifications before reloading config.
 	migrateDisableNotifications()
 

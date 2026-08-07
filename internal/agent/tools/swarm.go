@@ -275,7 +275,7 @@ func isSelfAddress(address, senderID string, senderIdent swarm.Identity) bool {
 // firstLine returns up to maxRunes runes of the first non-empty line
 // of s, used to synthesize a default title for `swarm new` sessions.
 func firstLine(s string, maxRunes int) string {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
