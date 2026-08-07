@@ -58,7 +58,8 @@ internal/
 - **`charm.land/bubbletea/v2`**: TUI framework powering the interactive UI.
 - **`charm.land/lipgloss/v2`**: Terminal styling.
 - **`charm.land/glamour/v2`**: Markdown rendering in the terminal.
-- **`charm.land/catwalk`**: Snapshot/golden-file testing for TUI components.
+- **`charm.land/catwalk`**: Community-supported catalog of Crush-compatible
+  models and provider configs.
 - **`sqlc`**: Generates Go code from SQL queries in `internal/db/sql/`.
 
 ### Key Patterns
@@ -102,11 +103,6 @@ internal/
 - **Build**: `go build .` or `go run .`
 - **Test**: `task test` or `go test ./...` (run single test:
   `go test ./internal/llm/prompt -run TestGetContextFromPaths`)
-- **Update Golden Files**: `go test ./... -update` (regenerates `.golden`
-  files when test output changes)
-  - Update specific package:
-    `go test ./internal/tui/components/core -update` (in this case,
-    we're updating "core")
 - **Lint**: `task lint:fix`
 - **Format**: `task fmt` (`gofumpt -w .`)
 - **Modernize**: `task modernize` (runs `modernize` which makes code
