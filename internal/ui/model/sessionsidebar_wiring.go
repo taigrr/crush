@@ -309,3 +309,42 @@ func (m *UI) drawLeftSidebar(scr uv.Screen, area image.Rectangle) {
 	view := m.leftSidebar.Render(area.Dx(), area.Dy(), focused)
 	uv.NewStyledString(view).Draw(scr, area)
 }
+
+// handleLeftSidebarClick handles a mouse click that may land in the left
+// session navigator. It returns (cmd, true) when the click was inside the
+// sidebar rect and consumed (so the caller stops further click routing), or
+// (nil, false) when the click was elsewhere and should fall through to the
+// chat/other handlers.
+//
+// A click on a session row focuses the sidebar, moves the cursor there, and
+// activates it via the same path as enter/l (activateLeftSidebarSelection),
+// preserving the cross-workspace switch handling. A click on a header or
+// overflow row just moves the cursor (and focuses). A click on the fixed top
+// matter focuses the sidebar but does nothing else.
+func (m *UI) handleLeftSidebarClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
+	if !m.leftSidebarVisible {
+		return nil, false
+	}
+	area := m.layout.leftSidebar
+	if area.Dx() <= 0 || area.Dy() <= 0 {
+		return nil, false
+	}
+	if !image.Pt(msg.X, msg.Y).In(area) {
+		return nil, false
+	}
+	// Focus the sidebar on any click within it, mirroring click-to-focus
+	// for other panels. Any in-rect click is a fresh single action, so it
+	// also clears an in-progress multi-select — including clicks on the
+	// fixed top matter / header / overflow (which ClickToActivate returns
+	// from early), so a header-area click doesn't leave a stale selection.
+	m.focus = uiFocusLeftSidebar
+	m.leftSidebar.ClearSelection()
+	localY := msg.Y - area.Min.Y
+	activatable, _ := m.leftSidebar.ClickToActivate(localY, area.Dy())
+	if activatable {
+		return m.activateLeftSidebarSelection(), true
+	}
+	// Header/overflow/fixed-matter click: consumed (cursor may have moved),
+	// but nothing to open.
+	return nil, true
+}

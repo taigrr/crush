@@ -42,6 +42,13 @@ type sidebarRow struct {
 // is tight (a workspace with fewer sessions shows only what it has).
 const minSessionsPerWorkspace = 5
 
+// summaryMinHeight is the sidebar height at/above which the 3-line
+// ready/working/total summary block is shown. Below it the fixed header is
+// just the section title + a blank line, so short terminals still show
+// session rows. Click hit-testing uses fixedHeaderHeight, which honors this
+// same threshold, so the two never disagree.
+const summaryMinHeight = 8
+
 // SessionsSidebar is the left panel listing every known workspace and its
 // sessions for cross-workspace navigation. It follows the imperative
 // component pattern (see internal/ui/AGENTS.md): no Bubble Tea Update; the
@@ -721,12 +728,11 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 	// At very small heights, drop the summary block so short terminals
 	// still show session rows: below summaryMinHeight the fixed header is
 	// just the title + blank (2 lines), matching the pre-summary layout.
-	const summaryMinHeight = 8
+	showSummary := height >= summaryMinHeight
 	lines := []string{common.Section(t, "Sessions", width)}
-	headerLines := 2 // title + trailing blank
-	if height >= summaryMinHeight {
+	headerLines := s.fixedHeaderHeight(height)
+	if showSummary {
 		lines = append(lines, s.summaryLines(width)...)
-		headerLines += 3 // the 3 summary lines
 	}
 	lines = append(lines, "")
 
@@ -773,6 +779,59 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 
 	_ = focused
 	return strings.Join(lines, "\n")
+}
+
+// fixedHeaderHeight returns the number of fixed (non-scrolling, non-row)
+// lines rendered above the session list for the given sidebar height: the
+// section title + trailing blank (2), plus the 3-line summary block when the
+// height is at least summaryMinHeight. Click hit-testing subtracts this from
+// the clicked line so screen-Y maps to the same rows the cursor uses.
+func (s *SessionsSidebar) fixedHeaderHeight(height int) int {
+	h := 2 // section title + trailing blank
+	if height >= summaryMinHeight {
+		h += 3 // ready/working/total
+	}
+	return h
+}
+
+// ClickToActivate maps a click at localY (0-based, relative to the sidebar's
+// own top edge) for a sidebar rendered at the given height to a projected
+// row, and — if that row is a session — moves the cursor there and reports
+// activatable=true so the caller can run the normal open path. A click on a
+// workspace header or the "…N more" overflow row moves the cursor there (so
+// the click still "lands") but is not activatable. A click on the fixed top
+// matter (title, summary, blank) or below the last row is a no-op
+// (activatable=false, moved=false).
+//
+// Coordinate math: localY covers the whole sidebar column. Subtracting
+// fixedHeaderHeight(height) yields the body line (0-based, first visible
+// row). Adding s.scroll — the index of the first visible row, updated every
+// Render — maps to the absolute row index in s.rows, the SAME projection
+// sessionIDAt/rowForSessionID use. So it is correct at both header sizes and
+// at any scroll offset.
+//
+// A plain click is a fresh single action: it clears any in-progress
+// multi-select selection and never enters visual mode.
+func (s *SessionsSidebar) ClickToActivate(localY, height int) (activatable, moved bool) {
+	header := s.fixedHeaderHeight(height)
+	if localY < header {
+		return false, false // clicked the fixed top matter
+	}
+	rowIdx := s.scroll + (localY - header)
+	if rowIdx < 0 || rowIdx >= len(s.rows) {
+		return false, false // clicked empty space past the last row
+	}
+	// Fresh single action: drop any multi-selection / visual mode.
+	s.ClearSelection()
+	s.cursor = rowIdx
+	s.ensureVisible()
+	switch s.rows[rowIdx].kind {
+	case sidebarRowSession:
+		return true, true
+	default:
+		// Header or overflow: cursor moved, but nothing to activate here.
+		return false, true
+	}
 }
 
 // summaryLines renders the fixed 3-line count block shown under the section
