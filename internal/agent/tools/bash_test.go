@@ -25,6 +25,8 @@ func (m *mockBashPermissionService) Grant(req permission.PermissionRequest) bool
 
 func (m *mockBashPermissionService) Deny(req permission.PermissionRequest) bool { return true }
 
+func (m *mockBashPermissionService) CancelAll() {}
+
 func (m *mockBashPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true
 }
@@ -101,6 +103,8 @@ func (m *recordingPermissionService) Request(ctx context.Context, req permission
 func (m *recordingPermissionService) Grant(req permission.PermissionRequest) bool { return true }
 
 func (m *recordingPermissionService) Deny(req permission.PermissionRequest) bool { return true }
+
+func (m *recordingPermissionService) CancelAll() {}
 
 func (m *recordingPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true

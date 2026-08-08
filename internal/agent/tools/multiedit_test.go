@@ -24,6 +24,8 @@ func (m *mockPermissionService) Grant(req permission.PermissionRequest) bool { r
 
 func (m *mockPermissionService) Deny(req permission.PermissionRequest) bool { return true }
 
+func (m *mockPermissionService) CancelAll() {}
+
 func (m *mockPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true
 }
