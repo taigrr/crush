@@ -67,6 +67,7 @@ type KeyMap struct {
 		VisualSelect  key.Binding
 		ToggleSelect  key.Binding
 		ArchiveSelect key.Binding
+		Inbox         key.Binding
 	}
 
 	// Global key maps
@@ -333,6 +334,16 @@ func DefaultKeyMap() KeyMap {
 	km.SessionSidebar.ArchiveSelect = key.NewBinding(
 		key.WithKeys("a"),
 		key.WithHelp("a", "archive selected"),
+	)
+	// Inbox toggle: ctrl+i is byte 0x09 == Tab in terminals without the
+	// Kitty keyboard protocol (which Crush does not enable), and Tab is
+	// already bound to change-focus — so ctrl+i would be an ambiguous
+	// alias. Use a plain "i" instead; it is only handled while the sidebar
+	// is focused (handleLeftSidebarKey), where single letters like v/a are
+	// already owned, and is mnemonic for Inbox.
+	km.SessionSidebar.Inbox = key.NewBinding(
+		key.WithKeys("i"),
+		key.WithHelp("i", "inbox/sessions"),
 	)
 
 	return km

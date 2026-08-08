@@ -98,6 +98,12 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, true
 	case key.Matches(msg, m.keyMap.SessionSidebar.ArchiveSelect):
 		return m.archiveSelectedSessions(), true
+	case key.Matches(msg, m.keyMap.SessionSidebar.Inbox):
+		// Toggle inbox/sessions view. The cursor stays on the same session
+		// where possible, so re-run the preview scheduler for the (possibly
+		// unchanged) selection after reprojection.
+		m.leftSidebar.ToggleInbox()
+		return m.scheduleSidebarPreview(), true
 	}
 	switch msg.String() {
 	case "enter", "l":
