@@ -9,10 +9,24 @@ import (
 	"github.com/taigrr/crush/internal/ui/util"
 )
 
-// previewDebounce is how long the highlighted session must stay put before a
-// live preview load fires. Rapid j/k movement supersedes the pending load so
-// only the settled session is fetched.
+// previewDebounce is the trailing-debounce window used once a burst is in
+// progress: the highlighted session must stay put this long before the load
+// fires. Rapid j/k movement supersedes the pending load so only the settled
+// session is fetched.
 const previewDebounce = 150 * time.Millisecond
+
+// previewBurstWindow bounds a rolling "burst" of preview navigation. The
+// first previewBurstInstant loads within the window fire immediately (leading
+// edge); once that many have fired inside the window, further loads fall back
+// to the trailing previewDebounce. An idle gap longer than this window resets
+// the burst so a later single move is instant again. It is set slightly wider
+// than previewDebounce so a settle-then-move cadence still counts as one
+// burst.
+const previewBurstWindow = 250 * time.Millisecond
+
+// previewBurstInstant is how many loads at the leading edge of a burst fire
+// immediately before the trailing debounce takes over.
+const previewBurstInstant = 2
 
 // previewTickMsg fires after the debounce window; gen lets us drop stale
 // ticks when the cursor moved again before the timer elapsed.
@@ -34,8 +48,14 @@ type previewLoadedMsg struct {
 //     workspace's session would require a heavy workspace attach/switch, so
 //     those load only on commit (enter). We leave the current view as-is.
 //
-// Otherwise it records the pending id, bumps the supersede generation, and
-// returns a tick command; the actual fetch happens on previewTickMsg.
+// Otherwise it records the pending id and bumps the supersede generation.
+// Load timing follows a leading-edge burst pattern (see previewBurstWindow):
+// the first previewBurstInstant loads in a burst fire IMMEDIATELY via
+// previewLoadCmd; the third and later within the window return a trailing
+// tick command and the fetch happens on previewTickMsg. Both paths funnel
+// through the same pending-id + previewGen supersede guards, so an instant
+// load that is superseded before it resolves is dropped just like a ticked
+// one (see handlePreviewLoaded / handlePreviewTick).
 func (m *UI) schedulePreview(id string, currentWorkspace bool) tea.Cmd {
 	committed := ""
 	if m.session != nil {
@@ -60,10 +80,38 @@ func (m *UI) schedulePreview(id string, currentWorkspace bool) tea.Cmd {
 	}
 	m.pendingPreviewID = id
 	m.previewGen++
+	if m.registerPreviewBurst() {
+		// Leading edge of the burst: fire the load now. The load still
+		// carries m.pendingPreviewID, and handlePreviewLoaded drops it at
+		// render time if the cursor has moved on (pending id changed) — so
+		// the instant path keeps the same supersede protection as the tick
+		// path without waiting for the debounce.
+		return m.previewLoadCmd(id)
+	}
 	gen := m.previewGen
 	return tea.Tick(previewDebounce, func(time.Time) tea.Msg {
 		return previewTickMsg{gen: gen}
 	})
+}
+
+// registerPreviewBurst records a preview load against the rolling burst
+// window and reports whether it should fire immediately (leading edge). The
+// first previewBurstInstant loads within previewBurstWindow return true; once
+// that many have accumulated in the window the caller uses the trailing
+// debounce. An idle gap longer than the window resets the counter so a later
+// single navigation is instant again.
+func (m *UI) registerPreviewBurst() bool {
+	now := time.Now
+	if m.previewNow != nil {
+		now = m.previewNow
+	}
+	t := now()
+	if m.previewBurstCount == 0 || t.Sub(m.previewLastNav) > previewBurstWindow {
+		m.previewBurstCount = 0
+	}
+	m.previewLastNav = t
+	m.previewBurstCount++
+	return m.previewBurstCount <= previewBurstInstant
 }
 
 // handlePreviewTick fires the actual load if the tick is still current.
