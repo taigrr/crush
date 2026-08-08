@@ -432,6 +432,25 @@ func (m *UI) openPermissionsDialog(perm permission.PermissionRequest) tea.Cmd {
 	return nil
 }
 
+// pendingSessionIDs returns the set of session IDs that currently have
+// an unresolved permission or question request cached on this client.
+// The session sidebar consults it to draw a "pending" indicator on
+// background sessions blocked on a prompt, so they are visible in the
+// list before the user switches to them.
+func (m *UI) pendingSessionIDs() map[string]bool {
+	if len(m.pendingPermissions) == 0 && len(m.pendingQuestions) == 0 {
+		return nil
+	}
+	ids := make(map[string]bool, len(m.pendingPermissions)+len(m.pendingQuestions))
+	for id := range m.pendingPermissions {
+		ids[id] = true
+	}
+	for id := range m.pendingQuestions {
+		ids[id] = true
+	}
+	return ids
+}
+
 // syncPermissionDialogForSession reconciles the permissions dialog with
 // the currently active session. It must be called whenever the active
 // session changes. It closes an open permissions dialog that belongs to
@@ -454,15 +473,16 @@ func (m *UI) syncPermissionDialogForSession() tea.Cmd {
 
 	// Re-surface the pending request if it belongs to the active session
 	// and no dialog is currently shown for it.
-	if m.pendingPermission == nil || activeID == "" || m.pendingPermission.SessionID != activeID {
+	pending := m.pendingPermissions[activeID]
+	if pending == nil || activeID == "" {
 		return nil
 	}
 	if d := m.dialog.Dialog(dialog.PermissionsID); d != nil {
-		if perm, ok := d.(*dialog.Permissions); ok && perm.ToolCallID() == m.pendingPermission.ToolCallID {
+		if perm, ok := d.(*dialog.Permissions); ok && perm.ToolCallID() == pending.ToolCallID {
 			return nil // already showing it
 		}
 	}
-	return m.openPermissionsDialog(*m.pendingPermission)
+	return m.openPermissionsDialog(*pending)
 }
 
 // openQuestionDialog opens the question dialog for a question request.
@@ -491,15 +511,16 @@ func (m *UI) syncQuestionDialogForSession() tea.Cmd {
 		}
 	}
 
-	if m.pendingQuestion == nil || activeID == "" || m.pendingQuestion.SessionID != activeID {
+	pending := m.pendingQuestions[activeID]
+	if pending == nil || activeID == "" {
 		return nil
 	}
 	if d := m.dialog.Dialog(dialog.QuestionID); d != nil {
-		if q, ok := d.(*dialog.Question); ok && q.ToolCallID() == m.pendingQuestion.ToolCallID {
+		if q, ok := d.(*dialog.Question); ok && q.ToolCallID() == pending.ToolCallID {
 			return nil // already showing it
 		}
 	}
-	return m.openQuestionDialog(*m.pendingQuestion)
+	return m.openQuestionDialog(*pending)
 }
 
 // handlePermissionNotification updates tool items when permission state changes.

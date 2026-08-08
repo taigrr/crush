@@ -116,8 +116,9 @@ func (m *UI) handlePermissionNotification(notification permission.PermissionNoti
 	}
 	// The request is resolved: drop the cached pending request so it is
 	// not re-surfaced on a later session switch.
-	if m.pendingPermission != nil && m.pendingPermission.ToolCallID == notification.ToolCallID {
-		m.pendingPermission = nil
+	if p := m.pendingPermissions[notification.SessionID]; p != nil && p.ToolCallID == notification.ToolCallID {
+		delete(m.pendingPermissions, notification.SessionID)
+		m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
 	}
 	if d := m.dialog.Dialog(dialog.PermissionsID); d != nil {
 		if perm, ok := d.(*dialog.Permissions); ok && perm.ToolCallID() == notification.ToolCallID {
@@ -134,8 +135,9 @@ func (m *UI) handleQuestionNotification(n question.Notification) {
 	if !n.Answered && !n.Cancelled {
 		return
 	}
-	if m.pendingQuestion != nil && m.pendingQuestion.ToolCallID == n.ToolCallID {
-		m.pendingQuestion = nil
+	if q := m.pendingQuestions[n.SessionID]; q != nil && q.ToolCallID == n.ToolCallID {
+		delete(m.pendingQuestions, n.SessionID)
+		m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
 	}
 	if d := m.dialog.Dialog(dialog.QuestionID); d != nil {
 		if q, ok := d.(*dialog.Question); ok && q.ToolCallID() == n.ToolCallID {

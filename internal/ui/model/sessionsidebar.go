@@ -135,6 +135,27 @@ type SessionsSidebar struct {
 	// from a background refresh, resize, or re-sort. The swept range runs
 	// between the anchor's current row and the cursor.
 	anchorID string
+
+	// pendingSessions is the set of session IDs (any workspace) that
+	// currently have an unresolved permission or question request cached
+	// by this client. The row renderer consults HasPending to draw a
+	// red "prompt-pending" indicator so a background session blocked on
+	// a prompt is visible in the list before the user switches to it.
+	pendingSessions map[string]bool
+}
+
+// SetPendingSessions replaces the set of session IDs that have an
+// unresolved permission/question request. The main model calls this
+// whenever a request is cached or resolved. A nil/empty map clears all
+// indicators.
+func (s *SessionsSidebar) SetPendingSessions(ids map[string]bool) {
+	s.pendingSessions = ids
+}
+
+// HasPending reports whether the given session has an unresolved
+// permission or question request awaiting a response on this client.
+func (s *SessionsSidebar) HasPending(sessionID string) bool {
+	return s.pendingSessions[sessionID]
 }
 
 // NewSessionsSidebar creates an empty sidebar bound to shared context.
@@ -314,9 +335,15 @@ func (s *SessionsSidebar) SessionCounts() SessionCounts {
 			}
 			c.Total++
 			switch {
+			case s.HasPending(sess.ID):
+				// A session blocked on a prompt shows the red dot, not
+				// green, so it must not inflate the Ready tally. Count it
+				// as Working (it is active and needs attention), keeping
+				// Ready == number of visible green dots.
+				c.Working++
 			case sess.IsBusy:
 				c.Working++
-			case sess.Unread:
+			case sessionReady(sess):
 				// Ready == waiting-for-review == the green dot in
 				// renderSessionRow (Unread and not busy).
 				c.Ready++
@@ -1186,18 +1213,27 @@ func (s *SessionsSidebar) renderWorkspaceRow(t *styles.Styles, ws proto.Workspac
 }
 
 func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, marked bool, tag string) string {
-	// Status glyph: busy dot, unread dot, or blank. When the row is
-	// multi-selected, a check replaces the status dot so the selection is
-	// visually distinct from both the cursor bar and the active arrow.
+	// Status glyph: pending-prompt dot (red), busy dot (yellow), unread
+	// dot (green), or blank. Pending outranks busy because a session
+	// blocked on a permission/question prompt is almost always ALSO busy
+	// (its agent run is still in-flight while Request blocks); if busy
+	// won, the red dot would never show for the case it exists to flag.
+	// Pending is the actionable "needs you now" state, so it takes the
+	// row. When multi-selected, a check replaces the status dot so the
+	// selection is visually distinct from both the cursor bar and the
+	// active arrow.
+	pending := s.HasPending(sess.ID)
 	statusStyle := t.Resource.OfflineIcon
 	switch {
+	case pending:
+		statusStyle = t.Resource.ErrorIcon
 	case sess.IsBusy:
 		statusStyle = t.Resource.BusyIcon
 	case sess.Unread:
 		statusStyle = t.Resource.OnlineIcon
 	}
 	marker := " "
-	if sess.IsBusy || sess.Unread {
+	if pending || sess.IsBusy || sess.Unread {
 		marker = statusStyle.String()
 	}
 	if marked {

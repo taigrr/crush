@@ -519,11 +519,16 @@ func TestE2E_PermissionFlowCrossClient(t *testing.T) {
 	require.False(t, resolvedB, "client B's follow-up grant must report already resolved")
 }
 
-// TestE2E_PermissionPromptNotLeakedToOtherSession verifies the
-// server-side session scoping: a permission request for session A is
-// delivered only to clients viewing session A. A client viewing a
-// different session must not receive the prompt.
-func TestE2E_PermissionPromptNotLeakedToOtherSession(t *testing.T) {
+// TestE2E_PermissionPromptBroadcastToBackgroundSession verifies the
+// broadcast behavior: a permission request (and its resolution
+// notification) for session-a is delivered to EVERY client attached to
+// the workspace, including a client currently viewing a different
+// session. This is required so a background/non-focused session (e.g. a
+// swarm-dispatched turn) that hits a prompt is not stranded with no
+// client able to answer it. Workspace isolation still holds because the
+// SSE stream is per-workspace; the client caches the request per session
+// and only auto-opens the modal for the session it is viewing.
+func TestE2E_PermissionPromptBroadcastToBackgroundSession(t *testing.T) {
 	t.Parallel()
 	h := newE2EHarness(t)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -540,11 +545,11 @@ func TestE2E_PermissionPromptNotLeakedToOtherSession(t *testing.T) {
 	h.waitForAttached(t, 2)
 
 	// A views session-a, B views session-b. The request targets
-	// session-a, so only A should observe it.
+	// session-a; B must still receive it (broadcast).
 	require.NoError(t, h.backend.SetCurrentSession(h.workspace.ID, cidA, "session-a"))
 	require.NoError(t, h.backend.SetCurrentSession(h.workspace.ID, cidB, "session-b"))
 
-	const toolCallID = "tc-leak"
+	const toolCallID = "tc-bcast"
 	go func() {
 		_, _ = h.app.Permissions.Request(ctx, permission.CreatePermissionRequest{
 			SessionID:   "session-a",
@@ -556,27 +561,37 @@ func TestE2E_PermissionPromptNotLeakedToOtherSession(t *testing.T) {
 		})
 	}()
 
-	// A must receive the prompt.
 	pickCtx, pickCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer pickCancel()
+
+	// A (viewing session-a) receives the prompt.
 	reqEv, ok := drainUntil(pickCtx, evcA, func(e pubsub.Event[proto.PermissionRequest]) bool {
 		return e.Payload.ToolCallID == toolCallID
 	})
 	require.True(t, ok, "client A (viewing session-a) must receive the request")
 
-	// B must NOT receive the prompt within a short window.
-	leakCtx, leakCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer leakCancel()
-	_, leaked := drainUntil(leakCtx, evcB, func(e pubsub.Event[proto.PermissionRequest]) bool {
+	// B (viewing session-b) must ALSO receive the prompt now that
+	// requests are broadcast to all workspace clients.
+	_, okB := drainUntil(pickCtx, evcB, func(e pubsub.Event[proto.PermissionRequest]) bool {
 		return e.Payload.ToolCallID == toolCallID
 	})
-	require.False(t, leaked, "client B (viewing session-b) must not receive the request")
+	require.True(t, okB, "client B (viewing session-b) must receive the broadcast request")
 
 	// Resolve so the goroutine's Request call returns.
 	h.grantPermission(t, ctx, h.workspace.ID, proto.PermissionGrant{
 		Permission: reqEv.Payload,
 		Action:     proto.PermissionAllow,
 	})
+
+	// The resolution notification must also broadcast to B so a client
+	// that cached the request (but had no open modal) can clear its
+	// per-session pending entry — otherwise a later switch to session-a
+	// would resurface a stale "zombie" prompt.
+	notif, okN := drainUntil(pickCtx, evcB, func(e pubsub.Event[proto.PermissionNotification]) bool {
+		return e.Payload.ToolCallID == toolCallID && e.Payload.Granted
+	})
+	require.True(t, okN, "client B must receive the broadcast resolution notification")
+	require.True(t, notif.Payload.Granted)
 }
 
 // TestE2E_KillingClientASSEDoesNotBreakClientB covers PLAN item 6

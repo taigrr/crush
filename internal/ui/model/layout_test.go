@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/textarea"
+	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/common"
@@ -43,14 +45,17 @@ func newTestUI() *UI {
 	ta.Focus()
 
 	u := &UI{
-		com:      com,
-		status:   NewStatus(com, nil),
-		chat:     NewChat(com),
-		textarea: ta,
-		state:    uiChat,
-		focus:    uiFocusEditor,
-		width:    140,
-		height:   45,
+		com:                com,
+		status:             NewStatus(com, nil),
+		chat:               NewChat(com),
+		leftSidebar:        NewSessionsSidebar(com),
+		textarea:           ta,
+		state:              uiChat,
+		focus:              uiFocusEditor,
+		width:              140,
+		height:             45,
+		pendingPermissions: make(map[string]*permission.PermissionRequest),
+		pendingQuestions:   make(map[string]*question.Request),
 	}
 
 	return u
