@@ -191,15 +191,31 @@ func (w *ClientWorkspace) DeleteSession(ctx context.Context, sessionID string) e
 }
 
 func (w *ClientWorkspace) ArchiveSession(ctx context.Context, sessionID string) error {
-	return w.client.ArchiveSession(ctx, w.workspaceID(), sessionID)
+	return w.client.ArchiveSession(ctx, w.workspaceID(), "", sessionID)
+}
+
+// ArchiveSessionInWorkspace archives a session in an explicit workspace,
+// which may be a workspace other than the one this client is attached to
+// (including a detached, registry-known workspace routed by root). When
+// workspaceID is empty the server resolves the workspace from root.
+func (w *ClientWorkspace) ArchiveSessionInWorkspace(ctx context.Context, workspaceID, root, sessionID string) error {
+	return w.client.ArchiveSession(ctx, workspaceID, root, sessionID)
 }
 
 func (w *ClientWorkspace) UnarchiveSession(ctx context.Context, sessionID string) error {
-	return w.client.UnarchiveSession(ctx, w.workspaceID(), sessionID)
+	return w.client.UnarchiveSession(ctx, w.workspaceID(), "", sessionID)
 }
 
 func (w *ClientWorkspace) MarkSessionSeen(ctx context.Context, sessionID string) error {
-	return w.client.MarkSessionSeen(ctx, w.workspaceID(), sessionID)
+	return w.client.MarkSessionSeen(ctx, w.workspaceID(), "", sessionID)
+}
+
+// MarkSessionSeenInWorkspace marks a session read in an explicit workspace,
+// which may differ from the attached one (including a detached workspace
+// routed by root). When workspaceID is empty the server resolves the
+// workspace from root.
+func (w *ClientWorkspace) MarkSessionSeenInWorkspace(ctx context.Context, workspaceID, root, sessionID string) error {
+	return w.client.MarkSessionSeen(ctx, workspaceID, root, sessionID)
 }
 
 func (w *ClientWorkspace) ListArchivedSessions(ctx context.Context) ([]session.Session, error) {

@@ -38,7 +38,26 @@ func (w *archiveStubWorkspace) MarkSessionSeen(_ context.Context, id string) err
 	return nil
 }
 
+func (w *archiveStubWorkspace) MarkSessionSeenInWorkspace(_ context.Context, _, _, id string) error {
+	if w.markFailIDs[id] {
+		return errors.New("mark seen failed for " + id)
+	}
+	w.markedRead = append(w.markedRead, id)
+	return nil
+}
+
 func (w *archiveStubWorkspace) ArchiveSession(_ context.Context, id string) error {
+	if w.failIDs[id] {
+		return errors.New("archive failed for " + id)
+	}
+	if w.archiveErr != nil {
+		return w.archiveErr
+	}
+	w.archived = append(w.archived, id)
+	return nil
+}
+
+func (w *archiveStubWorkspace) ArchiveSessionInWorkspace(_ context.Context, _, _, id string) error {
 	if w.failIDs[id] {
 		return errors.New("archive failed for " + id)
 	}
@@ -150,7 +169,7 @@ func TestArchiveSessionsCmd_CollectsAllFailures(t *testing.T) {
 	m := &UI{com: &common.Common{Styles: &s, Workspace: ws}}
 
 	// a, b, c in deterministic order; b fails, a and c succeed.
-	msg := m.archiveSessionsCmd([]string{"a", "b", "c"}, "", 0)().(sessionsArchivedMsg)
+	msg := m.archiveSessionsCmd([]SessionTarget{{ID: "a"}, {ID: "b"}, {ID: "c"}}, "", 0)().(sessionsArchivedMsg)
 
 	require.Equal(t, 2, msg.succeeded)
 	require.Equal(t, []string{"b"}, msg.failed)

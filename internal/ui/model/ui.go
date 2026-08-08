@@ -1085,7 +1085,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)))
 		case msg.succeeded > 0 && msg.skipped > 0:
 			cmds = append(cmds, util.ReportInfo(fmt.Sprintf(
-				"Archived %d session(s); skipped %d (active or not in this workspace)", msg.succeeded, msg.skipped,
+				"Archived %d session(s); skipped %d (active or busy)", msg.succeeded, msg.skipped,
 			)))
 		case msg.succeeded > 0:
 			cmds = append(cmds, util.ReportInfo(fmt.Sprintf(
@@ -1109,10 +1109,6 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case len(msg.failed) > 0:
 			cmds = append(cmds, util.ReportError(fmt.Errorf(
 				"Marked %d read; %d failed", msg.succeeded, len(msg.failed),
-			)))
-		case msg.succeeded > 0 && msg.skipped > 0:
-			cmds = append(cmds, util.ReportInfo(fmt.Sprintf(
-				"Marked %d read; skipped %d (not in this workspace)", msg.succeeded, msg.skipped,
 			)))
 		case msg.succeeded > 0:
 			cmds = append(cmds, util.ReportInfo(fmt.Sprintf(

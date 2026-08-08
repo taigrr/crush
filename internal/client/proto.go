@@ -1002,9 +1002,38 @@ func (c *Client) DeleteSession(ctx context.Context, id string, sessionID string)
 	return nil
 }
 
-// ArchiveSession archives a session in a workspace.
-func (c *Client) ArchiveSession(ctx context.Context, id string, sessionID string) error {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/archive", id, sessionID), nil, nil, nil)
+// detachedWorkspacePathID is the placeholder used in the {id} path
+// segment when routing a session write to a DETACHED workspace, which has
+// no server-side workspace id. The backend resolves such a request by the
+// "root" query parameter instead. It is a non-UUID string, so it can never
+// collide with a real (UUID) attached workspace id.
+const detachedWorkspacePathID = "-"
+
+// workspacePathID returns the {id} path segment for a session-write route,
+// substituting the detached placeholder when the workspace id is empty (a
+// detached workspace routed by root).
+func workspacePathID(id string) string {
+	if id == "" {
+		return detachedWorkspacePathID
+	}
+	return id
+}
+
+// rootQuery builds the optional ?root= query used to route a session write
+// to a detached workspace.
+func rootQuery(root string) url.Values {
+	if root == "" {
+		return nil
+	}
+	q := url.Values{}
+	q.Set("root", root)
+	return q
+}
+
+// ArchiveSession archives a session in a workspace. When id is empty the
+// request is routed to the detached workspace at root.
+func (c *Client) ArchiveSession(ctx context.Context, id, root, sessionID string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/archive", workspacePathID(id), sessionID), rootQuery(root), nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to archive session: %w", err)
 	}
@@ -1015,9 +1044,10 @@ func (c *Client) ArchiveSession(ctx context.Context, id string, sessionID string
 	return nil
 }
 
-// MarkSessionSeen marks a session as read in a workspace.
-func (c *Client) MarkSessionSeen(ctx context.Context, id string, sessionID string) error {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/seen", id, sessionID), nil, nil, nil)
+// MarkSessionSeen marks a session as read in a workspace. When id is empty
+// the request is routed to the detached workspace at root.
+func (c *Client) MarkSessionSeen(ctx context.Context, id, root, sessionID string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/seen", workspacePathID(id), sessionID), rootQuery(root), nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to mark session seen: %w", err)
 	}
@@ -1028,9 +1058,10 @@ func (c *Client) MarkSessionSeen(ctx context.Context, id string, sessionID strin
 	return nil
 }
 
-// UnarchiveSession unarchives a session in a workspace.
-func (c *Client) UnarchiveSession(ctx context.Context, id string, sessionID string) error {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/unarchive", id, sessionID), nil, nil, nil)
+// UnarchiveSession unarchives a session in a workspace. When id is empty
+// the request is routed to the detached workspace at root.
+func (c *Client) UnarchiveSession(ctx context.Context, id, root, sessionID string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/unarchive", workspacePathID(id), sessionID), rootQuery(root), nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to unarchive session: %w", err)
 	}

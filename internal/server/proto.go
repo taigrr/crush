@@ -674,8 +674,9 @@ func (c *controllerV1) handleDeleteWorkspaceSession(w http.ResponseWriter, r *ht
 //
 //	@Summary		Archive a session
 //	@Tags			sessions
-//	@Param			id	path	string	true	"Workspace ID"
-//	@Param			sid	path	string	true	"Session ID"
+//	@Param			id		path	string	true	"Workspace ID"
+//	@Param			sid		path	string	true	"Session ID"
+//	@Param			root	query	string	false	"Workspace root (routes to a detached workspace when id is not attached)"
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
@@ -683,7 +684,8 @@ func (c *controllerV1) handleDeleteWorkspaceSession(w http.ResponseWriter, r *ht
 func (c *controllerV1) handleArchiveWorkspaceSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
-	if err := c.backend.ArchiveSession(r.Context(), id, sid); err != nil {
+	root := r.URL.Query().Get("root")
+	if err := c.backend.ArchiveSession(r.Context(), id, root, sid); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -694,8 +696,9 @@ func (c *controllerV1) handleArchiveWorkspaceSession(w http.ResponseWriter, r *h
 //
 //	@Summary		Mark a session as read
 //	@Tags			sessions
-//	@Param			id	path	string	true	"Workspace ID"
-//	@Param			sid	path	string	true	"Session ID"
+//	@Param			id		path	string	true	"Workspace ID"
+//	@Param			sid		path	string	true	"Session ID"
+//	@Param			root	query	string	false	"Workspace root (routes to a detached workspace when id is not attached)"
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
@@ -703,7 +706,8 @@ func (c *controllerV1) handleArchiveWorkspaceSession(w http.ResponseWriter, r *h
 func (c *controllerV1) handleMarkWorkspaceSessionSeen(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
-	if err := c.backend.MarkSessionSeen(r.Context(), id, sid); err != nil {
+	root := r.URL.Query().Get("root")
+	if err := c.backend.MarkSessionSeen(r.Context(), id, root, sid); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
@@ -723,7 +727,8 @@ func (c *controllerV1) handleMarkWorkspaceSessionSeen(w http.ResponseWriter, r *
 func (c *controllerV1) handleUnarchiveWorkspaceSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
-	if err := c.backend.UnarchiveSession(r.Context(), id, sid); err != nil {
+	root := r.URL.Query().Get("root")
+	if err := c.backend.UnarchiveSession(r.Context(), id, root, sid); err != nil {
 		c.handleError(w, r, err)
 		return
 	}
