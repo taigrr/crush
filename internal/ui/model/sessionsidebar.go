@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/proto"
@@ -111,6 +113,16 @@ type SessionsSidebar struct {
 	// sessions from other workspaces are skipped (and reported).
 	currentRoot string
 
+	// searchMode is true while the "/" text filter is active. In this mode
+	// rebuildRows applies searchInput's value as a case-insensitive
+	// substring predicate over each session's title and subtext, in BOTH
+	// the grouped and inbox projections. A header/section that filters to
+	// zero sessions is omitted.
+	searchMode bool
+	// searchInput mirrors the popup picker's filter textinput (see
+	// dialog/sessions.go): it holds the live query the user is typing.
+	searchInput textinput.Model
+
 	// selected is the set of session IDs currently multi-selected for a
 	// bulk action (keyed by session ID so it survives re-sorts and
 	// row reprojection).
@@ -127,7 +139,97 @@ type SessionsSidebar struct {
 
 // NewSessionsSidebar creates an empty sidebar bound to shared context.
 func NewSessionsSidebar(com *common.Common) *SessionsSidebar {
-	return &SessionsSidebar{com: com, selected: map[string]bool{}}
+	ti := textinput.New()
+	ti.SetVirtualCursor(false)
+	// The sidebar renders its own "/" prefix in Render, so clear the
+	// textinput's default "> " prompt to avoid a doubled prompt.
+	ti.Prompt = ""
+	ti.Placeholder = "Filter sessions"
+	if com != nil && com.Styles != nil {
+		ti.SetStyles(com.Styles.TextInput)
+	}
+	return &SessionsSidebar{com: com, selected: map[string]bool{}, searchInput: ti}
+}
+
+// EnterSearch activates the "/" text filter: focuses the input, clears any
+// in-progress multi-select (a fresh filter is a new context; a stale
+// selection must not survive into a filtered view and get bulk-archived),
+// and reprojects rows. It composes with the current view mode (grouped or
+// inbox).
+func (s *SessionsSidebar) EnterSearch() {
+	if s.searchMode {
+		return
+	}
+	// Entering search is a fresh action: drop any multi-select/visual sweep.
+	s.ClearSelection()
+	s.searchMode = true
+	s.searchInput.SetValue("")
+	s.searchInput.Focus()
+	prevID := s.selectedSessionID()
+	s.rebuildRows()
+	s.restoreCursor(prevID)
+}
+
+// ExitSearch leaves the filter mode, clears the query, blurs the input, and
+// restores the full (unfiltered) list, keeping the cursor on the same
+// session where possible.
+func (s *SessionsSidebar) ExitSearch() {
+	if !s.searchMode {
+		return
+	}
+	prevID := s.selectedSessionID()
+	s.searchMode = false
+	s.searchInput.SetValue("")
+	s.searchInput.Blur()
+	s.rebuildRows()
+	s.restoreCursor(prevID)
+}
+
+// Searching reports whether the "/" text filter is active.
+func (s *SessionsSidebar) Searching() bool { return s.searchMode }
+
+// HandleSearchKey feeds a key to the filter input while search mode is
+// active and re-filters. It returns whether the query changed (so the
+// caller can reschedule the live preview for the new top result). Callers
+// must only invoke it for keys they want to route to the input; navigation
+// and action keys are handled before this.
+func (s *SessionsSidebar) HandleSearchKey(msg tea.KeyPressMsg) bool {
+	before := s.searchInput.Value()
+	var cmd tea.Cmd
+	s.searchInput, cmd = s.searchInput.Update(msg)
+	_ = cmd // the sidebar input needs no async cursor-blink command
+	after := s.searchInput.Value()
+	if after == before {
+		return false
+	}
+	prevID := s.selectedSessionID()
+	s.rebuildRows()
+	// After a query change the previously-selected session may be filtered
+	// out; restoreCursor falls back to the first match in that case.
+	s.restoreCursor(prevID)
+	return true
+}
+
+// searchQuery returns the current lowercased, trimmed filter query, or "".
+func (s *SessionsSidebar) searchQuery() string {
+	if !s.searchMode {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(s.searchInput.Value()))
+}
+
+// sessionMatchesFilter reports whether a session passes the active filter.
+// The predicate is a case-insensitive substring over the session's TITLE
+// plus its SUBTEXT — the workspace basename (the inbox tag / group header)
+// and the swarm animal — so a query can match by project or swarm name too.
+// With no active query every session matches.
+func (s *SessionsSidebar) sessionMatchesFilter(sess proto.SessionOverview, root string) bool {
+	q := s.searchQuery()
+	if q == "" {
+		return true
+	}
+	hay := strings.ToLower(sess.Title + " " + filepath.Base(root) + " " + sess.Animal)
+	return strings.Contains(hay, q)
 }
 
 // AttachedSessions returns the sessions of the currently attached
@@ -200,11 +302,16 @@ type SessionCounts struct {
 
 // SessionCounts computes the live ready/working/total tally. It reads
 // straight from the current overviews, so it is always in sync with the
-// latest SetOverviews / SetActiveSession refresh.
+// latest SetOverviews / SetActiveSession refresh. When a "/" filter is
+// active the tally is computed over the FILTERED set only, so the summary
+// block agrees with the (filtered) rows shown below it.
 func (s *SessionsSidebar) SessionCounts() SessionCounts {
 	var c SessionCounts
 	for _, ws := range s.overviews {
 		for _, sess := range ws.Sessions {
+			if !s.sessionMatchesFilter(sess, ws.Root) {
+				continue
+			}
 			c.Total++
 			switch {
 			case sess.IsBusy:
@@ -310,6 +417,9 @@ func (s *SessionsSidebar) rebuildInboxRows() {
 	var running, unread, other []ref
 	for wi, ws := range s.overviews {
 		for si, sess := range ws.Sessions {
+			if !s.sessionMatchesFilter(sess, ws.Root) {
+				continue
+			}
 			switch {
 			case sess.IsBusy:
 				running = append(running, ref{wi, si})
@@ -345,32 +455,46 @@ func (s *SessionsSidebar) rebuildInboxRows() {
 	emit("Read", other)
 }
 
+// filteredIdxs returns the indices (into ws.Sessions, preserving sort order)
+// of the sessions in workspace wi that pass the active filter. With no
+// active query it returns every index.
+func (s *SessionsSidebar) filteredIdxs(wi int) []int {
+	ws := s.overviews[wi]
+	idxs := make([]int, 0, len(ws.Sessions))
+	for si, sess := range ws.Sessions {
+		if s.sessionMatchesFilter(sess, ws.Root) {
+			idxs = append(idxs, si)
+		}
+	}
+	return idxs
+}
+
 // rebuildGroupedRows projects the default workspace-grouped, tiered view
-// with per-workspace headers and "…N more" overflow rows.
+// with per-workspace headers and "…N more" overflow rows. When a filter is
+// active, only matching sessions are emitted and a workspace that filters to
+// zero matches contributes no header (composes with hide-empty-headers).
 func (s *SessionsSidebar) rebuildGroupedRows() {
 	caps := s.computeCaps()
-	for wi, ws := range s.overviews {
-		// Skip workspaces with no visible sessions entirely: don't emit a
-		// header (or overflow) row for a workspace that contributes zero
-		// navigable session rows (e.g. all its sessions are archived). An
-		// empty header would take space and be non-interactive.
+	for wi := range s.overviews {
+		// Skip workspaces with no visible (and, when filtering, no matching)
+		// sessions entirely: don't emit a header (or overflow) row for a
+		// workspace that contributes zero navigable session rows. An empty
+		// header would take space and be non-interactive.
 		//
 		// INVARIANT: ws.Sessions holds only VISIBLE (non-archived) sessions
 		// — the server-side overview (ListWorkspaceOverviews) omits archived
-		// ones, and proto.SessionOverview has no Archived field. So
-		// len(ws.Sessions)==0 means "no visible sessions". If a future change
-		// ever includes archived sessions here, a fully-archived workspace
-		// would have len>0 and its header would silently reappear; keep this
-		// check keyed to the visible set.
-		if len(ws.Sessions) == 0 {
+		// ones, and proto.SessionOverview has no Archived field. So an empty
+		// filtered set means "no visible/matching sessions".
+		idxs := s.filteredIdxs(wi)
+		if len(idxs) == 0 {
 			continue
 		}
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowWorkspace, wsIdx: wi})
-		shown := min(len(ws.Sessions), caps[wi])
-		for si := range shown {
+		shown := min(len(idxs), caps[wi])
+		for _, si := range idxs[:shown] {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: si})
 		}
-		if remaining := len(ws.Sessions) - shown; remaining > 0 {
+		if remaining := len(idxs) - shown; remaining > 0 {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowOverflow, wsIdx: wi, remaining: remaining})
 		}
 	}
@@ -404,25 +528,27 @@ func (s *SessionsSidebar) computeCaps() []int {
 
 	// If everything fits, show all sessions with no overflow rows. Empty
 	// workspaces contribute nothing (their header is suppressed in
-	// rebuildRows), so they don't count toward the height budget. This
-	// relies on the same invariant as rebuildRows: ws.Sessions is the
-	// visible (non-archived) set, so len==0 means "no visible sessions".
+	// rebuildRows), so they don't count toward the height budget. Counts
+	// use the FILTERED session set so an active "/" search rebalances the
+	// budget over just the matches (and a workspace filtered to zero drops
+	// out of nonEmpty entirely, matching rebuildGroupedRows).
+	counts := make([]int, n)
 	total := 0
 	nonEmpty := 0
-	for _, ws := range s.overviews {
-		if len(ws.Sessions) == 0 {
+	for i := range s.overviews {
+		c := len(s.filteredIdxs(i))
+		counts[i] = c
+		if c == 0 {
 			continue
 		}
 		nonEmpty++
-		total += 1 + len(ws.Sessions) // header + sessions
+		total += 1 + c // header + sessions
 	}
 	if nonEmpty == 0 {
 		return caps
 	}
 	if total <= h {
-		for i, ws := range s.overviews {
-			caps[i] = len(ws.Sessions)
-		}
+		copy(caps, counts)
 		return caps
 	}
 
@@ -862,6 +988,13 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 	showSummary := height >= summaryMinHeight
 	lines := []string{common.Section(t, s.title(), width)}
 	headerLines := s.fixedHeaderHeight(height)
+	// The "/" filter input renders as a fixed line directly under the
+	// title (before the summary), so it never scrolls with the rows and
+	// click hit-testing (fixedHeaderHeight, which also adds 1 while
+	// searching) stays consistent with the cursor's row math.
+	if s.searchMode {
+		lines = append(lines, ansi.Truncate("/"+s.searchInput.View(), width, "…"))
+	}
 	if showSummary {
 		lines = append(lines, s.summaryLines(width)...)
 	}
@@ -915,10 +1048,14 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 // fixedHeaderHeight returns the number of fixed (non-scrolling, non-row)
 // lines rendered above the session list for the given sidebar height: the
 // section title + trailing blank (2), plus the 3-line summary block when the
-// height is at least summaryMinHeight. Click hit-testing subtracts this from
+// height is at least summaryMinHeight, plus one line for the "/" filter
+// input while search mode is active. Click hit-testing subtracts this from
 // the clicked line so screen-Y maps to the same rows the cursor uses.
 func (s *SessionsSidebar) fixedHeaderHeight(height int) int {
 	h := 2 // section title + trailing blank
+	if s.searchMode {
+		h++ // the "/" filter input line
+	}
 	if height >= summaryMinHeight {
 		h += 3 // ready/working/total
 	}

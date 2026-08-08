@@ -122,6 +122,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 				k.SessionSidebar.ToggleSelect,
 				k.SessionSidebar.ArchiveSelect,
 				k.SessionSidebar.Inbox,
+				k.SessionSidebar.Search,
 			},
 			[]key.Binding{
 				help,

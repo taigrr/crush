@@ -38,6 +38,7 @@ func (m *UI) loadWorkspaceOverviews() tea.Cmd {
 func (m *UI) toggleLeftSidebar() tea.Cmd {
 	if m.leftSidebarVisible {
 		m.leftSidebarVisible = false
+		m.leftSidebar.ExitSearch()
 		m.leftSidebar.ClearSelection()
 		if m.focus == uiFocusLeftSidebar {
 			m.setFocusAfterSidebarClose()
@@ -61,6 +62,7 @@ func (m *UI) toggleLeftSidebar() tea.Cmd {
 // pending multi-selection so a selection never outlives a focus session
 // (preventing an accidental bulk archive after close/reopen).
 func (m *UI) setFocusAfterSidebarClose() {
+	m.leftSidebar.ExitSearch()
 	m.leftSidebar.ClearSelection()
 	switch m.state {
 	case uiChat, uiLanding:
@@ -75,6 +77,13 @@ func (m *UI) setFocusAfterSidebarClose() {
 // sidebar is focused. It returns the command to run and whether the key was
 // consumed.
 func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	// While the "/" text filter is active, keys are routed differently:
+	// printable characters type into the filter (so j/k/g/etc. are literal
+	// query text), navigation over the filtered set uses arrow keys, and
+	// esc exits search.
+	if m.leftSidebar.Searching() {
+		return m.handleLeftSidebarSearchKey(msg)
+	}
 	// Vim-style navigation mirrors the right info sidebar: j/k move,
 	// g/Home jumps to the top, G/End to the bottom.
 	switch {
@@ -104,6 +113,12 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		// unchanged) selection after reprojection.
 		m.leftSidebar.ToggleInbox()
 		return m.scheduleSidebarPreview(), true
+	case key.Matches(msg, m.keyMap.SessionSidebar.Search):
+		// Enter the text filter. Only reachable while the sidebar is
+		// focused (this handler runs solely in that case), so it never
+		// collides with the editor's "/" add-file binding.
+		m.leftSidebar.EnterSearch()
+		return m.scheduleSidebarPreview(), true
 	}
 	switch msg.String() {
 	case "enter", "l":
@@ -125,6 +140,76 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return cancel, true
 	}
 	return nil, false
+}
+
+// handleLeftSidebarSearchKey handles keys while the "/" filter is active.
+// Navigation over the filtered set uses arrow keys (and their ctrl aliases)
+// so that letter keys remain available as filter text; esc exits and
+// restores the full list (cancelling any preview); enter activates the
+// selected filtered session; every other key is fed to the filter input,
+// which re-filters live and reschedules the preview for the new top match.
+// A second "/" is a literal query character (handled by the default case),
+// not a re-trigger.
+func (m *UI) handleLeftSidebarSearchKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	switch msg.String() {
+	case "esc":
+		m.leftSidebar.ExitSearch()
+		// Restoring the full list discards the filtered preview target and
+		// returns to the committed session.
+		return m.cancelPreview(), true
+	case "enter":
+		return m.activateLeftSidebarSelection(), true
+	case "up", "ctrl+k", "ctrl+p":
+		m.leftSidebar.MoveUp()
+		return m.scheduleSidebarPreview(), true
+	case "down", "ctrl+j", "ctrl+n":
+		m.leftSidebar.MoveDown()
+		return m.scheduleSidebarPreview(), true
+	case "home":
+		m.leftSidebar.MoveTop()
+		return m.scheduleSidebarPreview(), true
+	case "end":
+		m.leftSidebar.MoveBottom()
+		return m.scheduleSidebarPreview(), true
+	}
+	// Any other key is offered to the filter input. Three outcomes:
+	//   - it changed the query -> re-filter, preview, consume;
+	//   - it edited the input without changing the value (cursor motion
+	//     like left/right, backspace on an empty query) -> consume so it
+	//     does NOT fall through and double-fire a global binding
+	//     (e.g. Chat.PillLeft/Right on the arrow keys);
+	//   - the input ignores it (global shortcuts like ctrl+s, Chat.Cancel)
+	//     -> report UNCONSUMED so it falls through to the global handlers.
+	if m.leftSidebar.HandleSearchKey(msg) {
+		return m.scheduleSidebarPreview(), true
+	}
+	if isTextEditingKey(msg) {
+		return nil, true
+	}
+	return nil, false
+}
+
+// isTextEditingKey reports whether a key is one the filter textinput edits
+// (a printable character or a cursor/erase motion), as opposed to a global
+// shortcut the input ignores. Such keys are consumed while searching even
+// when they don't change the query value, so they never fall through to the
+// global handlers and cause a side effect (e.g. the left/right arrows also
+// switching the expanded pill section).
+func isTextEditingKey(msg tea.KeyPressMsg) bool {
+	// A printable character (with no control modifier) is query text.
+	if msg.Text != "" {
+		return true
+	}
+	switch msg.String() {
+	case "backspace", "delete", "left", "right",
+		"ctrl+a", "ctrl+e", "ctrl+b", "ctrl+f", "ctrl+h",
+		"ctrl+u", "ctrl+w", "ctrl+d", "ctrl+v",
+		"alt+backspace", "alt+delete", "alt+left", "alt+right",
+		"alt+b", "alt+f", "alt+d",
+		"ctrl+left", "ctrl+right":
+		return true
+	}
+	return false
 }
 
 // scheduleSidebarPreview debounces a live preview of the session now under
