@@ -3,9 +3,11 @@ package model
 import (
 	"image"
 	"sort"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/ui/common"
@@ -931,4 +933,227 @@ func TestHandleLeftSidebarClick_HiddenIgnored(t *testing.T) {
 	m.layout.leftSidebar = image.Rect(0, 0, 30, 40)
 	_, handled := m.handleLeftSidebarClick(tea.MouseClickMsg{X: 2, Y: 6})
 	require.False(t, handled)
+}
+
+// inboxOverviews returns a two-workspace fixture with a mix of statuses for
+// exercising the flat inbox projection.
+func inboxOverviews() []proto.WorkspaceOverview {
+	return []proto.WorkspaceOverview{
+		{
+			Root:     "/home/user/alpha",
+			Attached: true,
+			Sessions: []proto.SessionOverview{
+				{ID: "a1", Title: "a-read-old", UpdatedAt: 10},
+				{ID: "a2", Title: "a-busy", IsBusy: true, UpdatedAt: 50},
+				{ID: "a3", Title: "a-unread", Unread: true, UpdatedAt: 20},
+			},
+		},
+		{
+			Root:     "/home/user/beta",
+			Attached: false,
+			Sessions: []proto.SessionOverview{
+				{ID: "b1", Title: "b-unread-new", Unread: true, UpdatedAt: 90},
+				{ID: "b2", Title: "b-busy-new", IsBusy: true, UpdatedAt: 99},
+				{ID: "b3", Title: "b-read-new", UpdatedAt: 80},
+			},
+		},
+	}
+}
+
+// sessionOrder returns the session IDs of the session rows in row order,
+// ignoring header/section rows.
+func sessionOrder(s *SessionsSidebar) []string {
+	var ids []string
+	for _, r := range s.rows {
+		if r.kind == sidebarRowSession {
+			ids = append(ids, s.overviews[r.wsIdx].Sessions[r.sessIdx].ID)
+		}
+	}
+	return ids
+}
+
+// TestSidebar_InboxProjection verifies the inbox mode builds a flat,
+// status-sectioned list across workspaces: Running, then Unread, then Read,
+// each ordered by UpdatedAt desc, with no workspace header rows.
+func TestSidebar_InboxProjection(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(inboxOverviews())
+	s.ToggleInbox()
+	require.True(t, s.InboxMode())
+
+	// No workspace headers in inbox.
+	for _, r := range s.rows {
+		require.NotEqual(t, sidebarRowWorkspace, r.kind, "inbox must not emit workspace headers")
+		require.NotEqual(t, sidebarRowOverflow, r.kind, "inbox must not emit overflow rows")
+	}
+
+	// Section headers in order.
+	var sections []string
+	for _, r := range s.rows {
+		if r.kind == sidebarRowSection {
+			sections = append(sections, r.label)
+		}
+	}
+	require.Equal(t, []string{"Running", "Unread", "Read"}, sections)
+
+	// Flat session order: Running (busy) by UpdatedAt desc (b2=99, a2=50),
+	// then Unread (b1=90, a3=20), then Read (b3=80, a1=10).
+	require.Equal(t, []string{"b2", "a2", "b1", "a3", "b3", "a1"}, sessionOrder(s))
+}
+
+// TestSidebar_InboxWorkspaceTag verifies inbox rows render the workspace
+// basename tag and grouped mode does not.
+func TestSidebar_InboxWorkspaceTag(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(inboxOverviews())
+
+	grouped := s.Render(30, 40, true)
+	require.Contains(t, grouped, "Sessions", "grouped mode title")
+
+	s.ToggleInbox()
+	out := s.Render(30, 40, true)
+	require.Contains(t, out, "alpha", "inbox rows carry a workspace tag")
+	require.Contains(t, out, "beta")
+	require.Contains(t, out, "Inbox", "title reflects inbox mode")
+	require.NotContains(t, out, "Sessions", "inbox title is Inbox, not Sessions")
+}
+
+// TestSidebar_InboxToggleAndPersistence verifies toggling flips modes, keeps
+// the cursor on the same session, and that the mode persists (it is a field
+// on the long-lived sidebar; SetOverviews does not reset it).
+func TestSidebar_InboxToggleAndPersistence(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(inboxOverviews())
+	require.False(t, s.InboxMode())
+
+	// Put the cursor on a specific session, then toggle to inbox.
+	s.FocusSessionID("a3")
+	_, id, ok := s.Selected()
+	require.True(t, ok)
+	require.Equal(t, "a3", id)
+
+	s.ToggleInbox()
+	require.True(t, s.InboxMode())
+	_, id, ok = s.Selected()
+	require.True(t, ok)
+	require.Equal(t, "a3", id, "cursor stays on the same session across toggle")
+
+	// A refresh keeps inbox mode (persistence across data changes / reopen).
+	s.SetOverviews(inboxOverviews())
+	require.True(t, s.InboxMode(), "inbox mode persists across SetOverviews")
+
+	// Toggle back.
+	s.ToggleInbox()
+	require.False(t, s.InboxMode())
+}
+
+// TestSidebar_InboxNavAndRowIndexIntegrity verifies j/k navigation skips
+// section headers and that sessionIDAt/rowForSessionID/Selected agree with
+// the flat projection at every session row.
+func TestSidebar_InboxNavAndRowIndexIntegrity(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(inboxOverviews())
+	s.ToggleInbox()
+
+	// Cursor must start on a session row, never a section header.
+	require.True(t, s.selectableRow(s.cursor))
+
+	// Walk every row with MoveDown; the cursor must only ever land on
+	// selectable rows, and index math must be consistent.
+	s.MoveTop()
+	visited := map[string]bool{}
+	for {
+		require.True(t, s.selectableRow(s.cursor), "cursor never rests on a section header")
+		id, ok := s.sessionIDAt(s.cursor)
+		require.True(t, ok)
+		require.Equal(t, s.cursor, s.rowForSessionID(id), "rowForSessionID round-trips")
+		_, selID, selOK := s.Selected()
+		require.True(t, selOK)
+		require.Equal(t, id, selID)
+		visited[id] = true
+		before := s.cursor
+		s.MoveDown()
+		if s.cursor == before {
+			break
+		}
+	}
+	require.Len(t, visited, 6, "all six sessions reachable by navigation")
+}
+
+// TestSidebar_InboxCrossWorkspaceActivation verifies a foreign-workspace row
+// in inbox reports its own root via Selected (so activation routes through
+// switchWorkspaceAndLoad), while an attached-workspace row reports attached.
+func TestSidebar_InboxCrossWorkspaceActivation(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(inboxOverviews())
+	s.ToggleInbox()
+
+	// b1 lives in the non-attached /home/user/beta workspace.
+	s.FocusSessionID("b1")
+	root, id, ok := s.Selected()
+	require.True(t, ok)
+	require.Equal(t, "b1", id)
+	require.Equal(t, "/home/user/beta", root, "foreign row carries its own root")
+	require.False(t, s.SelectedWorkspaceAttached(), "beta is not attached")
+
+	// a2 lives in the attached /home/user/alpha workspace.
+	s.FocusSessionID("a2")
+	root, id, ok = s.Selected()
+	require.True(t, ok)
+	require.Equal(t, "a2", id)
+	require.Equal(t, "/home/user/alpha", root)
+	require.True(t, s.SelectedWorkspaceAttached(), "alpha is attached")
+}
+
+// TestSidebar_InboxEmptySectionsOmitted verifies sections with no members
+// are not emitted (so filtering/hide-empty composes).
+func TestSidebar_InboxEmptySectionsOmitted(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	// Only unread sessions: Running and Read sections must be absent.
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/a",
+		Attached: true,
+		Sessions: []proto.SessionOverview{
+			{ID: "a1", Title: "one", Unread: true, UpdatedAt: 2},
+			{ID: "a2", Title: "two", Unread: true, UpdatedAt: 1},
+		},
+	}})
+	s.ToggleInbox()
+	var sections []string
+	for _, r := range s.rows {
+		if r.kind == sidebarRowSection {
+			sections = append(sections, r.label)
+		}
+	}
+	require.Equal(t, []string{"Unread"}, sections)
+	require.Equal(t, []string{"a1", "a2"}, sessionOrder(s))
+}
+
+// TestSidebar_InboxLongWorkspaceTagNoOverflow verifies a long workspace
+// basename is truncated so no inbox row exceeds the sidebar width.
+func TestSidebar_InboxLongWorkspaceTagNoOverflow(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/home/user/an-extremely-long-workspace-directory-name-that-overflows",
+		Attached: true,
+		Sessions: []proto.SessionOverview{
+			{ID: "s1", Title: "A session with a fairly long title too", Unread: true, UpdatedAt: 2},
+			{ID: "s2", Title: "second", IsBusy: true, UpdatedAt: 1},
+		},
+	}})
+	s.ToggleInbox()
+
+	const width = 30
+	out := s.Render(width, 40, true)
+	for _, line := range strings.Split(out, "\n") {
+		require.LessOrEqual(t, ansi.StringWidth(line), width,
+			"inbox row must not exceed sidebar width: %q", line)
+	}
 }

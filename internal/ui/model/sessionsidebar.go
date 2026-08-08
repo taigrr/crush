@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -23,10 +24,14 @@ const (
 	// more sessions than its per-workspace display cap. Selecting it opens
 	// the full session picker for that workspace.
 	sidebarRowOverflow
+	// sidebarRowSection is a non-selectable status-section header used only
+	// in inbox mode (e.g. "Running", "Unread", "Read"). Like workspace
+	// headers it takes a line but is not a navigation stop.
+	sidebarRowSection
 )
 
-// sidebarRow is one rendered/navigable line. Workspace header rows are not
-// selectable; session and overflow rows are.
+// sidebarRow is one rendered/navigable line. Workspace and section header
+// rows are not selectable; session and overflow rows are.
 type sidebarRow struct {
 	kind sidebarRowKind
 	// workspace index into the overviews slice.
@@ -35,12 +40,32 @@ type sidebarRow struct {
 	sessIdx int
 	// remaining is the count of hidden sessions (only for overflow rows).
 	remaining int
+	// label is the header text for section rows (inbox mode only).
+	label string
 }
+
+// sidebarViewMode selects how the sidebar projects its sessions.
+type sidebarViewMode uint8
+
+const (
+	// sidebarModeSessions is the default workspace-grouped, tiered view
+	// with per-workspace headers.
+	sidebarModeSessions sidebarViewMode = iota
+	// sidebarModeInbox is a flat, cross-workspace view sectioned by status
+	// (Running, Unread, Read) with a per-row workspace tag and no
+	// workspace grouping.
+	sidebarModeInbox
+)
 
 // minSessionsPerWorkspace is the floor on how many sessions each workspace
 // shows in the navigator before an overflow row, even when vertical space
 // is tight (a workspace with fewer sessions shows only what it has).
 const minSessionsPerWorkspace = 5
+
+// maxWorkspaceTagWidth caps the per-row workspace tag (inbox mode) so a long
+// workspace basename cannot consume the row and push the title out. The tag
+// is truncated with an ellipsis beyond this width.
+const maxWorkspaceTagWidth = 14
 
 // summaryMinHeight is the sidebar height at/above which the 3-line
 // ready/working/total summary block is shown. Below it the fixed header is
@@ -55,6 +80,12 @@ const summaryMinHeight = 8
 // main model drives it via methods and reads Selected on enter.
 type SessionsSidebar struct {
 	com *common.Common
+
+	// mode selects the row projection: workspace-grouped (default) or the
+	// flat, status-sectioned inbox. It is a field on the long-lived sidebar
+	// so it PERSISTS across sidebar close/reopen (toggleLeftSidebar never
+	// resets it).
+	mode sidebarViewMode
 
 	overviews []proto.WorkspaceOverview
 	// rows is the flattened navigable projection of overviews, rebuilt
@@ -113,6 +144,34 @@ func (s *SessionsSidebar) AttachedSessions() []proto.SessionOverview {
 // WorkspaceCount returns the number of known workspaces.
 func (s *SessionsSidebar) WorkspaceCount() int {
 	return len(s.overviews)
+}
+
+// ToggleInbox flips between the workspace-grouped view and the flat,
+// status-sectioned inbox, rebuilding the row projection and keeping the
+// cursor on the same session where possible. The mode persists on the
+// long-lived sidebar across close/reopen.
+func (s *SessionsSidebar) ToggleInbox() {
+	prevID := s.selectedSessionID()
+	if s.mode == sidebarModeInbox {
+		s.mode = sidebarModeSessions
+	} else {
+		s.mode = sidebarModeInbox
+	}
+	// Selection/visual sweep is anchored by session ID and survives the
+	// reprojection, so it is preserved across a mode toggle.
+	s.rebuildRows()
+	s.restoreCursor(prevID)
+}
+
+// InboxMode reports whether the sidebar is in the flat inbox view.
+func (s *SessionsSidebar) InboxMode() bool { return s.mode == sidebarModeInbox }
+
+// title returns the sidebar's section title for the current mode.
+func (s *SessionsSidebar) title() string {
+	if s.mode == sidebarModeInbox {
+		return "Inbox"
+	}
+	return "Sessions"
 }
 
 // SessionCounts summarizes the visible sessions across ALL workspaces the
@@ -218,8 +277,77 @@ func (s *SessionsSidebar) sortSessions() {
 	}
 }
 
+// rebuildRows reprojects overviews into the flattened navigable row list,
+// dispatching on the current view mode, then clamps and snaps the cursor.
 func (s *SessionsSidebar) rebuildRows() {
 	s.rows = s.rows[:0]
+	if s.mode == sidebarModeInbox {
+		s.rebuildInboxRows()
+	} else {
+		s.rebuildGroupedRows()
+	}
+	if s.cursor >= len(s.rows) {
+		s.cursor = len(s.rows) - 1
+	}
+	if s.cursor < 0 {
+		s.cursor = 0
+	}
+	// Never leave the cursor resting on a header (workspace or section) if
+	// a selectable row is reachable.
+	s.snapCursorToSession(1)
+}
+
+// rebuildInboxRows projects a FLAT, cross-workspace list sectioned by
+// status: Running (busy) first, then Unread (unread, not busy), then Read
+// (everything else). Each section is sorted by UpdatedAt descending. There
+// are no workspace headers; the per-row workspace tag (basename of the
+// workspace root) supplies project context. Empty sections are omitted so
+// filtering/hide-empty composes. Session rows still reference their source
+// (wsIdx, sessIdx), so sessionIDAt/rowForSessionID/Selected/ClickToActivate
+// and cross-workspace activation all work unchanged over the flat layout.
+func (s *SessionsSidebar) rebuildInboxRows() {
+	type ref struct{ wi, si int }
+	var running, unread, other []ref
+	for wi, ws := range s.overviews {
+		for si, sess := range ws.Sessions {
+			switch {
+			case sess.IsBusy:
+				running = append(running, ref{wi, si})
+			case sess.Unread:
+				unread = append(unread, ref{wi, si})
+			default:
+				other = append(other, ref{wi, si})
+			}
+		}
+	}
+	byUpdatedDesc := func(refs []ref) {
+		sort.SliceStable(refs, func(i, j int) bool {
+			a := s.overviews[refs[i].wi].Sessions[refs[i].si]
+			b := s.overviews[refs[j].wi].Sessions[refs[j].si]
+			return a.UpdatedAt > b.UpdatedAt
+		})
+	}
+	byUpdatedDesc(running)
+	byUpdatedDesc(unread)
+	byUpdatedDesc(other)
+
+	emit := func(label string, refs []ref) {
+		if len(refs) == 0 {
+			return
+		}
+		s.rows = append(s.rows, sidebarRow{kind: sidebarRowSection, label: label})
+		for _, r := range refs {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: r.wi, sessIdx: r.si})
+		}
+	}
+	emit("Running", running)
+	emit("Unread", unread)
+	emit("Read", other)
+}
+
+// rebuildGroupedRows projects the default workspace-grouped, tiered view
+// with per-workspace headers and "…N more" overflow rows.
+func (s *SessionsSidebar) rebuildGroupedRows() {
 	caps := s.computeCaps()
 	for wi, ws := range s.overviews {
 		// Skip workspaces with no visible sessions entirely: don't emit a
@@ -246,15 +374,6 @@ func (s *SessionsSidebar) rebuildRows() {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowOverflow, wsIdx: wi, remaining: remaining})
 		}
 	}
-	if s.cursor >= len(s.rows) {
-		s.cursor = len(s.rows) - 1
-	}
-	if s.cursor < 0 {
-		s.cursor = 0
-	}
-	// Never leave the cursor resting on a workspace header if a selectable
-	// row is reachable.
-	s.snapCursorToSession(1)
 }
 
 // computeCaps returns the per-workspace session display cap. Sessions are
@@ -339,22 +458,24 @@ func (s *SessionsSidebar) restoreCursor(id string) {
 }
 
 // selectableRow reports whether the row at i is a navigation stop (session
-// or overflow row), i.e. not a workspace header.
+// or overflow row), i.e. not a workspace or section header.
 func (s *SessionsSidebar) selectableRow(i int) bool {
 	if i < 0 || i >= len(s.rows) {
 		return false
 	}
-	return s.rows[i].kind != sidebarRowWorkspace
+	k := s.rows[i].kind
+	return k == sidebarRowSession || k == sidebarRowOverflow
 }
 
 // snapCursorToSession advances the cursor in the given direction (+1/-1)
-// off a workspace-header row onto the nearest selectable row, if any.
+// off a header row (workspace or section) onto the nearest selectable row,
+// if any.
 func (s *SessionsSidebar) snapCursorToSession(dir int) {
 	if len(s.rows) == 0 {
 		s.cursor = 0
 		return
 	}
-	for s.cursor >= 0 && s.cursor < len(s.rows) && s.rows[s.cursor].kind == sidebarRowWorkspace {
+	for s.cursor >= 0 && s.cursor < len(s.rows) && !s.selectableRow(s.cursor) {
 		next := s.cursor + dir
 		if next < 0 || next >= len(s.rows) {
 			// No session in that direction; try the other way once.
@@ -739,7 +860,7 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 	// still show session rows: below summaryMinHeight the fixed header is
 	// just the title + blank (2 lines), matching the pre-summary layout.
 	showSummary := height >= summaryMinHeight
-	lines := []string{common.Section(t, "Sessions", width)}
+	lines := []string{common.Section(t, s.title(), width)}
 	headerLines := s.fixedHeaderHeight(height)
 	if showSummary {
 		lines = append(lines, s.summaryLines(width)...)
@@ -882,10 +1003,18 @@ func (s *SessionsSidebar) renderRows(width int) []string {
 		switch r.kind {
 		case sidebarRowWorkspace:
 			out = append(out, s.renderWorkspaceRow(t, s.overviews[r.wsIdx], width))
+		case sidebarRowSection:
+			out = append(out, common.Section(t, r.label, width))
 		case sidebarRowSession:
 			ws := s.overviews[r.wsIdx]
 			sess := ws.Sessions[r.sessIdx]
-			out = append(out, s.renderSessionRow(t, sess, width, selected, s.selected[sess.ID]))
+			// In inbox mode there are no workspace headers, so tag each
+			// row with its workspace basename for project context.
+			tag := ""
+			if s.mode == sidebarModeInbox {
+				tag = filepath.Base(ws.Root)
+			}
+			out = append(out, s.renderSessionRow(t, sess, width, selected, s.selected[sess.ID], tag))
 		case sidebarRowOverflow:
 			out = append(out, s.renderOverflowRow(t, r.remaining, width, selected))
 		}
@@ -919,7 +1048,7 @@ func (s *SessionsSidebar) renderWorkspaceRow(t *styles.Styles, ws proto.Workspac
 	return common.Section(t, name, width)
 }
 
-func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, marked bool) string {
+func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, marked bool, tag string) string {
 	// Status glyph: busy dot, unread dot, or blank. When the row is
 	// multi-selected, a check replaces the status dot so the selection is
 	// visually distinct from both the cursor bar and the active arrow.
@@ -968,13 +1097,23 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 	// Each glyph is a single cell.
 	prefixRaw := bar + " " + active + marker + squareCell + " "
 	prefixWidth := ansi.StringWidth(prefixRaw)
-	avail := max(1, width-prefixWidth)
+
+	// Inbox mode appends a dim workspace tag suffix (basename of the
+	// workspace root) since there are no workspace headers. Cap the tag
+	// itself (a long basename must not eat the row), budget it before the
+	// title, and clamp the final composed line to width so it can never
+	// overrun the sidebar column and corrupt the layout.
+	tagRaw := ""
+	if tag != "" {
+		tagRaw = " " + ansi.Truncate(tag, maxWorkspaceTagWidth, "…")
+	}
+	avail := max(1, width-prefixWidth-ansi.StringWidth(tagRaw))
 	title = ansi.Truncate(title, avail, "…")
 
 	if selected {
 		// Full-row highlight without extra padding (the dialog selected
 		// style adds Padding(0,1) which would overflow the sidebar width).
-		line := prefixRaw + title
+		line := ansi.Truncate(prefixRaw+title+tagRaw, width, "…")
 		return t.Dialog.SelectedItem.UnsetPadding().Width(width).Render(line)
 	}
 
@@ -983,5 +1122,9 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		titleStyle = titleStyle.Bold(true)
 	}
 	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + squareCell + " "
-	return styledPrefix + titleStyle.Render(title)
+	styledTag := ""
+	if tagRaw != "" {
+		styledTag = t.Resource.AdditionalText.Render(tagRaw)
+	}
+	return ansi.Truncate(styledPrefix+titleStyle.Render(title)+styledTag, width, "…")
 }
