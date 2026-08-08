@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
@@ -338,4 +339,106 @@ func TestPreview_LoadFailAfterSupersedeDoesNotWedge(t *testing.T) {
 	// wedge — previewing() stays false.
 	m.handlePreviewRestore(staleRestore)
 	require.False(t, m.previewing())
+}
+
+// fakeClock is a mutable clock for driving the burst-window logic
+// deterministically in tests.
+type fakeClock struct{ t time.Time }
+
+func (c *fakeClock) now() time.Time { return c.t }
+func (c *fakeClock) advance(d time.Duration) {
+	c.t = c.t.Add(d)
+}
+
+// TestPreview_LeadingEdgeFirstTwoInstant verifies the leading-edge burst
+// pattern: the first two rapid schedulePreview calls in a window fire loads
+// IMMEDIATELY (their cmd yields a previewLoadedMsg, no tick wait), and the
+// third within the same window falls back to the trailing debounce tick.
+func TestPreview_LeadingEdgeFirstTwoInstant(t *testing.T) {
+	t.Parallel()
+	ws := &previewStubWorkspace{messages: map[string][]message.Message{
+		"s1": nil, "s2": nil, "s3": nil,
+	}}
+	m := newPreviewTestUI(t, ws, "committed")
+	clk := &fakeClock{t: time.Unix(0, 0)}
+	m.previewNow = clk.now
+
+	// 1st load: instant.
+	cmd := m.schedulePreview("s1", true)
+	require.Equal(t, "s1", m.pendingPreviewID)
+	_, ok := drainMsg(cmd).(previewLoadedMsg)
+	require.True(t, ok, "1st load in window fires immediately")
+
+	// 2nd load, still inside the window: instant.
+	clk.advance(10 * time.Millisecond)
+	cmd = m.schedulePreview("s2", true)
+	_, ok = drainMsg(cmd).(previewLoadedMsg)
+	require.True(t, ok, "2nd load in window fires immediately")
+
+	// 3rd load, still inside the window: trailing debounce tick.
+	clk.advance(10 * time.Millisecond)
+	cmd = m.schedulePreview("s3", true)
+	require.NotNil(t, cmd)
+	_, ok = drainMsg(cmd).(previewTickMsg)
+	require.True(t, ok, "3rd load in window is tick-gated")
+	require.Equal(t, 3, m.previewBurstCount)
+}
+
+// TestPreview_BurstCounterResetsAfterWindow verifies that an idle gap longer
+// than the burst window resets the counter, so a later single navigation is
+// instant again.
+func TestPreview_BurstCounterResetsAfterWindow(t *testing.T) {
+	t.Parallel()
+	ws := &previewStubWorkspace{messages: map[string][]message.Message{
+		"s1": nil, "s2": nil, "s3": nil,
+	}}
+	m := newPreviewTestUI(t, ws, "committed")
+	clk := &fakeClock{t: time.Unix(0, 0)}
+	m.previewNow = clk.now
+
+	// Exhaust the leading edge: two instant loads.
+	drainMsg(m.schedulePreview("s1", true))
+	clk.advance(10 * time.Millisecond)
+	drainMsg(m.schedulePreview("s2", true))
+	require.Equal(t, 2, m.previewBurstCount)
+
+	// Idle longer than the window, then navigate once more: instant again.
+	clk.advance(previewBurstWindow + time.Millisecond)
+	cmd := m.schedulePreview("s3", true)
+	_, ok := drainMsg(cmd).(previewLoadedMsg)
+	require.True(t, ok, "load after idle gap fires immediately")
+	require.Equal(t, 1, m.previewBurstCount, "burst counter reset after window")
+}
+
+// TestPreview_InstantLoadSupersededDoesNotRender is the critical correctness
+// check: an instant (leading-edge) load must NOT render a stale session if
+// the cursor moved on before it resolved. The instant path funnels through
+// the same pending-id guard as the tick path, so a superseded instant load is
+// dropped.
+func TestPreview_InstantLoadSupersededDoesNotRender(t *testing.T) {
+	t.Parallel()
+	ws := &previewStubWorkspace{messages: map[string][]message.Message{
+		"s1": {{ID: "p1"}}, "s2": {{ID: "q1"}},
+	}}
+	m := newPreviewTestUI(t, ws, "committed")
+	clk := &fakeClock{t: time.Unix(0, 0)}
+	m.previewNow = clk.now
+
+	// First navigation fires an instant load for s1 (pending=s1). Capture
+	// the cmd but do NOT resolve it yet — the cursor is about to move on.
+	s1Cmd := m.schedulePreview("s1", true)
+	require.Equal(t, "s1", m.pendingPreviewID)
+	s1Msg := drainMsg(s1Cmd).(previewLoadedMsg)
+
+	// Cursor moves on to s2 before s1's load renders (also instant). This
+	// bumps previewGen and sets pending=s2.
+	clk.advance(10 * time.Millisecond)
+	m.schedulePreview("s2", true)
+	require.Equal(t, "s2", m.pendingPreviewID)
+
+	// Now s1's earlier instant load resolves last: it must be DROPPED, not
+	// rendered, because pending is no longer s1.
+	require.Nil(t, m.handlePreviewLoaded(s1Msg))
+	require.Empty(t, m.previewSessionID, "superseded instant load must not render")
+	require.Equal(t, "s2", m.pendingPreviewID, "pending stays on the current session")
 }

@@ -301,6 +301,17 @@ type UI struct {
 	pendingPreviewID string
 	previewGen       int
 
+	// Leading-edge burst tracking (see session_preview.go). The first two
+	// preview loads inside a rolling burst window fire immediately; the
+	// third and later within the window fall back to the trailing debounce.
+	// previewBurstCount counts loads in the current window; previewLastNav
+	// timestamps the last load so an idle gap longer than the window resets
+	// the counter. previewNow is an injectable clock for tests (nil == real
+	// time).
+	previewBurstCount int
+	previewLastNav    time.Time
+	previewNow        func() time.Time
+
 	// Right info-sidebar virtual scroll state. rightSidebarScrollable and
 	// rightSidebarMaxOffsetVal are recomputed each frame in drawSidebar.
 	rightSidebarOffset       int
