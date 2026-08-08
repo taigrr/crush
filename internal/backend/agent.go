@@ -98,6 +98,13 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 	defer ws.runWG.Done()
 	defer accept.Close()
 
+	// Publish cross-workspace busy/idle transitions on the global
+	// attention channel so background sessions show a live busy dot
+	// (and clear it when the run ends) without the client attaching to
+	// this workspace.
+	b.publishAttention(ws, msg.SessionID, "", proto.AttentionBusy)
+	defer b.publishAttention(ws, msg.SessionID, "", proto.AttentionIdle)
+
 	ctx := ws.ctx
 	if msg.RunID != "" {
 		ctx = agent.WithRunID(ctx, msg.RunID)

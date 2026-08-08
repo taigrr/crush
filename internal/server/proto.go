@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
 )
 
@@ -363,6 +364,68 @@ func (c *controllerV1) handleGetWorkspaceEvents(w http.ResponseWriter, r *http.R
 				return
 			}
 			eventCount++
+		}
+	}
+}
+
+// handleGetGlobalEvents streams the backend's global, cross-workspace
+// attention channel as Server-Sent Events. Unlike the per-workspace
+// events stream this endpoint is OBSERVE-ONLY: it does NOT AttachClient,
+// so subscribing does not pin any workspace alive or affect
+// auto-shutdown. It carries only proto.AttentionEvent (permission /
+// question blocked+resolved and agent busy/idle transitions, tagged
+// with the originating workspace) so a client can surface a background
+// session's state without a per-workspace subscription.
+//
+//	@Summary		Stream global attention events (SSE)
+//	@Tags			events
+//	@Produce		text/event-stream
+//	@Success		200
+//	@Router			/events [get]
+func (c *controllerV1) handleGetGlobalEvents(w http.ResponseWriter, r *http.Request) {
+	flusher := http.NewResponseController(w)
+	// A valid client ID is still required (for logging / rejection of
+	// malformed callers), but the client is intentionally NOT attached.
+	if _, ok := c.requireClientID(w, r); !ok {
+		return
+	}
+	events := c.backend.AttentionEvents(r.Context())
+
+	c.server.logInfo(r, "Global attention SSE stream opened")
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			c.server.logInfo(r, "Global attention SSE stream closed (client disconnected)")
+			return
+		case ev, ok := <-events:
+			if !ok {
+				c.server.logInfo(r, "Global attention SSE stream closed (events channel closed)")
+				return
+			}
+			wrapped := envelope(pubsub.PayloadTypeAttentionEvent, ev)
+			if wrapped == nil {
+				continue
+			}
+			data, err := json.Marshal(wrapped)
+			if err != nil {
+				c.server.logError(r, "Failed to marshal attention event", "error", err)
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+				c.server.logError(r, "Global attention SSE write failed", slog.String("error", err.Error()))
+				return
+			}
+			if err := flusher.Flush(); err != nil {
+				c.server.logError(r, "Global attention SSE flush failed", slog.String("error", err.Error()))
+				return
+			}
 		}
 	}
 }

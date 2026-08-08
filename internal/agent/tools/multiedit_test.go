@@ -26,6 +26,8 @@ func (m *mockPermissionService) Deny(req permission.PermissionRequest) bool { re
 
 func (m *mockPermissionService) CancelAll() {}
 
+func (m *mockPermissionService) RepublishPending(sessionID string) {}
+
 func (m *mockPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true
 }

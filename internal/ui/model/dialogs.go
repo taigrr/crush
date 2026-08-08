@@ -438,14 +438,22 @@ func (m *UI) openPermissionsDialog(perm permission.PermissionRequest) tea.Cmd {
 // background sessions blocked on a prompt, so they are visible in the
 // list before the user switches to them.
 func (m *UI) pendingSessionIDs() map[string]bool {
-	if len(m.pendingPermissions) == 0 && len(m.pendingQuestions) == 0 {
+	if len(m.pendingPermissions) == 0 && len(m.pendingQuestions) == 0 && len(m.attentionPending) == 0 {
 		return nil
 	}
-	ids := make(map[string]bool, len(m.pendingPermissions)+len(m.pendingQuestions))
+	ids := make(map[string]bool, len(m.pendingPermissions)+len(m.pendingQuestions)+len(m.attentionPending))
 	for id := range m.pendingPermissions {
 		ids[id] = true
 	}
 	for id := range m.pendingQuestions {
+		ids[id] = true
+	}
+	// Cross-workspace background sessions blocked on a prompt, learned
+	// from the global attention channel. These have no cached full
+	// request on this client (the request travels on the originating
+	// workspace's own stream and surfaces when the user switches to
+	// it), but they still light the red row dot / window border.
+	for id := range m.attentionPending {
 		ids[id] = true
 	}
 	return ids

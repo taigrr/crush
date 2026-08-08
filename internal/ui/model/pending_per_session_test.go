@@ -230,3 +230,41 @@ func TestAttentionBorderColor_ThemedNotHardcoded(t *testing.T) {
 	require.Equal(t, sty.Resource.OnlineIcon.GetForeground(), u.attentionBorderColor(attentionReady))
 	require.Nil(t, u.attentionBorderColor(attentionNone))
 }
+
+// TestHandleAttentionEvent_DrivesPendingAndBorder verifies a global
+// attention "blocked" event lights the red row dot / window border for a
+// background session in another workspace, and that "resolved" clears it.
+func TestHandleAttentionEvent_DrivesPendingAndBorder(t *testing.T) {
+	t.Parallel()
+
+	u := newTestUIForPermissions()
+	u.attentionPending = make(map[string]bool)
+	u.session = &session.Session{ID: "focused"}
+	// Two workspaces in the sidebar; "bg" lives in another workspace.
+	u.leftSidebar.SetOverviews([]proto.WorkspaceOverview{
+		{Root: "/w1", Sessions: []proto.SessionOverview{{ID: "focused"}}},
+		{Root: "/w2", Sessions: []proto.SessionOverview{{ID: "bg"}}},
+	})
+
+	u.handleAttentionEvent(proto.AttentionEvent{
+		WorkspaceID:   "w2",
+		WorkspaceRoot: "/w2",
+		SessionID:     "bg",
+		ToolCallID:    "tc",
+		Kind:          proto.AttentionBlockedPermission,
+	})
+	require.True(t, u.attentionPending["bg"])
+	require.True(t, u.leftSidebar.HasPending("bg"))
+	// A background pending prompt => red window border.
+	require.Equal(t, attentionPending, u.leftSidebar.BackgroundAttention("focused"))
+
+	u.handleAttentionEvent(proto.AttentionEvent{
+		WorkspaceID: "w2",
+		SessionID:   "bg",
+		ToolCallID:  "tc",
+		Kind:        proto.AttentionResolved,
+	})
+	require.False(t, u.attentionPending["bg"])
+	require.False(t, u.leftSidebar.HasPending("bg"))
+	require.Equal(t, attentionNone, u.leftSidebar.BackgroundAttention("focused"))
+}

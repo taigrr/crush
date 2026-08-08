@@ -222,6 +222,15 @@ type UI struct {
 	// unresolved question requests keyed by session ID.
 	pendingQuestions map[string]*question.Request
 
+	// attentionPending is the set of session IDs (across ALL workspaces)
+	// reported as blocked on a permission/question prompt by the global
+	// attention channel. Unlike pendingPermissions/pendingQuestions it
+	// holds no full request (the request body arrives on the originating
+	// workspace's own stream when the user switches to it); it only
+	// drives the red row dot and the red window border for background
+	// sessions in workspaces this client is not currently focused on.
+	attentionPending map[string]bool
+
 	// keeps track of read files while we don't have a session id
 	sessionFileReads []string
 
@@ -476,6 +485,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		continueLastSession: continueLast,
 		pendingPermissions:  make(map[string]*permission.PermissionRequest),
 		pendingQuestions:    make(map[string]*question.Request),
+		attentionPending:    make(map[string]bool),
 	}
 
 	status := NewStatus(com, ui)
@@ -1032,6 +1042,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case pubsub.Event[question.Notification]:
 		m.handleQuestionNotification(msg.Payload)
+	case pubsub.Event[proto.AttentionEvent]:
+		if cmd := m.handleAttentionEvent(msg.Payload); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case cancelTimerExpiredMsg:
 		m.handleCancelTimerExpired(msg)
 	case workspaceOverviewsMsg:

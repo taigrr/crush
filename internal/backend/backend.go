@@ -23,6 +23,7 @@ import (
 	"github.com/taigrr/crush/internal/editor"
 	editornvim "github.com/taigrr/crush/internal/editor/nvim"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/registry"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/util"
@@ -74,6 +75,15 @@ type Backend struct {
 	// used so the picker (and server on startup) can enumerate
 	// previously used workspaces without attaching them.
 	registry *registry.Store
+
+	// attention is the global, cross-workspace attention channel. Every
+	// workspace's permission/question blocked+resolved transitions and
+	// agent busy/idle transitions are republished here, tagged with the
+	// originating workspace, so a single observe-only client stream
+	// (GET /v1/events) can surface any background session's state
+	// without attaching to its workspace. Lives for the backend's
+	// lifetime, independent of individual workspace teardown.
+	attention *pubsub.Broker[proto.AttentionEvent]
 }
 
 // clientState tracks one client's claim on a workspace.
@@ -170,6 +180,11 @@ type Workspace struct {
 	// It defaults to consulting the agent coordinator; tests may
 	// override it to simulate a busy workspace without a full [app.App].
 	busyFn func() bool
+
+	// attnCancel stops the attention forwarder goroutine and attnWG
+	// waits for it to drain. See startAttentionForwarder.
+	attnCancel context.CancelFunc
+	attnWG     sync.WaitGroup
 }
 
 // agentBusy reports whether the workspace currently has an in-flight
@@ -218,6 +233,27 @@ func (w *Workspace) Shutdown() {
 	w.closing = true
 	w.runMu.Unlock()
 
+	// Resolve any still-pending permission/question prompts as cancelled
+	// BEFORE cancelling the workspace context. This unblocks agent
+	// goroutines waiting in Request/Ask and publishes resolution
+	// notifications that the attention forwarder republishes as
+	// AttentionResolved, so no client is left with a zombie prompt for a
+	// workspace that no longer exists. Then stop the forwarder and wait
+	// for it to drain those buffered notifications onto the global
+	// channel before the app (and its brokers) are torn down.
+	if w.App != nil {
+		if w.Permissions != nil {
+			w.Permissions.CancelAll()
+		}
+		if w.Questions != nil {
+			w.Questions.CancelAll()
+		}
+	}
+	if w.attnCancel != nil {
+		w.attnCancel()
+	}
+	w.attnWG.Wait()
+
 	if w.cancel != nil {
 		w.cancel()
 	}
@@ -240,6 +276,7 @@ func New(ctx context.Context, cfg *config.ConfigStore, shutdownFn ShutdownFunc) 
 		shutdownFn:  shutdownFn,
 		createGrace: DefaultCreateGrace,
 		registry:    registry.New(),
+		attention:   pubsub.NewBroker[proto.AttentionEvent](),
 	}
 }
 
@@ -397,6 +434,9 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	}
 	b.registerClient(ws, clientID, args.Env, args.Path)
 	b.mu.Unlock()
+
+	// Start the cross-workspace attention forwarder for this workspace.
+	b.startAttentionForwarder(ws)
 
 	// Record this workspace in the global registry so a future Crush
 	// instance (or the server on startup) can enumerate and jump to it
@@ -732,6 +772,22 @@ func (b *Backend) SetCurrentSession(workspaceID, clientID, sessionID string) err
 	if sessionID != "" && ws.App != nil && ws.Sessions != nil {
 		if err := ws.Sessions.MarkSeen(context.Background(), sessionID); err != nil {
 			slog.Debug("Failed to mark session seen", "session_id", sessionID, "error", err)
+		}
+	}
+
+	// Re-surface any still-pending permission/question prompt for the
+	// now-focused session. A client that just switched to this workspace
+	// was not subscribed when the prompt was first published, so without
+	// this its modal would never appear (switch-to-grant). Republishing
+	// re-emits the request on the workspace event stream, which the
+	// now-attached client receives and, because it is the current
+	// session, opens.
+	if sessionID != "" && ws.App != nil {
+		if ws.Permissions != nil {
+			ws.Permissions.RepublishPending(sessionID)
+		}
+		if ws.Questions != nil {
+			ws.Questions.RepublishPending(sessionID)
 		}
 	}
 

@@ -77,6 +77,13 @@ type ClientWorkspace struct {
 	// in tests to simulate connection drops without a real server.
 	subscribeEventsFn func(ctx context.Context, id string) (<-chan any, error)
 
+	// subscribeGlobalEventsFn is normally client.SubscribeGlobalEvents;
+	// overridable in tests. It feeds the observe-only global attention
+	// stream. globalSubCancel cancels the in-flight global stream on
+	// shutdown.
+	subscribeGlobalEventsFn func(ctx context.Context) (<-chan any, error)
+	globalSubCancel         context.CancelFunc
+
 	// reconnectDelayOverride, when non-zero, replaces reconnectBaseDelay
 	// for the reconnect backoff. Used by tests to avoid multi-second
 	// sleeps.
@@ -109,6 +116,7 @@ func NewClientWorkspace(c *client.Client, ws proto.Workspace) *ClientWorkspace {
 		reconnectNow: make(chan struct{}, 1),
 	}
 	w.subscribeEventsFn = c.SubscribeEvents
+	w.subscribeGlobalEventsFn = c.SubscribeGlobalEvents
 	return w
 }
 
@@ -1050,7 +1058,60 @@ func (w *ClientWorkspace) Subscribe(program *tea.Program) {
 	w.program = program
 	w.subMu.Unlock()
 
+	// Observe the server's global, cross-workspace attention stream in
+	// parallel with the focused workspace's event stream. This is how a
+	// background workspace's permission/question prompt (and busy/idle)
+	// reaches this client even when it is not the attached workspace —
+	// without it, a prompt from a workspace the user switched away from
+	// would reach no stream on this client and block forever.
+	go w.globalSubscribeLoop(program.Send)
+
 	w.subscribeLoop(program.Send)
+}
+
+// globalSubscribeLoop consumes the server's observe-only global
+// attention stream and forwards each attention event to the TUI. It
+// reconnects with a fixed delay on drop (the stream is not tied to a
+// workspace, so there is no switch/backoff interplay); it exits when the
+// workspace is shut down. Errors are logged and retried — a missing
+// global stream degrades gracefully to the previous per-workspace-only
+// behavior rather than crashing the client.
+func (w *ClientWorkspace) globalSubscribeLoop(send func(tea.Msg)) {
+	for {
+		select {
+		case <-w.stopped:
+			return
+		default:
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		w.subMu.Lock()
+		w.globalSubCancel = cancel
+		w.subMu.Unlock()
+
+		evc, err := w.subscribeGlobalEventsFn(ctx)
+		if err != nil {
+			cancel()
+			select {
+			case <-w.stopped:
+				return
+			case <-time.After(w.initialBackoff()):
+				continue
+			}
+		}
+		for ev := range evc {
+			if ae, ok := ev.(pubsub.Event[proto.AttentionEvent]); ok && send != nil {
+				send(ae)
+			}
+		}
+		cancel()
+
+		select {
+		case <-w.stopped:
+			return
+		case <-time.After(w.initialBackoff()):
+		}
+	}
 }
 
 // subscribeLoop is the reconnect loop, split out from Subscribe so
@@ -1395,9 +1456,13 @@ func (w *ClientWorkspace) stopSubscribeLoop() {
 	w.subMu.Lock()
 	w.stopOnce.Do(func() { close(w.stopped) })
 	cancel := w.subCancel
+	globalCancel := w.globalSubCancel
 	w.subMu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+	if globalCancel != nil {
+		globalCancel()
 	}
 }
 

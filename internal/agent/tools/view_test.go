@@ -222,6 +222,8 @@ func (m *mockViewPermissionService) Deny(req permission.PermissionRequest) bool 
 
 func (m *mockViewPermissionService) CancelAll() {}
 
+func (m *mockViewPermissionService) RepublishPending(sessionID string) {}
+
 func (m *mockViewPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true
 }

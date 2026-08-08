@@ -27,6 +27,8 @@ func (m *mockBashPermissionService) Deny(req permission.PermissionRequest) bool 
 
 func (m *mockBashPermissionService) CancelAll() {}
 
+func (m *mockBashPermissionService) RepublishPending(sessionID string) {}
+
 func (m *mockBashPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true
 }
@@ -105,6 +107,8 @@ func (m *recordingPermissionService) Grant(req permission.PermissionRequest) boo
 func (m *recordingPermissionService) Deny(req permission.PermissionRequest) bool { return true }
 
 func (m *recordingPermissionService) CancelAll() {}
+
+func (m *recordingPermissionService) RepublishPending(sessionID string) {}
 
 func (m *recordingPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true

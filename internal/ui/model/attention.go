@@ -3,9 +3,60 @@ package model
 import (
 	"image/color"
 
+	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/ui/notification"
 )
+
+// handleAttentionEvent consumes one cross-workspace attention event from
+// the global channel. It maintains attentionPending (the red row dot /
+// window border signal for background sessions blocked on a prompt),
+// OS-notifies for a newly-blocked background session, and refreshes the
+// cross-workspace overviews so live busy/idle/ready state repaints. It
+// never opens a modal: answering a background prompt happens by
+// switching to that session (switch-to-grant), where the request body
+// surfaces from the originating workspace's own stream.
+func (m *UI) handleAttentionEvent(ev proto.AttentionEvent) tea.Cmd {
+	var cmds []tea.Cmd
+	switch ev.Kind {
+	case proto.AttentionBlockedPermission, proto.AttentionBlockedQuestion:
+		if !m.attentionPending[ev.SessionID] {
+			m.attentionPending[ev.SessionID] = true
+			m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
+			// Notify only for a session the user is not currently
+			// viewing; the focused session's own stream already drives
+			// its modal + notification.
+			if m.session == nil || ev.SessionID != m.session.ID {
+				msg := "The agent needs your input."
+				if ev.Kind == proto.AttentionBlockedPermission {
+					msg = "A background session needs permission."
+				}
+				if cmd := m.sendNotification(notification.Notification{
+					Title:   "Crush is waiting...",
+					Message: msg,
+				}); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			}
+		}
+	case proto.AttentionResolved, proto.AttentionIdle:
+		if m.attentionPending[ev.SessionID] {
+			delete(m.attentionPending, ev.SessionID)
+			m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
+		}
+	case proto.AttentionBusy:
+		// No pending change; the overview refresh below repaints the
+		// live busy dot.
+	}
+	// Refresh cross-workspace overviews so busy/unread/ready dots and
+	// the summary reflect the transition promptly (busy/idle are not
+	// otherwise pushed to this client for background workspaces).
+	if m.leftSidebarVisible {
+		cmds = append(cmds, m.loadWorkspaceOverviews())
+	}
+	return tea.Batch(cmds...)
+}
 
 // attentionState is the window-chrome attention signal derived from the
 // state of BACKGROUND sessions — every session OTHER than the one the

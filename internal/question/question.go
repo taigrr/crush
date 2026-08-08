@@ -91,6 +91,15 @@ type Service interface {
 	// or is unknown (not an error: multiple clients may race to answer
 	// the same question).
 	Answer(answer Answer) bool
+	// CancelAll resolves every still-pending question as cancelled,
+	// publishing a resolution notification for each. Called on workspace
+	// teardown so no agent goroutine is left blocked in Ask and no
+	// client is left showing a zombie question dialog.
+	CancelAll()
+	// RepublishPending re-emits the request event for every still-pending
+	// question in the given session so a client that just switched to (or
+	// re-attached to) the workspace surfaces the prompt (switch-to-grant).
+	RepublishPending(sessionID string)
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[Notification]
 }
 
@@ -209,4 +218,24 @@ func (s *questionService) Answer(answer Answer) bool {
 
 func (s *questionService) SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[Notification] {
 	return s.notificationBroker.Subscribe(ctx)
+}
+
+// CancelAll resolves every still-pending question as cancelled. Each
+// entry is resolved through the same atomic Take path as Answer, so a
+// concurrent real answer races safely (first wins). Used on workspace
+// teardown to unblock waiting agent goroutines and clear zombie dialogs.
+func (s *questionService) CancelAll() {
+	for id := range s.pendingRequests.Seq2() {
+		s.resolve(id, nil, true)
+	}
+}
+
+// RepublishPending re-emits the request event for every still-pending
+// question in the given session so a newly-subscribed client surfaces it.
+func (s *questionService) RepublishPending(sessionID string) {
+	for _, p := range s.pendingRequests.Seq2() {
+		if p.req.SessionID == sessionID {
+			s.Publish(pubsub.CreatedEvent, p.req)
+		}
+	}
 }

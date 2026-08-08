@@ -751,3 +751,101 @@ func waitForRequest(t *testing.T, ch <-chan pubsub.Event[PermissionRequest], too
 		}
 	}
 }
+
+// TestPermissionService_CancelAll unblocks every pending request as
+// denied and publishes a resolution notification for each, so shutdown
+// leaves no blocked agent goroutine and no zombie prompt.
+func TestPermissionService_CancelAll(t *testing.T) {
+	t.Parallel()
+	svc := NewPermissionService("/tmp", false, nil)
+
+	notifs := svc.SubscribeNotifications(t.Context())
+	requests := svc.Subscribe(t.Context())
+
+	type res struct {
+		granted bool
+		err     error
+	}
+	done := make(chan res, 2)
+	for _, sid := range []string{"s-a", "s-b"} {
+		go func(sid string) {
+			g, err := svc.Request(t.Context(), CreatePermissionRequest{
+				SessionID:  sid,
+				ToolCallID: "tc-" + sid,
+				ToolName:   "view",
+				Action:     "read",
+				Path:       "/tmp",
+			})
+			done <- res{granted: g, err: err}
+		}(sid)
+	}
+
+	// Wait until both requests have been published (order-independent:
+	// collect from the shared channel without discarding either).
+	seen := map[string]bool{}
+	reqDeadline := time.After(2 * time.Second)
+	for len(seen) < 2 {
+		select {
+		case ev := <-requests:
+			seen[ev.Payload.ToolCallID] = true
+		case <-reqDeadline:
+			t.Fatalf("timed out waiting for both requests, saw %v", seen)
+		}
+	}
+
+	svc.CancelAll()
+
+	for range 2 {
+		select {
+		case r := <-done:
+			require.False(t, r.granted, "cancelled request must not be granted")
+		case <-time.After(2 * time.Second):
+			t.Fatal("CancelAll did not unblock a pending Request")
+		}
+	}
+
+	// Two terminal (denied) notifications must have been published.
+	denied := 0
+	deadline := time.After(time.Second)
+	for denied < 2 {
+		select {
+		case ev := <-notifs:
+			if ev.Payload.Denied {
+				denied++
+			}
+		case <-deadline:
+			t.Fatalf("expected 2 denied notifications, saw %d", denied)
+		}
+	}
+}
+
+// TestPermissionService_RepublishPending re-emits the request event for
+// the given session only, so a client that just switched to it surfaces
+// the prompt (switch-to-grant).
+func TestPermissionService_RepublishPending(t *testing.T) {
+	t.Parallel()
+	svc := NewPermissionService("/tmp", false, nil)
+
+	requests := svc.Subscribe(t.Context())
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go func() {
+		_, _ = svc.Request(ctx, CreatePermissionRequest{
+			SessionID:  "s-target",
+			ToolCallID: "tc-target",
+			ToolName:   "view",
+			Action:     "read",
+			Path:       "/tmp",
+		})
+	}()
+	first := waitForRequest(t, requests, "tc-target")
+	require.Equal(t, "s-target", first.SessionID)
+
+	// Republishing a different session must emit nothing for our target.
+	svc.RepublishPending("s-other")
+	// Republishing the target session re-emits its request.
+	svc.RepublishPending("s-target")
+	again := waitForRequest(t, requests, "tc-target")
+	require.Equal(t, first.ID, again.ID, "republished request must be the same pending request")
+}

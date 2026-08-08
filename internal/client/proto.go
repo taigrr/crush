@@ -156,6 +156,38 @@ func (c *Client) SubscribeEvents(ctx context.Context, id string) (<-chan any, er
 	return events, nil
 }
 
+// SubscribeGlobalEvents subscribes to the server's observe-only global
+// attention stream (GET /v1/events): cross-workspace permission/question
+// blocked+resolved and agent busy/idle transitions. Unlike
+// SubscribeEvents it is not scoped to a workspace and does not attach the
+// client to (or pin alive) any workspace.
+func (c *Client) SubscribeGlobalEvents(ctx context.Context) (<-chan any, error) {
+	events := make(chan any, 100)
+	q := url.Values{"client_id": []string{c.clientID}}
+	//nolint:bodyclose
+	rsp, err := c.get(ctx, "/events", q, http.Header{
+		"Accept":        []string{"text/event-stream"},
+		"Cache-Control": []string{"no-cache"},
+		"Connection":    []string{"keep-alive"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to subscribe to global events: %w", err)
+	}
+
+	if rsp.StatusCode != http.StatusOK {
+		rsp.Body.Close()
+		return nil, fmt.Errorf("failed to subscribe to global events: status code %d", rsp.StatusCode)
+	}
+
+	go func() {
+		defer rsp.Body.Close()
+		defer close(events)
+		streamEvents(ctx, rsp.Body, events, readErrorRetryDelay)
+	}()
+
+	return events, nil
+}
+
 // readErrorRetryDelay is how long streamEvents waits after a non-EOF
 // read error before retrying. Overridable in tests to avoid real
 // multi-second sleeps.
@@ -273,6 +305,8 @@ func decodeEvent(p pubsub.Payload) (any, bool) {
 		return unmarshalEvent[proto.RunComplete](p.Payload)
 	case pubsub.PayloadTypeForkProgress:
 		return unmarshalEvent[proto.ForkProgress](p.Payload)
+	case pubsub.PayloadTypeAttentionEvent:
+		return unmarshalEvent[proto.AttentionEvent](p.Payload)
 	default:
 		slog.Warn("Unknown event type", "type", p.Type)
 		return nil, false

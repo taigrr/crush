@@ -78,6 +78,12 @@ type Service interface {
 	// actually resolved the pending request; false if the request had
 	// already been resolved or is unknown.
 	Deny(permission PermissionRequest) bool
+	// CancelAll resolves every still-pending request as denied,
+	// publishing a resolution notification for each. Called on workspace
+	// teardown so no agent goroutine is left blocked in Request and no
+	// client is left showing a zombie prompt for a session that no
+	// longer exists.
+	CancelAll()
 	Request(ctx context.Context, opts CreatePermissionRequest) (bool, error)
 	AutoApproveSession(sessionID string)
 	SetSkipRequests(skip bool)
@@ -87,6 +93,12 @@ type Service interface {
 	// like curl, ssh, sudo, etc. are allowed.
 	SetSysadminMode(enabled bool)
 	SysadminMode() bool
+	// RepublishPending re-emits the request event for every still-pending
+	// request in the given session. A client that just switched to (or
+	// re-attached to) a workspace was not subscribed when the request was
+	// first published; republishing lets its prompt surface on switch
+	// (switch-to-grant) instead of staying invisibly blocked.
+	RepublishPending(sessionID string)
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[PermissionNotification]
 }
 
@@ -104,7 +116,7 @@ type permissionService struct {
 	notificationBroker    *pubsub.Broker[PermissionNotification]
 	workingDir            string
 	sessionPermissions    *csync.Map[PermissionKey, bool]
-	pendingRequests       *csync.Map[string, chan bool]
+	pendingRequests       *csync.Map[string, pendingPermission]
 	autoApproveSessions   map[string]bool
 	autoApproveSessionsMu sync.RWMutex
 	skip                  atomic.Bool
@@ -135,6 +147,16 @@ type permissionService struct {
 	// the serialization. It guards only the tiny create-if-absent step,
 	// never held across a request wait.
 	perSessionMuCreate sync.Mutex
+}
+
+// pendingPermission is the in-flight state for a published request.
+// The full request is stored (not just the channel) so a resolution
+// notification is always built from the trusted, server-minted request
+// and CancelAll can publish a correct notification for each pending
+// entry at teardown.
+type pendingPermission struct {
+	req    PermissionRequest
+	respCh chan bool
 }
 
 // sessionLock returns the mutex guarding requests for a session,
@@ -168,7 +190,7 @@ func (s *permissionService) sessionLock(sessionID string) *sync.Mutex {
 // route through this helper so multi-subscriber UIs can race safely:
 // the first caller wins, the rest become no-ops.
 func (s *permissionService) resolve(permission PermissionRequest, granted, denied bool, onResolve func()) bool {
-	respCh, ok := s.pendingRequests.Take(permission.ID)
+	p, ok := s.pendingRequests.Take(permission.ID)
 	if !ok {
 		return false
 	}
@@ -177,9 +199,12 @@ func (s *permissionService) resolve(permission PermissionRequest, granted, denie
 		onResolve()
 	}
 
+	// Build the notification from the STORED request so routing
+	// (SessionID/ToolCallID) is always the trusted server-minted value,
+	// not caller-supplied fields.
 	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
-		SessionID:  permission.SessionID,
-		ToolCallID: permission.ToolCallID,
+		SessionID:  p.req.SessionID,
+		ToolCallID: p.req.ToolCallID,
 		Granted:    granted,
 		Denied:     denied,
 	})
@@ -187,8 +212,29 @@ func (s *permissionService) resolve(permission PermissionRequest, granted, denie
 	// respCh is buffered (cap 1) and only ever has at most one sender
 	// per request because Take removes the entry under the map lock,
 	// so this send never blocks.
-	respCh <- granted
+	p.respCh <- granted
 	return true
+}
+
+// CancelAll resolves every still-pending request as denied. Each entry
+// is resolved through the same atomic Take path as Grant/Deny, so a
+// concurrent real resolution races safely (first wins). Used on
+// workspace teardown to unblock waiting agent goroutines and clear
+// zombie prompts.
+func (s *permissionService) CancelAll() {
+	for id := range s.pendingRequests.Seq2() {
+		s.resolve(PermissionRequest{ID: id}, false, true, nil)
+	}
+}
+
+// RepublishPending re-emits the request event for every still-pending
+// request in the given session so a newly-subscribed client surfaces it.
+func (s *permissionService) RepublishPending(sessionID string) {
+	for _, p := range s.pendingRequests.Seq2() {
+		if p.req.SessionID == sessionID {
+			s.Publish(pubsub.CreatedEvent, p.req)
+		}
+	}
 }
 
 func (s *permissionService) GrantPersistent(permission PermissionRequest) bool {
@@ -303,7 +349,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 	}
 
 	respCh := make(chan bool, 1)
-	s.pendingRequests.Set(permission.ID, respCh)
+	s.pendingRequests.Set(permission.ID, pendingPermission{req: permission, respCh: respCh})
 	defer s.pendingRequests.Del(permission.ID)
 
 	// Publish the request
@@ -358,7 +404,7 @@ func NewPermissionService(workingDir string, skip bool, allowedTools []string) S
 		sessionPermissions:  csync.NewMap[PermissionKey, bool](),
 		autoApproveSessions: make(map[string]bool),
 		allowedTools:        allowedTools,
-		pendingRequests:     csync.NewMap[string, chan bool](),
+		pendingRequests:     csync.NewMap[string, pendingPermission](),
 		perSessionMu:        csync.NewMap[string, *sync.Mutex](),
 	}
 	svc.skip.Store(skip)
