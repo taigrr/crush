@@ -3230,6 +3230,13 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	// Clear the screen first
 	screen.Clear(scr)
 
+	// Tint the outer frame when a background session wants attention.
+	// Drawn behind the content so the reserved margin cells carry it and
+	// nothing else is displaced.
+	if m.state == uiChat || m.state == uiLanding {
+		m.drawAttentionBorder(scr, area)
+	}
+
 	switch m.state {
 	case uiOnboarding:
 		m.drawHeader(scr, layout.header)

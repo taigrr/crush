@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/dialog"
@@ -146,4 +147,86 @@ func TestSetPendingSessions_RedIndicatorSeam(t *testing.T) {
 
 	s.SetPendingSessions(nil)
 	require.False(t, s.HasPending("session-A"))
+}
+
+// TestBackgroundAttention_BorderState verifies the window attention
+// signal: background pending → red (pending), background ready → green,
+// both → red wins, only-current-session state → none, empty → none.
+func TestBackgroundAttention_BorderState(t *testing.T) {
+	t.Parallel()
+
+	mkSidebar := func(sessions []proto.SessionOverview, pending map[string]bool) *SessionsSidebar {
+		s := NewSessionsSidebar(nil)
+		s.SetOverviews([]proto.WorkspaceOverview{{Root: "/w", Sessions: sessions}})
+		s.SetPendingSessions(pending)
+		return s
+	}
+
+	t.Run("background pending -> red", func(t *testing.T) {
+		t.Parallel()
+		s := mkSidebar([]proto.SessionOverview{
+			{ID: "cur"},
+			{ID: "bg"},
+		}, map[string]bool{"bg": true})
+		require.Equal(t, attentionPending, s.BackgroundAttention("cur"))
+	})
+
+	t.Run("no pending, background ready -> green", func(t *testing.T) {
+		t.Parallel()
+		s := mkSidebar([]proto.SessionOverview{
+			{ID: "cur"},
+			{ID: "bg", Unread: true},
+		}, nil)
+		require.Equal(t, attentionReady, s.BackgroundAttention("cur"))
+	})
+
+	t.Run("both pending and ready -> red wins", func(t *testing.T) {
+		t.Parallel()
+		s := mkSidebar([]proto.SessionOverview{
+			{ID: "ready", Unread: true},
+			{ID: "blocked"},
+		}, map[string]bool{"blocked": true})
+		require.Equal(t, attentionPending, s.BackgroundAttention("cur"))
+	})
+
+	t.Run("only current session has state -> none", func(t *testing.T) {
+		t.Parallel()
+		// Current session is unread AND has a pending prompt, but it is
+		// the one in view, so it must not trigger the border.
+		s := mkSidebar([]proto.SessionOverview{
+			{ID: "cur", Unread: true},
+			{ID: "bg"},
+		}, map[string]bool{"cur": true})
+		require.Equal(t, attentionNone, s.BackgroundAttention("cur"))
+	})
+
+	t.Run("busy background session is not ready", func(t *testing.T) {
+		t.Parallel()
+		// Unread but busy must not count as ready (matches sessionReady).
+		s := mkSidebar([]proto.SessionOverview{
+			{ID: "cur"},
+			{ID: "bg", Unread: true, IsBusy: true},
+		}, nil)
+		require.Equal(t, attentionNone, s.BackgroundAttention("cur"))
+	})
+
+	t.Run("nothing -> none", func(t *testing.T) {
+		t.Parallel()
+		s := mkSidebar([]proto.SessionOverview{{ID: "cur"}}, nil)
+		require.Equal(t, attentionNone, s.BackgroundAttention("cur"))
+	})
+}
+
+// TestAttentionBorderColor_ThemedNotHardcoded verifies red uses the
+// destructive token and green the ready/success token (same as the row
+// indicators), and none yields no border.
+func TestAttentionBorderColor_ThemedNotHardcoded(t *testing.T) {
+	t.Parallel()
+
+	u := newTestUIForPermissions()
+	sty := u.com.Styles
+
+	require.Equal(t, sty.Resource.ErrorIcon.GetForeground(), u.attentionBorderColor(attentionPending))
+	require.Equal(t, sty.Resource.OnlineIcon.GetForeground(), u.attentionBorderColor(attentionReady))
+	require.Nil(t, u.attentionBorderColor(attentionNone))
 }
