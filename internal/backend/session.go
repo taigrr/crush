@@ -121,6 +121,17 @@ func (b *Backend) ArchiveSession(ctx context.Context, workspaceID, sessionID str
 	return ws.ArchiveSession(ctx, sessionID)
 }
 
+// MarkSessionSeen marks an arbitrary session in the workspace as read,
+// clearing its derived unread state (LastFinishedAt > LastSeenAt).
+func (b *Backend) MarkSessionSeen(ctx context.Context, workspaceID, sessionID string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+
+	return ws.MarkSessionSeen(ctx, sessionID)
+}
+
 // UnarchiveSession unarchives a session.
 func (b *Backend) UnarchiveSession(ctx context.Context, workspaceID, sessionID string) error {
 	ws, err := b.GetWorkspace(workspaceID)

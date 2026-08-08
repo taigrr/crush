@@ -1078,6 +1078,33 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				"Archived %d session(s)", msg.succeeded,
 			)))
 		}
+	case sessionsMarkedReadMsg:
+		// Refresh the sidebar so derived unread state (green dots) updates.
+		if msg.overviews != nil {
+			m.leftSidebar.SetOverviews(msg.overviews)
+			m.leftSidebar.SetCurrentRoot(m.com.Workspace.BaseDir())
+			if m.session != nil {
+				m.leftSidebar.SetActiveSession(m.session.ID)
+			}
+		}
+		// No destructive concern: clear the selection and exit visual mode
+		// unconditionally; the cursor stays where it is (sessions remain in
+		// the list).
+		m.leftSidebar.ClearSelection()
+		switch {
+		case len(msg.failed) > 0:
+			cmds = append(cmds, util.ReportError(fmt.Errorf(
+				"Marked %d read; %d failed", msg.succeeded, len(msg.failed),
+			)))
+		case msg.succeeded > 0 && msg.skipped > 0:
+			cmds = append(cmds, util.ReportInfo(fmt.Sprintf(
+				"Marked %d read; skipped %d (not in this workspace)", msg.succeeded, msg.skipped,
+			)))
+		case msg.succeeded > 0:
+			cmds = append(cmds, util.ReportInfo(fmt.Sprintf(
+				"Marked %d read", msg.succeeded,
+			)))
+		}
 	case activeSessionArchivedMsg:
 		if msg.err != nil {
 			cmds = append(cmds, util.ReportError(msg.err))

@@ -863,6 +863,32 @@ func (s *SessionsSidebar) ArchivableSelection() (ids []string, skippedActive, sk
 	return ids, skippedActive, skippedWorkspace
 }
 
+// MarkReadSelection returns the selected session IDs eligible for bulk
+// mark-as-read, in deterministic (sorted) order, together with the number
+// of selected sessions skipped because they do not provably belong to the
+// current workspace. It mirrors ArchivableSelection's current-workspace
+// scoping and fail-closed filter (the client mark-seen API only reaches the
+// attached workspace, exactly like archive).
+//
+// Unlike ArchivableSelection the active session is NOT skipped: marking the
+// session the user is viewing read is harmless (it is already read via
+// SetCurrentSession's implicit mark-seen), so there is no destructive
+// concern and no separate active-skip count.
+func (s *SessionsSidebar) MarkReadSelection() (ids []string, skippedWorkspace int) {
+	roots := s.sessionRoots()
+	for id := range s.selected {
+		// Fail closed: require a known root equal to the current workspace.
+		root, ok := roots[id]
+		if s.currentRoot == "" || !ok || root != s.currentRoot {
+			skippedWorkspace++
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, skippedWorkspace
+}
+
 // sessionRoots maps each known session ID to its workspace root, for
 // workspace-scoping the bulk archive selection.
 func (s *SessionsSidebar) sessionRoots() map[string]string {

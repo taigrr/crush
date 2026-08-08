@@ -981,6 +981,19 @@ func (c *Client) ArchiveSession(ctx context.Context, id string, sessionID string
 	return nil
 }
 
+// MarkSessionSeen marks a session as read in a workspace.
+func (c *Client) MarkSessionSeen(ctx context.Context, id string, sessionID string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/seen", id, sessionID), nil, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to mark session seen: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to mark session seen: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
 // UnarchiveSession unarchives a session in a workspace.
 func (c *Client) UnarchiveSession(ctx context.Context, id string, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/unarchive", id, sessionID), nil, nil, nil)
