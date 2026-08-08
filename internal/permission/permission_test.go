@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/pubsub"
 )
 
 func TestPermissionService_AllowedCommands(t *testing.T) {
@@ -667,6 +668,86 @@ func TestPermissionService_CancelPublishesDenial(t *testing.T) {
 			}
 		case <-deadline:
 			t.Fatal("cancellation did not publish a denial notification")
+		}
+	}
+}
+
+// TestPermissionService_NoCrossSessionHeadOfLineBlocking verifies that
+// an unresolved permission request in one session does NOT block a
+// request from a different session. A workspace runs many sessions
+// concurrently (e.g. swarm-dispatched background turns); a single
+// workspace-wide mutex held across the blocking wait would wedge every
+// other session's prompt behind one in-flight request. Locking is now
+// per session, so session-b's request must publish and resolve while
+// session-a's request is still pending.
+func TestPermissionService_NoCrossSessionHeadOfLineBlocking(t *testing.T) {
+	t.Parallel()
+	service := NewPermissionService("/tmp", false, nil)
+
+	requests := service.Subscribe(t.Context())
+
+	// Request A blocks in session-a; we never resolve it until the end.
+	ctxA, cancelA := context.WithCancel(t.Context())
+	defer cancelA()
+	go func() {
+		_, _ = service.Request(ctxA, CreatePermissionRequest{
+			SessionID:  "session-a",
+			ToolCallID: "call-a",
+			ToolName:   "view",
+			Action:     "read",
+			Path:       "/tmp",
+		})
+	}()
+
+	// Wait for A's request to be published so it is genuinely in-flight
+	// and holding session-a's lock.
+	reqA := waitForRequest(t, requests, "call-a")
+	require.Equal(t, "session-a", reqA.SessionID)
+
+	// Request B in a DIFFERENT session must publish even though A is
+	// still pending. If a workspace-wide lock were held across A's wait,
+	// this Request would never publish and the drain below would time
+	// out.
+	var bDone sync.WaitGroup
+	bDone.Add(1)
+	var grantedB bool
+	go func() {
+		defer bDone.Done()
+		grantedB, _ = service.Request(t.Context(), CreatePermissionRequest{
+			SessionID:  "session-b",
+			ToolCallID: "call-b",
+			ToolName:   "view",
+			Action:     "read",
+			Path:       "/tmp",
+		})
+	}()
+
+	reqB := waitForRequest(t, requests, "call-b")
+	require.Equal(t, "session-b", reqB.SessionID,
+		"session-b's request must publish while session-a is still pending")
+
+	// Resolve B; it must complete independently of A.
+	require.True(t, service.Grant(reqB))
+	bDone.Wait()
+	assert.True(t, grantedB, "session-b's request resolves independently")
+
+	// A is still pending; cancel it to unblock the goroutine.
+	cancelA()
+}
+
+// waitForRequest drains the request channel until a request with the
+// given tool call ID arrives (or the test times out).
+func waitForRequest(t *testing.T, ch <-chan pubsub.Event[PermissionRequest], toolCallID string) PermissionRequest {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Payload.ToolCallID == toolCallID {
+				return ev.Payload
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for request %q", toolCallID)
 		}
 	}
 }

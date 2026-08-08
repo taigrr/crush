@@ -208,19 +208,19 @@ type UI struct {
 	session      *session.Session
 	sessionFiles []SessionFile
 
-	// pendingPermission caches the most recent unresolved permission
-	// request this client has seen. Permission requests are serialized
-	// service-side (one at a time), so there is at most one. It lets us
-	// (a) suppress showing a request that belongs to a session the user
-	// is not currently viewing and (b) re-surface it when the user
-	// switches back to that session. Cleared when the request resolves.
-	pendingPermission *permission.PermissionRequest
+	// pendingPermissions caches unresolved permission requests keyed by
+	// session ID. Requests are broadcast to every client in the
+	// workspace (including background sessions the user is not viewing),
+	// so multiple sessions can each have a request in flight at once; a
+	// single pointer would let one session's prompt clobber another's.
+	// The entry for the active session is auto-surfaced; others are
+	// cached (and OS-notified) and re-surfaced on session switch.
+	// Cleared when the request resolves.
+	pendingPermissions map[string]*permission.PermissionRequest
 
-	// pendingQuestion mirrors pendingPermission for the question tool:
-	// it caches the most recent unresolved question request this
-	// client has seen so it can be suppressed/re-surfaced across
-	// session switches the same way permission prompts are.
-	pendingQuestion *question.Request
+	// pendingQuestions mirrors pendingPermissions for the question tool:
+	// unresolved question requests keyed by session ID.
+	pendingQuestions map[string]*question.Request
 
 	// keeps track of read files while we don't have a session id
 	sessionFileReads []string
@@ -474,6 +474,8 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		notifyWindowFocused: true,
 		initialSessionID:    initialSessionID,
 		continueLastSession: continueLast,
+		pendingPermissions:  make(map[string]*permission.PermissionRequest),
+		pendingQuestions:    make(map[string]*question.Request),
 	}
 
 	status := NewStatus(com, ui)
@@ -994,7 +996,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// session's prompt over the active one would let allow/deny (and
 		// "allow for session") be applied to the wrong session.
 		perm := msg.Payload
-		m.pendingPermission = &perm
+		m.pendingPermissions[perm.SessionID] = &perm
+		m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
 		if m.session != nil && perm.SessionID == m.session.ID {
 			if cmd := m.openPermissionsDialog(perm); cmd != nil {
 				cmds = append(cmds, cmd)
@@ -1014,7 +1017,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// only pop the dialog for the session the user is currently
 		// viewing.
 		q := msg.Payload
-		m.pendingQuestion = &q
+		m.pendingQuestions[q.SessionID] = &q
+		m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
 		if m.session != nil && q.SessionID == m.session.ID {
 			if cmd := m.openQuestionDialog(q); cmd != nil {
 				cmds = append(cmds, cmd)
@@ -2406,8 +2410,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		// request synchronously service-side, so a session switch before
 		// the resolving notification round-trips must not re-surface a
 		// now-stale ("zombie") prompt.
-		if m.pendingPermission != nil && m.pendingPermission.ToolCallID == msg.Permission.ToolCallID {
-			m.pendingPermission = nil
+		if p := m.pendingPermissions[msg.Permission.SessionID]; p != nil && p.ToolCallID == msg.Permission.ToolCallID {
+			delete(m.pendingPermissions, msg.Permission.SessionID)
+			m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
 		}
 		switch msg.Action {
 		case dialog.PermissionAllow:
@@ -2421,8 +2426,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	case dialog.ActionQuestionResponse:
 		m.dialog.CloseDialog(dialog.QuestionID)
 		// Same eager-clear rationale as ActionPermissionResponse above.
-		if m.pendingQuestion != nil && m.pendingQuestion.ToolCallID == msg.Request.ToolCallID {
-			m.pendingQuestion = nil
+		if q := m.pendingQuestions[msg.Request.SessionID]; q != nil && q.ToolCallID == msg.Request.ToolCallID {
+			delete(m.pendingQuestions, msg.Request.SessionID)
+			m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
 		}
 		m.com.Workspace.QuestionAnswer(msg.Answer)
 

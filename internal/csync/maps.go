@@ -77,6 +77,13 @@ func (m *Map[K, V]) Len() int {
 
 // GetOrSet gets and returns the key if it exists, otherwise, it executes the
 // given function, set its return value for the given key, and returns it.
+//
+// Note: this is NOT atomic — fn runs without the map lock held, so two
+// concurrent GetOrSet calls for the same absent key can both run fn and the
+// second Set wins. Callers that require exactly-once creation (e.g. a mutex
+// registry) must serialize creation themselves. fn is intentionally run
+// outside the lock so callers may do expensive work (I/O, parsing) without
+// blocking unrelated keys.
 func (m *Map[K, V]) GetOrSet(key K, fn func() V) V {
 	got, ok := m.Get(key)
 	if ok {

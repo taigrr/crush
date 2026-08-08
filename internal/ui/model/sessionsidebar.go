@@ -135,6 +135,27 @@ type SessionsSidebar struct {
 	// from a background refresh, resize, or re-sort. The swept range runs
 	// between the anchor's current row and the cursor.
 	anchorID string
+
+	// pendingSessions is the set of session IDs (any workspace) that
+	// currently have an unresolved permission or question request cached
+	// by this client. The row renderer consults HasPending to draw a
+	// red "prompt-pending" indicator so a background session blocked on
+	// a prompt is visible in the list before the user switches to it.
+	pendingSessions map[string]bool
+}
+
+// SetPendingSessions replaces the set of session IDs that have an
+// unresolved permission/question request. The main model calls this
+// whenever a request is cached or resolved. A nil/empty map clears all
+// indicators.
+func (s *SessionsSidebar) SetPendingSessions(ids map[string]bool) {
+	s.pendingSessions = ids
+}
+
+// HasPending reports whether the given session has an unresolved
+// permission or question request awaiting a response on this client.
+func (s *SessionsSidebar) HasPending(sessionID string) bool {
+	return s.pendingSessions[sessionID]
 }
 
 // NewSessionsSidebar creates an empty sidebar bound to shared context.

@@ -161,39 +161,6 @@ func wrapEvent(ev any) *pubsub.Payload {
 	}
 }
 
-// sessionScopedEvent reports the session an event belongs to when that
-// event must only reach clients currently viewing that session, and
-// whether the event is session-scoped at all. The SSE handler uses this
-// to keep permission prompts and their resolution notifications from
-// leaking across clients that share a workspace but view different
-// sessions — otherwise a prompt or a cancel/grant/deny resolution for
-// session A pops or dismisses dialogs on a client looking at session B.
-//
-// Only permission events are scoped here. Other broadcasts are
-// intentionally left global:
-//   - notify.Notification (agent finished/errored, re-authenticate):
-//     "turn finished" desktop notifications are useful precisely for
-//     background sessions a client is not currently viewing, and
-//     re-auth is provider-scoped.
-//   - message/session/file/run-complete events: the UI filters these
-//     client-side (and needs cross-session message events for sub-agent
-//     tools); headless clients rely on RunComplete without selecting a
-//     current session.
-func sessionScopedEvent(ev any) (sessionID string, scoped bool) {
-	switch e := ev.(type) {
-	case pubsub.Event[permission.PermissionRequest]:
-		return e.Payload.SessionID, true
-	case pubsub.Event[permission.PermissionNotification]:
-		return e.Payload.SessionID, true
-	case pubsub.Event[question.Request]:
-		return e.Payload.SessionID, true
-	case pubsub.Event[question.Notification]:
-		return e.Payload.SessionID, true
-	default:
-		return "", false
-	}
-}
-
 // envelope marshals the inner event and wraps it in a pubsub.Payload.
 func envelope(payloadType pubsub.PayloadType, inner any) *pubsub.Payload {
 	raw, err := json.Marshal(inner)

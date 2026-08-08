@@ -111,10 +111,44 @@ type permissionService struct {
 	sysadmin              atomic.Bool
 	allowedTools          []string
 
-	// used to make sure we only process one request at a time
-	requestMu       sync.Mutex
-	activeRequest   *PermissionRequest
-	activeRequestMu sync.Mutex
+	// perSessionMu serializes permission requests within a single
+	// session WITHOUT blocking other sessions. A workspace runs many
+	// sessions concurrently (e.g. swarm-dispatched background turns); a
+	// single workspace-wide mutex held across the blocking wait in
+	// Request would wedge every other session's prompt behind one
+	// in-flight request (head-of-line blocking) — in client/server mode
+	// this manifested as a silent stall when a background session hit a
+	// prompt. Keyed by session ID.
+	//
+	// Bound: one entry per distinct session ID for the lifetime of the
+	// process. It is never pruned — there is no session-teardown hook on
+	// this service, and deleting a mutex on request resolution would
+	// race a concurrent Request about to lock it. This matches the
+	// existing per-session maps here (sessionPermissions,
+	// autoApproveSessions), is bounded by the total number of sessions,
+	// and each entry is a tiny *sync.Mutex, so the footprint is
+	// negligible.
+	perSessionMu *csync.Map[string, *sync.Mutex]
+	// perSessionMuCreate serializes creation of per-session mutexes so
+	// two concurrent Request calls for the same session cannot create
+	// (and then lock) two different mutex instances — which would defeat
+	// the serialization. It guards only the tiny create-if-absent step,
+	// never held across a request wait.
+	perSessionMuCreate sync.Mutex
+}
+
+// sessionLock returns the mutex guarding requests for a session,
+// creating it on first use. Creation is serialized by perSessionMuCreate
+// so every caller for a given session observes the same mutex instance.
+func (s *permissionService) sessionLock(sessionID string) *sync.Mutex {
+	s.perSessionMuCreate.Lock()
+	defer s.perSessionMuCreate.Unlock()
+	if mu, ok := s.perSessionMu.Get(sessionID); ok {
+		return mu
+	}
+	mu := &sync.Mutex{}
+	s.perSessionMu.Set(sessionID, mu)
+	return mu
 }
 
 // resolve atomically removes the pending request entry for the given
@@ -154,12 +188,6 @@ func (s *permissionService) resolve(permission PermissionRequest, granted, denie
 	// per request because Take removes the entry under the map lock,
 	// so this send never blocks.
 	respCh <- granted
-
-	s.activeRequestMu.Lock()
-	if s.activeRequest != nil && s.activeRequest.ID == permission.ID {
-		s.activeRequest = nil
-	}
-	s.activeRequestMu.Unlock()
 	return true
 }
 
@@ -210,8 +238,12 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		return true, nil
 	}
 
-	s.requestMu.Lock()
-	defer s.requestMu.Unlock()
+	// Serialize requests within this session only. Different sessions
+	// proceed concurrently so a background session's prompt never blocks
+	// behind another session's in-flight request.
+	mu := s.sessionLock(opts.SessionID)
+	mu.Lock()
+	defer mu.Unlock()
 
 	// tell the UI that a permission was requested
 	s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
@@ -270,10 +302,6 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		return true, nil
 	}
 
-	s.activeRequestMu.Lock()
-	s.activeRequest = &permission
-	s.activeRequestMu.Unlock()
-
 	respCh := make(chan bool, 1)
 	s.pendingRequests.Set(permission.ID, respCh)
 	defer s.pendingRequests.Del(permission.ID)
@@ -331,6 +359,7 @@ func NewPermissionService(workingDir string, skip bool, allowedTools []string) S
 		autoApproveSessions: make(map[string]bool),
 		allowedTools:        allowedTools,
 		pendingRequests:     csync.NewMap[string, chan bool](),
+		perSessionMu:        csync.NewMap[string, *sync.Mutex](),
 	}
 	svc.skip.Store(skip)
 	return svc

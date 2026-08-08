@@ -129,7 +129,7 @@ func TestSyncPermissionDialog_ResurfacesPendingForActiveSession(t *testing.T) {
 
 	// A request for session A arrived while the user was elsewhere; it is
 	// cached but no dialog is open.
-	u.pendingPermission = &permission.PermissionRequest{
+	u.pendingPermissions["session-A"] = &permission.PermissionRequest{
 		ID:         "perm-2",
 		SessionID:  "session-A",
 		ToolCallID: "tool-A",
@@ -146,7 +146,7 @@ func TestSyncPermissionDialog_DoesNotResurfaceForOtherSession(t *testing.T) {
 
 	u := newTestUIForPermissions()
 	u.session = &session.Session{ID: "session-B"}
-	u.pendingPermission = &permission.PermissionRequest{
+	u.pendingPermissions["session-A"] = &permission.PermissionRequest{
 		ID:         "perm-3",
 		SessionID:  "session-A",
 		ToolCallID: "tool-A",
@@ -163,7 +163,7 @@ func TestHandlePermissionNotification_ClearsPendingCache(t *testing.T) {
 
 	u := newTestUIForPermissions()
 	u.session = &session.Session{ID: "session-A"}
-	u.pendingPermission = &permission.PermissionRequest{
+	u.pendingPermissions["session-A"] = &permission.PermissionRequest{
 		ID:         "perm-4",
 		SessionID:  "session-A",
 		ToolCallID: "tool-A",
@@ -175,6 +175,6 @@ func TestHandlePermissionNotification_ClearsPendingCache(t *testing.T) {
 		Granted:    true,
 	})
 
-	require.Nil(t, u.pendingPermission,
+	require.Nil(t, u.pendingPermissions["session-A"],
 		"resolving the request must clear the pending cache so it is not re-surfaced")
 }

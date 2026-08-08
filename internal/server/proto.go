@@ -323,17 +323,17 @@ func (c *controllerV1) handleGetWorkspaceEvents(w http.ResponseWriter, r *http.R
 				)
 				return
 			}
-			// Permission prompts and their resolution notifications
-			// are session-scoped: only forward them to the client that
-			// is currently viewing the originating session. Otherwise
-			// prompts and cancel/grant/deny resolutions leak across
-			// clients sharing the workspace. A client whose current
-			// session is unknown (no selection yet) receives none.
-			if sid, scoped := sessionScopedEvent(ev.Payload); scoped {
-				if cur, attached := c.backend.CurrentSessionID(id, clientID); !attached || cur != sid {
-					continue
-				}
-			}
+			// Permission prompts, questions, and their resolution
+			// notifications are broadcast to every client attached to
+			// the workspace (workspace isolation still holds: the SSE
+			// stream is per-workspace). A background/non-focused
+			// session's prompt must reach clients that are not
+			// currently viewing it — otherwise a swarm-dispatched turn
+			// blocks forever with no visible prompt. Clients cache the
+			// request per session and only auto-open the modal for the
+			// session they are viewing; the resolution notification is
+			// gated by ToolCallID so a client with no matching modal
+			// simply clears its cached entry.
 			wrapped := wrapEvent(ev.Payload)
 			if wrapped == nil {
 				continue
