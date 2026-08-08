@@ -204,18 +204,32 @@ func (b *Backend) InitAgent(ctx context.Context, workspaceID string) error {
 		return err
 	}
 
-	// Wire the swarm shim into the coordinator. SetSwarmBackend
-	// refreshes the coder agent's tool set so the swarm tool is
-	// present on the very first turn (the coordinator's
-	// constructor already built an agent without the tool because
-	// the backend hadn't reached this point yet). Test mocks that
-	// don't implement SwarmConfigurable are silently skipped.
-	if setter, ok := ws.AgentCoordinator.(agent.SwarmConfigurable); ok {
-		if err := setter.SetSwarmBackend(ctx, &swarmShim{b: b}, workspaceID, ws.App.SwarmConfig); err != nil {
-			return err
-		}
+	// InitCoderAgent rebuilds the coordinator from scratch, discarding
+	// the swarm shim that CreateWorkspace wired in. Re-wire it so the
+	// swarm tool survives a re-init.
+	return b.wireSwarmBackend(ctx, ws)
+}
+
+// wireSwarmBackend injects the cross-workspace swarm dispatcher into
+// ws's coordinator and refreshes the coder agent's tool set so the
+// swarm/workspace_lookup tools take effect. It is the single point of
+// backend-level swarm wiring: swarm is inherently cross-workspace (the
+// shim wraps [Backend] and its all-workspaces map), so it cannot be
+// wired inside app.New like every other single-workspace concern — it
+// has to be injected from this layer, after the coordinator is built.
+//
+// Called by [Backend.CreateWorkspace] for every workspace as it comes
+// up, and again by [Backend.InitAgent] after a coordinator rebuild.
+// SetSwarmBackend refreshes tools in place (no coordinator swap, no
+// in-flight run disruption), so it is idempotent and safe to call
+// repeatedly. Test mocks that don't implement SwarmConfigurable are
+// silently skipped.
+func (b *Backend) wireSwarmBackend(ctx context.Context, ws *Workspace) error {
+	setter, ok := ws.AgentCoordinator.(agent.SwarmConfigurable)
+	if !ok {
+		return nil
 	}
-	return nil
+	return setter.SetSwarmBackend(ctx, &swarmShim{b: b}, ws.ID, ws.App.SwarmConfig)
 }
 
 // UpdateAgent reloads the agent model configuration.

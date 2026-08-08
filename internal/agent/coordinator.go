@@ -128,6 +128,10 @@ type SwarmConfigurable interface {
 	// agent pointer) uses the csync-guarded tool slice so it is
 	// safe to call while a run is in flight.
 	SetSwarmBackend(ctx context.Context, be tools.SwarmBackend, workspaceID string, cfg func() swarm.Config) error
+	// SwarmWired reports whether a non-nil swarm dispatcher is
+	// currently wired in. Used to verify that workspace creation
+	// injected the backend without having to inspect the tool set.
+	SwarmWired() bool
 }
 
 type coordinator struct {
@@ -217,6 +221,13 @@ func (c *coordinator) SetSwarmBackend(ctx context.Context, be tools.SwarmBackend
 	}
 	c.currentAgent.SetTools(newTools)
 	return nil
+}
+
+// SwarmWired reports whether a swarm dispatcher is currently wired in.
+func (c *coordinator) SwarmWired() bool {
+	c.swarmMu.Lock()
+	defer c.swarmMu.Unlock()
+	return c.swarmBackend != nil
 }
 
 func NewCoordinator(

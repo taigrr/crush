@@ -438,6 +438,17 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	// Start the cross-workspace attention forwarder for this workspace.
 	b.startAttentionForwarder(ws)
 
+	// Wire the cross-workspace swarm dispatcher into the freshly-built
+	// coordinator. This is the single funnel all backend workspace
+	// creation flows through, so wiring here guarantees every
+	// workspace — HTTP-created, path-spawned by the swarm tool, or
+	// otherwise — can see the swarm tool without depending on a
+	// follow-up InitAgent call. Best-effort: swarm is non-critical, so
+	// a wiring failure must not fail workspace creation.
+	if err := b.wireSwarmBackend(b.ctx, ws); err != nil {
+		slog.Warn("Failed to wire swarm backend into workspace", "root", key, "error", err)
+	}
+
 	// Record this workspace in the global registry so a future Crush
 	// instance (or the server on startup) can enumerate and jump to it
 	// without it being attached. Best-effort; a registry write failure

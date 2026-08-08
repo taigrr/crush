@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/agent"
 	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
@@ -89,4 +90,46 @@ func TestCreateSwarmSessionAtPath_CreateNew(t *testing.T) {
 	ws, err := b.GetWorkspace(gotID)
 	require.NoError(t, err)
 	require.NotNil(t, ws)
+}
+
+// TestCreateWorkspace_WiresSwarm guards the regression where
+// path-spawned (and any non-HTTP) workspaces never had the swarm
+// backend injected: swarm wiring lives in CreateWorkspace — the single
+// funnel all backend workspace creation flows through — so a workspace
+// created directly, WITHOUT a follow-up InitAgent call, must already
+// carry a swarm dispatcher. A second InitAgent (which rebuilds the
+// coordinator) must re-wire idempotently.
+func TestCreateWorkspace_WiresSwarm(t *testing.T) {
+	isolateConfigHome(t)
+
+	wd := t.TempDir()
+	writeSwarmProject(t, wd)
+
+	srvCfg, err := config.Init(wd, "", false)
+	require.NoError(t, err)
+	b := backend.New(t.Context(), srvCfg, nil)
+	t.Cleanup(b.Shutdown)
+
+	ws, _, err := b.CreateWorkspace(proto.Workspace{
+		ClientID: uuid.New().String(),
+		Path:     wd,
+		DataDir:  filepath.Join(wd, ".crush"),
+	})
+	require.NoError(t, err)
+
+	// The coordinator must exist (config must be configured for this
+	// assertion to be meaningful) and must already have the swarm
+	// dispatcher wired in — from CreateWorkspace alone, with no
+	// follow-up InitAgent call.
+	require.NotNil(t, ws.AgentCoordinator, "coordinator must be built by CreateWorkspace")
+	sc, ok := ws.AgentCoordinator.(agent.SwarmConfigurable)
+	require.True(t, ok)
+	require.True(t, sc.SwarmWired(), "CreateWorkspace must wire the swarm backend without a follow-up InitAgent")
+
+	// Re-init (as the HTTP /agent/init flow does) rebuilds the
+	// coordinator; it must re-wire, not drop, the swarm backend.
+	require.NoError(t, b.InitAgent(t.Context(), ws.ID))
+	sc, ok = ws.AgentCoordinator.(agent.SwarmConfigurable)
+	require.True(t, ok)
+	require.True(t, sc.SwarmWired(), "InitAgent must re-wire the swarm backend after rebuilding the coordinator")
 }
