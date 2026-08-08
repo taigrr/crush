@@ -275,6 +275,15 @@ type AssistantInfoItem struct {
 	sty                 *styles.Styles
 	cfg                 *config.Config
 	lastUserMessageTime time.Time
+	// now is the reference clock used to compute the humanized "since"
+	// label. It advances via RefreshSince (driven by the model's
+	// periodic ticker) so the relative timestamp keeps counting up
+	// between messages instead of freezing at render time.
+	now time.Time
+	// since is the last humanized relative label rendered for the
+	// finish time. RefreshSince compares against a freshly computed
+	// label to decide whether the cached render is stale.
+	since string
 }
 
 // NewAssistantInfoItem creates a new AssistantInfoItem.
@@ -287,6 +296,7 @@ func NewAssistantInfoItem(sty *styles.Styles, message *message.Message, cfg *con
 		sty:                 sty,
 		cfg:                 cfg,
 		lastUserMessageTime: lastUserMessageTime,
+		now:                 time.Now(),
 	}
 }
 
@@ -351,9 +361,43 @@ func (a *AssistantInfoItem) renderContent(width int) string {
 		providerName = providerConfig.Name
 	}
 	provider := a.sty.Messages.AssistantInfoProvider.Render(fmt.Sprintf("via %s", providerName))
-	since := a.sty.Messages.AssistantInfoDuration.Render(humanize.Time(finishTime))
-	assistant := fmt.Sprintf("%s %s %s %s %s", icon, modelFormatted, provider, infoMsg, since)
+	// Record the relative label rendered so RefreshSince can detect
+	// when the humanized value drifts and invalidate the cache. The
+	// reference clock (a.now) is advanced by the model's ticker.
+	a.since = humanizeSince(finishTime, a.now)
+	since := a.sty.Messages.AssistantInfoDuration.Render(a.since)
+	sep := a.sty.Messages.AssistantInfoDuration.Render("//")
+	assistant := fmt.Sprintf("%s %s %s %s %s %s", icon, modelFormatted, provider, infoMsg, sep, since)
 	return common.Section(a.sty, assistant, width)
+}
+
+// humanizeSince returns the humanized relative label for finishTime as
+// of now (e.g. "just now", "2 minutes ago"). It mirrors
+// humanize.Time but takes an explicit now so it can be tested with a
+// fixed clock.
+func humanizeSince(finishTime, now time.Time) string {
+	return humanize.RelTime(finishTime, now, "ago", "from now")
+}
+
+// RefreshSince recomputes the humanized "since" label for now and, if it
+// differs from the last rendered value, invalidates the cached render
+// and bumps the version so the list re-renders with the fresh label.
+// It returns true when the displayed label changed.
+func (a *AssistantInfoItem) RefreshSince(now time.Time) bool {
+	finishData := a.message.FinishPart()
+	if finishData == nil {
+		return false
+	}
+	finishTime := time.Unix(finishData.Time, 0)
+	next := humanizeSince(finishTime, now)
+	if next == a.since {
+		return false
+	}
+	a.since = next
+	a.now = now
+	a.clearCache()
+	a.Bump()
+	return true
 }
 
 // cappedMessageWidth returns the maximum width for message content for readability.
