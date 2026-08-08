@@ -1735,7 +1735,20 @@ func startItemAnimations(items ...chat.MessageItem) []tea.Cmd {
 	return cmds
 }
 
+// exitLeftSidebarSearchOnBlur leaves the "/" filter when a focus transition
+// moves focus off the (still-visible) left sidebar, so the sidebar never
+// lingers in a filtered, no-focused-input state. wasFocused is whether the
+// sidebar held focus before the transition. Sidebar-close paths already
+// ExitSearch on their own.
+func (m *UI) exitLeftSidebarSearchOnBlur(wasFocused bool) {
+	if wasFocused && m.focus != uiFocusLeftSidebar {
+		m.leftSidebar.ExitSearch()
+	}
+}
+
 func (m *UI) handleClickFocus(msg tea.MouseClickMsg) (cmd tea.Cmd) {
+	wasSidebar := m.focus == uiFocusLeftSidebar
+	defer func() { m.exitLeftSidebarSearchOnBlur(wasSidebar) }()
 	switch {
 	case m.state != uiChat:
 		return nil

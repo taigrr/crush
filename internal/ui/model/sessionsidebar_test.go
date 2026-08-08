@@ -1157,3 +1157,307 @@ func TestSidebar_InboxLongWorkspaceTagNoOverflow(t *testing.T) {
 			"inbox row must not exceed sidebar width: %q", line)
 	}
 }
+
+// searchOverviews returns a fixture spanning two workspaces with varied
+// titles/animals for exercising the "/" filter.
+func searchOverviews() []proto.WorkspaceOverview {
+	return []proto.WorkspaceOverview{
+		{
+			Root:     "/home/user/backend",
+			Attached: true,
+			Sessions: []proto.SessionOverview{
+				{ID: "b1", Title: "Fix login bug", Animal: "otter", UpdatedAt: 30},
+				{ID: "b2", Title: "Refactor cache", Animal: "tiger", UpdatedAt: 20},
+			},
+		},
+		{
+			Root:     "/home/user/frontend",
+			Attached: false,
+			Sessions: []proto.SessionOverview{
+				{ID: "f1", Title: "Login form styling", Animal: "eel", UpdatedAt: 25},
+				{ID: "f2", Title: "Dark mode", Animal: "whale", UpdatedAt: 15},
+			},
+		},
+	}
+}
+
+// typeQuery drives the sidebar's filter input as if the user typed each rune.
+func typeQuery(s *SessionsSidebar, q string) {
+	for _, r := range q {
+		s.HandleSearchKey(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+}
+
+// TestSidebar_SearchTitleAndSubtextMatch verifies case-insensitive substring
+// matching over title AND subtext (workspace basename + animal).
+func TestSidebar_SearchTitleAndSubtextMatch(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(searchOverviews())
+
+	// Title match, case-insensitive: "login" hits b1 ("Fix login bug") and
+	// f1 ("Login form styling").
+	s.EnterSearch()
+	typeQuery(s, "LOGIN")
+	require.ElementsMatch(t, []string{"b1", "f1"}, sessionOrder(s))
+	s.ExitSearch()
+
+	// Subtext match by workspace basename: "frontend" hits both f-sessions.
+	s.EnterSearch()
+	typeQuery(s, "frontend")
+	require.ElementsMatch(t, []string{"f1", "f2"}, sessionOrder(s))
+	s.ExitSearch()
+
+	// Subtext match by animal: "tiger" hits only b2.
+	s.EnterSearch()
+	typeQuery(s, "tiger")
+	require.Equal(t, []string{"b2"}, sessionOrder(s))
+}
+
+// TestSidebar_SearchEscRestores verifies esc exits search and restores the
+// full unfiltered list.
+func TestSidebar_SearchEscRestores(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(searchOverviews())
+	full := sessionOrder(s)
+
+	s.EnterSearch()
+	typeQuery(s, "dark")
+	require.Equal(t, []string{"f2"}, sessionOrder(s))
+	require.True(t, s.Searching())
+
+	s.ExitSearch()
+	require.False(t, s.Searching())
+	require.ElementsMatch(t, full, sessionOrder(s), "full list restored")
+}
+
+// TestSidebar_SearchNavAndRowIndexOnFilteredSet verifies navigation stays on
+// selectable rows and row-index round-trips on the filtered projection.
+func TestSidebar_SearchNavAndRowIndexOnFilteredSet(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(searchOverviews())
+
+	s.EnterSearch()
+	typeQuery(s, "login") // b1 + f1 across two workspaces
+	require.True(t, s.selectableRow(s.cursor))
+
+	s.MoveTop()
+	seen := map[string]bool{}
+	for {
+		require.True(t, s.selectableRow(s.cursor))
+		id, ok := s.sessionIDAt(s.cursor)
+		require.True(t, ok)
+		require.Equal(t, s.cursor, s.rowForSessionID(id))
+		seen[id] = true
+		before := s.cursor
+		s.MoveDown()
+		if s.cursor == before {
+			break
+		}
+	}
+	require.Equal(t, map[string]bool{"b1": true, "f1": true}, seen)
+}
+
+// TestSidebar_SearchAllFilteredOutHidesHeaders verifies that, in BOTH
+// grouped and inbox modes, a query matching nothing yields no rows at all
+// (headers/sections are omitted when their sessions filter empty).
+func TestSidebar_SearchAllFilteredOutHidesHeaders(t *testing.T) {
+	t.Parallel()
+
+	// Grouped mode.
+	s := newTestSidebar(t)
+	s.SetOverviews(searchOverviews())
+	s.EnterSearch()
+	typeQuery(s, "zzzznomatch")
+	require.Empty(t, s.rows, "grouped: no headers when everything filters out")
+	_, _, ok := s.Selected()
+	require.False(t, ok)
+
+	// Inbox mode.
+	s2 := newTestSidebar(t)
+	s2.SetOverviews(searchOverviews())
+	s2.ToggleInbox()
+	s2.EnterSearch()
+	typeQuery(s2, "zzzznomatch")
+	require.Empty(t, s2.rows, "inbox: no sections when everything filters out")
+}
+
+// TestSidebar_SearchComposesWithInboxSections verifies filtering inside inbox
+// mode drops sections that filter empty and keeps matching ones.
+func TestSidebar_SearchComposesWithInboxSections(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/x",
+		Attached: true,
+		Sessions: []proto.SessionOverview{
+			{ID: "run", Title: "alpha running", IsBusy: true, UpdatedAt: 3},
+			{ID: "unr", Title: "beta unread", Unread: true, UpdatedAt: 2},
+			{ID: "red", Title: "alpha read", UpdatedAt: 1},
+		},
+	}})
+	s.ToggleInbox()
+	s.EnterSearch()
+	typeQuery(s, "alpha") // matches the running + read rows, not the unread one
+
+	var sections []string
+	for _, r := range s.rows {
+		if r.kind == sidebarRowSection {
+			sections = append(sections, r.label)
+		}
+	}
+	require.Equal(t, []string{"Running", "Read"}, sections, "Unread section drops out (no match)")
+	require.Equal(t, []string{"run", "red"}, sessionOrder(s))
+}
+
+// TestSidebar_SearchOnlyWhenFocused verifies "/" enters search only through
+// the focused-sidebar key handler and not when the sidebar is unfocused
+// (the editor owns "/" in that case). The model gates handleLeftSidebarKey
+// behind (leftSidebarVisible && focus==uiFocusLeftSidebar). Uses an empty
+// sidebar so the preview path (which needs a workspace on com) is a no-op.
+func TestSidebar_SearchOnlyWhenFocused(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t) // no overviews: Selected() is false, preview no-ops
+	slash := tea.KeyPressMsg{Code: '/', Text: "/"}
+
+	// Unfocused: the routing gate is false, so the handler is never
+	// invoked and search cannot start.
+	m := &UI{keyMap: DefaultKeyMap(), leftSidebar: s, leftSidebarVisible: true, focus: uiFocusEditor}
+	if m.leftSidebarVisible && m.focus == uiFocusLeftSidebar {
+		m.handleLeftSidebarKey(slash)
+	}
+	require.False(t, s.Searching(), "unfocused sidebar must not enter search")
+
+	// Focused: "/" routes through the handler into search.
+	m.focus = uiFocusLeftSidebar
+	_, consumed := m.handleLeftSidebarKey(slash)
+	require.True(t, consumed)
+	require.True(t, s.Searching(), "focused sidebar enters search on /")
+}
+
+// TestSidebar_SearchSecondSlashIsLiteral verifies a second "/" while already
+// searching is routed to the filter input as literal text, not a re-trigger.
+func TestSidebar_SearchSecondSlashIsLiteral(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t) // empty: preview path is a no-op
+	m := &UI{keyMap: DefaultKeyMap(), leftSidebar: s, leftSidebarVisible: true, focus: uiFocusLeftSidebar}
+	slash := tea.KeyPressMsg{Code: '/', Text: "/"}
+
+	m.handleLeftSidebarKey(slash) // enter search
+	require.True(t, s.Searching())
+	m.handleLeftSidebarKey(slash) // second "/" -> literal query char
+	require.True(t, s.Searching(), "still searching")
+	require.Equal(t, "/", s.searchInput.Value(), "second / typed into the query")
+}
+
+// TestSidebar_SearchLetsGlobalKeysFallThrough verifies that a non-editing
+// key (e.g. ctrl+s) pressed while searching is reported UNCONSUMED so it
+// falls through to the global handlers, instead of being swallowed by the
+// filter input.
+func TestSidebar_SearchLetsGlobalKeysFallThrough(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	m := &UI{keyMap: DefaultKeyMap(), leftSidebar: s, leftSidebarVisible: true, focus: uiFocusLeftSidebar}
+	m.handleLeftSidebarKey(tea.KeyPressMsg{Code: '/', Text: "/"})
+	require.True(t, s.Searching())
+
+	// ctrl+s does not edit the query, so it must not be consumed.
+	_, consumed := m.handleLeftSidebarKey(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	require.False(t, consumed, "non-editing key falls through while searching")
+	require.True(t, s.Searching(), "and search stays active")
+
+	// A printable rune DOES edit the query and is consumed.
+	_, consumed = m.handleLeftSidebarKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	require.True(t, consumed, "typed char is consumed by the filter")
+	require.Equal(t, "x", s.searchInput.Value())
+
+	// Cursor-motion keys (left/right) edit the input WITHOUT changing the
+	// value; they must still be consumed so they don't fall through and
+	// double-fire a global binding (e.g. Chat.PillLeft/Right).
+	_, consumed = m.handleLeftSidebarKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	require.True(t, consumed, "left arrow consumed (input cursor motion)")
+	_, consumed = m.handleLeftSidebarKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	require.True(t, consumed, "right arrow consumed (input cursor motion)")
+	require.Equal(t, "x", s.searchInput.Value(), "cursor motion leaves query intact")
+}
+
+// TestSidebar_SearchClearsSelection verifies entering search drops an
+// in-progress multi-selection.
+func TestSidebar_SearchClearsSelection(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(searchOverviews())
+	s.ToggleSelected()
+	require.Positive(t, s.SelectionCount())
+	s.EnterSearch()
+	require.Zero(t, s.SelectionCount(), "entering search clears multi-select")
+}
+
+// TestSidebar_SearchNoDoubledPrompt verifies the rendered filter line shows a
+// single "/" prompt (the textinput's default "> " prompt is cleared).
+func TestSidebar_SearchNoDoubledPrompt(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(searchOverviews())
+	s.EnterSearch()
+	typeQuery(s, "log")
+	out := ansi.Strip(s.Render(30, 20, true))
+	require.Contains(t, out, "/log")
+	require.NotContains(t, out, "/> ", "no doubled prompt from the textinput default")
+}
+
+// TestSidebar_SearchFiltersSummaryCounts verifies the summary ready/working/
+// total block reflects the FILTERED set while a search is active, so the
+// summary agrees with the visible rows.
+func TestSidebar_SearchFiltersSummaryCounts(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/x",
+		Attached: true,
+		Sessions: []proto.SessionOverview{
+			{ID: "a", Title: "alpha busy", IsBusy: true, UpdatedAt: 4},
+			{ID: "b", Title: "alpha unread", Unread: true, UpdatedAt: 3},
+			{ID: "c", Title: "beta unread", Unread: true, UpdatedAt: 2},
+			{ID: "d", Title: "beta read", UpdatedAt: 1},
+		},
+	}})
+	// Unfiltered: 4 total, 1 working, 2 ready.
+	require.Equal(t, SessionCounts{Ready: 2, Working: 1, Total: 4}, s.SessionCounts())
+
+	// Filter to "alpha": a (busy) + b (unread) only.
+	s.EnterSearch()
+	typeQuery(s, "alpha")
+	require.Equal(t, SessionCounts{Ready: 1, Working: 1, Total: 2}, s.SessionCounts())
+
+	// Exiting restores global totals.
+	s.ExitSearch()
+	require.Equal(t, SessionCounts{Ready: 2, Working: 1, Total: 4}, s.SessionCounts())
+}
+
+// TestSidebar_SearchExitsOnFocusAwayClick verifies a click that moves focus
+// off the (still-visible) sidebar exits search and restores the full list,
+// via the exitLeftSidebarSearchOnBlur guard used by handleClickFocus.
+func TestSidebar_SearchExitsOnFocusAwayClick(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(searchOverviews())
+	s.EnterSearch()
+	typeQuery(s, "dark")
+	require.True(t, s.Searching())
+
+	m := &UI{leftSidebar: s}
+	// Simulate a click that moved focus to the editor: wasFocused=true,
+	// focus now off the sidebar -> the guard exits search.
+	m.focus = uiFocusEditor
+	m.exitLeftSidebarSearchOnBlur(true)
+	require.False(t, s.Searching(), "search exited when focus left the sidebar")
+
+	// Guard is a no-op when focus stays on the sidebar.
+	s.EnterSearch()
+	m.focus = uiFocusLeftSidebar
+	m.exitLeftSidebarSearchOnBlur(true)
+	require.True(t, s.Searching(), "search preserved when focus stays on sidebar")
+}

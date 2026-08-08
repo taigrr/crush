@@ -68,6 +68,7 @@ type KeyMap struct {
 		ToggleSelect  key.Binding
 		ArchiveSelect key.Binding
 		Inbox         key.Binding
+		Search        key.Binding
 	}
 
 	// Global key maps
@@ -344,6 +345,13 @@ func DefaultKeyMap() KeyMap {
 	km.SessionSidebar.Inbox = key.NewBinding(
 		key.WithKeys("i"),
 		key.WithHelp("i", "inbox/sessions"),
+	)
+	// Text filter in the focused sidebar. Like the other single-letter
+	// sidebar bindings it is only handled while the sidebar is focused, so
+	// it never collides with the editor's "/" add-file binding.
+	km.SessionSidebar.Search = key.NewBinding(
+		key.WithKeys("/"),
+		key.WithHelp("/", "filter"),
 	)
 
 	return km
