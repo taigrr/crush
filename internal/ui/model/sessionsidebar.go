@@ -119,9 +119,16 @@ func (s *SessionsSidebar) WorkspaceCount() int {
 // sidebar shows. Definitions:
 //   - Working: sessions with an in-flight agent turn (IsBusy) — the SAME
 //     signal the busy tier in sortSessions and the row busy dot use.
-//   - Ready: visible (non-archived) sessions that are NOT busy.
+//   - Ready: sessions waiting for review, i.e. Unread AND NOT busy. This
+//     matches exactly the sessions renderSessionRow shows a green dot for
+//     (the green OnlineIcon is drawn only for Unread, non-busy rows), so
+//     Ready == the number of visible green dots.
 //   - Total: all visible (non-archived) sessions, INCLUDING any collapsed
 //     under a workspace's "…N more" overflow row.
+//
+// Ready is NOT Total-minus-Working: read-idle sessions (read, not busy)
+// count toward Total but are neither Ready nor Working, so
+// Ready+Working <= Total.
 //
 // Empty workspaces contribute nothing (consistent with hidden headers).
 // ws.Sessions is the visible/non-archived set (see the invariant in
@@ -140,9 +147,12 @@ func (s *SessionsSidebar) SessionCounts() SessionCounts {
 	for _, ws := range s.overviews {
 		for _, sess := range ws.Sessions {
 			c.Total++
-			if sess.IsBusy {
+			switch {
+			case sess.IsBusy:
 				c.Working++
-			} else {
+			case sess.Unread:
+				// Ready == waiting-for-review == the green dot in
+				// renderSessionRow (Unread and not busy).
 				c.Ready++
 			}
 		}
@@ -836,11 +846,10 @@ func (s *SessionsSidebar) ClickToActivate(localY, height int) (activatable, move
 
 // summaryLines renders the fixed 3-line count block shown under the section
 // title: a green-dot "ready" line, a yellow-dot "working" line, and a plain
-// "total" line. The yellow BusyIcon matches the row busy dot exactly. The
-// green OnlineIcon is a summary-only "ready/idle" indicator — note that
-// session rows do NOT show a green dot for idle sessions (rows only show a
-// busy or unread dot), so this is not mirroring a per-row "ready dot"; it is
-// purely the summary's idle indicator, themed to the success color.
+// "total" line. The yellow BusyIcon matches the row busy dot exactly, and
+// the green OnlineIcon matches the row unread dot: "ready" counts exactly
+// the sessions renderSessionRow draws a green dot for (Unread and not busy),
+// so the ready count equals the number of visible green dots.
 func (s *SessionsSidebar) summaryLines(width int) []string {
 	t := s.com.Styles
 	c := s.SessionCounts()

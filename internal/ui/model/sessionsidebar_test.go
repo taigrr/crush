@@ -634,8 +634,11 @@ func TestSidebar_HeaderDropsAfterWorkspaceEmptied(t *testing.T) {
 }
 
 // TestSidebar_SessionCounts verifies ready/working/total across a mix of
-// busy/idle sessions in multiple workspaces (archived sessions are already
-// excluded from overviews, so they simply don't appear).
+// busy/unread/read-idle sessions in multiple workspaces. Ready keys off the
+// Unread field (and not busy) — exactly the green-dot condition in
+// renderSessionRow. Archived sessions are already excluded from overviews,
+// so they simply don't appear. Read-idle sessions (read, not busy) count
+// toward Total but neither Ready nor Working, so Ready+Working < Total.
 func TestSidebar_SessionCounts(t *testing.T) {
 	t.Parallel()
 	s := newTestSidebar(t)
@@ -644,8 +647,9 @@ func TestSidebar_SessionCounts(t *testing.T) {
 			Root:     "/proj/a",
 			Attached: true,
 			Sessions: []proto.SessionOverview{
-				{ID: "a1", Title: "idle"},
-				{ID: "a2", Title: "busy", IsBusy: true},
+				{ID: "a1", Title: "read-idle"},            // total only
+				{ID: "a2", Title: "busy", IsBusy: true},   // working
+				{ID: "a3", Title: "unread", Unread: true}, // ready
 			},
 		},
 		{Root: "/proj/empty"}, // contributes nothing
@@ -653,39 +657,47 @@ func TestSidebar_SessionCounts(t *testing.T) {
 			Root:     "/proj/b",
 			Attached: false,
 			Sessions: []proto.SessionOverview{
-				{ID: "b1", Title: "busy2", IsBusy: true},
-				{ID: "b2", Title: "idle2"},
-				{ID: "b3", Title: "idle3"},
+				{ID: "b1", Title: "busy2", IsBusy: true},                     // working
+				{ID: "b2", Title: "busy+unread", IsBusy: true, Unread: true}, // busy wins
+				{ID: "b3", Title: "unread2", Unread: true},                   // ready
+				{ID: "b4", Title: "read-idle2"},                              // total only
 			},
 		},
 	})
 
 	c := s.SessionCounts()
-	require.Equal(t, 5, c.Total, "all visible sessions across workspaces")
-	require.Equal(t, 2, c.Working, "busy sessions (a2, b1)")
-	require.Equal(t, 3, c.Ready, "idle sessions (a1, b2, b3)")
-	require.Equal(t, c.Total, c.Ready+c.Working, "ready+working == total")
+	require.Equal(t, 7, c.Total, "all visible sessions across workspaces")
+	require.Equal(t, 3, c.Working, "busy sessions (a2, b1, b2)")
+	require.Equal(t, 2, c.Ready, "unread, non-busy sessions (a3, b3)")
+	require.Less(t, c.Ready+c.Working, c.Total, "read-idle sessions are neither ready nor working")
 }
 
 // TestSidebar_SessionCountsLiveOnRefresh verifies counts update when a
-// session's busy state changes across a SetOverviews refresh.
+// session's state changes across a SetOverviews refresh. Ready tracks the
+// Unread field (and not busy), and read-idle sessions are excluded.
 func TestSidebar_SessionCountsLiveOnRefresh(t *testing.T) {
 	t.Parallel()
 	s := newTestSidebar(t)
 	s.SetOverviews([]proto.WorkspaceOverview{{
 		Root:     "/proj/a",
 		Attached: true,
-		Sessions: []proto.SessionOverview{{ID: "a1", Title: "x", IsBusy: true}},
+		Sessions: []proto.SessionOverview{
+			{ID: "a1", Title: "x", IsBusy: true},
+			{ID: "a2", Title: "read-idle"},
+		},
 	}})
-	require.Equal(t, SessionCounts{Ready: 0, Working: 1, Total: 1}, s.SessionCounts())
+	require.Equal(t, SessionCounts{Ready: 0, Working: 1, Total: 2}, s.SessionCounts())
 
-	// a1 finished its turn.
+	// a1 finished its turn and now waits for review (unread); a2 still read.
 	s.SetOverviews([]proto.WorkspaceOverview{{
 		Root:     "/proj/a",
 		Attached: true,
-		Sessions: []proto.SessionOverview{{ID: "a1", Title: "x", IsBusy: false}},
+		Sessions: []proto.SessionOverview{
+			{ID: "a1", Title: "x", IsBusy: false, Unread: true},
+			{ID: "a2", Title: "read-idle"},
+		},
 	}})
-	require.Equal(t, SessionCounts{Ready: 1, Working: 0, Total: 1}, s.SessionCounts())
+	require.Equal(t, SessionCounts{Ready: 1, Working: 0, Total: 2}, s.SessionCounts())
 }
 
 // TestSidebar_SummaryRendersInTopMatter verifies the 3 summary lines render
