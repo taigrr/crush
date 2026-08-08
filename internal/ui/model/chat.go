@@ -230,6 +230,22 @@ func (m *Chat) InvalidateRenderCaches() {
 	chat.ClearItemCaches(items)
 }
 
+// RefreshAssistantInfoTimes recomputes the humanized "since" label on
+// every assistant-info footer as of now, invalidating stale renders so
+// the relative timestamp keeps counting up between messages. It returns
+// true when any label changed and a repaint is warranted.
+func (m *Chat) RefreshAssistantInfoTimes(now time.Time) bool {
+	changed := false
+	for i := range m.list.Len() {
+		if item, ok := m.list.ItemAt(i).(*chat.AssistantInfoItem); ok {
+			if item.RefreshSince(now) {
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
 // SetMessages sets the chat messages to the provided list of message items.
 func (m *Chat) SetMessages(msgs ...chat.MessageItem) {
 	m.idInxMap = make(map[string]int)

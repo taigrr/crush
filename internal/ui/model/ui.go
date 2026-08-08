@@ -536,6 +536,8 @@ func (m *UI) Init() tea.Cmd {
 	}
 	// Detect client/server version mismatch and keep re-checking.
 	cmds = append(cmds, m.checkServerVersion(), m.scheduleVersionCheck())
+	// Keep the between-messages assistant-info "since" label current.
+	cmds = append(cmds, m.scheduleAssistantInfoTick())
 	return tea.Batch(cmds...)
 }
 
@@ -639,6 +641,24 @@ func (m *UI) scheduleVersionCheck() tea.Cmd {
 // versionCheckTickMsg triggers a periodic server version check.
 type versionCheckTickMsg struct{}
 
+// assistantInfoTickInterval is how often the between-messages
+// assistant-info footer refreshes its humanized "since" label. The
+// label only changes at minute/hour granularity, so a coarse cadence
+// keeps it current without wasting CPU.
+const assistantInfoTickInterval = 30 * time.Second
+
+// assistantInfoTickMsg triggers a refresh of the humanized "since"
+// timestamps on assistant-info footers.
+type assistantInfoTickMsg struct{}
+
+// scheduleAssistantInfoTick re-runs the assistant-info time refresh
+// after assistantInfoTickInterval.
+func (m *UI) scheduleAssistantInfoTick() tea.Cmd {
+	return tea.Tick(assistantInfoTickInterval, func(time.Time) tea.Msg {
+		return assistantInfoTickMsg{}
+	})
+}
+
 // Update handles updates to the UI model.
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
@@ -663,6 +683,12 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.serverVersionStr = msg.version
 	case versionCheckTickMsg:
 		cmds = append(cmds, m.checkServerVersion(), m.scheduleVersionCheck())
+	case assistantInfoTickMsg:
+		// Refreshing the humanized "since" labels bumps item versions
+		// when they drift, which invalidates the list memo so the next
+		// View repaints with the current relative time.
+		m.chat.RefreshAssistantInfoTimes(time.Now())
+		cmds = append(cmds, m.scheduleAssistantInfoTick())
 	case tea.ModeReportMsg:
 		m.updateNotificationBackend()
 	case uv.UnknownOscEvent:
