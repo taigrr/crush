@@ -121,6 +121,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 				k.SessionSidebar.VisualSelect,
 				k.SessionSidebar.ToggleSelect,
 				k.SessionSidebar.ArchiveSelect,
+				k.SessionSidebar.MarkRead,
 				k.SessionSidebar.Inbox,
 				k.SessionSidebar.Search,
 			},

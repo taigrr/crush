@@ -690,6 +690,26 @@ func (c *controllerV1) handleArchiveWorkspaceSession(w http.ResponseWriter, r *h
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleMarkWorkspaceSessionSeen marks a session as read (bumps LastSeenAt).
+//
+//	@Summary		Mark a session as read
+//	@Tags			sessions
+//	@Param			id	path	string	true	"Workspace ID"
+//	@Param			sid	path	string	true	"Session ID"
+//	@Success		200
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/sessions/{sid}/seen [post]
+func (c *controllerV1) handleMarkWorkspaceSessionSeen(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+	if err := c.backend.MarkSessionSeen(r.Context(), id, sid); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // handleUnarchiveWorkspaceSession unarchives a session.
 //
 //	@Summary		Unarchive a session

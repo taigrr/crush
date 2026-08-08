@@ -24,6 +24,18 @@ type archiveStubWorkspace struct {
 	// failIDs, when set, makes ArchiveSession fail for those specific IDs
 	// (used to exercise collect-all-failures behavior).
 	failIDs map[string]bool
+	// markedRead records MarkSessionSeen calls; markFailIDs makes those
+	// specific IDs fail.
+	markedRead  []string
+	markFailIDs map[string]bool
+}
+
+func (w *archiveStubWorkspace) MarkSessionSeen(_ context.Context, id string) error {
+	if w.markFailIDs[id] {
+		return errors.New("mark seen failed for " + id)
+	}
+	w.markedRead = append(w.markedRead, id)
+	return nil
 }
 
 func (w *archiveStubWorkspace) ArchiveSession(_ context.Context, id string) error {

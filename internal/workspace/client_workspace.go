@@ -198,6 +198,10 @@ func (w *ClientWorkspace) UnarchiveSession(ctx context.Context, sessionID string
 	return w.client.UnarchiveSession(ctx, w.workspaceID(), sessionID)
 }
 
+func (w *ClientWorkspace) MarkSessionSeen(ctx context.Context, sessionID string) error {
+	return w.client.MarkSessionSeen(ctx, w.workspaceID(), sessionID)
+}
+
 func (w *ClientWorkspace) ListArchivedSessions(ctx context.Context) ([]session.Session, error) {
 	protoSessions, err := w.client.ListArchivedSessions(ctx, w.workspaceID())
 	if err != nil {

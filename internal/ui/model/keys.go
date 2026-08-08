@@ -67,6 +67,7 @@ type KeyMap struct {
 		VisualSelect  key.Binding
 		ToggleSelect  key.Binding
 		ArchiveSelect key.Binding
+		MarkRead      key.Binding
 		Inbox         key.Binding
 		Search        key.Binding
 	}
@@ -335,6 +336,14 @@ func DefaultKeyMap() KeyMap {
 	km.SessionSidebar.ArchiveSelect = key.NewBinding(
 		key.WithKeys("a"),
 		key.WithHelp("a", "archive selected"),
+	)
+	// Mark selected sessions read. Like the other single-letter sidebar
+	// bindings it is only handled while the sidebar is focused
+	// (handleLeftSidebarKey), so it never collides with editor keys. "r"
+	// is mnemonic for read.
+	km.SessionSidebar.MarkRead = key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "mark read"),
 	)
 	// Inbox toggle: ctrl+i is byte 0x09 == Tab in terminals without the
 	// Kitty keyboard protocol (which Crush does not enable), and Tab is

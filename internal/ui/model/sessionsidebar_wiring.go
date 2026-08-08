@@ -107,6 +107,8 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, true
 	case key.Matches(msg, m.keyMap.SessionSidebar.ArchiveSelect):
 		return m.archiveSelectedSessions(), true
+	case key.Matches(msg, m.keyMap.SessionSidebar.MarkRead):
+		return m.markSelectedSessionsRead(), true
 	case key.Matches(msg, m.keyMap.SessionSidebar.Inbox):
 		// Toggle inbox/sessions view. The cursor stays on the same session
 		// where possible, so re-run the preview scheduler for the (possibly
@@ -293,6 +295,67 @@ func (m *UI) archiveSessionsCmd(ids []string, survivorID string, skipped int) te
 			succeeded:  succeeded,
 			skipped:    skipped,
 			survivorID: survivorID,
+		}
+	}
+}
+
+// markSelectedSessionsRead marks the selected sessions in the CURRENT
+// workspace as read. Sessions from other workspaces are skipped (the client
+// mark-seen API only reaches the attached workspace). Unlike archive there
+// is no destructive concern: the selection is cleared and visual mode is
+// exited unconditionally after the command reports, and the cursor stays
+// put (sessions remain in the list).
+func (m *UI) markSelectedSessionsRead() tea.Cmd {
+	toMark, skippedWorkspace := m.leftSidebar.MarkReadSelection()
+	if len(toMark) == 0 {
+		if skippedWorkspace > 0 {
+			return util.ReportWarn("Selected sessions can't be marked read from here; nothing to mark")
+		}
+		return util.ReportInfo("No sessions selected")
+	}
+	return m.markSessionsReadCmd(toMark, skippedWorkspace)
+}
+
+// sessionsMarkedReadMsg reports the outcome of a bulk mark-as-read: the
+// refreshed overviews (nil if the refresh itself failed) so the derived
+// unread/green-dot state updates, which IDs failed, how many succeeded, and
+// how many were skipped as out-of-workspace.
+type sessionsMarkedReadMsg struct {
+	overviews []proto.WorkspaceOverview
+	failed    []string
+	succeeded int
+	skipped   int
+}
+
+// markSessionsReadCmd marks the given session IDs read off the Update
+// goroutine. It attempts EVERY id (deterministic order, set by the caller)
+// and collects the individual failures rather than aborting on the first,
+// then refreshes the overviews so the unread state updates. It always emits
+// sessionsMarkedReadMsg (with nil overviews if the refresh failed).
+func (m *UI) markSessionsReadCmd(ids []string, skipped int) tea.Cmd {
+	return func() tea.Msg {
+		succeeded := 0
+		var failed []string
+		for _, id := range ids {
+			if err := m.com.Workspace.MarkSessionSeen(context.Background(), id); err != nil {
+				failed = append(failed, id)
+				continue
+			}
+			succeeded++
+		}
+		overviews, err := m.com.Workspace.ListWorkspaceOverviews(context.Background())
+		if err != nil {
+			return sessionsMarkedReadMsg{
+				failed:    failed,
+				succeeded: succeeded,
+				skipped:   skipped,
+			}
+		}
+		return sessionsMarkedReadMsg{
+			overviews: overviews,
+			failed:    failed,
+			succeeded: succeeded,
+			skipped:   skipped,
 		}
 	}
 }

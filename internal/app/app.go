@@ -507,6 +507,17 @@ func (app *App) ArchiveSession(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// MarkSessionSeen bumps the session's LastSeenAt so its derived unread
+// state (LastFinishedAt > LastSeenAt) clears. Unlike SetCurrentSession's
+// implicit mark-seen, this targets an arbitrary (possibly non-current)
+// session in this workspace.
+func (app *App) MarkSessionSeen(ctx context.Context, sessionID string) error {
+	if err := app.Sessions.MarkSeen(ctx, sessionID); err != nil {
+		return fmt.Errorf("marking session seen: %w", err)
+	}
+	return nil
+}
+
 // streamDelta computes the incremental text to print for a streamed assistant
 // message. content is the full accumulated message content; readBytes is how
 // many bytes were already consumed for this message. It returns the new
