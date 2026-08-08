@@ -454,7 +454,7 @@ The procedure should read as if the user wrote it themselves — capturing their
 </procedures>
 {{end}}
 
-{{if and .Config.Options .Config.Options.Swarm .Config.Options.Swarm.Enabled}}
+{{if and .Config.Options .Config.Options.SwarmEnabled}}
 
 <swarm>
 Cross-session coordination is enabled: your session has a unique
@@ -475,6 +475,11 @@ address, a prompt, and optionally a mode:
 - `swarm({ address: "new", workspace_id: "<ws>", prompt: "initial task..." })`
   — creates a new session in an existing workspace and sends `prompt`
   as its first user message.
+- `swarm({ address: "new", path: "/path/to/dir", prompt: "initial task..." })`
+  — creates a new session in the workspace rooted at `path`, bringing
+  that workspace up first if it is not currently running (initializing
+  a new folder or attaching a detached one). `path` takes precedence
+  over `workspace_id` when both are set.
 
 Addresses can also be the 4-character-disambiguated form
 (`color-animal-abcd`) or a raw session UUID. Use `list_sessions` to

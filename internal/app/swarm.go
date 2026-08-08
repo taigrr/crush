@@ -32,13 +32,13 @@ func (app *App) SwarmConfig() swarm.Config {
 }
 
 // SwarmEnabled reports whether the cross-session swarm feature is
-// turned on. Off by default.
+// turned on. On by default.
 func (app *App) SwarmEnabled() bool {
 	cfg := app.config.Config()
-	if cfg == nil || cfg.Options == nil || cfg.Options.Swarm == nil {
-		return false
+	if cfg == nil || cfg.Options == nil {
+		return true
 	}
-	return cfg.Options.Swarm.Enabled
+	return cfg.Options.SwarmEnabled()
 }
 
 // backfillSwarmIdentities assigns color/animal to any session that is

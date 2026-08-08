@@ -27,11 +27,16 @@ Modes:
 
 Special addresses:
 
-- `new` — create a new session in the workspace identified by
-  `workspace_id` and send `prompt` as its initial user message. The
-  new session is picked up by any attached client's sidebar; the
-  agent runs immediately. Fails if `workspace_id` is empty or the
-  workspace is not currently running.
+- `new` — create a new session and send `prompt` as its initial user
+  message. Choose the target workspace one of two ways:
+  - `workspace_id` — an existing, currently-running workspace. Defaults
+    to the sender's own workspace when omitted.
+  - `path` — a directory path. The workspace rooted there is brought up
+    if it is not currently running (created on disk if new, or attached
+    if previously detached), then the session is created in it. `path`
+    takes precedence over `workspace_id` when both are set.
+  The new session is picked up by any attached client's sidebar; the
+  agent runs immediately.
 
 The receiving session sees the message as a user turn prefixed with
 `message from <color-animal>:`. The sender's color/animal and workspace

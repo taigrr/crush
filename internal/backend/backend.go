@@ -995,6 +995,28 @@ func resolveWorkspaceKey(path string) (string, error) {
 	return config.ProjectRoot(abs), nil
 }
 
+// ResolveWorkspaceByPath resolves path to a canonical workspace key
+// (using the same logic as resolveWorkspaceKey) and looks it up in the
+// path index. It returns the workspace ID and found=true when a
+// running workspace matches, or found=false (not an error) when no
+// running workspace is registered at that path.
+func (b *Backend) ResolveWorkspaceByPath(ctx context.Context, path string) (workspaceID string, found bool, err error) {
+	if strings.TrimSpace(path) == "" {
+		return "", false, ErrPathRequired
+	}
+	key, err := resolveWorkspaceKey(path)
+	if err != nil {
+		return "", false, err
+	}
+	b.mu.Lock()
+	id, ok := b.pathIndex[key]
+	b.mu.Unlock()
+	if !ok {
+		return "", false, nil
+	}
+	return id, true, nil
+}
+
 // validateClientID returns the trimmed UUID string or an error if the
 // input is empty or not a valid UUID.
 func validateClientID(id string) (string, error) {

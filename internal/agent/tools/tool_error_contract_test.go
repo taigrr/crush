@@ -402,6 +402,14 @@ func (stubSwarmBackend) ArchiveSessionInWorkspace(ctx context.Context, workspace
 	return nil
 }
 
+func (stubSwarmBackend) ResolveWorkspaceByPath(ctx context.Context, path string) (string, bool, error) {
+	return "", false, nil
+}
+
+func (stubSwarmBackend) CreateSessionInWorkspaceAtPath(ctx context.Context, path, title string) (string, session.Session, error) {
+	return "", session.Session{}, nil
+}
+
 // stubSessionsForSwarm implements just enough of session.Service for the
 // swarm tool's sender-lookup step to succeed.
 type stubSessionsForSwarm struct {

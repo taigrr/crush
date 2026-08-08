@@ -44,6 +44,16 @@ type SwarmBackend interface {
 	// the initial message to. Best-effort compensating cleanup so
 	// callers don't leak orphaned empty sessions on retry.
 	ArchiveSessionInWorkspace(ctx context.Context, workspaceID, sessionID string) error
+	// CreateSessionInWorkspaceAtPath ensures a workspace is running
+	// for the given directory path (creating it on disk or attaching
+	// a detached one if needed), then creates a new session in it. It
+	// returns the resolved workspace id alongside the session so the
+	// caller can deliver the initial message.
+	CreateSessionInWorkspaceAtPath(ctx context.Context, path, title string) (workspaceID string, sess session.Session, err error)
+	// ResolveWorkspaceByPath resolves a directory path to the ID of
+	// the running workspace rooted at that path. found is false (with
+	// no error) when no running workspace matches.
+	ResolveWorkspaceByPath(ctx context.Context, path string) (workspaceID string, found bool, err error)
 }
 
 // SwarmLookupResult mirrors backend.SwarmLookupResult so the tool
@@ -74,6 +84,11 @@ type SwarmParams struct {
 	// Title is optional when Address == "new"; defaults to a short
 	// synthesized title derived from the prompt.
 	Title string `json:"title,omitempty" description:"Optional title for the new session when address='new'"`
+	// Path is optional when Address == "new"; an alternative to
+	// WorkspaceID that targets a workspace by its directory path,
+	// bringing it up if it isn't currently running. Takes precedence
+	// over WorkspaceID when both are set.
+	Path string `json:"path,omitempty" description:"With address='new': a directory path to spawn the session in, bringing up the workspace if it is not currently running. Alternative to workspace_id; takes precedence when both are set."`
 }
 
 // NewSwarmTool builds the fantasy tool wrapper. sessions is the
@@ -148,24 +163,36 @@ func runSwarm(
 	// "new" path: create a fresh session in the given workspace and
 	// treat the prompt as its initial user message.
 	if strings.EqualFold(address, "new") {
-		workspaceID := params.WorkspaceID
-		if workspaceID == "" {
-			// Default to the sender's own workspace when the model
-			// doesn't supply one explicitly. Workspace ids are
-			// backend-internal handles that aren't easily
-			// discoverable from a session, so requiring an explicit
-			// id every time is a bad UX; same-workspace is the
-			// overwhelmingly common case.
-			workspaceID = senderWorkspaceID
-		}
-		if workspaceID == "" {
-			return fantasy.NewTextErrorResponse("swarm: address='new' requires workspace_id (sender workspace id unavailable)"), nil
-		}
 		title := strings.TrimSpace(params.Title)
 		if title == "" {
 			title = firstLine(params.Prompt, 60)
 		}
-		newSess, err := be.CreateSessionInWorkspace(ctx, workspaceID, title)
+
+		var (
+			workspaceID string
+			newSess     session.Session
+			err         error
+		)
+		if path := strings.TrimSpace(params.Path); path != "" {
+			// Path-based: bring up the workspace for this directory
+			// (creating or attaching it) and create a session in it.
+			workspaceID, newSess, err = be.CreateSessionInWorkspaceAtPath(ctx, path, title)
+		} else {
+			workspaceID = params.WorkspaceID
+			if workspaceID == "" {
+				// Default to the sender's own workspace when the model
+				// doesn't supply one explicitly. Workspace ids are
+				// backend-internal handles that aren't easily
+				// discoverable from a session, so requiring an explicit
+				// id every time is a bad UX; same-workspace is the
+				// overwhelmingly common case.
+				workspaceID = senderWorkspaceID
+			}
+			if workspaceID == "" {
+				return fantasy.NewTextErrorResponse("swarm: address='new' requires workspace_id or path (sender workspace id unavailable)"), nil
+			}
+			newSess, err = be.CreateSessionInWorkspace(ctx, workspaceID, title)
+		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return fantasy.ToolResponse{}, err

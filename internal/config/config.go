@@ -330,18 +330,19 @@ type Options struct {
 // true, the tool is registered on all main agents and coder/task
 // prompts advertise it; when false it is completely absent. This is a
 // global (not per-workspace) setting because swarm addresses cross
-// workspaces. Default: disabled.
+// workspaces. Default: enabled (set Enabled to false to opt out).
 type SwarmConfig struct {
-	Enabled bool `json:"enabled,omitempty" jsonschema:"description=Enable cross-session swarm messaging (color-animal addressing),default=false"`
+	Enabled *bool `json:"enabled,omitempty" jsonschema:"description=Enable cross-session swarm messaging (color-animal addressing),default=true"`
 }
 
 // SwarmEnabled reports whether swarm is turned on in the options
-// block. Safe to call on a nil-received Options pointer.
+// block. Safe to call on a nil-received Options pointer. Swarm is
+// enabled by default; it is only off when explicitly set to false.
 func (o *Options) SwarmEnabled() bool {
-	if o == nil || o.Swarm == nil {
-		return false
+	if o == nil || o.Swarm == nil || o.Swarm.Enabled == nil {
+		return true
 	}
-	return o.Swarm.Enabled
+	return *o.Swarm.Enabled
 }
 
 type MCPs map[string]MCPConfig
@@ -810,6 +811,7 @@ func allToolNames() []string {
 		"show_locations",
 		"review",
 		"swarm",
+		"workspace_lookup",
 		"question",
 	}
 }

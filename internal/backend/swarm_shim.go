@@ -61,3 +61,11 @@ func (s *swarmShim) CreateSessionInWorkspace(ctx context.Context, workspaceID, t
 func (s *swarmShim) ArchiveSessionInWorkspace(ctx context.Context, workspaceID, sessionID string) error {
 	return s.b.ArchiveWorkspaceSession(ctx, workspaceID, sessionID)
 }
+
+func (s *swarmShim) ResolveWorkspaceByPath(ctx context.Context, path string) (string, bool, error) {
+	return s.b.ResolveWorkspaceByPath(ctx, path)
+}
+
+func (s *swarmShim) CreateSessionInWorkspaceAtPath(ctx context.Context, path, title string) (string, session.Session, error) {
+	return s.b.CreateSwarmSessionAtPath(ctx, path, title)
+}

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
@@ -333,6 +334,59 @@ func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title str
 		return session.Session{}, err
 	}
 	return filled, nil
+}
+
+// CreateSwarmSessionAtPath ensures a workspace is running for the
+// given directory path — reusing the already-running workspace when
+// one exists, otherwise bringing a new one up (creating it on disk or
+// attaching a previously detached one) — and then creates a swarm
+// session in it. This lets a session spawn a session in a workspace
+// that is not currently attached/running.
+//
+// A synthetic client UUID is minted to satisfy CreateWorkspace's
+// creation-hold contract; the hold is released by the grace timer
+// since no SSE stream will ever attach on its behalf.
+//
+// Returns the resolved workspace id alongside the identity-filled
+// session. The swarm-enabled gate is enforced via CreateSwarmSession.
+func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title string) (string, session.Session, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", session.Session{}, ErrPathRequired
+	}
+
+	// Fast path: a workspace is already running for this path.
+	key, err := resolveWorkspaceKey(path)
+	if err != nil {
+		return "", session.Session{}, fmt.Errorf("swarm: failed to resolve workspace path: %w", err)
+	}
+	b.mu.Lock()
+	existingID, ok := b.pathIndex[key]
+	b.mu.Unlock()
+	if ok {
+		if _, found := b.workspaces.Get(existingID); found {
+			sess, err := b.CreateSwarmSession(ctx, existingID, title)
+			if err != nil {
+				return "", session.Session{}, err
+			}
+			return existingID, sess, nil
+		}
+	}
+
+	// Bring a workspace up for this path. CreateWorkspace is
+	// first-wins by resolved path, so a concurrent caller that just
+	// created the same workspace is deduplicated to the same id.
+	ws, _, err := b.CreateWorkspace(proto.Workspace{
+		Path:     path,
+		ClientID: uuid.New().String(),
+	})
+	if err != nil {
+		return "", session.Session{}, fmt.Errorf("swarm: failed to bring up workspace: %w", err)
+	}
+	sess, err := b.CreateSwarmSession(ctx, ws.ID, title)
+	if err != nil {
+		return "", session.Session{}, err
+	}
+	return ws.ID, sess, nil
 }
 
 // ArchiveWorkspaceSession archives a session in the given workspace.
