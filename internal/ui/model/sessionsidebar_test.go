@@ -280,7 +280,8 @@ func TestSidebar_ClearOnVisualToggleAndEsc(t *testing.T) {
 }
 
 // TestSidebar_ArchivableSelectionSkipsActive verifies the bulk-archive
-// gathering excludes the currently active session.
+// gathering excludes the currently active session but INCLUDES sessions
+// from other (detached) workspaces, each routed to its own workspace.
 func TestSidebar_ArchivableSelectionSkipsActive(t *testing.T) {
 	t.Parallel()
 	s := newTestSidebar(t)
@@ -293,74 +294,89 @@ func TestSidebar_ArchivableSelectionSkipsActive(t *testing.T) {
 	s.MoveDown() // a1,a2,b1 selected
 
 	require.Equal(t, []string{"a1", "a2", "b1"}, sortedIDs(s.SelectedSessionIDs()))
-	ids, skippedActive, skippedWorkspace := s.ArchivableSelection()
-	require.Equal(t, []string{"a2"}, ids) // a1 active, b1 other workspace
-	require.Equal(t, 1, skippedActive)    // active a1
-	require.Equal(t, 1, skippedWorkspace) // b1 in /proj/b
+	targets, skippedActive, _ := s.ArchivableSelection()
+	// a1 is active (skipped); a2 (/proj/a) and b1 (/proj/b) are both
+	// archivable, each carrying its own workspace root.
+	require.Equal(t, []SessionTarget{
+		{Root: "/proj/a", ID: "a2"},
+		{Root: "/proj/b", ID: "b1"},
+	}, targets)
+	require.Equal(t, 1, skippedActive)
 }
 
-// TestSidebar_ArchivableSelectionScopesToCurrentWorkspace verifies that when
-// a current workspace root is set, sessions from other workspaces are
-// excluded from the archivable set and counted as skipped, and the result
-// is deterministically sorted.
-func TestSidebar_ArchivableSelectionScopesToCurrentWorkspace(t *testing.T) {
+// TestSidebar_ArchivableSelectionSpansWorkspaces verifies that sessions
+// from every workspace (attached and detached) are archivable and routed
+// to their own workspace root, in deterministic order.
+func TestSidebar_ArchivableSelectionSpansWorkspaces(t *testing.T) {
 	t.Parallel()
 	s := newTestSidebar(t)
 	s.SetOverviews(sampleOverviews())
-	s.SetCurrentRoot("/proj/a") // b1 lives in /proj/b -> skipped
+	s.SetCurrentRoot("/proj/a")
 
 	s.ToggleVisualMode()
 	s.MoveDown()
 	s.MoveDown() // a1,a2,b1 selected
 
-	ids, skippedActive, skippedWorkspace := s.ArchivableSelection()
-	require.Equal(t, []string{"a1", "a2"}, ids) // only current-workspace
+	targets, skippedActive, _ := s.ArchivableSelection()
+	require.Equal(t, []SessionTarget{
+		{Root: "/proj/a", ID: "a1"},
+		{Root: "/proj/a", ID: "a2"},
+		{Root: "/proj/b", ID: "b1"},
+	}, targets)
 	require.Equal(t, 0, skippedActive)
-	require.Equal(t, 1, skippedWorkspace) // b1 in /proj/b
 }
 
-// TestSidebar_ArchivableSelectionFailsClosed verifies the filter fails
-// CLOSED: unknown ids (not in overviews) and every id when currentRoot is
-// unset are skipped, never passed through as archivable. This prevents a
-// stale/foreign id from reaching ArchiveSession (which would falsely report
-// success for a nonexistent row).
-func TestSidebar_ArchivableSelectionFailsClosed(t *testing.T) {
-	t.Parallel()
-
-	// currentRoot unset -> archive nothing even though sessions exist.
-	s := newTestSidebar(t)
-	s.SetOverviews(sampleOverviews())
-	s.ToggleSelected() // a1
-	ids, _, skippedWorkspace := s.ArchivableSelection()
-	require.Empty(t, ids, "no currentRoot -> nothing archivable")
-	require.Equal(t, 1, skippedWorkspace)
-
-	// currentRoot set but the selected id is unknown (dropped by a refresh):
-	// it must be skipped, not archived.
-	s2 := newTestSidebar(t)
-	s2.SetOverviews(sampleOverviews())
-	s2.SetCurrentRoot("/proj/a")
-	s2.SetSelection([]string{"ghost"}) // not present in any overview
-	ids2, _, skippedWorkspace2 := s2.ArchivableSelection()
-	require.Empty(t, ids2, "unknown id must not be archivable")
-	require.Equal(t, 1, skippedWorkspace2)
-}
-
-// TestSidebar_ArchivableSelectionRootMatchIsExact documents/guards the
-// invariant that SetCurrentRoot (from workspace.BaseDir) and the overview
-// Root must use identical path normalization: a trailing-slash mismatch
-// makes the current workspace's own sessions fail the root==currentRoot
-// check and be silently skipped. If this test ever fails, the two sources
-// have diverged and bulk archive would no-op while reporting "skipped".
-func TestSidebar_ArchivableSelectionRootMatchIsExact(t *testing.T) {
+// TestSidebar_ArchivableSelectionSkipsUnknown verifies an id not present in
+// the current overviews (e.g. dropped by a background refresh) is silently
+// skipped: without a known workspace it cannot be routed.
+func TestSidebar_ArchivableSelectionSkipsUnknown(t *testing.T) {
 	t.Parallel()
 	s := newTestSidebar(t)
 	s.SetOverviews(sampleOverviews())
-	s.SetCurrentRoot("/proj/a/") // trailing slash != "/proj/a"
-	s.ToggleSelected()           // a1, whose Root is "/proj/a"
-	ids, _, skippedWorkspace := s.ArchivableSelection()
-	require.Empty(t, ids, "non-normalized root mismatch skips own sessions")
-	require.Equal(t, 1, skippedWorkspace)
+	s.SetCurrentRoot("/proj/a")
+	s.SetSelection([]string{"ghost"}) // not present in any overview
+	targets, skippedActive, _ := s.ArchivableSelection()
+	require.Empty(t, targets, "unknown id must not be archivable")
+	require.Equal(t, 0, skippedActive)
+}
+
+// TestSidebar_ArchivableSelectionSkipsBusy verifies a busy session is
+// excluded from the archivable set and counted, so a mid-run session is
+// never archived (which would prune its snapshot refs).
+func TestSidebar_ArchivableSelectionSkipsBusy(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		{
+			Root:     "/proj/a",
+			Attached: true,
+			Sessions: []proto.SessionOverview{
+				{ID: "idle"},
+				{ID: "busy", IsBusy: true},
+			},
+		},
+	})
+	s.SetSelection([]string{"idle", "busy"})
+	targets, skippedActive, skippedBusy := s.ArchivableSelection()
+	require.Equal(t, []SessionTarget{{Root: "/proj/a", ID: "idle"}}, targets)
+	require.Equal(t, 0, skippedActive)
+	require.Equal(t, 1, skippedBusy)
+}
+
+// TestSidebar_MarkReadSelectionIncludesBusy verifies mark-read does NOT
+// skip busy sessions (marking read is non-destructive).
+func TestSidebar_MarkReadSelectionIncludesBusy(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		{
+			Root:     "/proj/a",
+			Attached: true,
+			Sessions: []proto.SessionOverview{{ID: "busy", IsBusy: true}},
+		},
+	})
+	s.SetSelection([]string{"busy"})
+	require.Equal(t, []SessionTarget{{Root: "/proj/a", ID: "busy"}}, s.MarkReadSelection())
 }
 
 // TestSidebar_SelectionSurvivesRefresh verifies a data refresh keeps the

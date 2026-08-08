@@ -125,6 +125,17 @@ type Workspace interface {
 	ArchiveSession(ctx context.Context, sessionID string) error
 	UnarchiveSession(ctx context.Context, sessionID string) error
 	MarkSessionSeen(ctx context.Context, sessionID string) error
+	// ArchiveSessionInWorkspace archives a session in an explicit
+	// workspace, which may be one other than the attached workspace —
+	// including a DETACHED (registry-known but not running) workspace.
+	// When workspaceID is empty the workspace is resolved by root. Used by
+	// the cross-workspace bulk archive in the session sidebar.
+	ArchiveSessionInWorkspace(ctx context.Context, workspaceID, root, sessionID string) error
+	// MarkSessionSeenInWorkspace marks a session read in an explicit
+	// workspace (attached or detached), mirroring
+	// ArchiveSessionInWorkspace. When workspaceID is empty the workspace is
+	// resolved by root.
+	MarkSessionSeenInWorkspace(ctx context.Context, workspaceID, root, sessionID string) error
 	CreateAgentToolSessionID(messageID, toolCallID string) string
 	ParseAgentToolSessionID(sessionID string) (messageID string, toolCallID string, ok bool)
 	// SetCurrentSession reports the session this client is currently

@@ -823,86 +823,85 @@ func (s *SessionsSidebar) SelectedSessionIDs() []string {
 	return ids
 }
 
-// ArchivableSelection returns the selected session IDs eligible for bulk
-// archive, in deterministic (sorted) order, together with the number of
-// selected sessions that were skipped. A session is skipped when it is the
-// active session (never archive the one the user is viewing) or when it does
-// not provably belong to the current workspace (the client archive API only
-// reaches the attached workspace; cross-workspace archive would require
-// switching workspaces, which the bulk path deliberately avoids).
+// SessionTarget identifies a selected session together with the workspace
+// that owns it, so a bulk action can route each session to its OWN
+// workspace (attached or detached) rather than assuming the attached one.
+// WorkspaceID is empty for a detached workspace; Root is then used to
+// resolve it server-side.
+type SessionTarget struct {
+	WorkspaceID string
+	Root        string
+	ID          string
+}
+
+// ArchivableSelection returns the selected sessions eligible for bulk
+// archive, in deterministic (sorted-by-id) order, together with the number
+// of selected sessions skipped because they are the active session (never
+// archive the one the user is viewing) or because they are currently busy
+// (never archive a session mid-run: archiving prunes snapshot refs, which
+// must not happen under a live agent).
 //
-// The workspace filter fails CLOSED: a session is archivable only when its
-// workspace root is KNOWN (present in the current overviews) AND equal to
-// currentRoot. Unknown ids (e.g. dropped by a background refresh) and every
-// id when currentRoot is unset are skipped, so a stale/foreign id is never
-// passed to ArchiveSession (which would otherwise report a false success —
-// db.ArchiveSession is an unconditional UPDATE that returns nil for a
-// nonexistent id).
-//
-// INVARIANT: currentRoot (set from workspace.BaseDir) and the overview Root
-// values must use identical path normalization; otherwise the current
-// workspace's own sessions would fail the root == currentRoot check and be
-// silently skipped. This is the same equality assumption isCurrentWorkspace
-// relies on.
-func (s *SessionsSidebar) ArchivableSelection() (ids []string, skippedActive, skippedWorkspace int) {
-	roots := s.sessionRoots()
+// Sessions in ANY workspace are archivable — attached or detached — so
+// each target carries its own workspace id and root for per-session
+// routing. An id not present in the current overviews (e.g. dropped by a
+// background refresh) is silently skipped: without a known workspace it
+// cannot be routed, and archiving it would be a no-op false success.
+func (s *SessionsSidebar) ArchivableSelection() (targets []SessionTarget, skippedActive, skippedBusy int) {
 	for id := range s.selected {
 		if id == s.activeSessionID {
 			skippedActive++
 			continue
 		}
-		// Fail closed: require a known root equal to the current workspace.
-		root, ok := roots[id]
-		if s.currentRoot == "" || !ok || root != s.currentRoot {
-			skippedWorkspace++
+		t, busy, ok := s.lookupSession(id)
+		if !ok {
 			continue
 		}
-		ids = append(ids, id)
+		if busy {
+			skippedBusy++
+			continue
+		}
+		targets = append(targets, t)
 	}
-	sort.Strings(ids)
-	return ids, skippedActive, skippedWorkspace
+	sortTargets(targets)
+	return targets, skippedActive, skippedBusy
 }
 
-// MarkReadSelection returns the selected session IDs eligible for bulk
-// mark-as-read, in deterministic (sorted) order, together with the number
-// of selected sessions skipped because they do not provably belong to the
-// current workspace. It mirrors ArchivableSelection's current-workspace
-// scoping and fail-closed filter (the client mark-seen API only reaches the
-// attached workspace, exactly like archive).
-//
-// Unlike ArchivableSelection the active session is NOT skipped: marking the
-// session the user is viewing read is harmless (it is already read via
-// SetCurrentSession's implicit mark-seen), so there is no destructive
-// concern and no separate active-skip count.
-func (s *SessionsSidebar) MarkReadSelection() (ids []string, skippedWorkspace int) {
-	roots := s.sessionRoots()
+// MarkReadSelection returns the selected sessions eligible for bulk
+// mark-as-read, in deterministic (sorted-by-id) order. Like
+// ArchivableSelection it spans all workspaces (attached and detached),
+// routing each session by its own workspace id/root; unknown ids are
+// silently skipped. Unlike archive the active session is included and busy
+// sessions are NOT skipped: marking a session read is non-destructive.
+func (s *SessionsSidebar) MarkReadSelection() (targets []SessionTarget) {
 	for id := range s.selected {
-		// Fail closed: require a known root equal to the current workspace.
-		root, ok := roots[id]
-		if s.currentRoot == "" || !ok || root != s.currentRoot {
-			skippedWorkspace++
+		t, _, ok := s.lookupSession(id)
+		if !ok {
 			continue
 		}
-		ids = append(ids, id)
+		targets = append(targets, t)
 	}
-	sort.Strings(ids)
-	return ids, skippedWorkspace
+	sortTargets(targets)
+	return targets
 }
 
-// sessionRoots maps each known session ID to its workspace root, for
-// workspace-scoping the bulk archive selection.
-func (s *SessionsSidebar) sessionRoots() map[string]string {
-	roots := make(map[string]string)
+// lookupSession resolves a selected session id to its owning workspace
+// target and live busy state from the current overviews.
+func (s *SessionsSidebar) lookupSession(id string) (target SessionTarget, busy, ok bool) {
 	for _, ws := range s.overviews {
 		for _, sess := range ws.Sessions {
-			roots[sess.ID] = ws.Root
+			if sess.ID == id {
+				return SessionTarget{WorkspaceID: ws.WorkspaceID, Root: ws.Root, ID: id}, sess.IsBusy, true
+			}
 		}
 	}
-	return roots
+	return SessionTarget{}, false, false
 }
 
-// SetCurrentRoot records the resolved root of the workspace this client is
-// pointed at, used to scope bulk archive to it.
+// sortTargets orders targets by session id for deterministic processing.
+func sortTargets(targets []SessionTarget) {
+	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
+}
+
 func (s *SessionsSidebar) SetCurrentRoot(root string) {
 	s.currentRoot = root
 }

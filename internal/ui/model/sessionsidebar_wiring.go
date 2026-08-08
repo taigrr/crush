@@ -231,27 +231,47 @@ func (m *UI) scheduleSidebarPreview() tea.Cmd {
 	return m.schedulePreview(id, m.isCurrentWorkspace(root))
 }
 
-// archiveSelectedSessions archives the selected sessions in the CURRENT
-// workspace. Sessions from other workspaces and the active session are
-// skipped (the client archive API only reaches the attached workspace).
-// The selection is NOT cleared here: it is trimmed to the failures only
-// after the archive command reports, so failures stay selected for a retry.
+// archiveSelectedSessions archives the selected sessions, each routed to
+// ITS OWN workspace (attached or detached). The active session (never
+// archive the one being viewed) and busy sessions (never archive mid-run)
+// are skipped. The selection is NOT cleared here: it is trimmed to the
+// failures only after the archive command reports, so failures stay
+// selected for a retry.
 func (m *UI) archiveSelectedSessions() tea.Cmd {
-	toArchive, skippedActive, skippedWorkspace := m.leftSidebar.ArchivableSelection()
-	if len(toArchive) == 0 {
-		if skippedActive+skippedWorkspace > 0 {
-			return util.ReportWarn("Selected sessions can't be archived from here; nothing to archive")
+	targets, skippedActive, skippedBusy := m.leftSidebar.ArchivableSelection()
+	if len(targets) == 0 {
+		switch {
+		case skippedActive > 0 && skippedBusy > 0:
+			return util.ReportWarn("Selected session(s) are active or busy; nothing to archive")
+		case skippedBusy > 0:
+			return util.ReportWarn("Selected session(s) are busy; nothing to archive")
+		case skippedActive > 0:
+			return util.ReportWarn("Only the active session was selected; nothing to archive")
+		case m.leftSidebar.SelectionCount() > 0:
+			return util.ReportWarn("Selected session(s) are no longer available; nothing to archive")
+		default:
+			return util.ReportInfo("No sessions selected")
 		}
-		return util.ReportInfo("No sessions selected")
 	}
-	survivor := m.leftSidebar.SurvivingNeighbor(toArchive)
-	return m.archiveSessionsCmd(toArchive, survivor, skippedActive+skippedWorkspace)
+	ids := targetIDs(targets)
+	survivor := m.leftSidebar.SurvivingNeighbor(ids)
+	return m.archiveSessionsCmd(targets, survivor, skippedActive+skippedBusy)
+}
+
+// targetIDs projects the session ids out of a target slice, preserving
+// order.
+func targetIDs(targets []SessionTarget) []string {
+	ids := make([]string, len(targets))
+	for i, t := range targets {
+		ids[i] = t.ID
+	}
+	return ids
 }
 
 // sessionsArchivedMsg reports the outcome of a bulk archive: the refreshed
 // overviews (nil if the refresh itself failed), which IDs failed (so they
-// stay selected), how many succeeded, how many were skipped as
-// out-of-workspace, and the neighbor session to focus.
+// stay selected), how many succeeded, how many selected sessions were
+// skipped (active or busy, never archived), and the neighbor to focus.
 type sessionsArchivedMsg struct {
 	overviews  []proto.WorkspaceOverview
 	failed     []string
@@ -260,20 +280,21 @@ type sessionsArchivedMsg struct {
 	survivorID string
 }
 
-// archiveSessionsCmd archives the given session IDs off the Update
-// goroutine. It attempts EVERY id (deterministic order, set by the caller)
-// and collects the individual failures rather than aborting on the first,
-// so the outcome is stable. It refreshes the overviews afterwards; if that
-// refresh fails it still emits sessionsArchivedMsg (with nil overviews) so
-// the successfully-archived IDs are dropped from the selection and only the
-// failures remain — never leaving now-gone sessions selected.
-func (m *UI) archiveSessionsCmd(ids []string, survivorID string, skipped int) tea.Cmd {
+// archiveSessionsCmd archives the given targets off the Update goroutine,
+// routing each session to its own workspace id/root. It attempts EVERY
+// target (deterministic order, set by the caller) and collects individual
+// failures rather than aborting on the first — a locked or unreadable
+// detached workspace database fails only that session — so the outcome is
+// stable. It refreshes the overviews afterwards; if that refresh fails it
+// still emits sessionsArchivedMsg (with nil overviews) so successfully
+// archived IDs are dropped from the selection and only failures remain.
+func (m *UI) archiveSessionsCmd(targets []SessionTarget, survivorID string, skipped int) tea.Cmd {
 	return func() tea.Msg {
 		succeeded := 0
 		var failed []string
-		for _, id := range ids {
-			if err := m.com.Workspace.ArchiveSession(context.Background(), id); err != nil {
-				failed = append(failed, id)
+		for _, t := range targets {
+			if err := m.com.Workspace.ArchiveSessionInWorkspace(context.Background(), t.WorkspaceID, t.Root, t.ID); err != nil {
+				failed = append(failed, t.ID)
 				continue
 			}
 			succeeded++
@@ -299,46 +320,40 @@ func (m *UI) archiveSessionsCmd(ids []string, survivorID string, skipped int) te
 	}
 }
 
-// markSelectedSessionsRead marks the selected sessions in the CURRENT
-// workspace as read. Sessions from other workspaces are skipped (the client
-// mark-seen API only reaches the attached workspace). Unlike archive there
-// is no destructive concern: the selection is cleared and visual mode is
-// exited unconditionally after the command reports, and the cursor stays
-// put (sessions remain in the list).
+// markSelectedSessionsRead marks the selected sessions as read, each routed
+// to ITS OWN workspace (attached or detached). There is no destructive
+// concern: the selection is cleared and visual mode exited unconditionally
+// after the command reports, and the cursor stays put.
 func (m *UI) markSelectedSessionsRead() tea.Cmd {
-	toMark, skippedWorkspace := m.leftSidebar.MarkReadSelection()
-	if len(toMark) == 0 {
-		if skippedWorkspace > 0 {
-			return util.ReportWarn("Selected sessions can't be marked read from here; nothing to mark")
-		}
+	targets := m.leftSidebar.MarkReadSelection()
+	if len(targets) == 0 {
 		return util.ReportInfo("No sessions selected")
 	}
-	return m.markSessionsReadCmd(toMark, skippedWorkspace)
+	return m.markSessionsReadCmd(targets)
 }
 
 // sessionsMarkedReadMsg reports the outcome of a bulk mark-as-read: the
 // refreshed overviews (nil if the refresh itself failed) so the derived
-// unread/green-dot state updates, which IDs failed, how many succeeded, and
-// how many were skipped as out-of-workspace.
+// unread/green-dot state updates, which IDs failed, and how many succeeded.
 type sessionsMarkedReadMsg struct {
 	overviews []proto.WorkspaceOverview
 	failed    []string
 	succeeded int
-	skipped   int
 }
 
-// markSessionsReadCmd marks the given session IDs read off the Update
-// goroutine. It attempts EVERY id (deterministic order, set by the caller)
-// and collects the individual failures rather than aborting on the first,
-// then refreshes the overviews so the unread state updates. It always emits
-// sessionsMarkedReadMsg (with nil overviews if the refresh failed).
-func (m *UI) markSessionsReadCmd(ids []string, skipped int) tea.Cmd {
+// markSessionsReadCmd marks the given targets read off the Update
+// goroutine, routing each session to its own workspace id/root. It attempts
+// EVERY target (deterministic order) and collects individual failures
+// rather than aborting on the first, then refreshes the overviews so the
+// unread state updates. It always emits sessionsMarkedReadMsg (with nil
+// overviews if the refresh failed).
+func (m *UI) markSessionsReadCmd(targets []SessionTarget) tea.Cmd {
 	return func() tea.Msg {
 		succeeded := 0
 		var failed []string
-		for _, id := range ids {
-			if err := m.com.Workspace.MarkSessionSeen(context.Background(), id); err != nil {
-				failed = append(failed, id)
+		for _, t := range targets {
+			if err := m.com.Workspace.MarkSessionSeenInWorkspace(context.Background(), t.WorkspaceID, t.Root, t.ID); err != nil {
+				failed = append(failed, t.ID)
 				continue
 			}
 			succeeded++
@@ -348,14 +363,12 @@ func (m *UI) markSessionsReadCmd(ids []string, skipped int) tea.Cmd {
 			return sessionsMarkedReadMsg{
 				failed:    failed,
 				succeeded: succeeded,
-				skipped:   skipped,
 			}
 		}
 		return sessionsMarkedReadMsg{
 			overviews: overviews,
 			failed:    failed,
 			succeeded: succeeded,
-			skipped:   skipped,
 		}
 	}
 }

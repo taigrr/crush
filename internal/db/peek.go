@@ -26,6 +26,89 @@ func OpenReadOnly(dataDir string) (*sql.DB, error) {
 	return openReadOnlyDB(dbPath)
 }
 
+// ErrDataDirBusy is returned by [OpenWritable] when the workspace database
+// is already open in this process's shared connection pool (via [Connect]).
+// Opening a second writable handle to a file this process is attaching (or
+// mid-closing) is refused, so callers treat it as a per-target failure.
+var ErrDataDirBusy = errors.New("data directory already in use")
+
+// OpenWritable opens a workspace's database at dataDir READ-WRITE without
+// running migrations, for cross-workspace fan-out writes (archive,
+// mark-read) against a detached workspace whose schema already exists. It
+// reuses the standard [openDB] path so the same pragmas apply — notably
+// WAL journal mode and busy_timeout. It returns (nil, nil) when the
+// database file does not exist, so callers can treat an uninitialized
+// workspace as "not found". The caller owns the returned handle and must
+// Close it. The returned handle is capped at a single connection.
+//
+// Concurrency model:
+//
+//   - It holds poolMu ACROSS the pool check and openDB, and refuses with
+//     [ErrDataDirBusy] when the same data directory is already present in
+//     this process's shared pool (a live [Connect] handle). Because both
+//     [Connect] and [Release] hold poolMu across their open/close, the pool
+//     CHECK cannot race an attach or teardown in the same process: the open
+//     never interleaves with a mid-attach or mid-close pooled handle. In
+//     particular it closes the TEARDOWN-ORDERING race where the backend
+//     removes a workspace from its in-memory map before its DB handle is
+//     shut down (Release holds poolMu across the map delete and db.Close, so
+//     a check that runs while a workspace is mid-close reliably observes the
+//     entry and backs off). This is instant-of-open exclusion, NOT
+//     mutual exclusion over the write's lifetime: because a one-shot handle
+//     is not registered in the pool, a [Connect] that starts after this
+//     open completes can still open a second live handle concurrently. That
+//     is safe for the reason below, not because of poolMu.
+//   - It deliberately does NOT take the per-data-directory flock. Doing so
+//     would be counterproductive: the flock is acquired non-blocking
+//     (LOCK_EX|LOCK_NB), so a brief one-shot write holding it would make a
+//     concurrent legitimate attach ([Connect] with locking) FAIL with a
+//     misleading "in use by another process" error. Correctness does not
+//     require it: two independent handles, each capped at one connection,
+//     against a WAL database is SQLite's supported multi-connection mode
+//     (unlike the multi-connection-per-pool interleave that caused the
+//     historical SQLITE_NOTADB — see [Connect]); busy_timeout serializes
+//     writers. This single-conn-WAL property — not poolMu — is what makes
+//     both a post-open same-process Connect and the CROSS-PROCESS case (a
+//     workspace running under another crush process) corruption-safe. The
+//     remaining cross-process concern — archiving a session an agent is
+//     running in another process — is bounded by the documented behavior
+//     that a detached archive does not prune snapshot refs, so nothing is
+//     pruned out from under a live agent; mark-read is non-destructive.
+//
+// Unlike [Connect] this never runs migrations and never registers in the
+// shared connection pool: it is a one-shot handle for a single write, closed
+// immediately after. A real read-write attach still goes through [Connect].
+func OpenWritable(dataDir string) (*sql.DB, error) {
+	dbPath := filepath.Join(dataDir, "crush.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	absPath, err := filepath.Abs(dbPath)
+	if err != nil {
+		absPath = dbPath
+	}
+
+	// Hold poolMu across the pool check AND the open so this cannot
+	// interleave with a concurrent Connect/Release for the same file.
+	poolMu.Lock()
+	defer poolMu.Unlock()
+	if _, pooled := pool[absPath]; pooled {
+		return nil, ErrDataDirBusy
+	}
+	conn, err := openDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	// Serialize access through a single connection, matching Connect: SQLite
+	// serializes writes at the file level and interleaving pool connections
+	// has caused WAL/header desync.
+	conn.SetMaxOpenConns(1)
+	return conn, nil
+}
+
 // PeekedSession is a lightweight, read-only view of a session, sufficient
 // for the cross-workspace picker. It deliberately excludes heavy or
 // runtime-only fields (message history, live busy state).

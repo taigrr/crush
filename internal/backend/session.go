@@ -3,10 +3,126 @@ package backend
 import (
 	"context"
 
+	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
 )
+
+// withWorkspaceSession resolves a workspace to a session-write path,
+// whether it is ATTACHED (running in this server) or merely DETACHED
+// (registry-known but not open), and runs fn against it.
+//
+// When workspaceID names an attached workspace, fn receives that
+// workspace and its live session service (the normal path). Otherwise the
+// workspace is looked up in the registry by root: its database is opened
+// READ-WRITE without migrations or the data-dir lock (see
+// [db.OpenWritable]), fn receives a fresh session.Service over that
+// connection and a nil *Workspace, and the connection is closed before
+// returning. This mirrors the read-only fan-out used by cross-workspace
+// search and overviews, but for the archive/mark-read writes.
+//
+// Failure to open a detached workspace's database (missing file, held
+// lock, corruption) is returned as an error for THIS workspace only, so a
+// caller processing several sessions can record a per-session failure and
+// continue with the rest — it never panics and never migrates.
+func (b *Backend) withWorkspaceSession(ctx context.Context, workspaceID, root string, fn func(ws *Workspace, s session.Service) error) error {
+	if ws, err := b.GetWorkspace(workspaceID); err == nil && ws.App != nil {
+		return fn(ws, ws.App.Sessions)
+	}
+
+	// The caller may route by root with an empty (or placeholder) id even
+	// though the workspace is actually ATTACHED in this process — the id is
+	// only unknown to the caller because it read a stale detached overview,
+	// or the workspace was attached between snapshot and action. Resolve
+	// root against the attached set FIRST so we use the live session
+	// service and never open a second writable handle to a database this
+	// process already has open (which would bypass the data-dir lock and
+	// risk WAL/header desync, and would leave the live in-memory cache
+	// stale).
+	//
+	// We scan b.workspaces by resolvedPath rather than consulting
+	// b.pathIndex because ISOLATED workspaces (e.g. `crush run`) are held in
+	// b.workspaces but deliberately absent from pathIndex and the registry;
+	// a pathIndex-only guard would miss them and route their live,
+	// lock-held database through OpenWritable.
+	//
+	// NORMALIZATION INVARIANT: this match is exact. It relies on the client
+	// sending the same canonical root the registry stores and overviews
+	// report — CreateWorkspace writes registry.Add(Root: key) where key ==
+	// resolvedPath, so the three agree today. If registry Root and
+	// resolvedPath ever diverge in normalization (trailing slash, symlink
+	// resolution), an attached workspace routed by its registry root would
+	// miss here and be double-opened. Keep them normalized identically.
+	//
+	// TEARDOWN/TOCTOU: a workspace being torn down is removed from
+	// b.workspaces BEFORE its database handle is closed, so a same-root
+	// lookup here can miss it while its live connection is still open. The
+	// authoritative guard against a second writable handle therefore lives
+	// in [db.OpenWritable], which refuses (ErrDataDirBusy) while the data
+	// dir is still in this process's shared connection pool. The in-memory
+	// checks here are a fast path; the App==nil branch additionally fails
+	// closed for a workspace that resolves but is unusable. Cross-PROCESS
+	// attaches (another crush holding the DB) rely on busy_timeout; the
+	// UI's busy-skip only reflects same-process live state.
+	if root != "" {
+		if ws, exists := b.attachedByRoot(root); exists {
+			if ws.App != nil {
+				return fn(ws, ws.App.Sessions)
+			}
+			// Present but unusable (tearing down): fail closed rather than
+			// racing a second writable open against its still-open DB.
+			return ErrWorkspaceNotFound
+		}
+	}
+
+	// Detached: resolve the workspace's data directory from the registry
+	// by root and open its database read-write for a one-shot write.
+	if root == "" || b.registry == nil {
+		return ErrWorkspaceNotFound
+	}
+	entries, err := b.registry.List()
+	if err != nil {
+		return err
+	}
+	var dataDir string
+	for _, e := range entries {
+		if e.Root == root {
+			dataDir = e.DataDir
+			break
+		}
+	}
+	if dataDir == "" {
+		return ErrWorkspaceNotFound
+	}
+
+	conn, err := db.OpenWritable(dataDir)
+	if err != nil {
+		return err
+	}
+	if conn == nil {
+		return ErrWorkspaceNotFound // no database file yet
+	}
+	defer conn.Close()
+
+	svc := session.NewService(db.New(conn), conn)
+	return fn(nil, svc)
+}
+
+// attachedByRoot returns the in-process workspace whose resolved path
+// equals root and whether any such workspace exists. It scans the full
+// attached set (including isolated workspaces, which are absent from
+// pathIndex) so a session write is never routed to OpenWritable against a
+// database already open in this process. The returned *Workspace may have a
+// nil App if it is mid-teardown; callers must check before dereferencing.
+func (b *Backend) attachedByRoot(root string) (*Workspace, bool) {
+	for _, ws := range b.workspaces.Seq2() {
+		if ws.resolvedPath == root {
+			return ws, true
+		}
+	}
+	return nil, false
+}
 
 // CreateSession creates a new session in the given workspace.
 func (b *Backend) CreateSession(ctx context.Context, workspaceID, title string) (session.Session, error) {
@@ -111,35 +227,44 @@ func (b *Backend) DeleteSession(ctx context.Context, workspaceID, sessionID stri
 	return ws.Sessions.Delete(ctx, sessionID)
 }
 
-// ArchiveSession archives a session and releases its snapshot refs.
-func (b *Backend) ArchiveSession(ctx context.Context, workspaceID, sessionID string) error {
-	ws, err := b.GetWorkspace(workspaceID)
-	if err != nil {
-		return err
-	}
-
-	return ws.ArchiveSession(ctx, sessionID)
+// ArchiveSession archives a session and releases its snapshot refs. The
+// session may live in an attached workspace or a detached one (resolved by
+// root via the registry); see [Backend.withWorkspaceSession]. Snapshot ref
+// cleanup only runs for attached workspaces (a detached workspace's
+// checkpoint service is not loaded); the archive write itself lands in
+// either case.
+//
+// KNOWN LIMITATION: archiving a session in a truly-detached workspace does
+// NOT prune its snapshot refs, so git objects for that session stay
+// reachable and are not GC'd until the workspace is next attached and the
+// session re-processed. The archive flag itself is correct; only the
+// snapshot cleanup is deferred. Fixing it would require standing up a
+// checkpoint service against the detached project dir, which this one-shot
+// path deliberately avoids.
+func (b *Backend) ArchiveSession(ctx context.Context, workspaceID, root, sessionID string) error {
+	return b.withWorkspaceSession(ctx, workspaceID, root, func(ws *Workspace, s session.Service) error {
+		if ws != nil {
+			return ws.ArchiveSession(ctx, sessionID)
+		}
+		return s.Archive(ctx, sessionID)
+	})
 }
 
-// MarkSessionSeen marks an arbitrary session in the workspace as read,
-// clearing its derived unread state (LastFinishedAt > LastSeenAt).
-func (b *Backend) MarkSessionSeen(ctx context.Context, workspaceID, sessionID string) error {
-	ws, err := b.GetWorkspace(workspaceID)
-	if err != nil {
-		return err
-	}
-
-	return ws.MarkSessionSeen(ctx, sessionID)
+// MarkSessionSeen marks an arbitrary session as read, clearing its derived
+// unread state (LastFinishedAt > LastSeenAt). The session may live in an
+// attached or a detached workspace (resolved by root via the registry).
+func (b *Backend) MarkSessionSeen(ctx context.Context, workspaceID, root, sessionID string) error {
+	return b.withWorkspaceSession(ctx, workspaceID, root, func(_ *Workspace, s session.Service) error {
+		return s.MarkSeen(ctx, sessionID)
+	})
 }
 
-// UnarchiveSession unarchives a session.
-func (b *Backend) UnarchiveSession(ctx context.Context, workspaceID, sessionID string) error {
-	ws, err := b.GetWorkspace(workspaceID)
-	if err != nil {
-		return err
-	}
-
-	return ws.Sessions.Unarchive(ctx, sessionID)
+// UnarchiveSession unarchives a session. The session may live in an
+// attached or a detached workspace (resolved by root via the registry).
+func (b *Backend) UnarchiveSession(ctx context.Context, workspaceID, root, sessionID string) error {
+	return b.withWorkspaceSession(ctx, workspaceID, root, func(_ *Workspace, s session.Service) error {
+		return s.Unarchive(ctx, sessionID)
+	})
 }
 
 // ListArchivedSessions returns archived sessions for a workspace.
