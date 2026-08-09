@@ -218,18 +218,37 @@ func (b *Backend) InitAgent(ctx context.Context, workspaceID string) error {
 // wired inside app.New like every other single-workspace concern — it
 // has to be injected from this layer, after the coordinator is built.
 //
-// Called by [Backend.CreateWorkspace] for every workspace as it comes
-// up, and again by [Backend.InitAgent] after a coordinator rebuild.
-// SetSwarmBackend refreshes tools in place (no coordinator swap, no
-// in-flight run disruption), so it is idempotent and safe to call
-// repeatedly. Test mocks that don't implement SwarmConfigurable are
-// silently skipped.
+// Called by [Backend.CreateWorkspace]'s fresh-creation path (the
+// coordinator is guaranteed idle — nothing has run on it yet) and by
+// [Backend.InitAgent] after a coordinator rebuild. Prefer
+// wireSwarmBackendIfMissing for any call site where the workspace may
+// already be attached and busy (see its docs). Test mocks that don't
+// implement SwarmConfigurable are silently skipped.
 func (b *Backend) wireSwarmBackend(ctx context.Context, ws *Workspace) error {
 	setter, ok := ws.AgentCoordinator.(agent.SwarmConfigurable)
 	if !ok {
 		return nil
 	}
 	return setter.SetSwarmBackend(ctx, &swarmShim{b: b}, ws.ID, ws.App.SwarmConfig)
+}
+
+// wireSwarmBackendIfMissing self-heals a workspace whose swarm
+// backend was never wired (or was lost), without disturbing an
+// already-wired, possibly busy, long-lived coordinator. It delegates
+// the busy/idle handling to the coordinator itself (see
+// [agent.SwarmConfigurable.WireSwarmBackendIfMissing]) rather than
+// unconditionally forcing a synchronous tool-set rebuild, which would
+// race a live run's readyWg.Wait() against the rebuild's readyWg.Go.
+//
+// Called from [Backend.CreateWorkspace]'s dedup/reuse branches, which
+// run on every client reconnect and every TUI workspace switch — the
+// common case must stay a cheap no-op.
+func (b *Backend) wireSwarmBackendIfMissing(ctx context.Context, ws *Workspace) error {
+	setter, ok := ws.AgentCoordinator.(agent.SwarmConfigurable)
+	if !ok {
+		return nil
+	}
+	return setter.WireSwarmBackendIfMissing(ctx, &swarmShim{b: b}, ws.ID, ws.App.SwarmConfig)
 }
 
 // UpdateAgent reloads the agent model configuration.

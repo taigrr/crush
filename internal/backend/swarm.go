@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/agent/notify"
+	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
@@ -150,11 +151,172 @@ func (b *Backend) LookupSwarmAddress(ctx context.Context, addrStr string) (Swarm
 		if firstErr != nil {
 			return SwarmLookupResult{}, firstErr
 		}
+		// No match among currently-attached workspaces. Rather than
+		// keeping every swarm-touched workspace pinned in memory
+		// forever to dodge this, fall back to the on-disk registry:
+		// a workspace that idle-teardown released is still fully
+		// intact on disk (its DB is untouched), just not currently
+		// loaded. Probe each known-but-detached root for a match,
+		// and only pay the cost of actually re-attaching (via
+		// CreateWorkspace) the one root that has it, if any.
+		if reattached, err := b.reattachForAddress(ctx, addr); err == nil {
+			return reattached, nil
+		}
 		return SwarmLookupResult{}, ErrSwarmAddressNotFound
 	case 1:
 		return matches[0], nil
 	}
 	return SwarmLookupResult{}, ErrSwarmAddressAmbiguous
+}
+
+// reattachForAddress searches every registry root that is not
+// currently an attached workspace for a session matching addr,
+// without paying the cost of fully booting each candidate: it uses
+// [db.PeekSessions] (read-only, unlocked, no migrations, no shared
+// connection pool — see its docs) to check each detached root's
+// on-disk sessions first. Only the root(s) that actually contain a
+// match are considered; a full boot (via CreateWorkspace, exactly as
+// CreateSwarmSessionAtPath does for a brand-new spawn) is paid for
+// only once, for the single root that turns out to be the unique
+// match — so a registry with many stale or unrelated entries costs
+// one cheap peek each rather than N full workspace boots.
+//
+// Preserves the same ambiguity contract as the live-workspace loop in
+// LookupSwarmAddress: if more than one detached root (or more than
+// one session within the same detached root) matches addr, this
+// returns ErrSwarmAddressAmbiguous rather than silently picking
+// whichever root happened to be scanned first — a color/animal pair
+// is drawn from a small hashed palette, so cross-project collisions
+// among unrelated, currently-detached projects are expected, not
+// exotic, and must not cause a swarm message to be misdelivered to
+// the wrong session.
+//
+// Returns ErrSwarmAddressNotFound if no registry root has a match.
+func (b *Backend) reattachForAddress(ctx context.Context, addr swarm.Address) (SwarmLookupResult, error) {
+	if b.registry == nil {
+		return SwarmLookupResult{}, ErrSwarmAddressNotFound
+	}
+	entries, err := b.registry.List()
+	if err != nil {
+		return SwarmLookupResult{}, ErrSwarmAddressNotFound
+	}
+
+	type candidate struct {
+		root   string
+		peeked db.PeekedSession
+	}
+	var candidates []candidate
+	for _, entry := range entries {
+		if entry.Root == "" || entry.DataDir == "" {
+			continue
+		}
+		b.mu.Lock()
+		_, attached := b.pathIndex[entry.Root]
+		b.mu.Unlock()
+		if attached {
+			// Already searched via the live loop in LookupSwarmAddress.
+			continue
+		}
+		peeked, err := peekDataDirForAddress(ctx, entry.DataDir, addr)
+		if err != nil {
+			slog.Warn("Failed to probe detached workspace for swarm address", "root", entry.Root, "error", err)
+			continue
+		}
+		for _, s := range peeked {
+			candidates = append(candidates, candidate{root: entry.Root, peeked: s})
+		}
+	}
+
+	switch len(candidates) {
+	case 0:
+		return SwarmLookupResult{}, ErrSwarmAddressNotFound
+	case 1:
+		// fall through to reattach below
+	default:
+		return SwarmLookupResult{}, ErrSwarmAddressAmbiguous
+	}
+
+	root := candidates[0].root
+	ws, _, err := b.CreateWorkspace(proto.Workspace{
+		Path:     root,
+		ClientID: uuid.New().String(),
+	})
+	if err != nil {
+		return SwarmLookupResult{}, fmt.Errorf("swarm: failed to reattach workspace %s: %w", root, err)
+	}
+	if !workspaceSwarmEnabled(ws) {
+		return SwarmLookupResult{}, ErrSwarmAddressNotFound
+	}
+	// Re-verify against the live session service now that the
+	// workspace is actually attached: the peek above is a snapshot
+	// that could have raced a concurrent change (archive, delete) to
+	// the on-disk data between the peek and this reattach.
+	if addr.SessionID != "" {
+		s, err := ws.App.Sessions.Get(ctx, addr.SessionID)
+		if err != nil || s.ArchivedAt != 0 {
+			return SwarmLookupResult{}, ErrSwarmAddressNotFound
+		}
+		return SwarmLookupResult{WorkspaceID: ws.ID, SessionID: s.ID, Color: s.Color, Animal: s.Animal, Sub: isSubSession(s)}, nil
+	}
+	list, err := ws.App.Sessions.FindByColorAnimal(ctx, addr.Color, addr.Animal)
+	if err != nil {
+		return SwarmLookupResult{}, ErrSwarmAddressNotFound
+	}
+	for _, s := range list {
+		if isSubSession(s) {
+			continue
+		}
+		if addr.ShortHash != "" && !strings.EqualFold(swarm.ShortHash(s.ID), addr.ShortHash) {
+			continue
+		}
+		return SwarmLookupResult{WorkspaceID: ws.ID, SessionID: s.ID, Color: s.Color, Animal: s.Animal}, nil
+	}
+	return SwarmLookupResult{}, ErrSwarmAddressNotFound
+}
+
+// peekDataDirForAddress returns the (non-archived, non-sub-session)
+// sessions in the detached workspace backed by dataDir that match
+// addr, without booting a full workspace or touching the shared,
+// refcounted connection pool [db.Connect] uses. [db.PeekSessions]
+// opens its own private read-only connection, runs no migrations,
+// and takes no lock — critically, unlike a plain db.Connect call, it
+// cannot end up silently sharing an unlocked connection with a
+// concurrent, properly-locked CreateWorkspace attach against the same
+// data directory (db.Connect's pool only decides whether to acquire
+// the lock on a cache *miss*; a probe that wins the race to create
+// the pool entry would otherwise poison every later locked caller
+// for that path). It also filters archived and parent-having (sub-)
+// sessions server-side already; the id-shape check here is only a
+// defensive backstop for legacy rows with no parent pointer, mirrored
+// from isSubSession.
+func peekDataDirForAddress(ctx context.Context, dataDir string, addr swarm.Address) ([]db.PeekedSession, error) {
+	peeked, err := db.PeekSessions(ctx, dataDir)
+	if err != nil {
+		return nil, err
+	}
+	var matches []db.PeekedSession
+	for _, s := range peeked {
+		if s.Archived {
+			continue
+		}
+		if strings.HasPrefix(s.ID, "title-") || strings.Contains(s.ID, "$$") {
+			continue
+		}
+		if addr.SessionID != "" {
+			if s.ID == addr.SessionID {
+				matches = append(matches, s)
+			}
+			continue
+		}
+		if !strings.EqualFold(s.Color, addr.Color) || !strings.EqualFold(s.Animal, addr.Animal) {
+			continue
+		}
+		if addr.ShortHash != "" && !strings.EqualFold(swarm.ShortHash(s.ID), addr.ShortHash) {
+			continue
+		}
+		matches = append(matches, s)
+	}
+	return matches, nil
 }
 
 // SwarmSendResult is what [Backend.SwarmSend] reports back to the
