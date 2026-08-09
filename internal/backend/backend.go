@@ -350,6 +350,16 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 				b.registerClient(ws, clientID, args.Env, args.Path)
 				b.mu.Unlock()
 				b.reloadWorkspaceConfig(ws)
+				// Re-wire swarm on the reused workspace too: a prior
+				// CreateWorkspace for this path may have returned before
+				// its own wireSwarmBackend call ran, leaving this cached
+				// *Workspace with a nil swarm backend forever otherwise.
+				// wireSwarmBackendIfMissing only pays the rebuild cost
+				// when wiring is actually missing, so a plain
+				// already-wired switch/reconnect stays a no-op.
+				if err := b.wireSwarmBackendIfMissing(b.ctx, ws); err != nil {
+					slog.Warn("Failed to wire swarm backend into reused workspace", "root", key, "error", err)
+				}
 				return ws, workspaceToProtoForClient(ws, effectiveCwd), nil
 			}
 			delete(b.pathIndex, key)
@@ -423,6 +433,12 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 				b.mu.Unlock()
 				ws.invokeShutdown()
 				b.reloadWorkspaceConfig(existing)
+				// Same re-wiring as the other dedup branch above: this
+				// caller lost the race and is handing back a workspace
+				// that may not have had wireSwarmBackend run on it yet.
+				if err := b.wireSwarmBackendIfMissing(b.ctx, existing); err != nil {
+					slog.Warn("Failed to wire swarm backend into reused workspace", "root", key, "error", err)
+				}
 				return existing, workspaceToProtoForClient(existing, effectiveCwd), nil
 			}
 			delete(b.pathIndex, key)

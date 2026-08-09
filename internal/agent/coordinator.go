@@ -132,6 +132,13 @@ type SwarmConfigurable interface {
 	// currently wired in. Used to verify that workspace creation
 	// injected the backend without having to inspect the tool set.
 	SwarmWired() bool
+	// WireSwarmBackendIfMissing calls SetSwarmBackend only when
+	// SwarmWired reports false, deferring the rebuild until the
+	// coder agent is idle if it's currently busy. Safe (and cheap)
+	// to call on an already-wired, possibly busy, long-lived
+	// coordinator — see the method doc for why that distinction
+	// matters.
+	WireSwarmBackendIfMissing(ctx context.Context, be tools.SwarmBackend, workspaceID string, cfg func() swarm.Config) error
 }
 
 type coordinator struct {
@@ -185,11 +192,16 @@ type coordinator struct {
 	// swarmConfig returns the runtime swarm identity config (theme
 	// palette + animals). Nil means "use defaults".
 	swarmConfig func() swarm.Config
-	// swarmMu guards the swarmBackend/workspaceID/config triple so
-	// SetSwarmBackend (which can be called from the backend at any
-	// time) races cleanly against buildAgent reads on the run
-	// goroutine.
+	// swarmMu guards the swarmBackend/workspaceID/config triple, plus
+	// swarmWiring, so SetSwarmBackend (which can be called from the
+	// backend at any time) races cleanly against buildAgent reads on
+	// the run goroutine.
 	swarmMu sync.Mutex
+	// swarmWiring is true while a WireSwarmBackendIfMissing call is
+	// in flight (synchronously or deferred behind WaitForIdle) for
+	// this coordinator, so a second concurrent caller doesn't launch
+	// a redundant deferred goroutine or race the first's rebuild.
+	swarmWiring bool
 }
 
 // SetSwarmBackend wires the cross-workspace swarm dispatcher into
@@ -199,24 +211,46 @@ type coordinator struct {
 // swapping the c.currentAgent pointer that other goroutines read
 // without locking. Guarded by swarmMu so concurrent callers
 // serialise. Passing nil be removes the tool on the next refresh.
+//
+// On failure (buildTools error, or the coder agent not configured),
+// the swarmBackend/workspaceID/config triple is rolled back to its
+// pre-call value rather than left holding the failed attempt's
+// (non-nil) be. This matters because SwarmWired reports readiness
+// purely from swarmBackend != nil: if a failed call left it non-nil
+// anyway, SwarmWired would report "wired" forever even though the
+// tool set was never actually refreshed, and callers that gate
+// re-wiring on SwarmWired (see WireSwarmBackendIfMissing) would stop
+// retrying — silently and permanently losing the swarm tool, which
+// is the exact failure mode this rollback prevents.
 func (c *coordinator) SetSwarmBackend(ctx context.Context, be tools.SwarmBackend, workspaceID string, cfg func() swarm.Config) error {
 	c.swarmMu.Lock()
+	prevBackend, prevWorkspaceID, prevConfig := c.swarmBackend, c.swarmWorkspaceID, c.swarmConfig
 	c.swarmBackend = be
 	c.swarmWorkspaceID = workspaceID
 	c.swarmConfig = cfg
 	c.swarmMu.Unlock()
 
+	rollback := func() {
+		c.swarmMu.Lock()
+		c.swarmBackend, c.swarmWorkspaceID, c.swarmConfig = prevBackend, prevWorkspaceID, prevConfig
+		c.swarmMu.Unlock()
+	}
+
 	// Skip when the coder agent hasn't been built yet (defensive —
-	// production callers always InitCoderAgent first).
+	// production callers always InitCoderAgent first). This is not a
+	// failure: the fields above are left set so the next buildTools
+	// call (once currentAgent exists) picks them up.
 	if c.currentAgent == nil {
 		return nil
 	}
 	agentCfg, ok := c.cfg.Config().Agents[config.AgentCoder]
 	if !ok {
+		rollback()
 		return errCoderAgentNotConfigured
 	}
 	newTools, err := c.buildTools(ctx, agentCfg, false)
 	if err != nil {
+		rollback()
 		return err
 	}
 	c.currentAgent.SetTools(newTools)
@@ -228,6 +262,59 @@ func (c *coordinator) SwarmWired() bool {
 	c.swarmMu.Lock()
 	defer c.swarmMu.Unlock()
 	return c.swarmBackend != nil
+}
+
+// WireSwarmBackendIfMissing wires be into the coordinator only when a
+// swarm backend is not already wired in (per SwarmWired) and no other
+// wiring attempt is already in flight for this coordinator. It exists
+// so callers that may run on an already-attached, potentially busy
+// workspace — e.g. CreateWorkspace's dedup/reuse branches, hit on
+// every client reconnect or TUI workspace switch — can self-heal a
+// workspace that genuinely lost its swarm wiring without paying for
+// (or racing) a full tool-set rebuild on the common "already wired"
+// path.
+//
+// If the coder agent is currently busy, the rebuild is deferred until
+// it goes idle (mirroring UpdateModelsWhenIdle) rather than run
+// inline: buildTools -> buildAgent schedules new work on the
+// coordinator's shared readyWg via readyWg.Go (i.e. wg.Add), and
+// every in-flight run blocks on that same readyWg via
+// readyWg.Wait() in run(). sync.WaitGroup's contract forbids a
+// positive-delta Add starting concurrently with a Wait once the
+// counter has reached zero, so rebuilding inline while busy risks
+// panicking the process or a run observing a half-populated tool set.
+func (c *coordinator) WireSwarmBackendIfMissing(ctx context.Context, be tools.SwarmBackend, workspaceID string, cfg func() swarm.Config) error {
+	c.swarmMu.Lock()
+	if c.swarmBackend != nil || c.swarmWiring {
+		c.swarmMu.Unlock()
+		return nil
+	}
+	c.swarmWiring = true
+	c.swarmMu.Unlock()
+
+	clearWiring := func() {
+		c.swarmMu.Lock()
+		c.swarmWiring = false
+		c.swarmMu.Unlock()
+	}
+
+	if c.currentAgent != nil && c.currentAgent.IsBusy() {
+		go func() {
+			defer clearWiring()
+			waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+			if err := c.currentAgent.WaitForIdle(waitCtx); err != nil {
+				slog.Warn("Gave up waiting for agent idle before wiring swarm backend", "error", err)
+				return
+			}
+			if err := c.SetSwarmBackend(context.Background(), be, workspaceID, cfg); err != nil {
+				slog.Warn("Failed to wire swarm backend after waiting for idle", "error", err)
+			}
+		}()
+		return nil
+	}
+	defer clearWiring()
+	return c.SetSwarmBackend(ctx, be, workspaceID, cfg)
 }
 
 func NewCoordinator(
