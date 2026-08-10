@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -104,7 +105,7 @@ func TestSidebar_RenderShowsTitlesAndDoesNotPanic(t *testing.T) {
 	t.Parallel()
 	s := newTestSidebar(t)
 	s.SetOverviews(sampleOverviews())
-	out := s.Render(30, 10, true)
+	out := s.Render(30, 11, true)
 	require.Contains(t, out, "First")
 	require.Contains(t, out, "Other")
 }
@@ -786,7 +787,7 @@ func TestSidebar_ClickToActivateMapsRow(t *testing.T) {
 	height := 40
 	s.Render(30, height, true) // header = 5 (summary shown)
 
-	// rows: [wsA, a1, a2, wsB, b1]. Header is 5 lines; row i is at localY 5+i.
+	// rows: [wsA, a1, a2, spacer, wsB, b1]. Header is 5 lines; row i is at localY 5+i.
 	// Click a1 (row index 1) -> activatable, cursor on a1.
 	act, moved := s.ClickToActivate(5+1, height)
 	require.True(t, act)
@@ -795,8 +796,8 @@ func TestSidebar_ClickToActivateMapsRow(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "a1", id)
 
-	// Click b1 (row index 4).
-	act, _ = s.ClickToActivate(5+4, height)
+	// Click b1 (row index 5).
+	act, _ = s.ClickToActivate(5+5, height)
 	require.True(t, act)
 	_, id, _ = s.Selected()
 	require.Equal(t, "b1", id)
@@ -1476,4 +1477,153 @@ func TestSidebar_SearchExitsOnFocusAwayClick(t *testing.T) {
 	m.focus = uiFocusLeftSidebar
 	m.exitLeftSidebarSearchOnBlur(true)
 	require.True(t, s.Searching(), "search preserved when focus stays on sidebar")
+}
+
+// TestSidebar_SelectionHighlightOnlyWhenFocused verifies the cursor row is
+// only given the full-row highlight while the navigator owns focus. Unfocused,
+// the row keeps its selection bar but drops the highlight so it does not
+// compete with the editor caret.
+func TestSidebar_SelectionHighlightOnlyWhenFocused(t *testing.T) {
+	t.Parallel()
+
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews())
+
+	focused := s.Render(30, 10, true)
+	unfocused := s.Render(30, 10, false)
+
+	// The selection bar marks the cursor row in both states.
+	require.Contains(t, focused, styles.BorderThick)
+	require.Contains(t, unfocused, styles.BorderThick)
+
+	// The highlight is what changes, so the two renders must differ.
+	require.NotEqual(t, focused, unfocused,
+		"focused and unfocused renders should differ by the selection highlight")
+
+	// The unfocused render must not carry the selected-item background.
+	sty := styles.CharmtonePantera()
+	highlight := sty.Dialog.SelectedItem.UnsetPadding().Width(30).Render("x")
+	seq, _, ok := strings.Cut(highlight, "x")
+	require.True(t, ok, "expected the selected-item style to emit a prefix sequence")
+	if seq != "" {
+		require.Contains(t, focused, seq, "focused render should use the selected-item style")
+		require.NotContains(t, unfocused, seq, "unfocused render should not use the selected-item style")
+	}
+}
+
+// TestSidebar_BlankLineBetweenWorkspaces verifies workspace groups are
+// separated by a blank line, and that the separator never appears above the
+// first group or becomes a navigation stop.
+func TestSidebar_BlankLineBetweenWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews())
+
+	// One spacer for two workspaces, and never before the first.
+	spacers := 0
+	for i, r := range s.rows {
+		if r.kind != sidebarRowSpacer {
+			continue
+		}
+		spacers++
+		require.NotZero(t, i, "spacer must not be the first row")
+		require.False(t, s.selectableRow(i), "spacer must not be selectable")
+	}
+	require.Equal(t, len(s.overviews)-1, spacers)
+
+	// The spacer must sit directly above a workspace header.
+	for i, r := range s.rows {
+		if r.kind == sidebarRowSpacer {
+			require.Equal(t, sidebarRowWorkspace, s.rows[i+1].kind,
+				"spacer should immediately precede a workspace header")
+		}
+	}
+
+	// Navigation must step over the spacer rather than land on it.
+	s.snapCursorToSession(1)
+	for range len(s.rows) {
+		require.NotEqual(t, sidebarRowSpacer, s.rows[s.cursor].kind,
+			"cursor must never rest on a spacer")
+		s.MoveDown()
+	}
+}
+
+// TestSidebar_SingleWorkspaceHasNoSpacer verifies a lone workspace does not
+// get a leading blank line.
+func TestSidebar_SingleWorkspaceHasNoSpacer(t *testing.T) {
+	t.Parallel()
+
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews()[:1])
+
+	for _, r := range s.rows {
+		require.NotEqual(t, sidebarRowSpacer, r.kind,
+			"a single workspace should have no spacer rows")
+	}
+}
+
+// TestClampLeftSidebarWidth verifies the persisted width is bounded and that
+// zero (unset in config) maps onto the default.
+func TestClampLeftSidebarWidth(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		in   int
+		want int
+	}{
+		{"unset falls back to default", 0, defaultLeftSidebarWidth},
+		{"below min clamps up", minLeftSidebarWidth - 5, minLeftSidebarWidth},
+		{"above max clamps down", maxLeftSidebarWidth + 20, maxLeftSidebarWidth},
+		{"negative clamps up", -10, minLeftSidebarWidth},
+		{"in range is preserved", 42, 42},
+		{"min is preserved", minLeftSidebarWidth, minLeftSidebarWidth},
+		{"max is preserved", maxLeftSidebarWidth, maxLeftSidebarWidth},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, clampLeftSidebarWidth(tc.in))
+		})
+	}
+}
+
+// Two workspaces with no sessions produce only header/spacer rows. Moving the
+// cursor must not spin forever looking for a selectable row.
+func TestSidebar_NoSelectableRowsDoesNotHang(t *testing.T) {
+	t.Parallel()
+
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		{Root: "/proj/empty-a"},
+		{Root: "/proj/empty-b"},
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.MoveDown()
+		s.MoveUp()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("cursor movement hung with no selectable rows")
+	}
+}
+
+func TestResizeLeftSidebar_WidenNeverShrinks(t *testing.T) {
+	t.Parallel()
+
+	u := newTestUI()
+	u.width, u.height = 60, 40
+	u.leftSidebarWidth = maxLeftSidebarWidth
+
+	before := u.leftSidebarWidth
+	u.resizeLeftSidebar(leftSidebarResizeStep)
+
+	require.GreaterOrEqual(t, u.leftSidebarWidth, min(before, u.width-12),
+		"widen must not shrink the sidebar below the available room")
+	require.LessOrEqual(t, u.leftSidebarWidth, maxLeftSidebarWidth)
 }

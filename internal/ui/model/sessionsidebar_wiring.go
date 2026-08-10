@@ -2,19 +2,37 @@ package model
 
 import (
 	"context"
+	"fmt"
 	"image"
 
 	"charm.land/bubbles/v2/key"
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/ui/util"
 )
 
-// leftSidebarWidth is the fixed width of the left session navigator. It
-// matches the right info sidebar's width for visual parity.
-const leftSidebarWidth = 30
+const sessionsSidebarWidthKey = "options.tui.sessions_sidebar_width"
+
+// Left session navigator width bounds. The default matches the right info
+// sidebar for visual parity.
+const (
+	defaultLeftSidebarWidth = 30
+	minLeftSidebarWidth     = 20
+	maxLeftSidebarWidth     = 80
+	leftSidebarResizeStep   = 2
+)
+
+// clampLeftSidebarWidth brings w into the supported range, mapping zero (unset
+// in config) onto the default.
+func clampLeftSidebarWidth(w int) int {
+	if w == 0 {
+		return defaultLeftSidebarWidth
+	}
+	return min(maxLeftSidebarWidth, max(minLeftSidebarWidth, w))
+}
 
 // workspaceOverviewsMsg carries the result of a background overview fetch.
 type workspaceOverviewsMsg struct {
@@ -125,6 +143,10 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	switch msg.String() {
 	case "enter", "l":
 		return m.activateLeftSidebarSelection(), true
+	case "[", "-", "shift+left":
+		return m.resizeLeftSidebar(-leftSidebarResizeStep), true
+	case "]", "+", "=", "shift+right":
+		return m.resizeLeftSidebar(leftSidebarResizeStep), true
 	case "esc", "h":
 		// Esc first exits visual selection / clears a pending multi-
 		// selection; only when there is nothing selected does it close
@@ -535,4 +557,53 @@ func (m *UI) handleLeftSidebarClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 	// Header/overflow/fixed-matter click: consumed (cursor may have moved),
 	// but nothing to open.
 	return nil, true
+}
+
+// resizeLeftSidebar widens (delta > 0) or narrows (delta < 0) the session
+// navigator and persists the new width.
+func (m *UI) resizeLeftSidebar(delta int) tea.Cmd {
+	// Never let the navigator squeeze the main pane out of existence. Clamp the
+	// current width to the available room *before* applying the delta so a
+	// widen keystroke can never shrink the sidebar (and persist that shrink)
+	// just because the terminal is currently narrower than the stored width.
+	cur := m.leftSidebarWidth
+	room := m.width - 12
+	if room >= minLeftSidebarWidth {
+		cur = min(cur, room)
+	}
+	want := clampLeftSidebarWidth(cur + delta)
+	if delta > 0 && room >= minLeftSidebarWidth {
+		want = min(want, room)
+	}
+	if want == m.leftSidebarWidth {
+		return nil
+	}
+	m.leftSidebarWidth = want
+	m.updateLayoutAndSize()
+
+	return func() tea.Msg {
+		err := m.com.Workspace.SetConfigField(
+			config.ScopeGlobal, sessionsSidebarWidthKey, want,
+		)
+		if err != nil {
+			return util.InfoMsg{Type: util.InfoTypeError, Msg: err.Error()}
+		}
+		// Every project and workspace config outranks the global data config
+		// we just wrote, so a higher-precedence file would silently revert
+		// this resize on restart.
+		cfg := m.com.Config()
+		if cfg == nil || cfg.Options == nil || cfg.Options.TUI == nil {
+			return nil
+		}
+		if got := cfg.Options.TUI.SessionsSidebarWidth; got != want && got != 0 {
+			return util.InfoMsg{
+				Type: util.InfoTypeWarn,
+				Msg: fmt.Sprintf(
+					"Sidebar width not saved: a project config pins it to %d. Edit %s there.",
+					got, sessionsSidebarWidthKey,
+				),
+			}
+		}
+		return nil
+	}
 }

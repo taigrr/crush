@@ -262,6 +262,10 @@ type TUIOptions struct {
 	// links or when the user wants reduced motion. Toggleable from the
 	// command palette and forced on by the CRUSH_LOW_BANDWIDTH env var.
 	LowBandwidth *bool `json:"low_bandwidth,omitempty" jsonschema:"description=Reduced-motion mode: simpler spinner and slower framerate,default=false"`
+	// SessionsSidebarWidth is the width in columns of the left session
+	// navigator, persisted so a resize survives restarts. Zero means use
+	// the built-in default.
+	SessionsSidebarWidth int `json:"sessions_sidebar_width,omitempty" jsonschema:"description=Width in columns of the left session navigator,default=30,minimum=20,maximum=80"`
 }
 
 // Completions defines options for the completions UI.

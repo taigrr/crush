@@ -2199,3 +2199,51 @@ func TestProjectRoot_NonGitDir(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, gotResolved)
 }
+
+// TestLoadFromConfigPaths_SessionsSidebarWidth verifies the navigator width is
+// read from config (so it can be set as a default by hand) and that a
+// later-listed config file overrides an earlier one.
+func TestLoadFromConfigPaths_SessionsSidebarWidth(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reads the configured width", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		path := filepath.Join(tmpDir, "crush.json")
+		require.NoError(t, os.WriteFile(path,
+			[]byte(`{"options":{"tui":{"sessions_sidebar_width":44}}}`), 0o644))
+
+		cfg, _, err := loadFromConfigPaths([]string{path})
+		require.NoError(t, err)
+		require.Equal(t, 44, cfg.Options.TUI.SessionsSidebarWidth)
+	})
+
+	t.Run("unset leaves zero so the UI default applies", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		path := filepath.Join(tmpDir, "crush.json")
+		require.NoError(t, os.WriteFile(path, []byte(`{"options":{"tui":{}}}`), 0o644))
+
+		cfg, _, err := loadFromConfigPaths([]string{path})
+		require.NoError(t, err)
+		require.Zero(t, cfg.Options.TUI.SessionsSidebarWidth)
+	})
+
+	t.Run("later config outranks earlier", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		global := filepath.Join(tmpDir, "global.json")
+		project := filepath.Join(tmpDir, "project.json")
+		require.NoError(t, os.WriteFile(global,
+			[]byte(`{"options":{"tui":{"sessions_sidebar_width":30}}}`), 0o644))
+		require.NoError(t, os.WriteFile(project,
+			[]byte(`{"options":{"tui":{"sessions_sidebar_width":50}}}`), 0o644))
+
+		// lookupConfigs lists the global data config before project files,
+		// so the project value must win.
+		cfg, _, err := loadFromConfigPaths([]string{global, project})
+		require.NoError(t, err)
+		require.Equal(t, 50, cfg.Options.TUI.SessionsSidebarWidth,
+			"a project config should outrank the global one")
+	})
+}

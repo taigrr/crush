@@ -299,6 +299,9 @@ type UI struct {
 	// uiFocusLeftSidebar.
 	leftSidebar        *SessionsSidebar
 	leftSidebarVisible bool
+	// leftSidebarWidth is the navigator's width in columns. Seeded from
+	// config so a resize persists across restarts.
+	leftSidebarWidth int
 
 	// Session live-preview state (see session_preview.go). While
 	// previewSessionID is non-empty the chat view shows an ephemeral,
@@ -497,6 +500,9 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 
 	// Initialize compact mode from config
 	ui.forceCompactMode = com.Config().Options.TUI.CompactMode
+
+	// Seed the navigator width from config so a previous resize persists.
+	ui.leftSidebarWidth = clampLeftSidebarWidth(com.Config().Options.TUI.SessionsSidebarWidth)
 
 	// set onboarding state defaults
 	ui.onboarding.yesInitializeSelected = true
@@ -3364,25 +3370,37 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		return m.dialog.Draw(scr, scr.Bounds())
 	}
 
-	switch m.focus {
-	case uiFocusEditor:
-		if m.layout.editor.Dy() <= 0 {
-			// Don't show cursor if editor is not visible
-			return nil
-		}
-		if m.detailsOpen && m.isCompact {
-			// Don't show cursor if details overlay is open
-			return nil
-		}
-
-		if m.textarea.Focused() {
-			cur := m.textarea.Cursor()
-			cur.X++                            // Adjust for app margins
-			cur.Y += m.layout.editor.Min.Y + 1 // Offset for attachments row
-			return cur
-		}
+	if m.focus == uiFocusEditor {
+		return m.editorCaret()
 	}
 	return nil
+}
+
+// editorCaret returns the terminal caret position for the focused editor,
+// translated from textarea-local coordinates into screen coordinates. It
+// returns nil when the caret should be hidden.
+func (m *UI) editorCaret() *tea.Cursor {
+	if m.layout.editor.Dy() <= 0 {
+		// Don't show cursor if editor is not visible
+		return nil
+	}
+	if m.detailsOpen && m.isCompact {
+		// Don't show cursor if details overlay is open
+		return nil
+	}
+	if !m.textarea.Focused() {
+		return nil
+	}
+
+	cur := m.textarea.Cursor()
+	if cur == nil {
+		return nil
+	}
+	// Offset by the editor's origin so the caret tracks the editor when panes
+	// to the left (app margin, session navigator) shift it horizontally.
+	cur.X += m.layout.editor.Min.X
+	cur.Y += m.layout.editor.Min.Y + 1 // Offset for attachments row
+	return cur
 }
 
 // View renders the UI model's view.
@@ -3648,7 +3666,7 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 	// per-state layout below, so the main pane and right sidebar simply
 	// get less width.
 	if m.leftSidebarVisible && (m.state == uiChat || m.state == uiLanding) {
-		w := min(leftSidebarWidth, max(0, appRect.Dx()-10))
+		w := min(m.leftSidebarWidth, max(0, appRect.Dx()-10))
 		if w > 0 {
 			var leftRect image.Rectangle
 			layout.Horizontal(
@@ -4116,11 +4134,7 @@ func (m *UI) randomizePlaceholders() {
 // renderEditorView in Draw so mouse hit-testing on the attachments row
 // agrees with what was actually drawn.
 func (m *UI) editorContentWidth() int {
-	w := m.width
-	if m.state == uiChat && !m.isCompact {
-		w -= m.layout.sidebar.Dx()
-	}
-	return w
+	return m.layout.editor.Dx()
 }
 
 // handleAttachmentClick handles a click on the pending-attachments row of
