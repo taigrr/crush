@@ -151,6 +151,13 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 		return
 	}
 
+	// Best-effort error toast. Note: when this call's own turn hands
+	// off to a queued follow-up (e.g. it was canceled and a prompt
+	// queued behind it survives), err reflects the tail of that
+	// recursive hand-off rather than this request's own outcome, so
+	// the error surfaced here can belong to a different (later) turn
+	// than msg.RunID. This request's own authoritative RunComplete is
+	// still published correctly by the coordinator regardless.
 	ws.AgentNotifications().Publish(pubsub.CreatedEvent, notify.Notification{
 		SessionID: msg.SessionID,
 		RunID:     msg.RunID,

@@ -84,6 +84,23 @@ func ValidateCall(call SessionAgentCall) error {
 	return nil
 }
 
+// releaseActiveOnce cancels the run's genCtx and clears the session's
+// activeRequests entry exactly once, no matter how many times it is
+// invoked. A turn that hands off to a queued follow-up releases early
+// (so the queue drain observes the session as idle) and is also covered
+// by the deferred release registered at entry; without this guard the
+// deferred call would fire again — potentially long after an unrelated
+// new turn has registered its own entry for the same session — and
+// delete that live registration out from under it.
+func (a *sessionAgent) releaseActiveOnce(sessionID string, cancel context.CancelFunc, released *bool) {
+	if *released {
+		return
+	}
+	*released = true
+	cancel()
+	a.clearActiveRequest(sessionID)
+}
+
 func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *fantasy.AgentResult, retErr error) {
 	if err := ValidateCall(call); err != nil {
 		return nil, err
@@ -100,6 +117,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		cancel           context.CancelFunc
 		activeRegistered bool
 		userMsgCreated   bool
+		// activeReleased guards releaseActiveOnce below: a queue
+		// hand-off (success or cancel) keeps this call's frame on the
+		// stack until the entire recursive chain of queued turns
+		// finishes, so the deferred release registered at entry would
+		// otherwise fire again long after an unrelated new turn may
+		// have registered its own activeRequests entry for this
+		// session — and delete it out from under it.
+		activeReleased bool
 	)
 
 	if call.Accepted != nil {
@@ -162,8 +187,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		call.Accepted.Close()
 		mu.Unlock()
 
-		defer cancel()
-		defer a.clearActiveRequest(call.SessionID)
+		defer a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
 	} else if a.IsSessionBusy(call.SessionID) {
 		// Queue the message if busy. Strip OnComplete: the caller that
 		// supplied the hook (typically coordinator.Run) has its own
@@ -344,8 +368,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		genCtx, cancel = context.WithCancel(ctx)
 		a.activeRequests.Set(call.SessionID, cancel)
 
-		defer cancel()
-		defer a.clearActiveRequest(call.SessionID)
+		defer a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
 	}
 	// skipRunComplete is set just before the queued-recursion path so
 	// the outer Run doesn't publish a RunComplete that would race
@@ -686,6 +709,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				if persistErr := a.persistCanceledTurn(ctx, call, userMsgCreated); persistErr != nil {
 					return nil, persistErr
 				}
+				// Release the active request and hand off to any
+				// prompt queued while this turn was streaming, instead
+				// of returning and leaving it stuck in the queue.
+				a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
+				return a.dispatchNextQueued(ctx, call, currentAssistant, result, err, &skipRunComplete)
 			}
 			return result, err
 		}
@@ -791,6 +819,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		if updateErr != nil {
 			return nil, updateErr
 		}
+		if isCancelErr {
+			// Release the active request and hand off to any prompt
+			// queued while this turn was streaming, instead of
+			// returning and leaving it stuck in the queue.
+			a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
+			return a.dispatchNextQueued(ctx, call, currentAssistant, nil, err, &skipRunComplete)
+		}
 		return nil, err
 	}
 
@@ -812,8 +847,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// TUI handlers poll IsSessionBusy() and only re-evaluate when a
 	// tea.Msg arrives, so the cleanup must precede the notify or
 	// subscribers see stale busy state at the moment of receipt.
-	a.clearActiveRequest(call.SessionID)
-	cancel()
+	a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
 
 	// Send notification that agent has finished its turn (skip for
 	// nested/non-interactive sessions).
@@ -836,21 +870,44 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		})
 	}
 
-	// Hand off to the next queued prompt (if any) under dispatchMu so
-	// the transition from this finished run to the queued run is atomic
-	// against a concurrent Cancel. activeRequests for this session was
-	// just deleted above, so without the lock there is a window in
-	// which the session looks idle and a cancel becomes a no-op that
-	// fails to stop the queued prompt. Holding the lock lets us observe
-	// a pending cancel recorded against the session and drop the queue
-	// instead of running it, and (for the recursion) hand a fresh
-	// accept reservation to the dequeued call so acceptedRuns stays > 0
-	// across the recursive Run's own dispatch handoff — keeping the
-	// session observable to Cancel for the entire transition and
-	// closing the dequeue -> re-register window.
+	return a.dispatchNextQueued(ctx, call, currentAssistant, result, err, &skipRunComplete)
+}
+
+// dispatchNextQueued hands the finished (or canceled) turn off to the next
+// queued prompt, if any, under dispatchMu so the transition is atomic
+// against a concurrent Cancel. Callers must have already released the
+// session's active request and canceled its run context before invoking
+// this: without that, there is a window in which the session looks idle
+// and a cancel becomes a no-op that fails to stop the queued prompt.
+// Holding the lock lets us observe a pending cancel recorded against the
+// session and drop only the queue entries it covers, and (for the
+// recursion) hand a fresh accept reservation to the dequeued call so
+// acceptedRuns stays > 0 across the recursive Run's own dispatch handoff —
+// keeping the session observable to Cancel for the entire transition and
+// closing the dequeue -> re-register window.
+//
+// When there is nothing queued, result/err are returned unchanged — this
+// is what lets a canceled turn's early-return sites fall through here
+// instead of dropping (or racing with a Cancel that clears) any follow-up
+// prompts queued while it was streaming.
+func (a *sessionAgent) dispatchNextQueued(ctx context.Context, call SessionAgentCall, currentAssistant *message.Message, result *fantasy.AgentResult, err error, skipRunComplete *bool) (*fantasy.AgentResult, error) {
 	mu := a.sessionMu(call.SessionID)
 	mu.Lock()
 	queuedMessages, _ := a.messageQueue.Get(call.SessionID)
+	if ctx.Err() != nil && len(queuedMessages) > 0 {
+		// The parent context itself is already done (e.g. workspace
+		// shutdown canceled it, not just this turn's own genCtx).
+		// Recursing into Run with a dead context would fail at one of
+		// its early validation/DB steps, before that call's own
+		// RunComplete-publishing defer is even installed — leaving a
+		// RunID-bearing queued prompt's caller (e.g. `crush run`)
+		// hanging forever. Drop the queue instead, via the same
+		// detached-context publish Cancel/ClearQueue rely on, so a
+		// waiting caller still gets a terminal event.
+		a.messageQueue.Del(call.SessionID)
+		a.publishCanceledQueueDrops(queuedMessages)
+		queuedMessages = nil
+	}
 	if mark, ok := a.cancelMark.Get(call.SessionID); ok && mark > 0 && len(queuedMessages) > 0 {
 		// A cancel was recorded for this session (e.g. it arrived while
 		// this run was active and follow-ups had been queued). Drop the
@@ -896,7 +953,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// defer's emit: it would otherwise observe the recursive Run's retErr
 	// (named-return clobbering through the return below) against this
 	// turn's MessageID/Text and publish a mixed, racing event.
-	skipRunComplete = true
+	*skipRunComplete = true
 	// Decide whether this turn still owes its own terminal RunComplete.
 	// Each submitted prompt with a RunID has its own lifecycle, so a turn
 	// that is finished and handing off to a *different* queued prompt must
@@ -931,7 +988,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			complete.MessageID = currentAssistant.ID
 			complete.Text = currentAssistant.Content().String()
 		}
-		if ctx.Err() != nil {
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 			complete.Cancelled = true
 		}
 		a.publishRunComplete(ctx, call, complete)

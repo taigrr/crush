@@ -256,13 +256,33 @@ func (a *sessionAgent) Cancel(sessionID string) {
 	// Serialize against the dispatch handoff in Run so the accepted ->
 	// (cancel-on-entry | queued | active) transition is atomic against
 	// this cancel. Every cancel observes at least one of: an active
-	// request, an accepted run (recorded as a pending cancel), or a
-	// queue entry it then clears. If none of those hold, an idle Escape
-	// is a true no-op and must not poison the next prompt.
+	// request or an accepted run (recorded as a pending cancel). If
+	// neither holds, an idle Escape is a true no-op and must not poison
+	// the next prompt.
+	//
+	// Cancel intentionally leaves any already-queued follow-up prompts
+	// in place: it only stops the turn that is currently streaming.
+	// Once the active run unwinds (see the cancel handling in run.go),
+	// it hands off to the next queued call exactly like a normal
+	// completion would, so queued messages still run instead of being
+	// silently dropped. A prompt that was accepted but not yet
+	// dispatched is still covered by the cancel mark below and is
+	// dropped, since it belongs to the run being canceled rather than
+	// to a follow-up queued after it. Callers that want to discard the
+	// queue outright should call ClearQueue explicitly.
 	mu := a.sessionMu(sessionID)
 	mu.Lock()
 	defer mu.Unlock()
+	a.cancelLocked(sessionID)
+}
 
+// cancelLocked is the body of Cancel; callers must hold
+// a.sessionMu(sessionID) for the duration of the call. Split out so
+// cancelAndClearQueue can perform the cancel and the queue drop as one
+// atomic operation under a single lock acquisition — CancelAll needs
+// that atomicity (see cancelAndClearQueue) even though a plain Cancel
+// must not touch the queue at all.
+func (a *sessionAgent) cancelLocked(sessionID string) {
 	// Cancel regular requests. Don't use Take() here - we need the entry to
 	// remain in activeRequests so IsBusy() returns true until the goroutine
 	// fully completes (including error handling that may access the DB).
@@ -301,11 +321,6 @@ func (a *sessionAgent) Cancel(sessionID string) {
 		existing, _ := a.cancelMark.Get(sessionID)
 		a.cancelMark.Set(sessionID, max(existing, mark))
 	}
-
-	if a.QueuedPrompts(sessionID) > 0 {
-		slog.Debug("Clearing queued prompts", "session_id", sessionID)
-		a.clearQueueAndNotify(sessionID)
-	}
 }
 
 func (a *sessionAgent) ClearQueue(sessionID string) {
@@ -314,6 +329,26 @@ func (a *sessionAgent) ClearQueue(sessionID string) {
 		a.clearQueueAndNotify(sessionID)
 	}
 }
+
+// cancelAndClearQueue cancels sessionID's active/accepted run and drops
+// its queue as one atomic operation under the session's dispatch mutex,
+// so it can't interleave with dispatchNextQueued's own lock-protected
+// dequeue-and-handoff. CancelAll uses this rather than calling Cancel and
+// ClearQueue back to back (which would race: dispatchNextQueued could
+// dequeue and commit to running a follow-up in the gap between the two
+// separately-locked calls). A plain Cancel must not use this — it
+// deliberately preserves the queue so a canceled turn can still hand off
+// to it; only "stop everything" callers want the queue gone too.
+func (a *sessionAgent) cancelAndClearQueue(sessionID string) {
+	mu := a.sessionMu(sessionID)
+	mu.Lock()
+	a.cancelLocked(sessionID)
+	queued, _ := a.messageQueue.Get(sessionID)
+	a.messageQueue.Del(sessionID)
+	mu.Unlock()
+	a.publishCanceledQueueDrops(queued)
+}
+
 
 func (a *sessionAgent) CancelAll() {
 	if !a.IsBusy() {
@@ -327,22 +362,36 @@ func (a *sessionAgent) CancelAll() {
 	// uncancelled. Cancel handles both cases per session (it cancels an
 	// active request and records a pending cancel mark when an accepted
 	// run exists).
-	sessions := make(map[string]struct{})
-	for key := range a.activeRequests.Seq2() {
-		sessions[key] = struct{}{} // key is sessionID (or sessionID-summarize)
-	}
-	if a.acceptedRuns != nil {
-		a.acceptedMu.Lock()
-		for sessionID, count := range a.acceptedRuns.Seq2() {
-			if count > 0 {
-				sessions[sessionID] = struct{}{}
-			}
+	//
+	// Unlike a single Cancel (which deliberately preserves a session's
+	// queued follow-ups so they still run once the canceled turn hands
+	// off), CancelAll means "stop everything now": it also drops each
+	// session's queue so a canceled turn does not immediately hand off
+	// to the next queued prompt and keep the session busy. Because the
+	// hand-off runs concurrently with this loop, dropping the queue
+	// once is not enough — a follow-up can be dequeued into a fresh
+	// active turn between our snapshot and its Cancel — so this is
+	// repeated on every poll until the workspace is actually idle or
+	// the timeout gives up.
+	cancelBusySessions := func() {
+		sessions := make(map[string]struct{})
+		for key := range a.activeRequests.Seq2() {
+			sessions[key] = struct{}{} // key is sessionID (or sessionID-summarize)
 		}
-		a.acceptedMu.Unlock()
+		if a.acceptedRuns != nil {
+			a.acceptedMu.Lock()
+			for sessionID, count := range a.acceptedRuns.Seq2() {
+				if count > 0 {
+					sessions[sessionID] = struct{}{}
+				}
+			}
+			a.acceptedMu.Unlock()
+		}
+		for sessionID := range sessions {
+			a.cancelAndClearQueue(sessionID)
+		}
 	}
-	for sessionID := range sessions {
-		a.Cancel(sessionID)
-	}
+	cancelBusySessions()
 
 	timeout := time.After(5 * time.Second)
 	for a.IsBusy() {
@@ -351,6 +400,7 @@ func (a *sessionAgent) CancelAll() {
 			return
 		default:
 			time.Sleep(200 * time.Millisecond)
+			cancelBusySessions()
 		}
 	}
 }

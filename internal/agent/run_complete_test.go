@@ -244,15 +244,15 @@ func requireSingleCancelledRunComplete(t *testing.T, ch <-chan pubsub.Event[noti
 	}
 }
 
-// TestCancel_QueuedRunIDPromptPublishesCancelledRunComplete proves the
-// terminal-event behavior end-to-end: a RunID-bearing prompt sitting in
-// the queue that is canceled while queued (via the public Cancel path,
-// which routes through clearQueueAndNotify -> publishCanceledQueueDrops)
-// must emit exactly one cancelled RunComplete on the broker for its
-// RunID. A queued prompt without a RunID is dropped silently. This is the
-// coverage the earlier drain test lacked: it asserted the returned
-// bookkeeping slice, not the published event a `crush run` caller awaits.
-func TestCancel_QueuedRunIDPromptPublishesCancelledRunComplete(t *testing.T) {
+// TestCancel_PreservesQueuedPromptsWhenIdle proves Cancel no longer wipes
+// a session's message queue as a side effect. A follow-up prompt queued
+// while a turn was streaming must survive a Cancel of that turn so it can
+// still run once the canceled turn unwinds and hands off to the queue
+// (see dispatchNextQueued); only an explicit ClearQueue should discard
+// queued prompts. With no active or accepted run for the session, Cancel
+// is a true no-op: it must neither touch the queue nor publish a
+// RunComplete for the RunID-bearing entry.
+func TestCancel_PreservesQueuedPromptsWhenIdle(t *testing.T) {
 	t.Parallel()
 
 	env := testEnv(t)
@@ -277,10 +277,15 @@ func TestCancel_QueuedRunIDPromptPublishesCancelledRunComplete(t *testing.T) {
 
 	a.Cancel(sessionID)
 
-	requireSingleCancelledRunComplete(t, ch, sessionID, "run-queued")
+	select {
+	case complete := <-ch:
+		t.Fatalf("Cancel must not publish a RunComplete when idle, got %+v", complete)
+	case <-time.After(100 * time.Millisecond):
+	}
 
-	_, ok := a.messageQueue.Get(sessionID)
-	require.False(t, ok, "Cancel must clear the queue")
+	queued, ok := a.messageQueue.Get(sessionID)
+	require.True(t, ok, "Cancel must not clear the queue")
+	require.Len(t, queued, 2, "queued prompts must survive Cancel")
 }
 
 // TestDrainQueueForStep_DroppedRunIDPublishesCancelledRunComplete drives
