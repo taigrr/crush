@@ -67,6 +67,14 @@ func (m *UI) ShortHelp() []key.Binding {
 				k.Chat.UpDown,
 				k.Chat.FocusChat,
 			)
+		case uiFocusLeftSidebar:
+			binds = append(
+				binds,
+				k.Sidebar.UpDown,
+				k.Sidebar.Open,
+				k.Sidebar.Resize,
+				k.Sidebar.Close,
+			)
 		}
 	default:
 		// TODO: other states
@@ -227,6 +235,18 @@ func (m *UI) FullHelp() [][]key.Binding {
 				binds,
 				[]key.Binding{k.Chat.UpDown},
 				[]key.Binding{k.Chat.FocusChat},
+			)
+		case uiFocusLeftSidebar:
+			binds = append(
+				binds,
+				[]key.Binding{
+					k.Sidebar.UpDown,
+					k.Sidebar.Open,
+				},
+				[]key.Binding{
+					k.Sidebar.Resize,
+					k.Sidebar.Close,
+				},
 			)
 		}
 	default:

@@ -9,6 +9,7 @@ import (
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/ui/attachments"
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/common"
 )
@@ -45,18 +46,33 @@ func newTestUI() *UI {
 	ta.Focus()
 
 	u := &UI{
-		com:                com,
-		status:             NewStatus(com, nil),
-		chat:               NewChat(com),
-		leftSidebar:        NewSessionsSidebar(com),
-		textarea:           ta,
+		com:         com,
+		status:      NewStatus(com, nil),
+		chat:        NewChat(com),
+		leftSidebar: NewSessionsSidebar(com),
+		textarea:    ta,
+		attachments: attachments.New(
+			attachments.NewRenderer(
+				com.Styles.Attachments.Normal,
+				com.Styles.Attachments.Deleting,
+				com.Styles.Attachments.Image,
+				com.Styles.Attachments.Text,
+				com.Styles.Attachments.Skill,
+			),
+			attachments.Keymap{},
+		),
 		state:              uiChat,
 		focus:              uiFocusEditor,
 		width:              140,
 		height:             45,
+		leftSidebarWidth:   defaultLeftSidebarWidth,
 		pendingPermissions: make(map[string]*permission.PermissionRequest),
 		pendingQuestions:   make(map[string]*question.Request),
 	}
+
+	// The UI itself is the help keymap, so the status bar can only be built
+	// once the model exists.
+	u.status = NewStatus(com, u)
 
 	return u
 }

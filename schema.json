@@ -910,6 +910,13 @@
           "type": "boolean",
           "description": "Reduced-motion mode: simpler spinner and slower framerate",
           "default": false
+        },
+        "sessions_sidebar_width": {
+          "type": "integer",
+          "maximum": 80,
+          "minimum": 20,
+          "description": "Width in columns of the left session navigator",
+          "default": 30
         }
       },
       "additionalProperties": false,

@@ -30,6 +30,9 @@ const (
 	// in inbox mode (e.g. "Running", "Unread", "Read"). Like workspace
 	// headers it takes a line but is not a navigation stop.
 	sidebarRowSection
+	// sidebarRowSpacer is a blank line inserted between workspace groups to
+	// keep them visually separated. It is never selectable.
+	sidebarRowSpacer
 )
 
 // sidebarRow is one rendered/navigable line. Workspace and section header
@@ -502,6 +505,7 @@ func (s *SessionsSidebar) filteredIdxs(wi int) []int {
 // zero matches contributes no header (composes with hide-empty-headers).
 func (s *SessionsSidebar) rebuildGroupedRows() {
 	caps := s.computeCaps()
+	emittedGroups := 0
 	for wi := range s.overviews {
 		// Skip workspaces with no visible (and, when filtering, no matching)
 		// sessions entirely: don't emit a header (or overflow) row for a
@@ -516,6 +520,13 @@ func (s *SessionsSidebar) rebuildGroupedRows() {
 		if len(idxs) == 0 {
 			continue
 		}
+		// Blank lines separate visible workspace groups. Counting emitted
+		// groups avoids a leading spacer when earlier workspaces are empty or
+		// filtered out.
+		if emittedGroups > 0 {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSpacer, wsIdx: wi})
+		}
+		emittedGroups++
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowWorkspace, wsIdx: wi})
 		shown := min(len(idxs), caps[wi])
 		for _, si := range idxs[:shown] {
@@ -574,15 +585,19 @@ func (s *SessionsSidebar) computeCaps() []int {
 	if nonEmpty == 0 {
 		return caps
 	}
+	// Account for the blank spacer line between each pair of visible
+	// workspace groups.
+	spacers := nonEmpty - 1
+	total += spacers
 	if total <= h {
 		copy(caps, counts)
 		return caps
 	}
 
-	// Even share: each non-empty workspace's block is h/nonEmpty rows.
-	// Reserve one line for the header and one for the overflow row, then
-	// floor at the minimum.
-	perWorkspace := h / nonEmpty
+	// Even share: each non-empty workspace's block is
+	// (h-spacers)/nonEmpty rows. Reserve one line for the header and one for
+	// the overflow row, then floor at the minimum.
+	perWorkspace := max(0, h-spacers) / nonEmpty
 	cap := max(minSessionsPerWorkspace, perWorkspace-2)
 	for i := range caps {
 		caps[i] = cap
@@ -626,6 +641,18 @@ func (s *SessionsSidebar) selectableRow(i int) bool {
 func (s *SessionsSidebar) snapCursorToSession(dir int) {
 	if len(s.rows) == 0 {
 		s.cursor = 0
+		return
+	}
+	// Bail out when nothing is selectable, otherwise the direction flip
+	// below can walk between both ends indefinitely.
+	selectable := false
+	for i := range s.rows {
+		if s.selectableRow(i) {
+			selectable = true
+			break
+		}
+	}
+	if !selectable {
 		return
 	}
 	for s.cursor >= 0 && s.cursor < len(s.rows) && !s.selectableRow(s.cursor) {
@@ -1064,7 +1091,7 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 		s.restoreCursor(prevID)
 	}
 
-	rendered := s.renderRows(width)
+	rendered := s.renderRows(width, focused)
 	// Clamp scroll so the cursor stays visible within bodyHeight.
 	if s.cursor >= s.scroll+bodyHeight {
 		s.scroll = s.cursor - bodyHeight + 1
@@ -1093,7 +1120,6 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 		lines = append(lines, t.Resource.AdditionalText.Render(ansi.Truncate(hint, width, "…")))
 	}
 
-	_ = focused
 	return strings.Join(lines, "\n")
 }
 
@@ -1184,12 +1210,17 @@ func plural(n int, word string) string {
 }
 
 // renderRows renders each navigable row to a styled line at the given width.
-func (s *SessionsSidebar) renderRows(width int) []string {
+// focused reports whether the sidebar owns keyboard focus. When it does not,
+// the cursor row is marked with the selection bar alone rather than a
+// full-row highlight, so it does not compete with the editor caret.
+func (s *SessionsSidebar) renderRows(width int, focused bool) []string {
 	t := s.com.Styles
 	out := make([]string, 0, len(s.rows))
 	for i, r := range s.rows {
 		selected := i == s.cursor
 		switch r.kind {
+		case sidebarRowSpacer:
+			out = append(out, "")
 		case sidebarRowWorkspace:
 			out = append(out, s.renderWorkspaceRow(t, s.overviews[r.wsIdx], width))
 		case sidebarRowSection:
@@ -1203,9 +1234,9 @@ func (s *SessionsSidebar) renderRows(width int) []string {
 			if s.mode == sidebarModeInbox {
 				tag = filepath.Base(ws.Root)
 			}
-			out = append(out, s.renderSessionRow(t, sess, width, selected, s.selected[sess.ID], tag))
+			out = append(out, s.renderSessionRow(t, sess, width, selected, focused, s.selected[sess.ID], tag))
 		case sidebarRowOverflow:
-			out = append(out, s.renderOverflowRow(t, r.remaining, width, selected))
+			out = append(out, s.renderOverflowRow(t, r.remaining, width, selected, focused))
 		}
 	}
 	return out
@@ -1214,7 +1245,7 @@ func (s *SessionsSidebar) renderRows(width int) []string {
 // renderOverflowRow renders the "…N more" row that opens the workspace's
 // full session picker when selected. It aligns under the session titles
 // (a 5-cell prefix: bar + space + active + marker + space).
-func (s *SessionsSidebar) renderOverflowRow(t *styles.Styles, remaining, width int, selected bool) string {
+func (s *SessionsSidebar) renderOverflowRow(t *styles.Styles, remaining, width int, selected, focused bool) string {
 	bar := " "
 	if selected {
 		bar = styles.BorderThick
@@ -1223,7 +1254,7 @@ func (s *SessionsSidebar) renderOverflowRow(t *styles.Styles, remaining, width i
 	prefix := bar + "    " // bar + 4 spaces = 5-cell prefix
 	avail := max(1, width-ansi.StringWidth(prefix))
 	label = ansi.Truncate(label, avail, "…")
-	if selected {
+	if selected && focused {
 		return t.Dialog.SelectedItem.UnsetPadding().Width(width).Render(prefix + label)
 	}
 	return t.Resource.AdditionalText.Render(prefix + label)
@@ -1237,7 +1268,7 @@ func (s *SessionsSidebar) renderWorkspaceRow(t *styles.Styles, ws proto.Workspac
 	return common.Section(t, name, width)
 }
 
-func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, marked bool, tag string) string {
+func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, focused, marked bool, tag string) string {
 	// Status glyph: pending-prompt dot (red), busy dot (yellow), unread
 	// dot (green), or blank. Pending outranks busy because a session
 	// blocked on a permission/question prompt is almost always ALSO busy
@@ -1308,7 +1339,7 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 	avail := max(1, width-prefixWidth-ansi.StringWidth(tagRaw))
 	title = ansi.Truncate(title, avail, "…")
 
-	if selected {
+	if selected && focused {
 		// Full-row highlight without extra padding (the dialog selected
 		// style adds Padding(0,1) which would overflow the sidebar width).
 		line := ansi.Truncate(prefixRaw+title+tagRaw, width, "…")

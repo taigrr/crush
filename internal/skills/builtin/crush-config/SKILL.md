@@ -193,7 +193,8 @@ reviewed.
       "compact_mode": false,
       "diff_mode": "unified",
       "transparent": false,
-      "theme": "charmtone"
+      "theme": "charmtone",
+      "sessions_sidebar_width": 30
     },
     "auto_lsp": true,
     "debug": false,
@@ -214,6 +215,14 @@ reviewed.
 > `.agents/skills`, `.crush/skills`, `.claude/skills`, `.cursor/skills`
 
 Other options: `context_paths`, `progress`, `notification_style` (`auto`, `native`, `osc`, `bell`, `disabled`; supersedes the deprecated `disable_notifications`), `disable_auto_summarize`, `disable_metrics`, `disable_provider_auto_update`, `disable_default_providers`, `data_directory`, `initialize_as`.
+
+## Sessions sidebar width
+
+`options.tui.sessions_sidebar_width` sets the width in columns of the left
+session navigator (ctrl+s). Valid range is 20-80; omit it for the default of
+30. Resizing in the UI with `[` / `]` writes this key to the global
+data config, so a value set in a project or workspace config outranks the
+resize and pins the width for that project.
 
 ## Themes
 

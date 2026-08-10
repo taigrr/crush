@@ -61,6 +61,15 @@ type KeyMap struct {
 		Switch key.Binding
 	}
 
+	// Sidebar holds the navigation keys active while the left session
+	// navigator has focus.
+	Sidebar struct {
+		UpDown key.Binding
+		Open   key.Binding
+		Close  key.Binding
+		Resize key.Binding
+	}
+
 	// SessionSidebar key maps drive the left session navigator's
 	// vim-style multi-select and bulk actions.
 	SessionSidebar struct {
@@ -323,6 +332,23 @@ func DefaultKeyMap() KeyMap {
 	km.Initialize.Enter = key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "select"),
+	)
+
+	km.Sidebar.UpDown = key.NewBinding(
+		key.WithKeys("up", "down", "k", "j"),
+		key.WithHelp("↑↓", "navigate"),
+	)
+	km.Sidebar.Open = key.NewBinding(
+		key.WithKeys("enter", "l"),
+		key.WithHelp("enter", "open"),
+	)
+	km.Sidebar.Close = key.NewBinding(
+		key.WithKeys("esc", "h"),
+		key.WithHelp("esc", "close"),
+	)
+	km.Sidebar.Resize = key.NewBinding(
+		key.WithKeys("[", "]", "-", "+", "=", "shift+left", "shift+right"),
+		key.WithHelp("[/]", "resize"),
 	)
 
 	km.SessionSidebar.VisualSelect = key.NewBinding(
