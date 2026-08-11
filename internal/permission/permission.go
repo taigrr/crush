@@ -2,13 +2,11 @@ package permission
 
 import (
 	"context"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/csync"
@@ -101,19 +99,6 @@ type Service interface {
 	// first published; republishing lets its prompt surface on switch
 	// (switch-to-grant) instead of staying invisibly blocked.
 	RepublishPending(sessionID string)
-	// SetAttachedProbe wires a callback Request uses to detect whether at
-	// least one interactive client is currently attached to the workspace
-	// that owns a given session. When set, a request that stays
-	// continuously unattended (the probe reporting false the whole time)
-	// for [unattendedPermissionTimeout] is auto-denied instead of blocking
-	// indefinitely — see Request's doc comment. A client attaching at any
-	// point resets the clock, so a request is only ever auto-denied while
-	// genuinely unwatched. Passing nil restores the original unbounded
-	// wait (the default when this is never called). The sessionID argument
-	// lets an implementation scope the check, but callers are expected to
-	// answer workspace-level "is anyone here", not "is this exact session
-	// focused".
-	SetAttachedProbe(fn func(sessionID string) bool)
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[PermissionNotification]
 }
 
@@ -162,15 +147,6 @@ type permissionService struct {
 	// the serialization. It guards only the tiny create-if-absent step,
 	// never held across a request wait.
 	perSessionMuCreate sync.Mutex
-
-	// attachedProbe, when non-nil, reports whether at least one
-	// interactive client is currently attached to (and viewing) a given
-	// session. Wired in by the backend layer (which owns client
-	// tracking) via SetAttachedProbe; this package has no notion of
-	// clients on its own. Guarded by attachedProbeMu since it can be set
-	// concurrently with an in-flight Request.
-	attachedProbeMu sync.RWMutex
-	attachedProbe   func(sessionID string) bool
 }
 
 // pendingPermission is the in-flight state for a published request.
@@ -379,13 +355,6 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 	// Publish the request
 	s.Publish(pubsub.CreatedEvent, permission)
 
-	// done stops the unattended-timeout watcher goroutine as soon as
-	// this call returns via any path, so it never outlives a single
-	// Request.
-	done := make(chan struct{})
-	defer close(done)
-	unattended := s.unattendedDeadline(opts.SessionID, done)
-
 	select {
 	case <-ctx.Done():
 		// The run was cancelled (or otherwise torn down) while the
@@ -398,105 +367,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		return false, ctx.Err()
 	case granted := <-respCh:
 		return granted, nil
-	case <-unattended:
-		// A concurrent Grant/Deny may be resolving this request at the
-		// same instant the timeout fires. resolve() is first-writer-wins
-		// (it Takes the pending entry), so use its return value as the
-		// authority: if our auto-deny actually won, report denied; if it
-		// lost, the winner has Taken the entry and is guaranteed to send
-		// its real outcome on the buffered respCh, so adopt that instead
-		// of hardcoding a denial. A bare non-blocking peek before resolve
-		// is insufficient — the winner's Take can happen before its respCh
-		// send, leaving a window where the peek sees nothing yet the
-		// request is already granted.
-		if !s.resolve(permission, false, true, nil) {
-			return <-respCh, nil
-		}
-		// Nobody has been attached to this session's workspace for the
-		// entire unattended grace window: there is no one left to answer
-		// this prompt, so waiting any longer would just hang the tool call
-		// (and the whole turn) indefinitely — the exact failure mode that
-		// made a cross-workspace swarm message delivered to a non-yolo,
-		// unattended workspace look like it "timed out" forever rather than
-		// actually completing. Auto-deny (we won the race above): fail
-		// closed so a background session without a human watching it cannot
-		// silently escalate its own permissions.
-		slog.Warn("Auto-denying permission request: no interactive client is attached to answer it",
-			"session_id", opts.SessionID, "tool_call_id", opts.ToolCallID, "tool_name", opts.ToolName,
-			"timeout", unattendedPermissionTimeout)
-		return false, nil
 	}
-}
-
-// unattendedPermissionTimeout bounds how long Request blocks a session's
-// tool call waiting for a permission grant when [Service.SetAttachedProbe]
-// reports that no interactive client has been attached (and watching) the
-// whole time. It only applies once a probe is wired in; callers that never
-// call SetAttachedProbe keep the original unbounded wait.
-var unattendedPermissionTimeout = 2 * time.Minute
-
-// unattendedPermissionPollInterval is how often unattendedDeadline
-// re-checks the attached-probe while a request is pending.
-var unattendedPermissionPollInterval = 5 * time.Second
-
-// unattendedDeadline returns a channel that closes once sessionID has gone
-// continuously unattended (attachedProbe reporting false) for
-// unattendedPermissionTimeout. It returns nil — which blocks forever in a
-// select, i.e. imposes no timeout — when no probe is wired in, preserving
-// the original behavior for embedders that never call SetAttachedProbe
-// (e.g. single-process CLI runs, or tests). The watcher goroutine it starts
-// exits as soon as either the deadline fires or done is closed by the
-// caller, so it never outlives the Request call that started it.
-func (s *permissionService) unattendedDeadline(sessionID string, done <-chan struct{}) <-chan struct{} {
-	s.attachedProbeMu.RLock()
-	probe := s.attachedProbe
-	s.attachedProbeMu.RUnlock()
-	if probe == nil {
-		return nil
-	}
-
-	// Capture the timeout/poll interval as local copies rather than
-	// reading the package vars from inside the goroutine below: the
-	// goroutine can outlive this call by a few poll intervals (it only
-	// learns to stop once it next wakes up after done closes), and tests
-	// mutate these vars around each Request call to exercise the
-	// timeout on a short fuse. Reading the shared var directly from the
-	// goroutine would race against that mutation once this call
-	// returns; local copies make the goroutine's behavior fixed at
-	// start, matching what the caller intended when the request began.
-	timeout := unattendedPermissionTimeout
-	poll := unattendedPermissionPollInterval
-
-	fired := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(poll)
-		defer ticker.Stop()
-
-		var unattendedSince time.Time
-		if !probe(sessionID) {
-			unattendedSince = time.Now()
-		}
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				if probe(sessionID) {
-					unattendedSince = time.Time{}
-					continue
-				}
-				if unattendedSince.IsZero() {
-					unattendedSince = time.Now()
-					continue
-				}
-				if time.Since(unattendedSince) >= timeout {
-					close(fired)
-					return
-				}
-			}
-		}
-	}()
-	return fired
 }
 
 func (s *permissionService) AutoApproveSession(sessionID string) {
@@ -523,12 +394,6 @@ func (s *permissionService) SetSysadminMode(enabled bool) {
 
 func (s *permissionService) SysadminMode() bool {
 	return s.sysadmin.Load()
-}
-
-func (s *permissionService) SetAttachedProbe(fn func(sessionID string) bool) {
-	s.attachedProbeMu.Lock()
-	s.attachedProbe = fn
-	s.attachedProbeMu.Unlock()
 }
 
 func NewPermissionService(workingDir string, skip bool, allowedTools []string) Service {

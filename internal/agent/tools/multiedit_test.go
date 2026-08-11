@@ -28,8 +28,6 @@ func (m *mockPermissionService) CancelAll() {}
 
 func (m *mockPermissionService) RepublishPending(sessionID string) {}
 
-func (m *mockPermissionService) SetAttachedProbe(fn func(sessionID string) bool) {}
-
 func (m *mockPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true
 }

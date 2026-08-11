@@ -101,25 +101,7 @@ func TestPeekSessionMessages_Detached(t *testing.T) {
 	require.Empty(t, b.workspaces.Len())
 }
 
-// TestAttachedClients_CountsWorkspaceWideRegardlessOfSession verifies the
-// workspace-level probe used to gate the unattended-permission auto-deny
-// treats a client viewing a DIFFERENT session as still attended — so a
-// prompt raised by a background session is not auto-denied while a human is
-// actively working another session in the same workspace.
-func TestAttachedClients_CountsWorkspaceWideRegardlessOfSession(t *testing.T) {
-	ws := &Workspace{clients: make(map[string]*clientState)}
-	require.Zero(t, ws.AttachedClients())
-
-	// A client with a live stream viewing session B.
-	ws.clients["c1"] = &clientState{streams: 1, currentSessionID: "B"}
-	require.Equal(t, 1, ws.AttachedClients(), "a client viewing any session counts as attended")
-	require.Zero(t, ws.AttachedClientsForSession("A"), "but it is not viewing A specifically")
-
-	// A hold-only client (no live stream) does not count.
-	ws.clients["c2"] = &clientState{streams: 0, currentSessionID: "A"}
-	require.Equal(t, 1, ws.AttachedClients(), "hold-only clients do not contribute")
-}
-
+// TestPeekSessionMessages_UnknownWorkspace verifies an unrecognized root
 // returns ErrPreviewWorkspaceNotFound rather than a generic error.
 func TestPeekSessionMessages_UnknownWorkspace(t *testing.T) {
 	b := newTestBackendWithRegistry(t)

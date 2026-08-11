@@ -35,6 +35,7 @@ func newTestBackend(t *testing.T) (*Backend, *atomic.Int32) {
 		ctx:         context.Background(),
 		createGrace: 50 * time.Millisecond,
 		shutdownFn:  func() { shutdownCount.Add(1) },
+		yoloByRoot:  make(map[string]bool),
 	}
 	return b, &shutdownCount
 }

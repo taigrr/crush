@@ -46,6 +46,16 @@ func (b *Backend) SetPermissionsSkip(workspaceID string, skip bool) error {
 	}
 
 	ws.Permissions.SetSkipRequests(skip)
+	// Keep the config-store override in sync so proto reporting
+	// (workspaceToProto's YOLO field) reflects the runtime toggle while
+	// the workspace is live, and remember it per-root so the setting
+	// survives an idle-teardown/recreate cycle (see Backend.yoloByRoot).
+	if ws.Cfg != nil {
+		ws.Cfg.Overrides().SkipPermissionRequests = skip
+	}
+	b.mu.Lock()
+	b.yoloByRoot[ws.resolvedPath] = skip
+	b.mu.Unlock()
 	return nil
 }
 
