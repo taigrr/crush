@@ -1150,6 +1150,41 @@ func (c *controllerV1) handlePostWorkspaceHistorySearch(w http.ResponseWriter, r
 	jsonEncode(w, res)
 }
 
+// handlePostPeekMessages returns a session's messages from any known
+// workspace (attached or registry-detached) identified by root, without
+// switching the caller's own workspace. Used by the session sidebar's
+// live preview to show a foreign workspace's session without paying for
+// a full workspace attach/switch.
+//
+//	@Summary		Peek a session's messages in any known workspace
+//	@Tags			sessions
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		proto.PeekMessagesParams	true	"Target workspace root and session id"
+//	@Success		200		{array}		proto.Message
+//	@Failure		400		{object}	proto.Error
+//	@Failure		404		{object}	proto.Error
+//	@Failure		500		{object}	proto.Error
+//	@Router			/peek-messages [post]
+func (c *controllerV1) handlePostPeekMessages(w http.ResponseWriter, r *http.Request) {
+	var params proto.PeekMessagesParams
+	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+	if params.Root == "" || params.SessionID == "" {
+		jsonError(w, http.StatusBadRequest, "root and session_id are required")
+		return
+	}
+	messages, err := c.backend.PeekSessionMessages(r.Context(), params.Root, params.SessionID)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, messagesToProto(messages))
+}
+
 // handlePostWorkspaceAgentSessionPromptClear clears the prompt queue for a session.
 //
 //	@Summary		Clear prompt queue
@@ -1582,6 +1617,8 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
 		status = http.StatusNotFound
 	case errors.Is(err, backend.ErrWorkspaceClosing):
 		status = http.StatusConflict
+	case errors.Is(err, backend.ErrPreviewWorkspaceNotFound):
+		status = http.StatusNotFound
 	}
 	c.server.logError(r, err.Error())
 	jsonError(w, status, err.Error())

@@ -309,9 +309,15 @@ type UI struct {
 	// committed session (m.session) is untouched and remains the routing
 	// key for live message events. previewGen supersedes stale debounced
 	// loads; pendingPreviewID is the id a scheduled load is waiting on.
-	previewSessionID string
-	pendingPreviewID string
-	previewGen       int
+	// pendingPreviewRoot is that session's workspace root, empty when it
+	// is the currently-attached workspace — it decides whether the
+	// eventual load goes through ListMessages (current workspace, live
+	// service) or PeekMessages (any other known workspace, attached or
+	// not, read without switching this client's own workspace).
+	previewSessionID   string
+	pendingPreviewID   string
+	pendingPreviewRoot string
+	previewGen         int
 
 	// Leading-edge burst tracking (see session_preview.go). The first two
 	// preview loads inside a rolling burst window fire immediately; the
@@ -370,6 +376,16 @@ type UI struct {
 
 	// forceCompactMode tracks whether compact mode is forced by user toggle
 	forceCompactMode bool
+
+	// yoloMode caches the currently-viewed workspace's permission
+	// skip-requests flag so the editor placeholder/prompt icon don't have
+	// to make a synchronous round trip to the server on every Update call.
+	// It is refreshed explicitly: at startup, on ToggleYolo, and whenever
+	// the client re-targets a different workspace (SwitchWorkspace) —
+	// each workspace has its own independent skip-requests flag, so a
+	// stale cached value here is exactly what made the yolo indicator show
+	// the PREVIOUS workspace's state right after switching.
+	yoloMode bool
 
 	// isCompact tracks whether we're currently in compact layout mode (either
 	// by user toggle or auto-switch based on window size)
@@ -747,9 +763,19 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.forceCompactMode {
 			m.isCompact = true
 		}
+		// Re-sync the cached yolo indicator from the value fetched off the
+		// Update goroutine alongside this session load (msg.yolo).
+		// m.yoloMode is otherwise only refreshed on this client's own
+		// toggle / workspace switch, so this self-heals the display if
+		// another client (or the CLI) flipped skip-requests on the
+		// workspace we're viewing — the indicator converges on the next
+		// navigation rather than staying stale indefinitely, without a
+		// blocking RPC on the hot Update path.
+		m.setEditorPrompt(msg.yolo)
 		// A real commit supersedes any live preview.
 		m.previewSessionID = ""
 		m.pendingPreviewID = ""
+		m.pendingPreviewRoot = ""
 		m.previewGen++
 		m.setState(uiChat, m.focus)
 		m.session = msg.session
@@ -1140,8 +1166,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadWorkspaceOverviews())
 		}
 	case workspaceSwitchedMsg:
-		// The client re-targeted a new workspace; either open its session
-		// picker or load the chosen session on the Update goroutine.
+		// The client re-targeted a new workspace; refresh the cached yolo
+		// indicator from the newly-attached workspace's own skip-requests
+		// flag (fetched alongside the switch itself, off this goroutine)
+		// before doing anything else — each workspace's flag is
+		// independent, so leaving the previous workspace's cached value in
+		// place would show the wrong state (e.g. still "on" after
+		// switching into a workspace that never had yolo enabled).
+		m.setEditorPrompt(msg.yolo)
 		if msg.openPicker {
 			cmds = append(cmds, m.openSessionsDialog())
 		} else {
@@ -1497,7 +1529,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.textarea.Placeholder = m.readyPlaceholder
 		}
-		if m.com.Workspace.PermissionSkipRequests() {
+		if m.yoloMode {
 			m.textarea.Placeholder = "Yolo mode!"
 		}
 	}
@@ -2064,7 +2096,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	case dialog.ActionPreviewSession:
 		// Picker cursor moved: debounce a live preview (picker sessions are
 		// always current-workspace).
-		if cmd := m.schedulePreview(msg.SessionID, true); cmd != nil {
+		if cmd := m.schedulePreview(msg.SessionID, ""); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 
@@ -3902,8 +3934,12 @@ func (m *UI) openEditor(value string) tea.Cmd {
 }
 
 // setEditorPrompt configures the textarea prompt function based on whether
-// yolo mode is enabled.
+// yolo mode is enabled, and updates the cached m.yoloMode used elsewhere
+// (e.g. the placeholder text) so both stay in sync from one source of
+// truth. Callers must pass the currently-viewed workspace's live value —
+// this function does not query the server itself.
 func (m *UI) setEditorPrompt(yolo bool) {
+	m.yoloMode = yolo
 	if yolo {
 		m.textarea.SetPromptFunc(4, m.yoloPromptFunc)
 		return

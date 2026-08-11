@@ -128,12 +128,12 @@ func (m *UI) handleSearchResult(msg searchResultMsg) tea.Cmd {
 
 // previewSearchResult is the preview seam: as the palette selection moves,
 // the highlighted session hot-loads (read-only, debounced) in the main
-// view via the shared live-preview mechanism. Only current-workspace hits
-// preview; a foreign-workspace hit (cross-workspace step 2) cancels any
-// active preview and loads only on commit, matching the sidebar's
-// foreign-workspace gating.
+// view via the shared live-preview mechanism. Both current- and
+// foreign-workspace hits preview (see schedulePreview); a foreign hit is
+// read through [workspace.Workspace.PeekMessages] without switching this
+// client's own workspace.
 func (m *UI) previewSearchResult(hit proto.SessionHit) tea.Cmd {
-	return m.schedulePreview(hit.SessionID, m.isCurrentWorkspace(hit.WorkspaceRoot))
+	return m.schedulePreview(hit.SessionID, hit.WorkspaceRoot)
 }
 
 // commitSearchResult closes the palette and opens the chosen session. For

@@ -26,6 +26,11 @@ type loadSessionMsg struct {
 	session   *session.Session
 	files     []SessionFile
 	readFiles []string
+	// yolo is the viewed workspace's permission skip-requests flag,
+	// fetched off the Update goroutine alongside the session load so the
+	// handler can re-sync the cached yolo indicator without a blocking RPC
+	// on the hot Update path.
+	yolo bool
 }
 
 // loadSessionAndSwitchWorktreeMsg is a message indicating that a session has been
@@ -97,6 +102,7 @@ func (m *UI) loadSession(sessionID string) tea.Cmd {
 			session:   &session,
 			files:     sessionFiles,
 			readFiles: readFiles,
+			yolo:      m.com.Workspace.PermissionSkipRequests(),
 		}
 	}
 	return tea.Batch(load, m.reportCurrentSession(sessionID))
@@ -140,6 +146,7 @@ func (m *UI) loadSessionAndSwitchWorktree(sessionID, worktreeID string) tea.Cmd 
 				session:   &session,
 				files:     sessionFiles,
 				readFiles: readFiles,
+				yolo:      m.com.Workspace.PermissionSkipRequests(),
 			},
 			worktreeID: worktreeID,
 		}

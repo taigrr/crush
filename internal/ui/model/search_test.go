@@ -29,6 +29,8 @@ func (w *commitStubWorkspace) SwitchWorkspace(_ context.Context, path string) er
 	return nil
 }
 
+func (w *commitStubWorkspace) PermissionSkipRequests() bool { return false }
+
 func newCommitTestUI(ws *commitStubWorkspace) *UI {
 	s := styles.CharmtonePantera()
 	m := &UI{com: &common.Common{Styles: &s, Workspace: ws}}

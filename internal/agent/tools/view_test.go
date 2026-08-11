@@ -224,6 +224,8 @@ func (m *mockViewPermissionService) CancelAll() {}
 
 func (m *mockViewPermissionService) RepublishPending(sessionID string) {}
 
+func (m *mockViewPermissionService) SetAttachedProbe(fn func(sessionID string) bool) {}
+
 func (m *mockViewPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true
 }

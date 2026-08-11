@@ -157,6 +157,12 @@ type Workspace interface {
 	ListMessages(ctx context.Context, sessionID string) ([]message.Message, error)
 	ListUserMessages(ctx context.Context, sessionID string) ([]message.Message, error)
 	ListAllUserMessages(ctx context.Context) ([]message.Message, error)
+	// PeekMessages returns a session's messages from any known workspace
+	// (attached or registry-detached) identified by root, WITHOUT
+	// switching this client's own workspace. Used by the session
+	// sidebar's live preview so previewing a session outside the
+	// currently-attached workspace doesn't require a heavy full switch.
+	PeekMessages(ctx context.Context, root, sessionID string) ([]message.Message, error)
 
 	// Agent
 	AgentRun(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) error

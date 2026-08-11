@@ -284,6 +284,15 @@ type SearchHistoryResult struct {
 	SemanticUsed bool         `json:"semantic_used"`
 }
 
+// PeekMessagesParams identifies a session in a possibly-foreign
+// workspace to preview. Root, not a workspace ID, is the key: a
+// workspace the caller has never attached to has no ID yet, only a
+// filesystem root (matching [WorkspaceOverview.Root]).
+type PeekMessagesParams struct {
+	Root      string `json:"root"`
+	SessionID string `json:"session_id"`
+}
+
 // AgentSession represents a session with its busy status.
 type AgentSession struct {
 	Session

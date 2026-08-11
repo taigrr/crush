@@ -421,6 +421,21 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		cancel:       wsCancel,
 		clients:      make(map[string]*clientState),
 	}
+	// Let the permission service auto-deny a request rather than hang
+	// forever when no interactive client is (and never becomes) attached
+	// to answer it — e.g. a swarm message delivered to a session in this
+	// workspace when nobody has this workspace open at all. The probe is
+	// deliberately WORKSPACE-level, not session-level: a human working a
+	// different session in this same workspace is still present to answer
+	// the prompt (the red-dot attention indicator surfaces the raising
+	// session), so gating on "is this exact session focused" would wrongly
+	// auto-deny an attended prompt the moment the user looked at another
+	// tab. See permission.Service.SetAttachedProbe for the full rationale.
+	if ws.Permissions != nil {
+		ws.Permissions.SetAttachedProbe(func(string) bool {
+			return ws.AttachedClients() > 0
+		})
+	}
 
 	b.mu.Lock()
 	if !args.Isolated {
@@ -892,6 +907,28 @@ func (w *Workspace) AttachedClientsForSession(sessionID string) int {
 	n := 0
 	for _, cs := range w.clients {
 		if cs.streams > 0 && cs.currentSessionID == sessionID {
+			n++
+		}
+	}
+	return n
+}
+
+// AttachedClients returns the number of clients attached to this
+// workspace with at least one live SSE stream, regardless of which
+// session each is currently viewing. Hold-only clients (streams == 0) do
+// not contribute. This is the "is anyone watching this workspace at all"
+// signal used to gate the unattended-permission auto-deny: a human
+// working session B in a workspace is still present to answer a prompt
+// that session A raised, even though they haven't switched to A (the
+// red-dot attention indicator surfaces A's pending state for exactly this
+// case). Acquires the workspace's [clientsMu] briefly; the returned count
+// is a point-in-time snapshot.
+func (w *Workspace) AttachedClients() int {
+	w.clientsMu.Lock()
+	defer w.clientsMu.Unlock()
+	n := 0
+	for _, cs := range w.clients {
+		if cs.streams > 0 {
 			n++
 		}
 	}

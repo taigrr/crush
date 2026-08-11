@@ -41,32 +41,45 @@ type previewLoadedMsg struct {
 }
 
 // schedulePreview debounces a live-preview load for the highlighted session.
-// It is a no-op (and cancels any pending/active preview back to the committed
-// view) when:
-//   - id is empty, or is already the committed session (nothing to preview);
-//   - currentWorkspace is false — previewing a foreign, non-attached
-//     workspace's session would require a heavy workspace attach/switch, so
-//     those load only on commit (enter). We leave the current view as-is.
+// root is the session's workspace root; pass "" (or the current workspace's
+// own root) for a same-workspace session. It is a no-op (and cancels any
+// pending/active preview back to the committed view) when id is empty or is
+// already the committed session — nothing to preview either way.
 //
-// Otherwise it records the pending id and bumps the supersede generation.
-// Load timing follows a leading-edge burst pattern (see previewBurstWindow):
-// the first previewBurstInstant loads in a burst fire IMMEDIATELY via
-// previewLoadCmd; the third and later within the window return a trailing
-// tick command and the fetch happens on previewTickMsg. Both paths funnel
-// through the same pending-id + previewGen supersede guards, so an instant
-// load that is superseded before it resolves is dropped just like a ticked
-// one (see handlePreviewLoaded / handlePreviewTick).
-func (m *UI) schedulePreview(id string, currentWorkspace bool) tea.Cmd {
+// Foreign-workspace sessions preview too (via [workspace.Workspace.PeekMessages],
+// which reads the target workspace — attached or registry-detached — without
+// switching this client's own workspace), not just current-workspace ones:
+// previewing used to be restricted to the current workspace only because the
+// only way to read a foreign workspace's messages was a full
+// [workspace.Workspace.SwitchWorkspace], far too heavy to pay on every
+// debounced cursor move.
+//
+// Otherwise it records the pending id/root and bumps the supersede
+// generation. Load timing follows a leading-edge burst pattern (see
+// previewBurstWindow): the first previewBurstInstant loads in a burst fire
+// IMMEDIATELY via previewLoadCmd; the third and later within the window
+// return a trailing tick command and the fetch happens on previewTickMsg.
+// Both paths funnel through the same pending-id + previewGen supersede
+// guards, so an instant load that is superseded before it resolves is
+// dropped just like a ticked one (see handlePreviewLoaded / handlePreviewTick).
+func (m *UI) schedulePreview(id, root string) tea.Cmd {
 	committed := ""
 	if m.session != nil {
 		committed = m.session.ID
 	}
-	if id == "" || id == committed || !currentWorkspace {
+	// Normalize root: a same-workspace hit (empty root from search, or a
+	// root matching the currently-attached workspace) always previews
+	// through the fast current-workspace path, regardless of how the
+	// caller phrased it.
+	if root != "" && m.isCurrentWorkspace(root) {
+		root = ""
+	}
+	if id == "" || id == committed {
 		// Nothing to preview here: return to the committed view if we were
 		// previewing something else.
 		return m.cancelPreview()
 	}
-	if id == m.pendingPreviewID {
+	if id == m.pendingPreviewID && root == m.pendingPreviewRoot {
 		return nil // already waiting to load this exact id: pure no-op
 	}
 	if id == m.previewSessionID {
@@ -75,10 +88,12 @@ func (m *UI) schedulePreview(id string, currentWorkspace bool) tea.Cmd {
 		// session so its tick/result can't render over the shown one, and
 		// keep showing the current preview without a reload.
 		m.pendingPreviewID = ""
+		m.pendingPreviewRoot = ""
 		m.previewGen++
 		return nil
 	}
 	m.pendingPreviewID = id
+	m.pendingPreviewRoot = root
 	m.previewGen++
 	if m.registerPreviewBurst() {
 		// Leading edge of the burst: fire the load now. The load still
@@ -86,7 +101,7 @@ func (m *UI) schedulePreview(id string, currentWorkspace bool) tea.Cmd {
 		// render time if the cursor has moved on (pending id changed) — so
 		// the instant path keeps the same supersede protection as the tick
 		// path without waiting for the debounce.
-		return m.previewLoadCmd(id)
+		return m.previewLoadCmd(id, root)
 	}
 	gen := m.previewGen
 	return tea.Tick(previewDebounce, func(time.Time) tea.Msg {
@@ -119,17 +134,26 @@ func (m *UI) handlePreviewTick(msg previewTickMsg) tea.Cmd {
 	if msg.gen != m.previewGen || m.pendingPreviewID == "" {
 		return nil // superseded by a newer move, or cancelled
 	}
-	return m.previewLoadCmd(m.pendingPreviewID)
+	return m.previewLoadCmd(m.pendingPreviewID, m.pendingPreviewRoot)
 }
 
 // previewLoadCmd fetches a session's messages off the Update goroutine for an
 // ephemeral preview. It does NOT touch presence/LSP/CWD/history — only the
-// messages are read (current workspace only, guaranteed by schedulePreview).
-// On error it emits previewLoadFailedMsg so the pending id is cleared and a
-// later return to that session retries.
-func (m *UI) previewLoadCmd(id string) tea.Cmd {
+// messages are read. root == "" reads the current workspace's live service
+// ([workspace.Workspace.ListMessages]); a non-empty root reads any other
+// known workspace, attached or not, via [workspace.Workspace.PeekMessages]
+// without switching this client's own workspace. On error it emits
+// previewLoadFailedMsg so the pending id is cleared and a later return to
+// that session retries.
+func (m *UI) previewLoadCmd(id, root string) tea.Cmd {
 	return func() tea.Msg {
-		msgs, err := m.com.Workspace.ListMessages(context.Background(), id)
+		var msgs []message.Message
+		var err error
+		if root == "" {
+			msgs, err = m.com.Workspace.ListMessages(context.Background(), id)
+		} else {
+			msgs, err = m.com.Workspace.PeekMessages(context.Background(), root, id)
+		}
 		if err != nil {
 			return previewLoadFailedMsg{id: id, err: err}
 		}
@@ -148,6 +172,7 @@ type previewLoadFailedMsg struct {
 func (m *UI) handlePreviewLoadFailed(msg previewLoadFailedMsg) tea.Cmd {
 	if msg.id == m.pendingPreviewID {
 		m.pendingPreviewID = ""
+		m.pendingPreviewRoot = ""
 	}
 	return util.ReportError(msg.err)
 }
@@ -160,6 +185,7 @@ func (m *UI) handlePreviewLoaded(msg previewLoadedMsg) tea.Cmd {
 	}
 	m.previewSessionID = msg.id
 	m.pendingPreviewID = "" // load complete; no longer in-flight
+	m.pendingPreviewRoot = ""
 	// Render the preview messages read-only into the chat view. This reuses
 	// the normal renderer but does NOT change m.session, so the committed
 	// session stays the routing target for live events.
@@ -183,6 +209,7 @@ func (m *UI) handlePreviewLoaded(msg previewLoadedMsg) tea.Cmd {
 // window apply to the chat and converge with the restore reload.
 func (m *UI) cancelPreview() tea.Cmd {
 	m.pendingPreviewID = ""
+	m.pendingPreviewRoot = ""
 	if m.previewSessionID == "" {
 		// Nothing being previewed: do NOT bump the supersede generation
 		// (a no-op cancel must not orphan an unrelated in-flight restore).

@@ -672,7 +672,142 @@ func TestPermissionService_CancelPublishesDenial(t *testing.T) {
 	}
 }
 
-// TestPermissionService_NoCrossSessionHeadOfLineBlocking verifies that
+// TestPermissionService_UnattendedRequestAutoDenies verifies that a
+// request for a session with SetAttachedProbe wired in, whose probe
+// reports no client attached the whole time, is auto-denied once the
+// unattended grace window elapses — instead of blocking forever. This is
+// the fix for cross-workspace swarm deliveries hanging indefinitely when
+// the target session's workspace has skip-requests off and nobody is
+// watching it.
+func TestPermissionService_UnattendedRequestAutoDenies(t *testing.T) {
+	origTimeout, origPoll := unattendedPermissionTimeout, unattendedPermissionPollInterval
+	unattendedPermissionTimeout = 30 * time.Millisecond
+	unattendedPermissionPollInterval = 5 * time.Millisecond
+	t.Cleanup(func() {
+		unattendedPermissionTimeout, unattendedPermissionPollInterval = origTimeout, origPoll
+	})
+
+	service := NewPermissionService("/tmp", false, nil)
+	service.SetAttachedProbe(func(sessionID string) bool { return false })
+
+	notifications := service.SubscribeNotifications(t.Context())
+
+	granted, err := service.Request(t.Context(), CreatePermissionRequest{
+		SessionID:  "s-unattended",
+		ToolCallID: "call-unattended",
+		ToolName:   "bash",
+		Action:     "execute",
+		Path:       "/tmp",
+	})
+	require.NoError(t, err)
+	assert.False(t, granted)
+
+	deadline := time.After(time.Second)
+	var sawDenial bool
+	for !sawDenial {
+		select {
+		case ev := <-notifications:
+			if ev.Payload.ToolCallID == "call-unattended" && ev.Payload.Denied {
+				sawDenial = true
+			}
+		case <-deadline:
+			t.Fatal("unattended timeout did not publish a denial notification")
+		}
+	}
+}
+
+// TestPermissionService_AttachedRequestNeverAutoTimesOut verifies that a
+// request for a session whose attached-probe reports true keeps waiting
+// (as before this feature existed) rather than auto-denying — the
+// unattended timeout must only ever fire when nobody is watching.
+func TestPermissionService_AttachedRequestNeverAutoTimesOut(t *testing.T) {
+	origTimeout, origPoll := unattendedPermissionTimeout, unattendedPermissionPollInterval
+	unattendedPermissionTimeout = 20 * time.Millisecond
+	unattendedPermissionPollInterval = 5 * time.Millisecond
+	t.Cleanup(func() {
+		unattendedPermissionTimeout, unattendedPermissionPollInterval = origTimeout, origPoll
+	})
+
+	service := NewPermissionService("/tmp", false, nil)
+	service.SetAttachedProbe(func(sessionID string) bool { return true })
+
+	requests := service.Subscribe(t.Context())
+
+	var granted bool
+	var err error
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		granted, err = service.Request(t.Context(), CreatePermissionRequest{
+			SessionID:  "s-attended",
+			ToolCallID: "call-attended",
+			ToolName:   "bash",
+			Action:     "execute",
+			Path:       "/tmp",
+		})
+	}()
+
+	req := <-requests
+	// Give the (never-firing, since attached) unattended timeout several
+	// multiples of its window to prove it does not auto-resolve the
+	// request before we grant it ourselves.
+	time.Sleep(unattendedPermissionTimeout * 5)
+	assert.True(t, service.Grant(req.Payload))
+
+	wg.Wait()
+	require.NoError(t, err)
+	assert.True(t, granted)
+}
+
+// TestPermissionService_GrantWinsRaceWithUnattendedTimeout verifies the
+// select-race fix: when a Grant lands essentially simultaneously with the
+// unattended timeout firing, Request must report the grant (never a
+// spurious denial), because resolve() is first-writer-wins and the loser's
+// branch adopts the winner's outcome from respCh. Driven by an unattended
+// probe on a very short fuse with a grant issued right at the deadline; run
+// many iterations to shake the window.
+func TestPermissionService_GrantWinsRaceWithUnattendedTimeout(t *testing.T) {
+	origTimeout, origPoll := unattendedPermissionTimeout, unattendedPermissionPollInterval
+	unattendedPermissionTimeout = 5 * time.Millisecond
+	unattendedPermissionPollInterval = time.Millisecond
+	t.Cleanup(func() {
+		unattendedPermissionTimeout, unattendedPermissionPollInterval = origTimeout, origPoll
+	})
+
+	for i := 0; i < 50; i++ {
+		service := NewPermissionService("/tmp", false, nil)
+		service.SetAttachedProbe(func(string) bool { return false })
+		requests := service.Subscribe(t.Context())
+
+		var granted bool
+		var err error
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			granted, err = service.Request(t.Context(), CreatePermissionRequest{
+				SessionID:  "s-race",
+				ToolCallID: "call-race",
+				ToolName:   "bash",
+				Action:     "execute",
+				Path:       "/tmp",
+			})
+		}()
+
+		req := <-requests
+		// Grant right around the deadline. If our Grant wins, Request must
+		// return granted=true; if the timeout wins, Request returns
+		// granted=false — but it must NEVER report false while Grant won.
+		won := service.Grant(req.Payload)
+		wg.Wait()
+		require.NoError(t, err)
+		// The two authorities must agree: the caller's result equals
+		// whichever resolution won.
+		require.Equal(t, won, granted, "Request result must match the winning resolution, never a spurious denial")
+	}
+}
+
 // an unresolved permission request in one session does NOT block a
 // request from a different session. A workspace runs many sessions
 // concurrently (e.g. swarm-dispatched background turns); a single

@@ -276,6 +276,17 @@ func (w *ClientWorkspace) ListAllUserMessages(ctx context.Context) ([]message.Me
 	return protoToMessages(msgs), nil
 }
 
+// PeekMessages returns a session's messages from the workspace rooted at
+// root — attached or registry-detached, this client's own workspace or a
+// foreign one — without switching this client's workspace.
+func (w *ClientWorkspace) PeekMessages(ctx context.Context, root, sessionID string) ([]message.Message, error) {
+	msgs, err := w.client.PeekMessages(ctx, root, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return protoToMessages(msgs), nil
+}
+
 // EmbedPendingCount reports how many past messages a backfill would embed.
 func (w *ClientWorkspace) EmbedPendingCount(ctx context.Context) (int, error) {
 	return w.client.EmbeddingsPending(ctx, w.workspaceID())

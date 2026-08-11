@@ -28,6 +28,20 @@ func (w *previewStubWorkspace) ListMessages(_ context.Context, id string) ([]mes
 	return w.messages[id], nil
 }
 
+func (w *previewStubWorkspace) BaseDir() string { return "/current" }
+
+func (w *previewStubWorkspace) PermissionSkipRequests() bool { return false }
+
+// PeekMessages records calls tagged with their root so tests can assert a
+// foreign-workspace preview went through the peek path (not ListMessages).
+func (w *previewStubWorkspace) PeekMessages(_ context.Context, root, id string) ([]message.Message, error) {
+	w.calls = append(w.calls, "peek:"+root+":"+id)
+	if w.listErrIDs[id] {
+		return nil, context.DeadlineExceeded
+	}
+	return w.messages[id], nil
+}
+
 func newPreviewTestUI(t *testing.T, ws *previewStubWorkspace, committedID string) *UI {
 	t.Helper()
 	m := newTestUI()
@@ -53,9 +67,9 @@ func TestPreview_ScheduleSupersedesStaleTick(t *testing.T) {
 	ws := &previewStubWorkspace{messages: map[string][]message.Message{}}
 	m := newPreviewTestUI(t, ws, "committed")
 
-	m.schedulePreview("s1", true) // gen 1, pending s1
+	m.schedulePreview("s1", "") // gen 1, pending s1
 	gen1 := m.previewGen
-	m.schedulePreview("s2", true) // gen 2, pending s2
+	m.schedulePreview("s2", "") // gen 2, pending s2
 	require.Equal(t, "s2", m.pendingPreviewID)
 
 	// The stale tick for gen1 must be dropped (no load).
@@ -69,20 +83,35 @@ func TestPreview_ScheduleSupersedesStaleTick(t *testing.T) {
 	require.Equal(t, "s2", loaded.id)
 }
 
-// TestPreview_SkipsCommittedAndForeign verifies no preview is scheduled for
-// the committed session or a foreign-workspace session.
-func TestPreview_SkipsCommittedAndForeign(t *testing.T) {
+// TestPreview_SkipsCommittedButSchedulesForeign verifies no preview is
+// scheduled for the committed session, but a foreign-workspace session IS
+// scheduled and routes through PeekMessages (not ListMessages) — foreign
+// previews no longer require a full workspace switch.
+func TestPreview_SkipsCommittedButSchedulesForeign(t *testing.T) {
 	t.Parallel()
-	ws := &previewStubWorkspace{messages: map[string][]message.Message{}}
+	ws := &previewStubWorkspace{messages: map[string][]message.Message{"foreign-id": {{ID: "fm1"}}}}
 	m := newPreviewTestUI(t, ws, "committed")
 
 	// Committed session: no pending, no tick.
-	require.Nil(t, m.schedulePreview("committed", true))
+	require.Nil(t, m.schedulePreview("committed", ""))
 	require.Empty(t, m.pendingPreviewID)
 
-	// Foreign workspace: no pending.
-	require.Nil(t, m.schedulePreview("foreign", false))
-	require.Empty(t, m.pendingPreviewID)
+	// Foreign workspace: scheduled, with its root recorded.
+	cmd := m.schedulePreview("foreign-id", "/other")
+	require.Equal(t, "foreign-id", m.pendingPreviewID)
+	require.Equal(t, "/other", m.pendingPreviewRoot)
+	require.NotNil(t, cmd)
+	loaded, ok := drainMsg(cmd).(previewLoadedMsg)
+	require.True(t, ok)
+	require.Equal(t, "foreign-id", loaded.id)
+	require.Len(t, loaded.msgs, 1, "foreign preview content flows through PeekMessages")
+	require.Contains(t, ws.calls, "peek:/other:foreign-id", "foreign preview must use PeekMessages, not ListMessages")
+
+	// A root matching the current workspace normalizes to the fast,
+	// same-workspace path (ListMessages) instead of PeekMessages.
+	ws.calls = nil
+	drainMsg(m.schedulePreview("s-current", "/current"))
+	require.Contains(t, ws.calls, "s-current")
 }
 
 // TestPreview_LoadedDroppedIfCursorMovedOn verifies a resolved load for an id
@@ -194,12 +223,12 @@ func TestPreview_ABAWithinDebounceEndsOnA(t *testing.T) {
 	require.Empty(t, m.pendingPreviewID)
 
 	// Move to B: schedules a B load (pending=B, gen bumped).
-	m.schedulePreview("B", true)
+	m.schedulePreview("B", "")
 	require.Equal(t, "B", m.pendingPreviewID)
 	bGen := m.previewGen
 
 	// Move back to A (still shown) before B's tick: must cancel B.
-	m.schedulePreview("A", true)
+	m.schedulePreview("A", "")
 	require.Empty(t, m.pendingPreviewID, "returning to shown session cancels pending B")
 	require.Equal(t, "A", m.previewSessionID, "A stays shown")
 
@@ -234,7 +263,7 @@ func TestPreview_RestoreDroppedIfPreviewRescheduled(t *testing.T) {
 	require.False(t, m.previewing(), "cancel clears previewing immediately")
 
 	// Immediately schedule + load a new preview s2 before the restore lands.
-	m.schedulePreview("s2", true)
+	m.schedulePreview("s2", "")
 	m.handlePreviewLoaded(previewLoadedMsg{id: "s2"})
 	require.Equal(t, "s2", m.previewSessionID)
 
@@ -329,7 +358,7 @@ func TestPreview_LoadFailAfterSupersedeDoesNotWedge(t *testing.T) {
 	staleRestore, _ := drainMsg(restoreCmd).(previewRestoreMsg)
 
 	// Schedule B, then its load fails.
-	m.schedulePreview("B", true)
+	m.schedulePreview("B", "")
 	require.Equal(t, "B", m.pendingPreviewID)
 	m.handlePreviewLoadFailed(previewLoadFailedMsg{id: "B", err: context.DeadlineExceeded})
 	require.Empty(t, m.pendingPreviewID, "failed load clears pending")
@@ -364,20 +393,20 @@ func TestPreview_LeadingEdgeFirstTwoInstant(t *testing.T) {
 	m.previewNow = clk.now
 
 	// 1st load: instant.
-	cmd := m.schedulePreview("s1", true)
+	cmd := m.schedulePreview("s1", "")
 	require.Equal(t, "s1", m.pendingPreviewID)
 	_, ok := drainMsg(cmd).(previewLoadedMsg)
 	require.True(t, ok, "1st load in window fires immediately")
 
 	// 2nd load, still inside the window: instant.
 	clk.advance(10 * time.Millisecond)
-	cmd = m.schedulePreview("s2", true)
+	cmd = m.schedulePreview("s2", "")
 	_, ok = drainMsg(cmd).(previewLoadedMsg)
 	require.True(t, ok, "2nd load in window fires immediately")
 
 	// 3rd load, still inside the window: trailing debounce tick.
 	clk.advance(10 * time.Millisecond)
-	cmd = m.schedulePreview("s3", true)
+	cmd = m.schedulePreview("s3", "")
 	require.NotNil(t, cmd)
 	_, ok = drainMsg(cmd).(previewTickMsg)
 	require.True(t, ok, "3rd load in window is tick-gated")
@@ -397,14 +426,14 @@ func TestPreview_BurstCounterResetsAfterWindow(t *testing.T) {
 	m.previewNow = clk.now
 
 	// Exhaust the leading edge: two instant loads.
-	drainMsg(m.schedulePreview("s1", true))
+	drainMsg(m.schedulePreview("s1", ""))
 	clk.advance(10 * time.Millisecond)
-	drainMsg(m.schedulePreview("s2", true))
+	drainMsg(m.schedulePreview("s2", ""))
 	require.Equal(t, 2, m.previewBurstCount)
 
 	// Idle longer than the window, then navigate once more: instant again.
 	clk.advance(previewBurstWindow + time.Millisecond)
-	cmd := m.schedulePreview("s3", true)
+	cmd := m.schedulePreview("s3", "")
 	_, ok := drainMsg(cmd).(previewLoadedMsg)
 	require.True(t, ok, "load after idle gap fires immediately")
 	require.Equal(t, 1, m.previewBurstCount, "burst counter reset after window")
@@ -426,14 +455,14 @@ func TestPreview_InstantLoadSupersededDoesNotRender(t *testing.T) {
 
 	// First navigation fires an instant load for s1 (pending=s1). Capture
 	// the cmd but do NOT resolve it yet — the cursor is about to move on.
-	s1Cmd := m.schedulePreview("s1", true)
+	s1Cmd := m.schedulePreview("s1", "")
 	require.Equal(t, "s1", m.pendingPreviewID)
 	s1Msg := drainMsg(s1Cmd).(previewLoadedMsg)
 
 	// Cursor moves on to s2 before s1's load renders (also instant). This
 	// bumps previewGen and sets pending=s2.
 	clk.advance(10 * time.Millisecond)
-	m.schedulePreview("s2", true)
+	m.schedulePreview("s2", "")
 	require.Equal(t, "s2", m.pendingPreviewID)
 
 	// Now s1's earlier instant load resolves last: it must be DROPPED, not

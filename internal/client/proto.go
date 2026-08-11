@@ -539,6 +539,27 @@ func (c *Client) SearchHistory(ctx context.Context, id string, params proto.Sear
 	return res, nil
 }
 
+// PeekMessages returns a session's messages from the workspace rooted at
+// root (attached or registry-detached), without switching the caller's
+// own workspace. Used by the session sidebar's live preview for a
+// session outside the currently-attached workspace.
+func (c *Client) PeekMessages(ctx context.Context, root, sessionID string) ([]proto.Message, error) {
+	rsp, err := c.post(ctx, "/peek-messages", nil, jsonBody(proto.PeekMessagesParams{Root: root, SessionID: sessionID}),
+		http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return nil, fmt.Errorf("failed to peek messages: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to peek messages: status code %d", rsp.StatusCode)
+	}
+	var msgs []proto.Message
+	if err := json.NewDecoder(rsp.Body).Decode(&msgs); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("failed to decode messages: %w", err)
+	}
+	return msgs, nil
+}
+
 // GetAgentSessionGoal retrieves the active autonomous goal for a session.
 func (c *Client) GetAgentSessionGoal(ctx context.Context, id, sessionID string) (proto.GoalStatus, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal", id, sessionID), nil, nil)

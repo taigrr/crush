@@ -237,7 +237,7 @@ func isTextEditingKey(msg tea.KeyPressMsg) bool {
 }
 
 // scheduleSidebarPreview debounces a live preview of the session now under
-// the sidebar cursor. Foreign-workspace sessions are not previewed (see
+// the sidebar cursor, including foreign-workspace sessions (see
 // schedulePreview); a cursor on a header/overflow row (no session) cancels
 // any active preview back to the committed view. Preview is suppressed while
 // a multi-select/visual selection is in progress so the chat view doesn't
@@ -250,7 +250,7 @@ func (m *UI) scheduleSidebarPreview() tea.Cmd {
 	if !ok {
 		return m.cancelPreview()
 	}
-	return m.schedulePreview(id, m.isCurrentWorkspace(root))
+	return m.schedulePreview(id, root)
 }
 
 // archiveSelectedSessions archives the selected sessions, each routed to
@@ -487,7 +487,7 @@ func (m *UI) switchWorkspaceThenPickSession(root string) tea.Cmd {
 		if err := m.com.Workspace.SwitchWorkspace(context.Background(), root); err != nil {
 			return util.InfoMsg{Type: util.InfoTypeError, Msg: err.Error()}
 		}
-		return workspaceSwitchedMsg{openPicker: true}
+		return workspaceSwitchedMsg{openPicker: true, yolo: m.com.Workspace.PermissionSkipRequests()}
 	}
 }
 
@@ -498,16 +498,21 @@ func (m *UI) switchWorkspaceAndLoad(root, sessionID string) tea.Cmd {
 		if err := m.com.Workspace.SwitchWorkspace(context.Background(), root); err != nil {
 			return util.InfoMsg{Type: util.InfoTypeError, Msg: err.Error()}
 		}
-		return workspaceSwitchedMsg{sessionID: sessionID}
+		return workspaceSwitchedMsg{sessionID: sessionID, yolo: m.com.Workspace.PermissionSkipRequests()}
 	}
 }
 
 // workspaceSwitchedMsg is emitted after a successful cross-workspace switch
 // so the main loop can act on the Update goroutine: load a specific
 // session, or open the session picker for the newly attached workspace.
+// yolo is the newly-attached workspace's own permission skip-requests
+// flag, fetched here (off the Update goroutine, alongside the switch
+// itself) so the Update handler can refresh the cached indicator without
+// an extra blocking round trip of its own.
 type workspaceSwitchedMsg struct {
 	sessionID  string
 	openPicker bool
+	yolo       bool
 }
 
 // drawLeftSidebar renders the left session navigator into area.
