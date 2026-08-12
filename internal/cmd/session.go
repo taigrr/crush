@@ -172,11 +172,14 @@ func runSessionImport(cmd *cobra.Command, args []string) error {
 		encoder.SetEscapeHTML(false)
 		return encoder.Encode(result)
 	}
-	if result.AlreadyExist {
+	switch {
+	case result.Modified:
+		fmt.Fprintf(out, "Session modified in Crush since import; left unchanged: %s\n", session.HashID(result.ID)[:12])
+	case result.AlreadyExist:
 		fmt.Fprintf(out, "Session already imported: %s\n", session.HashID(result.ID)[:12])
-		return nil
+	default:
+		fmt.Fprintf(out, "Imported %d messages from %s as session %s\n", result.Imported, result.Source, session.HashID(result.ID)[:12])
 	}
-	fmt.Fprintf(out, "Imported %d messages from %s as session %s\n", result.Messages, result.Source, session.HashID(result.ID)[:12])
 	for _, warning := range result.Warnings {
 		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
 	}

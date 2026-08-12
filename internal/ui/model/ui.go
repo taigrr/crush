@@ -2110,16 +2110,30 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		cmds = append(cmds, m.loadSession(msg.Session.ID))
 	case dialog.ActionSessionImportComplete:
 		m.dialog.CloseDialog(dialog.SessionImportID)
-		imported := 0
-		alreadyExists := 0
+		imported, resynced, modified, unchanged := 0, 0, 0, 0
 		for _, result := range msg.Results {
-			if result.AlreadyExist {
-				alreadyExists++
-			} else {
+			switch {
+			case result.Modified:
+				modified++
+			case result.AlreadyExist:
+				unchanged++
+			case result.Imported == result.Messages:
 				imported++
+			default:
+				resynced++
 			}
 		}
-		cmds = append(cmds, util.ReportInfo(fmt.Sprintf("Imported %d session(s); %d already existed", imported, alreadyExists)))
+		parts := []string{fmt.Sprintf("%d imported", imported)}
+		if resynced > 0 {
+			parts = append(parts, fmt.Sprintf("%d updated", resynced))
+		}
+		if unchanged > 0 {
+			parts = append(parts, fmt.Sprintf("%d unchanged", unchanged))
+		}
+		if modified > 0 {
+			parts = append(parts, fmt.Sprintf("%d modified in Crush (skipped)", modified))
+		}
+		cmds = append(cmds, util.ReportInfo("Session import: "+strings.Join(parts, ", ")))
 		cmds = append(cmds, m.loadWorkspaceOverviews())
 	case dialog.ActionPreviewSession:
 		// Picker cursor moved: debounce a live preview (picker sessions are

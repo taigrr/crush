@@ -38,13 +38,15 @@ func Sources() ([]SourceInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	definitions := sourceDefinitions(home)
-	available := make([]SourceInfo, 0, len(definitions))
-	for _, definition := range definitions {
-		if info, statErr := os.Stat(definition.root); statErr == nil && info.IsDir() {
-			available = append(available, SourceInfo{Source: definition.source, Name: definition.name})
+	available := make([]SourceInfo, 0, len(registry))
+	for _, h := range registry {
+		if info, statErr := os.Stat(h.root(home)); statErr == nil && info.IsDir() {
+			available = append(available, SourceInfo{Source: h.id(), Name: h.name()})
 		}
 	}
+	slices.SortFunc(available, func(a, b SourceInfo) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 	return available, nil
 }
 
@@ -53,40 +55,12 @@ func Discover(ctx context.Context, source Source) ([]Candidate, error) {
 	if err != nil {
 		return nil, err
 	}
-	var definition sourceDefinition
-	for _, candidate := range sourceDefinitions(home) {
-		if candidate.source == source {
-			definition = candidate
-			break
-		}
-	}
-	if definition.source == "" {
+	h := harnessByID(source)
+	if h == nil {
 		return nil, errors.New("unsupported session source")
 	}
 
-	paths := make([]string, 0)
-	err = filepath.WalkDir(definition.root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			if errors.Is(walkErr, fs.ErrPermission) {
-				return nil
-			}
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if definition.source == SourceGrok && entry.IsDir() && fileExists(filepath.Join(path, "summary.json")) && (fileExists(filepath.Join(path, "updates.jsonl")) || fileExists(filepath.Join(path, "chat_history.jsonl"))) {
-			paths = append(paths, path)
-			return fs.SkipDir
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if definition.source != SourceGrok && (strings.HasSuffix(entry.Name(), ".jsonl") || strings.HasSuffix(entry.Name(), ".jsonl.zst")) {
-			paths = append(paths, path)
-		}
-		return nil
-	})
+	paths, err := collectSessionPaths(ctx, h, h.root(home))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -94,6 +68,25 @@ func Discover(ctx context.Context, source Source) ([]Candidate, error) {
 		return nil, err
 	}
 
+	candidates := discoverCandidates(ctx, h, paths)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	slices.SortFunc(candidates, func(a, b Candidate) int {
+		if a.UpdatedAt > b.UpdatedAt {
+			return -1
+		}
+		if a.UpdatedAt < b.UpdatedAt {
+			return 1
+		}
+		return strings.Compare(a.Title, b.Title)
+	})
+	return candidates, nil
+}
+
+// discoverCandidates reads metadata for paths concurrently, keeping
+// only entries that resolve a source ID.
+func discoverCandidates(ctx context.Context, h harness, paths []string) []Candidate {
 	workers := min(len(paths), max(1, runtime.GOMAXPROCS(0)*2))
 	jobs := make(chan string)
 	results := make(chan Candidate, len(paths))
@@ -103,7 +96,7 @@ func Discover(ctx context.Context, source Source) ([]Candidate, error) {
 		go func() {
 			defer wait.Done()
 			for path := range jobs {
-				candidate, metadataErr := discoverCandidate(path, source)
+				candidate, metadataErr := h.discover(path)
 				if metadataErr == nil && candidate.SourceID != "" {
 					results <- candidate
 				}
@@ -129,40 +122,42 @@ func Discover(ctx context.Context, source Source) ([]Candidate, error) {
 	for candidate := range results {
 		candidates = append(candidates, candidate)
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	slices.SortFunc(candidates, func(a, b Candidate) int {
-		if a.UpdatedAt > b.UpdatedAt {
-			return -1
-		}
-		if a.UpdatedAt < b.UpdatedAt {
-			return 1
-		}
-		return strings.Compare(a.Title, b.Title)
-	})
-	return candidates, nil
+	return candidates
 }
 
-func discoverCandidate(path string, source Source) (Candidate, error) {
-	if source == SourceGrok {
-		return discoverGrokCandidate(path)
-	}
+func collectSessionPaths(ctx context.Context, h harness, root string) ([]string, error) {
+	paths := make([]string, 0)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if errors.Is(walkErr, fs.ErrPermission) {
+				return nil
+			}
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		matched, skipDir := h.matchWalk(path, entry)
+		if matched {
+			paths = append(paths, path)
+		}
+		if skipDir {
+			return fs.SkipDir
+		}
+		return nil
+	})
+	return paths, err
+}
+
+// discoverMetadata reads the leading metadata records of a JSONL
+// transcript into a [Candidate], applying a harness-specific per-record
+// hook. It is the shared cheap-scan path used by file-based harnesses.
+func discoverMetadata(path string, source Source, sourceID string, apply func(*Candidate, rawRecord)) (Candidate, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return Candidate{}, err
 	}
-	candidate := Candidate{Source: source, Path: path, UpdatedAt: info.ModTime().Unix()}
-	switch source {
-	case SourceClaude:
-		candidate.SourceID = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	case SourceCodex:
-		candidate.SourceID = codexIDFromPath(path)
-	case SourcePi:
-	default:
-		return Candidate{}, errors.New("unsupported session source")
-	}
-
+	candidate := Candidate{Source: source, Path: path, SourceID: sourceID, UpdatedAt: info.ModTime().Unix()}
 	records, err := readMetadataRecords(path)
 	if err != nil {
 		return Candidate{}, err
@@ -172,69 +167,12 @@ func discoverCandidate(path string, source Source) (Candidate, error) {
 		if timestamp != 0 && (candidate.CreatedAt == 0 || timestamp < candidate.CreatedAt) {
 			candidate.CreatedAt = timestamp
 		}
-		switch source {
-		case SourceClaude:
-			if candidate.WorkingDir == "" {
-				candidate.WorkingDir = text(record["cwd"])
-			}
-			if candidate.Title == "" && record["type"] == "user" && isClaudeHumanPrompt(record) {
-				candidate.Title = metadataMessageTitle(record["message"])
-			}
-		case SourceCodex:
-			payload := object(record["payload"])
-			if record["type"] == "session_meta" {
-				candidate.SourceID = firstNonEmpty(text(payload["id"]), candidate.SourceID)
-				candidate.WorkingDir = text(payload["cwd"])
-			}
-			if candidate.Title == "" && record["type"] == "response_item" && payload["type"] == "message" && payload["role"] == "user" && isCodexHumanPrompt(payload) {
-				candidate.Title = metadataContentTitle(payload["content"])
-			}
-		case SourcePi:
-			if record["type"] == "session" {
-				candidate.SourceID = text(record["id"])
-				candidate.WorkingDir = text(record["cwd"])
-			}
-			if candidate.Title == "" && record["type"] == "session_info" {
-				candidate.Title = text(record["name"])
-			}
-			if candidate.Title == "" && record["type"] == "message" {
-				candidate.Title = metadataMessageTitle(record["message"])
-			}
-		}
+		apply(&candidate, record)
 		if candidate.Title != "" && candidate.SourceID != "" && candidate.WorkingDir != "" {
 			break
 		}
 	}
 	candidate.Title = metadataTitle(candidate.Title)
-	return candidate, nil
-}
-
-func discoverGrokCandidate(path string) (Candidate, error) {
-	data, err := os.ReadFile(filepath.Join(path, "summary.json"))
-	if err != nil {
-		return Candidate{}, err
-	}
-	var summary rawRecord
-	if err := json.Unmarshal(data, &summary); err != nil {
-		return Candidate{}, err
-	}
-	info := object(summary["info"])
-	candidate := Candidate{
-		Source:     SourceGrok,
-		Path:       path,
-		SourceID:   firstNonEmpty(text(info["id"]), filepath.Base(path)),
-		Title:      metadataTitle(text(summary["session_summary"])),
-		WorkingDir: text(info["cwd"]),
-		CreatedAt:  parseTime(text(summary["created_at"])),
-		UpdatedAt:  parseTime(text(summary["updated_at"])),
-	}
-	if candidate.UpdatedAt == 0 {
-		stat, statErr := os.Stat(path)
-		if statErr != nil {
-			return Candidate{}, statErr
-		}
-		candidate.UpdatedAt = stat.ModTime().Unix()
-	}
 	return candidate, nil
 }
 
@@ -296,19 +234,4 @@ func metadataTitle(value string) string {
 		return "Untitled session"
 	}
 	return truncate(strings.Join(strings.Fields(value), " "), 200)
-}
-
-type sourceDefinition struct {
-	source Source
-	name   string
-	root   string
-}
-
-func sourceDefinitions(home string) []sourceDefinition {
-	return []sourceDefinition{
-		{source: SourceClaude, name: "Claude Code", root: filepath.Join(home, ".claude", "projects")},
-		{source: SourceCodex, name: "Codex", root: filepath.Join(home, ".codex", "sessions")},
-		{source: SourceGrok, name: "Grok", root: filepath.Join(home, ".grok", "sessions")},
-		{source: SourcePi, name: "Pi", root: filepath.Join(home, ".pi", "agent", "sessions")},
-	}
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/message"
@@ -193,6 +194,131 @@ func TestImportIsTransactionalAndIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
 	require.Equal(t, int64(100), rows[0].CreatedAt)
+}
+
+func TestImportReSyncAppendsNewSourceMessages(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Cleanup(db.ResetPool)
+	database, err := db.Connect(context.Background(), dataDir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Release(dataDir)) })
+
+	base := Session{
+		Source:    SourcePi,
+		SourceID:  "pi-grow",
+		Title:     "Grow",
+		CreatedAt: 100,
+		UpdatedAt: 101,
+		Messages: []Message{
+			{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "one"}, finish()}, CreatedAt: 100},
+			{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "two"}, finish()}, CreatedAt: 101},
+		},
+	}
+	first, err := Import(context.Background(), database, base)
+	require.NoError(t, err)
+	require.Equal(t, 2, first.Imported)
+
+	grown := base
+	grown.Messages = append(append([]Message(nil), base.Messages...),
+		Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "three"}, finish()}, CreatedAt: 102},
+	)
+	second, err := Import(context.Background(), database, grown)
+	require.NoError(t, err)
+	require.Equal(t, first.ID, second.ID)
+	require.Equal(t, 1, second.Imported)
+	require.False(t, second.AlreadyExist)
+	require.False(t, second.Modified)
+
+	rows, err := message.NewService(db.New(database)).List(context.Background(), first.ID)
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+
+	var updatedAt int64
+	require.NoError(t, database.QueryRow("SELECT updated_at FROM sessions WHERE id = ?", first.ID).Scan(&updatedAt))
+	// Re-sync must bump updated_at to a real clock time so the session
+	// surfaces as recently active, not leave it at the stale source
+	// timestamp.
+	require.Greater(t, updatedAt, int64(102))
+
+	// Re-importing the unchanged, grown session is a no-op.
+	third, err := Import(context.Background(), database, grown)
+	require.NoError(t, err)
+	require.Equal(t, 0, third.Imported)
+	require.True(t, third.AlreadyExist)
+}
+
+func TestImportDoesNotClobberSessionModifiedInCrush(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Cleanup(db.ResetPool)
+	database, err := db.Connect(context.Background(), dataDir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Release(dataDir)) })
+
+	imported := Session{
+		Source:   SourcePi,
+		SourceID: "pi-modified",
+		Title:    "Modified",
+		Messages: []Message{
+			{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "hello"}, finish()}, CreatedAt: 100},
+			{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "hi"}, finish()}, CreatedAt: 101},
+		},
+	}
+	first, err := Import(context.Background(), database, imported)
+	require.NoError(t, err)
+
+	// Simulate the user continuing the conversation inside Crush: a
+	// message with a non-deterministic (random) ID.
+	_, err = database.Exec(`INSERT INTO messages
+		(id, session_id, role, parts, model, provider, is_summary_message, created_at, updated_at)
+		VALUES (?, ?, ?, '[]', NULL, NULL, 0, ?, ?)`, uuid.NewString(), first.ID, string(message.User), 200, 200)
+	require.NoError(t, err)
+
+	grown := imported
+	grown.Messages = append(append([]Message(nil), imported.Messages...),
+		Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "new source turn"}, finish()}, CreatedAt: 102},
+	)
+	second, err := Import(context.Background(), database, grown)
+	require.NoError(t, err)
+	require.True(t, second.Modified)
+	require.True(t, second.AlreadyExist)
+	require.Equal(t, 0, second.Imported)
+
+	var count int
+	require.NoError(t, database.QueryRow("SELECT COUNT(*) FROM messages WHERE session_id = ?", first.ID).Scan(&count))
+	require.Equal(t, 3, count)
+}
+
+func TestImportDoesNotRepopulateClearedSession(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Cleanup(db.ResetPool)
+	database, err := db.Connect(context.Background(), dataDir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Release(dataDir)) })
+
+	imported := Session{
+		Source:   SourcePi,
+		SourceID: "pi-cleared",
+		Title:    "Cleared",
+		Messages: []Message{
+			{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "hello"}, finish()}, CreatedAt: 100},
+			{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "hi"}, finish()}, CreatedAt: 101},
+		},
+	}
+	first, err := Import(context.Background(), database, imported)
+	require.NoError(t, err)
+
+	// User deletes every imported message but keeps the session.
+	_, err = database.Exec("DELETE FROM messages WHERE session_id = ?", first.ID)
+	require.NoError(t, err)
+
+	second, err := Import(context.Background(), database, imported)
+	require.NoError(t, err)
+	require.True(t, second.Modified)
+	require.Equal(t, 0, second.Imported)
+
+	var count int
+	require.NoError(t, database.QueryRow("SELECT COUNT(*) FROM messages WHERE session_id = ?", first.ID).Scan(&count))
+	require.Equal(t, 0, count)
 }
 
 func writeFixture(t *testing.T, name, content string) string {

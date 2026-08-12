@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -17,16 +16,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/klauspost/compress/zstd"
 	"github.com/taigrr/crush/internal/message"
-)
-
-type Source string
-
-const (
-	SourceAuto   Source = "auto"
-	SourceClaude Source = "claude"
-	SourceCodex  Source = "codex"
-	SourceGrok   Source = "grok"
-	SourcePi     Source = "pi"
 )
 
 type Session struct {
@@ -49,13 +38,24 @@ type Message struct {
 }
 
 type Result struct {
-	ID           string   `json:"id"`
-	Source       Source   `json:"source"`
-	SourceID     string   `json:"source_id"`
-	Title        string   `json:"title"`
-	Messages     int      `json:"messages"`
-	Warnings     []string `json:"warnings,omitempty"`
-	AlreadyExist bool     `json:"already_exists,omitempty"`
+	ID       string `json:"id"`
+	Source   Source `json:"source"`
+	SourceID string `json:"source_id"`
+	Title    string `json:"title"`
+	// Messages is the number of messages in the source transcript.
+	Messages int `json:"messages"`
+	// Imported is the number of messages newly written on this call
+	// (the whole transcript on first import, only new tail messages on
+	// a re-sync, zero when nothing changed).
+	Imported int      `json:"imported"`
+	Warnings []string `json:"warnings,omitempty"`
+	// AlreadyExist is true when the session was already present and no
+	// new messages were written.
+	AlreadyExist bool `json:"already_exists,omitempty"`
+	// Modified is true when the session exists but has diverged from
+	// the imported transcript (e.g. the user continued it inside
+	// Crush), so it was left untouched to avoid clobbering local work.
+	Modified bool `json:"modified,omitempty"`
 }
 
 type rawRecord map[string]any
@@ -83,31 +83,6 @@ type rawBlock struct {
 	IsError    bool            `json:"is_error"`
 }
 
-func Parse(path string, source Source) (Session, error) {
-	resolved, err := filepath.Abs(path)
-	if err != nil {
-		return Session{}, err
-	}
-	if source == SourceAuto {
-		source, resolved, err = detectSource(resolved)
-		if err != nil {
-			return Session{}, err
-		}
-	}
-	switch source {
-	case SourceClaude:
-		return parseClaude(resolved)
-	case SourceCodex:
-		return parseCodex(resolved)
-	case SourceGrok:
-		return parseGrok(resolved)
-	case SourcePi:
-		return parsePi(resolved)
-	default:
-		return Session{}, fmt.Errorf("unsupported session source %q", source)
-	}
-}
-
 func Import(ctx context.Context, database *sql.DB, imported Session) (Result, error) {
 	if imported.SourceID == "" {
 		return Result{}, errors.New("session has no source ID")
@@ -115,7 +90,7 @@ func Import(ctx context.Context, database *sql.DB, imported Session) (Result, er
 	if len(imported.Messages) == 0 {
 		return Result{}, errors.New("session has no importable messages")
 	}
-	id := uuid.NewSHA1(uuid.NameSpaceURL, []byte("crush-session-import:"+string(imported.Source)+":"+imported.SourceID)).String()
+	id := importedSessionID(imported.Source, imported.SourceID)
 	result := Result{
 		ID:       id,
 		Source:   imported.Source,
@@ -124,12 +99,45 @@ func Import(ctx context.Context, database *sql.DB, imported Session) (Result, er
 		Messages: len(imported.Messages),
 		Warnings: imported.Warnings,
 	}
-	var exists int
-	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE id = ?", id).Scan(&exists); err != nil {
-		return Result{}, fmt.Errorf("checking imported session: %w", err)
+
+	existingIDs, lastTimestamp, exists, err := existingImportState(ctx, database, id)
+	if err != nil {
+		return Result{}, err
 	}
-	if exists > 0 {
-		result.AlreadyExist = true
+
+	// Re-import is idempotent and consistent: the session ID and each
+	// message ID are derived deterministically from the source, so a
+	// second import of the same transcript reuses the same rows. On
+	// re-import we only append messages the source has gained since
+	// last time. If the session has diverged from what we imported —
+	// the user continued it inside Crush, so it contains messages we
+	// did not write, or deleted the imported ones — we leave it
+	// untouched rather than clobber local work.
+	//
+	// Divergence is inferred purely from message IDs: imported rows use
+	// deterministic IDs while Crush-authored rows use random ones, and
+	// an existing session with no imported rows means the user cleared
+	// it. The one case this cannot detect is deleting a strict tail of
+	// imported messages without adding anything: the remainder is still
+	// a valid prefix, so a later source-side growth would re-add the
+	// deleted tail. That is an accepted limitation.
+	if exists {
+		startIndex := len(existingIDs)
+		if startIndex == 0 || !isImportedPrefix(id, existingIDs) {
+			result.AlreadyExist = true
+			result.Modified = true
+			result.Warnings = append(result.Warnings, "session was modified in Crush since import; skipped to avoid overwriting")
+			return result, nil
+		}
+		if startIndex >= len(imported.Messages) {
+			result.AlreadyExist = true
+			return result, nil
+		}
+		inserted, err := appendMessages(ctx, database, id, imported, startIndex, lastTimestamp)
+		if err != nil {
+			return Result{}, err
+		}
+		result.Imported = inserted
 		return result, nil
 	}
 
@@ -143,10 +151,7 @@ func Import(ctx context.Context, database *sql.DB, imported Session) (Result, er
 	if createdAt == 0 {
 		createdAt = time.Now().Unix()
 	}
-	updatedAt := imported.UpdatedAt
-	if updatedAt < createdAt {
-		updatedAt = createdAt
-	}
+	updatedAt := max(imported.UpdatedAt, createdAt)
 	title := strings.TrimSpace(imported.Title)
 	if title == "" {
 		title = "Imported " + string(imported.Source) + " session"
@@ -158,335 +163,145 @@ func Import(ctx context.Context, database *sql.DB, imported Session) (Result, er
 		return Result{}, fmt.Errorf("creating imported session: %w", err)
 	}
 
-	lastTimestamp := createdAt - 1
+	lastInsertTimestamp := createdAt - 1
 	for index, importedMessage := range imported.Messages {
-		parts, err := message.MarshalParts(importedMessage.Parts)
+		lastInsertTimestamp, err = insertMessage(ctx, tx, id, index, importedMessage, lastInsertTimestamp)
 		if err != nil {
-			return Result{}, fmt.Errorf("encoding message %d: %w", index+1, err)
-		}
-		timestamp := importedMessage.CreatedAt
-		if timestamp <= lastTimestamp {
-			timestamp = lastTimestamp + 1
-		}
-		lastTimestamp = timestamp
-		messageID := uuid.NewSHA1(uuid.NameSpaceURL, []byte(fmt.Sprintf("%s:%d", id, index))).String()
-		_, err = tx.ExecContext(ctx, `INSERT INTO messages
-			(id, session_id, role, parts, model, provider, is_summary_message, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`, messageID, id, importedMessage.Role, string(parts), nullableString(importedMessage.Model), nullableString(importedMessage.Provider), timestamp, timestamp)
-		if err != nil {
-			return Result{}, fmt.Errorf("creating imported message %d: %w", index+1, err)
+			return Result{}, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = ?, created_at = ? WHERE id = ?", max(updatedAt, lastTimestamp), createdAt, id); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = ?, created_at = ? WHERE id = ?", max(updatedAt, lastInsertTimestamp), createdAt, id); err != nil {
 		return Result{}, fmt.Errorf("dating imported session: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return Result{}, fmt.Errorf("committing import: %w", err)
 	}
+	result.Imported = len(imported.Messages)
 	return result, nil
 }
 
-func detectSource(path string) (Source, string, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", "", err
-	}
-	if info.IsDir() {
-		if fileExists(filepath.Join(path, "summary.json")) && (fileExists(filepath.Join(path, "updates.jsonl")) || fileExists(filepath.Join(path, "chat_history.jsonl"))) {
-			return SourceGrok, path, nil
-		}
-		return "", "", fmt.Errorf("cannot detect session format from directory %s", path)
-	}
-	records, _, err := readJSONL(path)
-	if err != nil {
-		return "", "", err
-	}
-	if len(records) == 0 {
-		return "", "", fmt.Errorf("session file %s is empty", path)
-	}
-	first := records[0]
-	if first["type"] == "session" && number(first["version"]) > 0 {
-		return SourcePi, path, nil
-	}
-	if first["type"] == "session_meta" || first["type"] == "turn_context" {
-		return SourceCodex, path, nil
-	}
-	if _, ok := first["sessionId"]; ok {
-		return SourceClaude, path, nil
-	}
-	if _, ok := first["uuid"]; ok {
-		return SourceClaude, path, nil
-	}
-	if first["type"] == "system" || first["type"] == "user" || first["type"] == "assistant" {
-		return SourceGrok, path, nil
-	}
-	return "", "", fmt.Errorf("cannot detect session format from %s", path)
+// importedSessionID derives the deterministic Crush session ID for a
+// source transcript so repeated imports map to the same session.
+func importedSessionID(source Source, sourceID string) string {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("crush-session-import:"+string(source)+":"+sourceID)).String()
 }
 
-func parseClaude(path string) (Session, error) {
-	records, malformed, err := readJSONL(path)
-	if err != nil {
-		return Session{}, err
+// importedMessageID derives the deterministic message ID for the
+// index-th message of an imported session. Messages Crush authors
+// itself use random UUIDs, so this scheme also distinguishes imported
+// rows from local ones.
+func importedMessageID(sessionID string, index int) string {
+	return uuid.NewSHA1(uuid.NameSpaceURL, fmt.Appendf(nil, "%s:%d", sessionID, index)).String()
+}
+
+// existingImportState reports the current message IDs (ordered by
+// creation), the latest message timestamp, and whether the session
+// exists. The ordering matches the insert order because insertMessage
+// forces strictly-increasing created_at values, which is what lets
+// isImportedPrefix line up each row with its deterministic index.
+func existingImportState(ctx context.Context, database *sql.DB, id string) (ids []string, lastTimestamp int64, exists bool, err error) {
+	var count int
+	if err := database.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE id = ?", id).Scan(&count); err != nil {
+		return nil, 0, false, fmt.Errorf("checking imported session: %w", err)
 	}
-	byID := make(map[string]rawRecord)
+	if count == 0 {
+		return nil, 0, false, nil
+	}
+	rows, err := database.QueryContext(ctx, "SELECT id, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC, id ASC", id)
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("reading imported messages: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var messageID string
+		var createdAt int64
+		if err := rows.Scan(&messageID, &createdAt); err != nil {
+			return nil, 0, false, fmt.Errorf("reading imported messages: %w", err)
+		}
+		ids = append(ids, messageID)
+		if createdAt > lastTimestamp {
+			lastTimestamp = createdAt
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, false, fmt.Errorf("reading imported messages: %w", err)
+	}
+	return ids, lastTimestamp, true, nil
+}
+
+// isImportedPrefix reports whether the existing message IDs are exactly
+// the deterministic imported IDs for indices 0..len(ids)-1, in order.
+// Any deviation means the session was touched outside the importer.
+func isImportedPrefix(sessionID string, ids []string) bool {
+	for index, messageID := range ids {
+		if messageID != importedMessageID(sessionID, index) {
+			return false
+		}
+	}
+	return true
+}
+
+// appendMessages writes imported messages from startIndex onward in a
+// single transaction and returns the number inserted. It advances the
+// session's updated_at so re-synced sessions surface as recently
+// active (the message-insert trigger only maintains message_count).
+func appendMessages(ctx context.Context, database *sql.DB, id string, imported Session, startIndex int, lastTimestamp int64) (int, error) {
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("starting re-sync: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	for index := startIndex; index < len(imported.Messages); index++ {
+		lastTimestamp, err = insertMessage(ctx, tx, id, index, imported.Messages[index], lastTimestamp)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = ? WHERE id = ?", max(imported.UpdatedAt, lastTimestamp), id); err != nil {
+		return 0, fmt.Errorf("dating imported session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("committing re-sync: %w", err)
+	}
+	return len(imported.Messages) - startIndex, nil
+}
+
+// insertMessage writes a single imported message with a monotonic
+// timestamp and returns the timestamp used.
+func insertMessage(ctx context.Context, tx *sql.Tx, id string, index int, importedMessage Message, lastTimestamp int64) (int64, error) {
+	parts, err := message.MarshalParts(importedMessage.Parts)
+	if err != nil {
+		return 0, fmt.Errorf("encoding message %d: %w", index+1, err)
+	}
+	timestamp := importedMessage.CreatedAt
+	if timestamp <= lastTimestamp {
+		timestamp = lastTimestamp + 1
+	}
+	messageID := importedMessageID(id, index)
+	_, err = tx.ExecContext(ctx, `INSERT INTO messages
+		(id, session_id, role, parts, model, provider, is_summary_message, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`, messageID, id, importedMessage.Role, string(parts), nullableString(importedMessage.Model), nullableString(importedMessage.Provider), timestamp, timestamp)
+	if err != nil {
+		return 0, fmt.Errorf("creating imported message %d: %w", index+1, err)
+	}
+	return timestamp, nil
+}
+
+func latestLeafChain(records []rawRecord, idKey, parentKey string) ([]rawRecord, error) {
+	byID := make(map[string]rawRecord, len(records))
 	children := make(map[string]int)
 	for _, record := range records {
-		id := text(record["uuid"])
-		if id == "" || boolValue(record["isSidechain"]) {
-			continue
-		}
-		kind := text(record["type"])
-		if kind != "user" && kind != "assistant" {
-			continue
-		}
-		byID[id] = record
-		if parent := text(record["parentUuid"]); parent != "" {
-			children[parent]++
-		}
-	}
-	var leaf rawRecord
-	for id, record := range byID {
-		if children[id] == 0 && (leaf == nil || parseTime(text(record["timestamp"])) > parseTime(text(leaf["timestamp"]))) {
-			leaf = record
-		}
-	}
-	chain := make([]rawRecord, 0, len(byID))
-	seen := make(map[string]bool)
-	for leaf != nil {
-		id := text(leaf["uuid"])
-		if seen[id] {
-			return Session{}, errors.New("Claude session contains a parent cycle")
-		}
-		seen[id] = true
-		chain = append(chain, leaf)
-		leaf = byID[text(leaf["parentUuid"])]
-	}
-	slices.Reverse(chain)
-	imported := Session{Source: SourceClaude, SourceID: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))}
-	if malformed > 0 {
-		imported.Warnings = append(imported.Warnings, fmt.Sprintf("skipped %d malformed record(s)", malformed))
-	}
-	for _, record := range chain {
-		if imported.WorkingDir == "" {
-			imported.WorkingDir = text(record["cwd"])
-		}
-		if record["type"] == "user" && !isClaudeHumanPrompt(record) {
-			continue
-		}
-		timestamp := parseTime(text(record["timestamp"]))
-		msg, ok := decodeForeignMessage(record["message"], timestamp)
-		if !ok {
-			continue
-		}
-		imported.Messages = append(imported.Messages, msg)
-	}
-	setSessionMetadata(&imported)
-	imported.Title = claudeTitle(records, imported.Messages)
-	return imported, nil
-}
-
-func parseCodex(path string) (Session, error) {
-	records, malformed, err := readJSONL(path)
-	if err != nil {
-		return Session{}, err
-	}
-	imported := Session{Source: SourceCodex}
-	if malformed > 0 {
-		imported.Warnings = append(imported.Warnings, fmt.Sprintf("skipped %d malformed record(s)", malformed))
-	}
-	start := 0
-	var base []any
-	for index, record := range records {
-		payload := object(record["payload"])
-		if record["type"] == "session_meta" && imported.SourceID == "" {
-			imported.SourceID = text(payload["id"])
-			imported.WorkingDir = text(payload["cwd"])
-		}
-		if record["type"] == "compacted" {
-			if replacement, ok := payload["replacement_history"].([]any); ok {
-				base = replacement
-				start = index + 1
-			}
-		}
-	}
-	for _, item := range base {
-		appendCodexItem(&imported, object(item), 0)
-	}
-	for _, record := range records[start:] {
-		payload := object(record["payload"])
-		switch record["type"] {
-		case "response_item":
-			if payload["type"] == "message" && payload["role"] == "user" && !isCodexHumanPrompt(payload) {
-				continue
-			}
-			appendCodexItem(&imported, payload, parseTime(text(record["timestamp"])))
-		case "event_msg":
-			if payload["type"] == "thread_rolled_back" {
-				dropUserTurns(&imported.Messages, int(number(payload["num_turns"])))
-			}
-		}
-	}
-	if imported.SourceID == "" {
-		imported.SourceID = codexIDFromPath(path)
-	}
-	setSessionMetadata(&imported)
-	imported.Title = firstUserText(imported.Messages)
-	return imported, nil
-}
-
-func parseGrok(path string) (Session, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return Session{}, err
-	}
-	directory := filepath.Dir(path)
-	updates := false
-	if info.IsDir() {
-		directory = path
-		if fileExists(filepath.Join(path, "updates.jsonl")) {
-			path = filepath.Join(path, "updates.jsonl")
-			updates = true
-		} else {
-			path = filepath.Join(path, "chat_history.jsonl")
-		}
-	} else if filepath.Base(path) == "updates.jsonl" {
-		updates = true
-	}
-	records, malformed, err := readJSONL(path)
-	if err != nil {
-		return Session{}, err
-	}
-	imported := Session{Source: SourceGrok, SourceID: filepath.Base(directory)}
-	if malformed > 0 {
-		imported.Warnings = append(imported.Warnings, fmt.Sprintf("skipped %d malformed record(s)", malformed))
-	}
-	if updates {
-		parseGrokUpdates(&imported, records)
-	} else {
-		for _, record := range records {
-			role := text(record["type"])
-			if role == "tool_result" {
-				role = "tool"
-			}
-			if role != "user" && role != "assistant" && role != "tool" {
-				continue
-			}
-			msg, ok := decodeForeignMessage(rawRecord{"role": role, "content": record["content"]}, 0)
-			if ok {
-				imported.Messages = append(imported.Messages, msg)
-			}
-		}
-	}
-	summaryPath := filepath.Join(directory, "summary.json")
-	if data, err := os.ReadFile(summaryPath); err == nil {
-		var summary rawRecord
-		if json.Unmarshal(data, &summary) == nil {
-			info := object(summary["info"])
-			if id := text(info["id"]); id != "" {
-				imported.SourceID = id
-			}
-			imported.WorkingDir = text(info["cwd"])
-			imported.CreatedAt = parseTime(text(summary["created_at"]))
-			imported.UpdatedAt = parseTime(text(summary["updated_at"]))
-			imported.Title = text(summary["session_summary"])
-		}
-	}
-	setSessionMetadata(&imported)
-	if imported.Title == "" {
-		imported.Title = firstUserText(imported.Messages)
-	}
-	return imported, nil
-}
-
-func parseGrokUpdates(imported *Session, records []rawRecord) {
-	toolCalls := make(map[string]message.ToolCall)
-	for _, record := range records {
-		params := object(record["params"])
-		update := object(params["update"])
-		timestamp := int64(number(record["timestamp"]))
-		switch text(update["sessionUpdate"]) {
-		case "user_message_chunk", "agent_message_chunk":
-			content := object(update["content"])
-			if content["type"] != "text" {
-				continue
-			}
-			role := message.User
-			if update["sessionUpdate"] == "agent_message_chunk" {
-				role = message.Assistant
-			}
-			parts := filterSafeParts([]message.ContentPart{message.TextContent{Text: text(content["text"])}})
-			if len(parts) == 0 {
-				continue
-			}
-			model := text(object(update["_meta"])["modelId"])
-			imported.Messages = append(imported.Messages, Message{Role: role, Parts: append(parts, finish()), Model: model, Provider: "xai", CreatedAt: timestamp})
-		case "tool_call_update":
-			id := text(update["toolCallId"])
-			status := text(update["status"])
-			if _, exists := toolCalls[id]; !exists {
-				call := message.ToolCall{ID: id, Name: text(update["kind"]), Input: jsonText(update["rawInput"]), Finished: status != "in_progress"}
-				toolCalls[id] = call
-				imported.Messages = append(imported.Messages, Message{Role: message.Assistant, Parts: []message.ContentPart{call, message.Finish{Reason: message.FinishReasonToolUse}}, Provider: "xai", CreatedAt: timestamp})
-			}
-			if status != "completed" && status != "failed" {
-				continue
-			}
-			content := grokToolContent(update["content"])
-			if content == "" {
-				content = jsonText(update["rawOutput"])
-			}
-			imported.Messages = append(imported.Messages, Message{Role: message.Tool, Parts: []message.ContentPart{message.ToolResult{ToolCallID: id, Name: toolCalls[id].Name, Content: content, IsError: status == "failed"}, finish()}, Provider: "xai", CreatedAt: timestamp})
-		}
-	}
-}
-
-func grokToolContent(value any) string {
-	items, ok := value.([]any)
-	if !ok {
-		return ""
-	}
-	var texts []string
-	for _, item := range items {
-		outer := object(item)
-		content := object(outer["content"])
-		if content["type"] == "text" && text(content["text"]) != "" {
-			texts = append(texts, text(content["text"]))
-		}
-	}
-	return strings.Join(texts, "\n")
-}
-
-func parsePi(path string) (Session, error) {
-	records, malformed, err := readJSONL(path)
-	if err != nil {
-		return Session{}, err
-	}
-	if len(records) == 0 || records[0]["type"] != "session" {
-		return Session{}, errors.New("invalid Pi session header")
-	}
-	header := records[0]
-	imported := Session{
-		Source:     SourcePi,
-		SourceID:   text(header["id"]),
-		WorkingDir: text(header["cwd"]),
-		CreatedAt:  parseTime(text(header["timestamp"])),
-	}
-	if malformed > 0 {
-		imported.Warnings = append(imported.Warnings, fmt.Sprintf("skipped %d malformed record(s)", malformed))
-	}
-	byID := make(map[string]rawRecord)
-	children := make(map[string]int)
-	var leaf rawRecord
-	for _, record := range records[1:] {
-		id := text(record["id"])
+		id := text(record[idKey])
 		if id == "" {
 			continue
 		}
 		byID[id] = record
-		if parent := text(record["parentId"]); parent != "" {
+		if parent := text(record[parentKey]); parent != "" {
 			children[parent]++
 		}
 	}
+	var leaf rawRecord
 	for id, record := range byID {
 		if children[id] == 0 && (leaf == nil || parseTime(text(record["timestamp"])) > parseTime(text(leaf["timestamp"]))) {
 			leaf = record
@@ -495,75 +310,16 @@ func parsePi(path string) (Session, error) {
 	chain := make([]rawRecord, 0, len(byID))
 	seen := make(map[string]bool)
 	for leaf != nil {
-		id := text(leaf["id"])
+		id := text(leaf[idKey])
 		if seen[id] {
-			return Session{}, errors.New("Pi session contains a parent cycle")
+			return nil, errors.New("session contains a parent cycle")
 		}
 		seen[id] = true
 		chain = append(chain, leaf)
-		leaf = byID[text(leaf["parentId"])]
+		leaf = byID[text(leaf[parentKey])]
 	}
 	slices.Reverse(chain)
-	model, provider := "", ""
-	for _, record := range chain {
-		switch record["type"] {
-		case "model_change":
-			model, provider = text(record["modelId"]), text(record["provider"])
-		case "message":
-			msg, ok := decodeForeignMessage(record["message"], parseTime(text(record["timestamp"])))
-			if ok {
-				if msg.Model == "" {
-					msg.Model, msg.Provider = model, provider
-				}
-				imported.Messages = append(imported.Messages, msg)
-			}
-		case "session_info":
-			if imported.Title == "" {
-				imported.Title = text(record["name"])
-			}
-		}
-	}
-	setSessionMetadata(&imported)
-	if imported.Title == "" {
-		imported.Title = firstUserText(imported.Messages)
-	}
-	return imported, nil
-}
-
-func appendCodexItem(imported *Session, item rawRecord, timestamp int64) {
-	switch text(item["type"]) {
-	case "message":
-		role := text(item["role"])
-		if role != "user" && role != "assistant" {
-			return
-		}
-		parts := decodeBlocks(item["content"])
-		parts = filterSafeParts(parts)
-		if len(parts) > 0 {
-			imported.Messages = append(imported.Messages, Message{Role: message.MessageRole(role), Parts: append(parts, finish()), CreatedAt: timestamp})
-		}
-	case "function_call", "custom_tool_call", "local_shell_call":
-		name := text(item["name"])
-		if name == "" && item["type"] == "local_shell_call" {
-			name = "local_shell"
-		}
-		input := item["arguments"]
-		if input == nil {
-			input = item["input"]
-		}
-		if input == nil {
-			input = item["action"]
-		}
-		imported.Messages = append(imported.Messages, Message{Role: message.Assistant, CreatedAt: timestamp, Parts: []message.ContentPart{
-			message.ToolCall{ID: firstNonEmpty(text(item["call_id"]), text(item["id"])), Name: name, Input: jsonText(input), Finished: true},
-			message.Finish{Reason: message.FinishReasonToolUse},
-		}})
-	case "function_call_output", "custom_tool_call_output":
-		imported.Messages = append(imported.Messages, Message{Role: message.Tool, CreatedAt: timestamp, Parts: []message.ContentPart{
-			message.ToolResult{ToolCallID: firstNonEmpty(text(item["call_id"]), text(item["id"])), Content: jsonText(item["output"]), IsError: item["success"] == false},
-			finish(),
-		}})
-	}
+	return chain, nil
 }
 
 func decodeForeignMessage(value any, timestamp int64) (Message, bool) {
@@ -648,27 +404,6 @@ func filterSafeParts(parts []message.ContentPart) []message.ContentPart {
 		filtered = append(filtered, part)
 	}
 	return filtered
-}
-
-func isClaudeHumanPrompt(record rawRecord) bool {
-	if boolValue(record["isMeta"]) {
-		return false
-	}
-	origin := object(record["origin"])
-	originKind := text(origin["kind"])
-	promptSource := text(record["promptSource"])
-	if originKind != "" || promptSource != "" {
-		return originKind == "human" || promptSource == "typed"
-	}
-	return !isGeneratedMessage(record["message"])
-}
-
-func isCodexHumanPrompt(payload rawRecord) bool {
-	metadata := object(payload["internal_chat_message_metadata_passthrough"])
-	if text(metadata["turn_id"]) != "" {
-		return true
-	}
-	return !isGeneratedContent(payload["content"])
 }
 
 func isGeneratedMessage(value any) bool {
@@ -758,21 +493,6 @@ func setSessionMetadata(imported *Session) {
 	}
 }
 
-func claudeTitle(records []rawRecord, messages []Message) string {
-	for _, kind := range []string{"custom-title", "ai-title", "summary"} {
-		for index := len(records) - 1; index >= 0; index-- {
-			if records[index]["type"] == kind {
-				for _, key := range []string{"customTitle", "title", "summary"} {
-					if value := text(records[index][key]); value != "" {
-						return value
-					}
-				}
-			}
-		}
-	}
-	return firstUserText(messages)
-}
-
 func firstUserText(messages []Message) string {
 	for _, msg := range messages {
 		if msg.Role != message.User {
@@ -803,15 +523,6 @@ func dropUserTurns(messages *[]Message, count int) {
 	}
 	cut := positions[max(0, len(positions)-count)]
 	*messages = (*messages)[:cut]
-}
-
-func codexIDFromPath(path string) string {
-	base := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".zst"), ".jsonl")
-	parts := strings.Split(base, "-")
-	if len(parts) >= 8 {
-		return strings.Join(parts[len(parts)-5:], "-")
-	}
-	return base
 }
 
 func contentTextRaw(data json.RawMessage) string {
@@ -911,7 +622,11 @@ func truncate(value string, limit int) string {
 	if len(value) <= limit {
 		return value
 	}
-	return value[:limit] + "…"
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit]) + "…"
 }
 
 func fileExists(path string) bool {
