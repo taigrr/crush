@@ -184,7 +184,7 @@ func (s *service) createMessage(ctx context.Context, sessionID string, params Cr
 			Reason: "stop",
 		})
 	}
-	partsJSON, err := marshalParts(params.Parts)
+	partsJSON, err := MarshalParts(params.Parts)
 	if err != nil {
 		return Message{}, err
 	}
@@ -403,7 +403,7 @@ func (s *service) flushOne(ctx context.Context, id string, syncCaller bool) erro
 // write performs the unguarded SQL write + UpdatedAt stamp. Caller
 // owns publishing.
 func (s *service) write(ctx context.Context, msg Message) error {
-	parts, err := marshalParts(msg.Parts)
+	parts, err := MarshalParts(msg.Parts)
 	if err != nil {
 		return err
 	}
@@ -526,7 +526,7 @@ func (s *service) ListAllMessages(ctx context.Context) ([]Message, error) {
 }
 
 func (s *service) fromDBItem(item db.Message) (Message, error) {
-	parts, err := unmarshalParts([]byte(item.Parts))
+	parts, err := UnmarshalParts([]byte(item.Parts))
 	if err != nil {
 		return Message{}, err
 	}
@@ -561,7 +561,7 @@ type partWrapper struct {
 	Data ContentPart `json:"data"`
 }
 
-func marshalParts(parts []ContentPart) ([]byte, error) {
+func MarshalParts(parts []ContentPart) ([]byte, error) {
 	wrappedParts := make([]partWrapper, len(parts))
 
 	for i, part := range parts {
@@ -596,7 +596,7 @@ func marshalParts(parts []ContentPart) ([]byte, error) {
 	return json.Marshal(wrappedParts)
 }
 
-func unmarshalParts(data []byte) ([]ContentPart, error) {
+func UnmarshalParts(data []byte) ([]ContentPart, error) {
 	temp := []json.RawMessage{}
 
 	if err := json.Unmarshal(data, &temp); err != nil {
