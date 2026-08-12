@@ -78,21 +78,11 @@ func (b *Backend) withWorkspaceSession(ctx context.Context, workspaceID, root st
 
 	// Detached: resolve the workspace's data directory from the registry
 	// by root and open its database read-write for a one-shot write.
-	if root == "" || b.registry == nil {
-		return ErrWorkspaceNotFound
-	}
-	entries, err := b.registry.List()
+	dataDir, found, err := b.registryDataDirForRoot(root)
 	if err != nil {
 		return err
 	}
-	var dataDir string
-	for _, e := range entries {
-		if e.Root == root {
-			dataDir = e.DataDir
-			break
-		}
-	}
-	if dataDir == "" {
+	if !found {
 		return ErrWorkspaceNotFound
 	}
 
@@ -107,6 +97,28 @@ func (b *Backend) withWorkspaceSession(ctx context.Context, workspaceID, root st
 
 	svc := session.NewService(db.New(conn), conn)
 	return fn(nil, svc)
+}
+
+// registryDataDirForRoot resolves a workspace root to its on-disk data
+// directory via the registry, for one-shot detached opens (read-only
+// preview, writable archive/mark-read). found is false with a nil error
+// when the registry is unset or simply has no entry for root; a non-nil
+// error means the registry listing itself failed and the caller should
+// surface it rather than treat root as unknown.
+func (b *Backend) registryDataDirForRoot(root string) (dataDir string, found bool, err error) {
+	if root == "" || b.registry == nil {
+		return "", false, nil
+	}
+	entries, err := b.registry.List()
+	if err != nil {
+		return "", false, err
+	}
+	for _, e := range entries {
+		if e.Root == root {
+			return e.DataDir, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 // attachedByRoot returns the in-process workspace whose resolved path

@@ -49,30 +49,24 @@ func (b *Backend) PeekSessionMessages(ctx context.Context, root, sessionID strin
 		return ws.Messages.List(ctx, sessionID)
 	}
 
-	if b.registry == nil {
-		return nil, ErrPreviewWorkspaceNotFound
-	}
-	entries, err := b.registry.List()
+	dataDir, found, err := b.registryDataDirForRoot(root)
 	if err != nil {
 		return nil, fmt.Errorf("preview: failed to list registry: %w", err)
 	}
-	for _, e := range entries {
-		if e.Root != root {
-			continue
-		}
-		conn, err := db.OpenReadOnly(e.DataDir)
-		if err != nil {
-			return nil, fmt.Errorf("preview: %w", err)
-		}
-		if conn == nil {
-			// No database yet: an uninitialized/empty workspace has no
-			// messages to preview.
-			return nil, nil
-		}
-		defer conn.Close()
-		queries := db.New(conn)
-		messages := message.NewService(queries)
-		return messages.List(ctx, sessionID)
+	if !found {
+		return nil, ErrPreviewWorkspaceNotFound
 	}
-	return nil, ErrPreviewWorkspaceNotFound
+	conn, err := db.OpenReadOnly(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("preview: %w", err)
+	}
+	if conn == nil {
+		// No database yet: an uninitialized/empty workspace has no
+		// messages to preview.
+		return nil, nil
+	}
+	defer conn.Close()
+	queries := db.New(conn)
+	messages := message.NewService(queries)
+	return messages.List(ctx, sessionID)
 }

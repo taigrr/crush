@@ -837,10 +837,24 @@ func (b *Backend) SetCurrentSession(workspaceID, clientID, sessionID string) err
 	cwd := cs.cwd
 	ws.clientsMu.Unlock()
 
+	b.onSessionFocused(ws, clientID, sessionID, cwd)
+	return nil
+}
+
+// onSessionFocused runs the best-effort side effects that follow a
+// successful SetCurrentSession presence write. None of them can fail
+// the write: mark-seen and republish are advisory, and worktree sync
+// runs on its own goroutine. Split out of SetCurrentSession so the
+// write path stays a straight line of guards.
+func (b *Backend) onSessionFocused(ws *Workspace, clientID, sessionID, cwd string) {
+	if sessionID == "" || ws.App == nil {
+		return
+	}
+
 	// Mark the session seen: opening it clears its unread state (it has
 	// no completed work the viewer has not now seen). Best-effort; a
 	// failure must not prevent the presence write.
-	if sessionID != "" && ws.App != nil && ws.Sessions != nil {
+	if ws.Sessions != nil {
 		if err := ws.Sessions.MarkSeen(context.Background(), sessionID); err != nil {
 			slog.Debug("Failed to mark session seen", "session_id", sessionID, "error", err)
 		}
@@ -853,13 +867,11 @@ func (b *Backend) SetCurrentSession(workspaceID, clientID, sessionID string) err
 	// re-emits the request on the workspace event stream, which the
 	// now-attached client receives and, because it is the current
 	// session, opens.
-	if sessionID != "" && ws.App != nil {
-		if ws.Permissions != nil {
-			ws.Permissions.RepublishPending(sessionID)
-		}
-		if ws.Questions != nil {
-			ws.Questions.RepublishPending(sessionID)
-		}
+	if ws.Permissions != nil {
+		ws.Permissions.RepublishPending(sessionID)
+	}
+	if ws.Questions != nil {
+		ws.Questions.RepublishPending(sessionID)
 	}
 
 	// Best-effort: if the client's cwd lies inside a managed
@@ -868,10 +880,9 @@ func (b *Backend) SetCurrentSession(workspaceID, clientID, sessionID string) err
 	// explicit `/worktree switch`. Failures here never prevent the
 	// SetCurrentSession write from succeeding; they're advisory and
 	// surface as debug logs only.
-	if sessionID != "" && cwd != "" && ws.Worktrees != nil && ws.Worktrees.IsEnabled() {
+	if cwd != "" && ws.Worktrees != nil && ws.Worktrees.IsEnabled() {
 		go b.maybeSyncSessionWorktree(ws, clientID, sessionID, cwd)
 	}
-	return nil
 }
 
 // maybeSyncSessionWorktree looks up the managed worktree (if any)
