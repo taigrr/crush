@@ -89,6 +89,75 @@ func TestParsePiFollowsLatestBranchAndTracksModel(t *testing.T) {
 	require.Equal(t, "hello", imported.Title)
 }
 
+func TestDiscoverSkipsGeneratedTitles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	claudeRoot := filepath.Join(home, ".claude", "projects", "project")
+	require.NoError(t, os.MkdirAll(claudeRoot, 0o755))
+	claude := `{"type":"user","isMeta":true,"uuid":"meta","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"<local-command-caveat>Caveat: generated</local-command-caveat>"}}` + "\n" +
+		`{"type":"user","uuid":"command","parentUuid":"meta","cwd":"/repo","timestamp":"2026-01-01T00:00:01Z","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>"}}` + "\n" +
+		`{"type":"user","uuid":"user","parentUuid":"command","cwd":"/repo","timestamp":"2026-01-01T00:00:02Z","origin":{"kind":"human"},"promptSource":"typed","message":{"role":"user","content":"Actual Claude prompt"}}` + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(claudeRoot, "claude-id.jsonl"), []byte(claude), 0o600))
+
+	codexRoot := filepath.Join(home, ".codex", "sessions", "2026", "01", "01")
+	require.NoError(t, os.MkdirAll(codexRoot, 0o755))
+	codex := `{"timestamp":"2026-01-01T00:00:00Z","type":"session_meta","payload":{"id":"codex-id","cwd":"/repo"}}` + "\n" +
+		`{"timestamp":"2026-01-01T00:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>generated</INSTRUCTIONS>"}]}}` + "\n" +
+		`{"timestamp":"2026-01-01T00:00:02Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Actual Codex prompt"}],"internal_chat_message_metadata_passthrough":{"turn_id":"turn-1"}}}` + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(codexRoot, "rollout-2026-01-01T00-00-00-codex-id.jsonl"), []byte(codex), 0o600))
+
+	claudeCandidates, err := Discover(t.Context(), SourceClaude)
+	require.NoError(t, err)
+	require.Len(t, claudeCandidates, 1)
+	require.Equal(t, "Actual Claude prompt", claudeCandidates[0].Title)
+
+	codexCandidates, err := Discover(t.Context(), SourceCodex)
+	require.NoError(t, err)
+	require.Len(t, codexCandidates, 1)
+	require.Equal(t, "Actual Codex prompt", codexCandidates[0].Title)
+}
+
+func TestPromptProvenance(t *testing.T) {
+	t.Parallel()
+	require.True(t, isClaudeHumanPrompt(rawRecord{"origin": map[string]any{"kind": "human"}, "promptSource": "typed", "message": map[string]any{"content": "prompt"}}))
+	require.False(t, isClaudeHumanPrompt(rawRecord{"isMeta": true, "message": map[string]any{"content": "prompt"}}))
+	require.False(t, isClaudeHumanPrompt(rawRecord{"origin": map[string]any{"kind": "system"}, "message": map[string]any{"content": "prompt"}}))
+	require.True(t, isClaudeHumanPrompt(rawRecord{"message": map[string]any{"content": "legacy prompt"}}))
+	require.False(t, isClaudeHumanPrompt(rawRecord{"message": map[string]any{"content": "<command-name>/model</command-name>"}}))
+
+	require.True(t, isCodexHumanPrompt(rawRecord{"internal_chat_message_metadata_passthrough": map[string]any{"turn_id": "turn-1"}, "content": []any{map[string]any{"type": "input_text", "text": "prompt"}}}))
+	require.False(t, isCodexHumanPrompt(rawRecord{"content": []any{map[string]any{"type": "input_text", "text": "# AGENTS.md instructions for /repo"}}}))
+	require.True(t, isCodexHumanPrompt(rawRecord{"content": []any{map[string]any{"type": "input_text", "text": "legacy prompt"}}}))
+}
+
+func TestDiscoverFindsAndSortsSessions(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := filepath.Join(home, ".pi", "agent", "sessions", "project")
+	require.NoError(t, os.MkdirAll(root, 0o755))
+	write := func(name, timestamp, title string) {
+		t.Helper()
+		content := `{"type":"session","version":3,"id":"` + name + `","timestamp":"` + timestamp + `","cwd":"/repo"}` + "\n" +
+			`{"type":"message","id":"m-` + name + `","parentId":null,"timestamp":"` + timestamp + `","message":{"role":"user","content":[{"type":"text","text":"` + title + `"}]}}` + "\n"
+		require.NoError(t, os.WriteFile(filepath.Join(root, name+".jsonl"), []byte(content), 0o600))
+	}
+	write("older", "2026-01-01T00:00:00Z", "Older")
+	write("newer", "2026-02-01T00:00:00Z", "Newer")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "invalid.jsonl"), []byte("not json\n"), 0o600))
+
+	sources, err := Sources()
+	require.NoError(t, err)
+	require.Equal(t, []SourceInfo{{Source: SourcePi, Name: "Pi"}}, sources)
+
+	candidates, err := Discover(t.Context(), SourcePi)
+	require.NoError(t, err)
+	require.Len(t, candidates, 2)
+	require.Equal(t, "newer", candidates[0].SourceID)
+	require.Equal(t, "Newer", candidates[0].Title)
+	require.Equal(t, "older", candidates[1].SourceID)
+}
+
 func TestImportIsTransactionalAndIdempotent(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Cleanup(db.ResetPool)

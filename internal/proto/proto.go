@@ -8,6 +8,7 @@ import (
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/lsp"
+	"github.com/taigrr/crush/internal/sessionimport"
 )
 
 // Workspace represents a running app.App workspace with its associated
@@ -111,6 +112,16 @@ type ConfigChanged struct {
 type CurrentSession struct {
 	SessionID string `json:"session_id"`
 }
+
+type SessionImportRequest struct {
+	Paths []string `json:"paths"`
+}
+
+type SessionImportSources = sessionimport.SourceInfo
+
+type SessionImportCandidate = sessionimport.Candidate
+
+type SessionImportResult = sessionimport.Result
 
 // AgentInfo represents information about the agent.
 type AgentInfo struct {

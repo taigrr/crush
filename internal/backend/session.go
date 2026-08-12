@@ -7,6 +7,7 @@ import (
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/sessionimport"
 )
 
 // withWorkspaceSession resolves a workspace to a session-write path,
@@ -164,6 +165,37 @@ func (b *Backend) ListSessions(ctx context.Context, workspaceID string) ([]sessi
 	}
 
 	return ws.Sessions.List(ctx)
+}
+
+func (b *Backend) ListSessionImportSources() ([]sessionimport.SourceInfo, error) {
+	return sessionimport.Sources()
+}
+
+func (b *Backend) DiscoverSessionImports(ctx context.Context, source sessionimport.Source) ([]sessionimport.Candidate, error) {
+	return sessionimport.Discover(ctx, source)
+}
+
+func (b *Backend) ImportSessions(ctx context.Context, workspaceID string, paths []string) ([]sessionimport.Result, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if ws.App == nil || ws.App.SessionImporter == nil {
+		return nil, ErrWorkspaceNotFound
+	}
+	results := make([]sessionimport.Result, 0, len(paths))
+	for _, path := range paths {
+		imported, parseErr := sessionimport.Parse(path, sessionimport.SourceAuto)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		result, importErr := ws.App.SessionImporter(ctx, imported)
+		if importErr != nil {
+			return nil, importErr
+		}
+		results = append(results, result)
+	}
+	return results, nil
 }
 
 // GetAgentSession returns session metadata with the agent's busy

@@ -44,6 +44,7 @@ import (
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/stringext"
 	"github.com/taigrr/crush/internal/ui/anim"
@@ -166,7 +167,10 @@ type (
 	}
 
 	// closeDialogMsg is sent to close the current dialog.
-	closeDialogMsg struct{}
+	closeDialogMsg       struct{}
+	openSessionImportMsg struct {
+		sources []sessionimport.SourceInfo
+	}
 
 	// hyperRefreshDoneMsg is sent after a silent Hyper OAuth refresh
 	// finishes. It carries the original model-selection action so the
@@ -858,6 +862,12 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sendMessageMsg:
 		cmds = append(cmds, m.sendMessage(msg.Content, msg.Attachments...))
 
+	case openSessionImportMsg:
+		if len(msg.sources) == 0 {
+			cmds = append(cmds, util.ReportInfo("No supported coding-agent sessions found"))
+			break
+		}
+		m.dialog.OpenDialog(dialog.NewSessionImport(m.com, msg.sources))
 	case userCommandsLoadedMsg:
 		m.customCommands = msg.Commands
 		dia := m.dialog.Dialog(dialog.CommandsID)
@@ -2093,6 +2103,19 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	case dialog.ActionSelectSession:
 		m.dialog.CloseDialog(dialog.SessionsID)
 		cmds = append(cmds, m.loadSession(msg.Session.ID))
+	case dialog.ActionSessionImportComplete:
+		m.dialog.CloseDialog(dialog.SessionImportID)
+		imported := 0
+		alreadyExists := 0
+		for _, result := range msg.Results {
+			if result.AlreadyExist {
+				alreadyExists++
+			} else {
+				imported++
+			}
+		}
+		cmds = append(cmds, util.ReportInfo(fmt.Sprintf("Imported %d session(s); %d already existed", imported, alreadyExists)))
+		cmds = append(cmds, m.loadWorkspaceOverviews())
 	case dialog.ActionPreviewSession:
 		// Picker cursor moved: debounce a live preview (picker sessions are
 		// always current-workspace).

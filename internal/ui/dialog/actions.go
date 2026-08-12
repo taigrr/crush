@@ -16,6 +16,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/styles"
@@ -81,7 +82,10 @@ type ActionSelectModel struct {
 
 // Messages for commands
 type (
-	ActionNewSession              struct{}
+	ActionNewSession            struct{}
+	ActionSessionImportComplete struct {
+		Results []sessionimport.Result
+	}
 	ActionToggleHelp              struct{}
 	ActionToggleCompactMode       struct{}
 	ActionToggleThinking          struct{}

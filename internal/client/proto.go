@@ -854,6 +854,56 @@ func (c *Client) ListSessions(ctx context.Context, id string) ([]proto.Session, 
 	return sessions, nil
 }
 
+func (c *Client) ListSessionImportSources(ctx context.Context) ([]proto.SessionImportSources, error) {
+	rsp, err := c.get(ctx, "/session-import/sources", nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list session import sources: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to list session import sources: status code %d", rsp.StatusCode)
+	}
+	var sources []proto.SessionImportSources
+	if err := json.NewDecoder(rsp.Body).Decode(&sources); err != nil {
+		return nil, fmt.Errorf("failed to decode session import sources: %w", err)
+	}
+	return sources, nil
+}
+
+func (c *Client) DiscoverSessionImports(ctx context.Context, source string) ([]proto.SessionImportCandidate, error) {
+	query := url.Values{}
+	query.Set("source", source)
+	rsp, err := c.get(ctx, "/session-import/candidates", query, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover session imports: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to discover session imports: status code %d", rsp.StatusCode)
+	}
+	var candidates []proto.SessionImportCandidate
+	if err := json.NewDecoder(rsp.Body).Decode(&candidates); err != nil {
+		return nil, fmt.Errorf("failed to decode session imports: %w", err)
+	}
+	return candidates, nil
+}
+
+func (c *Client) ImportSessions(ctx context.Context, id string, paths []string) ([]proto.SessionImportResult, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/session-import", id), nil, jsonBody(proto.SessionImportRequest{Paths: paths}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return nil, fmt.Errorf("failed to import sessions: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to import sessions: status code %d", rsp.StatusCode)
+	}
+	var results []proto.SessionImportResult
+	if err := json.NewDecoder(rsp.Body).Decode(&results); err != nil {
+		return nil, fmt.Errorf("failed to decode session import results: %w", err)
+	}
+	return results, nil
+}
+
 // GrantPermission grants a permission on a workspace. The returned
 // bool reports whether this call resolved the pending request (true)
 // or found it already resolved by a previous caller (false). A false

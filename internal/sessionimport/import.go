@@ -270,6 +270,9 @@ func parseClaude(path string) (Session, error) {
 		if imported.WorkingDir == "" {
 			imported.WorkingDir = text(record["cwd"])
 		}
+		if record["type"] == "user" && !isClaudeHumanPrompt(record) {
+			continue
+		}
 		timestamp := parseTime(text(record["timestamp"]))
 		msg, ok := decodeForeignMessage(record["message"], timestamp)
 		if !ok {
@@ -313,6 +316,9 @@ func parseCodex(path string) (Session, error) {
 		payload := object(record["payload"])
 		switch record["type"] {
 		case "response_item":
+			if payload["type"] == "message" && payload["role"] == "user" && !isCodexHumanPrompt(payload) {
+				continue
+			}
 			appendCodexItem(&imported, payload, parseTime(text(record["timestamp"])))
 		case "event_msg":
 			if payload["type"] == "thread_rolled_back" {
@@ -644,6 +650,39 @@ func filterSafeParts(parts []message.ContentPart) []message.ContentPart {
 	return filtered
 }
 
+func isClaudeHumanPrompt(record rawRecord) bool {
+	if boolValue(record["isMeta"]) {
+		return false
+	}
+	origin := object(record["origin"])
+	originKind := text(origin["kind"])
+	promptSource := text(record["promptSource"])
+	if originKind != "" || promptSource != "" {
+		return originKind == "human" || promptSource == "typed"
+	}
+	return !isGeneratedMessage(record["message"])
+}
+
+func isCodexHumanPrompt(payload rawRecord) bool {
+	metadata := object(payload["internal_chat_message_metadata_passthrough"])
+	if text(metadata["turn_id"]) != "" {
+		return true
+	}
+	return !isGeneratedContent(payload["content"])
+}
+
+func isGeneratedMessage(value any) bool {
+	return isGeneratedContent(object(value)["content"])
+}
+
+func isGeneratedContent(value any) bool {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return true
+	}
+	return isGeneratedContext(strings.TrimSpace(contentTextRaw(data)))
+}
+
 func isGeneratedContext(value string) bool {
 	prefixes := []string{
 		"<system-reminder>",
@@ -651,6 +690,10 @@ func isGeneratedContext(value string) bool {
 		"<environment_context>",
 		"<user_instructions>",
 		"<local-command-caveat>",
+		"<local-command-stdout>",
+		"<local-command-stderr>",
+		"<command-name>",
+		"<command-message>",
 		"<user_info>",
 		"<INSTRUCTIONS>",
 		"# AGENTS.md instructions for ",
