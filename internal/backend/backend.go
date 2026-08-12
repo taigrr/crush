@@ -847,31 +847,33 @@ func (b *Backend) SetCurrentSession(workspaceID, clientID, sessionID string) err
 // runs on its own goroutine. Split out of SetCurrentSession so the
 // write path stays a straight line of guards.
 func (b *Backend) onSessionFocused(ws *Workspace, clientID, sessionID, cwd string) {
-	if sessionID == "" || ws.App == nil {
+	if sessionID == "" {
 		return
 	}
 
-	// Mark the session seen: opening it clears its unread state (it has
-	// no completed work the viewer has not now seen). Best-effort; a
-	// failure must not prevent the presence write.
-	if ws.Sessions != nil {
-		if err := ws.Sessions.MarkSeen(context.Background(), sessionID); err != nil {
-			slog.Debug("Failed to mark session seen", "session_id", sessionID, "error", err)
+	if ws.App != nil {
+		// Mark the session seen: opening it clears its unread state (it
+		// has no completed work the viewer has not now seen).
+		// Best-effort; a failure must not prevent the presence write.
+		if ws.Sessions != nil {
+			if err := ws.Sessions.MarkSeen(context.Background(), sessionID); err != nil {
+				slog.Debug("Failed to mark session seen", "session_id", sessionID, "error", err)
+			}
 		}
-	}
 
-	// Re-surface any still-pending permission/question prompt for the
-	// now-focused session. A client that just switched to this workspace
-	// was not subscribed when the prompt was first published, so without
-	// this its modal would never appear (switch-to-grant). Republishing
-	// re-emits the request on the workspace event stream, which the
-	// now-attached client receives and, because it is the current
-	// session, opens.
-	if ws.Permissions != nil {
-		ws.Permissions.RepublishPending(sessionID)
-	}
-	if ws.Questions != nil {
-		ws.Questions.RepublishPending(sessionID)
+		// Re-surface any still-pending permission/question prompt for the
+		// now-focused session. A client that just switched to this
+		// workspace was not subscribed when the prompt was first
+		// published, so without this its modal would never appear
+		// (switch-to-grant). Republishing re-emits the request on the
+		// workspace event stream, which the now-attached client receives
+		// and, because it is the current session, opens.
+		if ws.Permissions != nil {
+			ws.Permissions.RepublishPending(sessionID)
+		}
+		if ws.Questions != nil {
+			ws.Questions.RepublishPending(sessionID)
+		}
 	}
 
 	// Best-effort: if the client's cwd lies inside a managed
@@ -879,7 +881,8 @@ func (b *Backend) onSessionFocused(ws *Workspace, clientID, sessionID, cwd strin
 	// makes the session's worktree state follow `cd` without an
 	// explicit `/worktree switch`. Failures here never prevent the
 	// SetCurrentSession write from succeeding; they're advisory and
-	// surface as debug logs only.
+	// surface as debug logs only. Intentionally independent of ws.App
+	// (matches the original inline guard).
 	if cwd != "" && ws.Worktrees != nil && ws.Worktrees.IsEnabled() {
 		go b.maybeSyncSessionWorktree(ws, clientID, sessionID, cwd)
 	}
