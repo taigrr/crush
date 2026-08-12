@@ -12,6 +12,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/sessionimport"
 )
 
 type controllerV1 struct {
@@ -507,6 +508,38 @@ func (c *controllerV1) handleGetWorkspaceSessions(w http.ResponseWriter, r *http
 		result[i].AttachedClients = attachedClients(ws, s.ID)
 	}
 	jsonEncode(w, result)
+}
+
+func (c *controllerV1) handleGetSessionImportSources(w http.ResponseWriter, r *http.Request) {
+	sources, err := c.backend.ListSessionImportSources()
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, sources)
+}
+
+func (c *controllerV1) handleGetSessionImportCandidates(w http.ResponseWriter, r *http.Request) {
+	candidates, err := c.backend.DiscoverSessionImports(r.Context(), sessionimport.Source(r.URL.Query().Get("source")))
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, candidates)
+}
+
+func (c *controllerV1) handlePostSessionImport(w http.ResponseWriter, r *http.Request) {
+	var request proto.SessionImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+	results, err := c.backend.ImportSessions(r.Context(), r.PathValue("id"), request.Paths)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, results)
 }
 
 // handlePostWorkspaceSessions creates a new session in a workspace.

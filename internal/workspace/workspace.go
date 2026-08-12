@@ -22,6 +22,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/worktree"
 )
@@ -120,6 +121,9 @@ type Workspace interface {
 	GetSession(ctx context.Context, sessionID string) (session.Session, error)
 	ListSessions(ctx context.Context) ([]session.Session, error)
 	ListArchivedSessions(ctx context.Context) ([]session.Session, error)
+	ListSessionImportSources(ctx context.Context) ([]sessionimport.SourceInfo, error)
+	DiscoverSessionImports(ctx context.Context, source sessionimport.Source) ([]sessionimport.Candidate, error)
+	ImportSessions(ctx context.Context, paths []string) ([]sessionimport.Result, error)
 	SaveSession(ctx context.Context, sess session.Session) (session.Session, error)
 	DeleteSession(ctx context.Context, sessionID string) error
 	ArchiveSession(ctx context.Context, sessionID string) error

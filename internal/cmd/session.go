@@ -3,6 +3,7 @@ package cmd
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/styles"
 )
@@ -43,6 +45,8 @@ var (
 	sessionLastJSON   bool
 	sessionDeleteJSON bool
 	sessionRenameJSON bool
+	sessionImportJSON bool
+	sessionImportFrom string
 )
 
 var sessionListCmd = &cobra.Command{
@@ -85,23 +89,35 @@ var sessionRenameCmd = &cobra.Command{
 	RunE:  runSessionRename,
 }
 
+var sessionImportCmd = &cobra.Command{
+	Use:   "import <path>",
+	Short: "Import an external coding-agent session",
+	Long:  "Import a Claude Code, Codex, Grok Build, or Pi session transcript. The format is detected automatically unless --from is provided.",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runSessionImport,
+}
+
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListJSON, "json", false, "output in JSON format")
 	sessionShowCmd.Flags().BoolVar(&sessionShowJSON, "json", false, "output in JSON format")
 	sessionLastCmd.Flags().BoolVar(&sessionLastJSON, "json", false, "output in JSON format")
 	sessionDeleteCmd.Flags().BoolVar(&sessionDeleteJSON, "json", false, "output in JSON format")
 	sessionRenameCmd.Flags().BoolVar(&sessionRenameJSON, "json", false, "output in JSON format")
+	sessionImportCmd.Flags().BoolVar(&sessionImportJSON, "json", false, "output in JSON format")
+	sessionImportCmd.Flags().StringVar(&sessionImportFrom, "from", string(sessionimport.SourceAuto), "source format: auto, claude, codex, grok, or pi")
 	sessionCmd.AddCommand(sessionListCmd)
 	sessionCmd.AddCommand(sessionShowCmd)
 	sessionCmd.AddCommand(sessionLastCmd)
 	sessionCmd.AddCommand(sessionDeleteCmd)
 	sessionCmd.AddCommand(sessionRenameCmd)
+	sessionCmd.AddCommand(sessionImportCmd)
 }
 
 type sessionServices struct {
 	sessions session.Service
 	messages message.Service
 	cfg      *config.ConfigStore
+	database *sql.DB
 }
 
 func sessionSetup(cmd *cobra.Command) (context.Context, *sessionServices, func(), error) {
@@ -129,8 +145,42 @@ func sessionSetup(cmd *cobra.Command) (context.Context, *sessionServices, func()
 		sessions: session.NewService(queries, conn),
 		messages: message.NewService(queries),
 		cfg:      cfg,
+		database: conn,
 	}
 	return ctx, svc, func() { conn.Close() }, nil
+}
+
+func runSessionImport(cmd *cobra.Command, args []string) error {
+	ctx, svc, cleanup, err := sessionSetup(cmd)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	imported, err := sessionimport.Parse(args[0], sessionimport.Source(sessionImportFrom))
+	if err != nil {
+		return fmt.Errorf("failed to parse session: %w", err)
+	}
+	result, err := sessionimport.Import(ctx, svc.database, imported)
+	if err != nil {
+		return fmt.Errorf("failed to import session: %w", err)
+	}
+
+	out := cmd.OutOrStdout()
+	if sessionImportJSON {
+		encoder := json.NewEncoder(out)
+		encoder.SetEscapeHTML(false)
+		return encoder.Encode(result)
+	}
+	if result.AlreadyExist {
+		fmt.Fprintf(out, "Session already imported: %s\n", session.HashID(result.ID)[:12])
+		return nil
+	}
+	fmt.Fprintf(out, "Imported %d messages from %s as session %s\n", result.Messages, result.Source, session.HashID(result.ID)[:12])
+	for _, warning := range result.Warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", warning)
+	}
+	return nil
 }
 
 func runSessionList(cmd *cobra.Command, _ []string) error {

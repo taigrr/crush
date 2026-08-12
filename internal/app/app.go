@@ -42,6 +42,7 @@ import (
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/shell"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/anim"
@@ -73,6 +74,8 @@ type App struct {
 	embeddings  embedding.Service
 
 	AgentCoordinator agent.Coordinator
+
+	SessionImporter func(context.Context, sessionimport.Session) (sessionimport.Result, error)
 
 	LSPManager *lsp.Manager
 
@@ -182,9 +185,12 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		Worktrees:   worktrees,
 		Forks:       forks,
 		Milestones:  milestone.NewService(conn, q),
-		embeddings:  embedding.Build(q, store.EmbeddingParams()),
-		LSPManager:  lsp.NewManager(store),
-		Skills:      skillsMgr,
+		SessionImporter: func(ctx context.Context, imported sessionimport.Session) (sessionimport.Result, error) {
+			return sessionimport.Import(ctx, conn, imported)
+		},
+		embeddings: embedding.Build(q, store.EmbeddingParams()),
+		LSPManager: lsp.NewManager(store),
+		Skills:     skillsMgr,
 
 		workingDir: workingDir,
 		globalCtx:  ctx,

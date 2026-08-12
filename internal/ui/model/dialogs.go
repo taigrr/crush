@@ -19,6 +19,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openSessionsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.SessionImportID:
+		if cmd := m.openSessionImportDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.SearchPaletteID:
 		if cmd := m.openSearchPaletteDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -219,6 +223,20 @@ func (m *UI) openSessionsDialog() tea.Cmd {
 
 	m.dialog.OpenDialog(dialog)
 	return nil
+}
+
+func (m *UI) openSessionImportDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.SessionImportID) {
+		m.dialog.BringToFront(dialog.SessionImportID)
+		return nil
+	}
+	return func() tea.Msg {
+		sources, err := m.com.Workspace.ListSessionImportSources(context.Background())
+		if err != nil {
+			return util.NewErrorMsg(err)
+		}
+		return openSessionImportMsg{sources: sources}
+	}
 }
 
 // openMilestonesDialog opens the milestones dialog.

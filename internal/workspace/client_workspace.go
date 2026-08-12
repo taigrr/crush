@@ -28,6 +28,7 @@ import (
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/worktree"
 )
@@ -176,6 +177,18 @@ func (w *ClientWorkspace) ListSessions(ctx context.Context) ([]session.Session, 
 		sessions[i] = protoToSession(s)
 	}
 	return sessions, nil
+}
+
+func (w *ClientWorkspace) ListSessionImportSources(ctx context.Context) ([]sessionimport.SourceInfo, error) {
+	return w.client.ListSessionImportSources(ctx)
+}
+
+func (w *ClientWorkspace) DiscoverSessionImports(ctx context.Context, source sessionimport.Source) ([]sessionimport.Candidate, error) {
+	return w.client.DiscoverSessionImports(ctx, string(source))
+}
+
+func (w *ClientWorkspace) ImportSessions(ctx context.Context, paths []string) ([]sessionimport.Result, error) {
+	return w.client.ImportSessions(ctx, w.workspaceID(), paths)
 }
 
 func (w *ClientWorkspace) SaveSession(ctx context.Context, sess session.Session) (session.Session, error) {
