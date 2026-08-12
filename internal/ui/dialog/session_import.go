@@ -7,6 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/dustin/go-humanize"
@@ -41,6 +42,7 @@ type sessionImportDoneMsg struct {
 type SessionImport struct {
 	com        *common.Common
 	help       help.Model
+	input      textinput.Model
 	list       *list.FilterableList
 	stage      sessionImportStage
 	sources    []sessionimport.SourceInfo
@@ -69,6 +71,11 @@ func NewSessionImport(com *common.Common, sources []sessionimport.SourceInfo) *S
 	dialog := &SessionImport{com: com, sources: sources}
 	dialog.help = help.New()
 	dialog.help.Styles = com.Styles.DialogHelpStyles()
+	dialog.input = textinput.New()
+	dialog.input.SetVirtualCursor(false)
+	dialog.input.Placeholder = "Search sessions"
+	dialog.input.SetStyles(com.Styles.TextInput)
+	dialog.input.Focus()
 	dialog.list = list.NewFilterableList()
 	dialog.list.Focus()
 	dialog.keyMap.Select = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "choose"))
@@ -172,6 +179,13 @@ func (s *SessionImport) handleSessionsKey(msg tea.KeyPressMsg) Action {
 		}
 		s.loading = true
 		return ActionCmd{s.importCmd(paths)}
+	default:
+		var cmd tea.Cmd
+		s.input, cmd = s.input.Update(msg)
+		s.list.SetFilter(s.input.Value())
+		s.list.ScrollToTop()
+		s.list.SetSelected(0)
+		return ActionCmd{cmd}
 	}
 	return nil
 }
@@ -206,6 +220,8 @@ func (s *SessionImport) importCmd(paths []string) tea.Cmd {
 }
 
 func (s *SessionImport) showSources() {
+	s.input.SetValue("")
+	s.list.SetFilter("")
 	items := make([]list.FilterableItem, len(s.sources))
 	for index, source := range s.sources {
 		items[index] = newSessionImportSourceItem(s.com.Styles, source)
@@ -217,6 +233,8 @@ func (s *SessionImport) showSources() {
 }
 
 func (s *SessionImport) showCandidates() {
+	s.input.SetValue("")
+	s.list.SetFilter("")
 	items := make([]list.FilterableItem, len(s.candidates))
 	s.items = make([]*sessionImportItem, len(s.candidates))
 	for index := range s.candidates {
@@ -241,6 +259,10 @@ func (s *SessionImport) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	height := max(0, min(defaultDialogHeight, area.Dy()-t.Dialog.View.GetVerticalBorderSize()))
 	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize()
 	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight + t.Dialog.HelpView.GetVerticalFrameSize() + t.Dialog.View.GetVerticalFrameSize()
+	if s.stage == sessionImportSessions {
+		heightOffset += t.Dialog.InputPrompt.GetVerticalFrameSize() + inputContentHeight
+		s.input.SetWidth(max(0, innerWidth-t.Dialog.InputPrompt.GetHorizontalFrameSize()-1))
+	}
 	s.list.SetSize(innerWidth, height-heightOffset)
 	s.help.SetWidth(innerWidth)
 
@@ -256,10 +278,15 @@ func (s *SessionImport) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	default:
 		rc.TitleInfo = fmt.Sprintf("%s · %d selected", s.source.Name, s.selection.Count())
 	}
+	var cursor *tea.Cursor
+	if s.stage == sessionImportSessions {
+		rc.AddPart(t.Dialog.InputPrompt.Render(s.input.View()))
+		cursor = InputCursor(t, s.input.Cursor())
+	}
 	rc.AddPart(t.Dialog.List.Height(s.list.Height()).Render(s.list.Render()))
 	rc.Help = s.help.View(s)
-	DrawCenter(scr, area, rc.Render())
-	return nil
+	DrawCenterCursor(scr, area, rc.Render(), cursor)
+	return cursor
 }
 
 func (s *SessionImport) ShortHelp() []key.Binding {
