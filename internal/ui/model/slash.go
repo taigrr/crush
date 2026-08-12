@@ -153,23 +153,21 @@ func slashCommandCompletions() []completions.CommandCompletionValue {
 
 // dispatchSlash routes value to a builtin slash command. handled is false
 // when value is not a recognized slash command, in which case the caller
-// treats value as a normal chat message. When handled is true the returned
-// cmd (possibly nil) is the command's effect; cross-cutting concerns
-// (session gating, prompt/history reset) are applied here so individual
-// commands don't repeat them.
-func (m *UI) dispatchSlash(value string) (cmd tea.Cmd, handled bool) {
+// treats value as a normal chat message. consume is false when dispatch
+// rejects the command, so the caller can preserve the user's input.
+func (m *UI) dispatchSlash(value string) (cmd tea.Cmd, handled, consume bool) {
 	verb, args, ok := splitSlash(value)
 	if !ok {
-		return nil, false
+		return nil, false, false
 	}
 	c, found := lookupSlash(builtinSlashCommands, verb)
 	if !found {
-		return nil, false
+		return nil, false, false
 	}
 	if c.requiresSession && !m.hasSession() {
-		return util.ReportError(fmt.Errorf("/%s requires an active session", c.name)), true
+		return util.ReportError(fmt.Errorf("/%s requires an active session", c.name)), true, false
 	}
 	m.randomizePlaceholders()
 	m.historyReset()
-	return c.run(m, args), true
+	return c.run(m, args), true, true
 }

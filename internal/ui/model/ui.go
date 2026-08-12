@@ -1827,7 +1827,12 @@ func (m *UI) exitLeftSidebarSearchOnBlur(wasFocused bool) {
 
 func (m *UI) handleClickFocus(msg tea.MouseClickMsg) (cmd tea.Cmd) {
 	wasSidebar := m.focus == uiFocusLeftSidebar
-	defer func() { m.exitLeftSidebarSearchOnBlur(wasSidebar) }()
+	defer func() {
+		m.exitLeftSidebarSearchOnBlur(wasSidebar)
+		if wasSidebar && m.focus != uiFocusLeftSidebar {
+			cmd = tea.Batch(cmd, m.cancelPreview())
+		}
+	}()
 	switch {
 	case m.state != uiChat:
 		return nil
@@ -2798,6 +2803,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if m.focus == uiFocusLeftSidebar {
 					m.setFocusAfterSidebarClose()
 				}
+				if cmd := m.cancelPreview(); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
 			m.updateLayoutAndSize()
 			return true
@@ -2987,27 +2995,34 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					break
 				}
 
-				// Otherwise, send the message
-				m.textarea.Reset()
-				if cmd := m.handleTextareaHeightChange(prevHeight); cmd != nil {
-					cmds = append(cmds, cmd)
+				consumePrompt := func() {
+					m.textarea.Reset()
+					if cmd := m.handleTextareaHeightChange(prevHeight); cmd != nil {
+						cmds = append(cmds, cmd)
+					}
 				}
 
 				value = strings.TrimSpace(value)
 				if value == "exit" || value == "quit" {
+					consumePrompt()
 					return m.openQuitDialog()
 				}
 
 				if command, ok := strings.CutPrefix(value, "!"); ok && command != "" {
+					consumePrompt()
 					m.randomizePlaceholders()
 					m.historyReset()
 					return m.runShellCommand(command)
 				}
 
-				if cmd, handled := m.dispatchSlash(value); handled {
+				if cmd, handled, consume := m.dispatchSlash(value); handled {
+					if consume {
+						consumePrompt()
+					}
 					return cmd
 				}
 
+				consumePrompt()
 				attachments := m.attachments.List()
 				m.attachments.Reset()
 				if len(value) == 0 && !message.ContainsTextAttachment(attachments) {
@@ -4602,6 +4617,11 @@ func (m *UI) newSession() tea.Cmd {
 	m.rightSidebarOffset = 0
 	m.sessionFiles = nil
 	m.sessionFileReads = nil
+	m.previewSessionID = ""
+	m.pendingPreviewID = ""
+	m.pendingPreviewRoot = ""
+	m.previewGen++
+	m.leftSidebar.SetActiveSession("")
 	// Clear active session for worktree-aware working directory.
 	m.com.Workspace.SetActiveSessionID("")
 	// Close any permission dialog bound to the session we just left.
