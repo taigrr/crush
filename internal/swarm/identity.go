@@ -192,6 +192,22 @@ func ParseAddress(s string) (Address, bool) {
 	return Address{Raw: raw, Color: color, Animal: animal, ShortHash: shortHash}, true
 }
 
+// MatchesColorAnimal reports whether a session with the given color,
+// animal, and id satisfies the color/animal (and optional shorthash)
+// portion of the address. It is only meaningful for a color-animal
+// address (a.SessionID == ""); it centralizes the comparison so every
+// lookup path — live workspaces, detached-root peeks, and post-attach
+// re-verification — filters identically and cannot silently drift.
+func (a Address) MatchesColorAnimal(color, animal, sessionID string) bool {
+	if !strings.EqualFold(color, a.Color) || !strings.EqualFold(animal, a.Animal) {
+		return false
+	}
+	if a.ShortHash != "" && !strings.EqualFold(ShortHash(sessionID), a.ShortHash) {
+		return false
+	}
+	return true
+}
+
 // isUUIDShape reports whether s is a canonical UUID (36 chars,
 // dashes at 8/13/18/23, hex elsewhere) or a bare 32-hex string.
 func isUUIDShape(s string) bool {
@@ -284,4 +300,3 @@ func ValidateAnimalName(name string) error {
 	}
 	return nil
 }
-

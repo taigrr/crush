@@ -150,91 +150,158 @@ func runSwarm(
 		return fantasy.NewTextErrorResponse("swarm: cannot address your own session"), nil
 	}
 
-	mode := strings.ToLower(strings.TrimSpace(params.Mode))
-	switch mode {
-	case "", "queue":
-		mode = "queue"
-	case "btw":
-		// ok
-	default:
+	btw, ok := parseSwarmMode(params.Mode)
+	if !ok {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: unknown mode %q (want 'queue' or 'btw')", params.Mode)), nil
+	}
+
+	sender := swarmSender{
+		id:          senderID,
+		workspaceID: senderWorkspaceID,
+		ident:       senderIdent,
+		address:     senderAddress,
 	}
 
 	// "new" path: create a fresh session in the given workspace and
 	// treat the prompt as its initial user message.
 	if strings.EqualFold(address, "new") {
-		title := strings.TrimSpace(params.Title)
-		if title == "" {
-			title = firstLine(params.Prompt, 60)
-		}
+		return runSwarmNew(ctx, be, sender, params, btw)
+	}
+	return runSwarmDeliver(ctx, be, sender, address, params.Prompt, btw)
+}
 
-		var (
-			workspaceID string
-			newSess     session.Session
-			err         error
-		)
-		if path := strings.TrimSpace(params.Path); path != "" {
-			// Path-based: bring up the workspace for this directory
-			// (creating or attaching it) and create a session in it.
-			workspaceID, newSess, err = be.CreateSessionInWorkspaceAtPath(ctx, path, title)
-		} else {
-			workspaceID = params.WorkspaceID
-			if workspaceID == "" {
-				// Default to the sender's own workspace when the model
-				// doesn't supply one explicitly. Workspace ids are
-				// backend-internal handles that aren't easily
-				// discoverable from a session, so requiring an explicit
-				// id every time is a bad UX; same-workspace is the
-				// overwhelmingly common case.
-				workspaceID = senderWorkspaceID
-			}
-			if workspaceID == "" {
-				return fantasy.NewTextErrorResponse("swarm: address='new' requires workspace_id or path (sender workspace id unavailable)"), nil
-			}
-			newSess, err = be.CreateSessionInWorkspace(ctx, workspaceID, title)
+// swarmSender bundles the resolved, trusted identity of the session
+// invoking the swarm tool. It is threaded into the delivery helpers so
+// they can stamp the outgoing part and format response text without
+// re-deriving anything.
+type swarmSender struct {
+	id          string
+	workspaceID string
+	ident       swarm.Identity
+	// address is the sender's own formatted "color-animal[-hash]"
+	// address, used only for the "from <sender>" response text.
+	address string
+}
+
+// parseSwarmMode normalizes the mode param, returning whether the
+// message should be delivered as a "btw" aside. ok is false for an
+// unrecognized mode.
+func parseSwarmMode(mode string) (btw, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "queue":
+		return false, true
+	case "btw":
+		return true, true
+	default:
+		return false, false
+	}
+}
+
+// isContextErr reports whether err is a context cancellation or
+// deadline, which callers propagate as a hard error rather than a
+// soft tool-error response.
+func isContextErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// sendSwarmPart builds and delivers the swarm part to target. It
+// classifies the outcome: hardErr (context cancellation) must be
+// propagated to the runtime; softErr is a delivery failure the caller
+// should format as a tool-error response (after any compensating
+// cleanup). On success both errors are nil and delivery is "sent" or
+// "queued".
+func sendSwarmPart(ctx context.Context, be SwarmBackend, sender swarmSender, prompt string, btw bool, target SwarmLookupResult) (delivery string, hardErr, softErr error) {
+	part := buildSwarmPart(sender.id, sender.workspaceID, sender.ident, prompt, btw)
+	delivery, err := be.Send(ctx, sender.id, target, part)
+	if err != nil {
+		if isContextErr(err) {
+			return "", err, nil
 		}
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return fantasy.ToolResponse{}, err
-			}
-			return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: failed to create session: %s", err)), nil
-		}
-		target := SwarmLookupResult{
-			WorkspaceID: workspaceID,
-			SessionID:   newSess.ID,
-			Color:       newSess.Color,
-			Animal:      newSess.Animal,
-		}
-		part := buildSwarmPart(senderSess.ID, senderWorkspaceID, senderIdent, params.Prompt, mode == "btw")
-		delivery, sendErr := be.Send(ctx, senderID, target, part)
-		if sendErr != nil {
-			if errors.Is(sendErr, context.Canceled) || errors.Is(sendErr, context.DeadlineExceeded) {
-				return fantasy.ToolResponse{}, sendErr
-			}
-			// Compensating cleanup: archive the empty session we
-			// just created so retries don't leak ghosts. Failures
-			// here are best-effort; the outer error is what the
-			// LLM sees.
-			_ = be.ArchiveSessionInWorkspace(context.Background(), workspaceID, newSess.ID)
-			return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: failed to send initial message to new session (session archived): %s", sendErr)), nil
-		}
-		return fantasy.NewTextResponse(fmt.Sprintf(
-			"Created and %s to %s (workspace=%s, session=%s).",
-			delivery,
-			swarm.FormatAddress(swarm.Identity{Color: newSess.Color, Animal: newSess.Animal}, newSess.ID),
-			workspaceID, newSess.ID,
-		)), nil
+		return "", nil, err
+	}
+	return delivery, nil, nil
+}
+
+// runSwarmNew handles address=="new": create a session (by workspace
+// id, defaulting to the sender's, or by directory path) and deliver
+// the prompt as its first message. On a delivery failure it archives
+// the just-created empty session so retries don't leak ghosts.
+func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, params SwarmParams, btw bool) (fantasy.ToolResponse, error) {
+	title := strings.TrimSpace(params.Title)
+	if title == "" {
+		title = firstLine(params.Prompt, 60)
 	}
 
-	// Standard resolve path.
+	var (
+		workspaceID string
+		newSess     session.Session
+		err         error
+	)
+	if path := strings.TrimSpace(params.Path); path != "" {
+		// Path-based: bring up the workspace for this directory
+		// (creating or attaching it) and create a session in it.
+		workspaceID, newSess, err = be.CreateSessionInWorkspaceAtPath(ctx, path, title)
+	} else {
+		workspaceID = params.WorkspaceID
+		if workspaceID == "" {
+			// Default to the sender's own workspace when the model
+			// doesn't supply one explicitly. Workspace ids are
+			// backend-internal handles that aren't easily discoverable
+			// from a session, so requiring an explicit id every time is
+			// a bad UX; same-workspace is the overwhelmingly common case.
+			workspaceID = sender.workspaceID
+		}
+		if workspaceID == "" {
+			return fantasy.NewTextErrorResponse("swarm: address='new' requires workspace_id or path (sender workspace id unavailable)"), nil
+		}
+		newSess, err = be.CreateSessionInWorkspace(ctx, workspaceID, title)
+	}
+	if err != nil {
+		if isContextErr(err) {
+			return fantasy.ToolResponse{}, err
+		}
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: failed to create session: %s", err)), nil
+	}
+
+	target := SwarmLookupResult{
+		WorkspaceID: workspaceID,
+		SessionID:   newSess.ID,
+		Color:       newSess.Color,
+		Animal:      newSess.Animal,
+	}
+	delivery, hardErr, softErr := sendSwarmPart(ctx, be, sender, params.Prompt, btw, target)
+	if hardErr != nil {
+		return fantasy.ToolResponse{}, hardErr
+	}
+	if softErr != nil {
+		// Compensating cleanup: archive the empty session we just
+		// created so retries don't leak ghosts. Failures here are
+		// best-effort; the outer error is what the LLM sees.
+		_ = be.ArchiveSessionInWorkspace(context.Background(), workspaceID, newSess.ID)
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: failed to send initial message to new session (session archived): %s", softErr)), nil
+	}
+	return fantasy.NewTextResponse(fmt.Sprintf(
+		"Created and %s to %s (workspace=%s, session=%s).",
+		delivery,
+		swarm.FormatAddress(swarm.Identity{Color: newSess.Color, Animal: newSess.Animal}, newSess.ID),
+		workspaceID, newSess.ID,
+	)), nil
+}
+
+// runSwarmDeliver resolves an existing address and delivers the
+// prompt to it.
+func runSwarmDeliver(ctx context.Context, be SwarmBackend, sender swarmSender, address, prompt string, btw bool) (fantasy.ToolResponse, error) {
 	target, err := be.LookupAddress(ctx, address)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if isContextErr(err) {
 			return fantasy.ToolResponse{}, err
 		}
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: %s", err)), nil
 	}
-	if target.SessionID == senderID {
+	// Second self-address guard: the fast-fail check in runSwarm only
+	// sees the raw address string, but a lookup can still resolve a
+	// differently-spelled address back to the sender's own session.
+	if target.SessionID == sender.id {
 		return fantasy.NewTextErrorResponse("swarm: cannot address your own session"), nil
 	}
 	if target.Sub {
@@ -243,17 +310,16 @@ func runSwarm(
 		)), nil
 	}
 
-	part := buildSwarmPart(senderSess.ID, senderWorkspaceID, senderIdent, params.Prompt, mode == "btw")
-	delivery, sendErr := be.Send(ctx, senderID, target, part)
-	if sendErr != nil {
-		if errors.Is(sendErr, context.Canceled) || errors.Is(sendErr, context.DeadlineExceeded) {
-			return fantasy.ToolResponse{}, sendErr
-		}
-		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: %s", sendErr)), nil
+	delivery, hardErr, softErr := sendSwarmPart(ctx, be, sender, prompt, btw, target)
+	if hardErr != nil {
+		return fantasy.ToolResponse{}, hardErr
+	}
+	if softErr != nil {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: %s", softErr)), nil
 	}
 	return fantasy.NewTextResponse(fmt.Sprintf(
 		"%s: %s (from %s to %s)",
-		delivery, params.Prompt, senderAddress,
+		delivery, prompt, sender.address,
 		swarm.FormatAddress(swarm.Identity{Color: target.Color, Animal: target.Animal}, target.SessionID),
 	)), nil
 }

@@ -361,92 +361,19 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	if !args.Isolated {
 		if existingID, ok := b.pathIndex[key]; ok {
 			if ws, found := b.workspaces.Get(existingID); found {
-				logFirstWinsMismatch(ws, args)
-				b.registerClient(ws, clientID, args.Env, args.Path)
-				b.mu.Unlock()
-				b.reloadWorkspaceConfig(ws)
-				// Re-wire swarm on the reused workspace too: a prior
-				// CreateWorkspace for this path may have returned before
-				// its own wireSwarmBackend call ran, leaving this cached
-				// *Workspace with a nil swarm backend forever otherwise.
-				// wireSwarmBackendIfMissing only pays the rebuild cost
-				// when wiring is actually missing, so a plain
-				// already-wired switch/reconnect stays a no-op.
-				if err := b.wireSwarmBackendIfMissing(b.ctx, ws); err != nil {
-					slog.Warn("Failed to wire swarm backend into reused workspace", "root", key, "error", err)
-				}
-				return ws, workspaceToProtoForClient(ws, effectiveCwd), nil
+				return b.adoptExistingWorkspace(ws, nil, clientID, args, effectiveCwd, key)
 			}
 			delete(b.pathIndex, key)
 		}
 	}
 	b.mu.Unlock()
 
-	id := uuid.New().String()
-	// Use the canonical project root (key) as the workspace's working
-	// directory for config loading, app initialization, and downstream
-	// path consumers (snapshot restore target, agent default cwd, git
-	// branch display). args.Path is the original client cwd, which may
-	// be a subdirectory or a linked worktree under the project root;
-	// preserving it here would cause two clients in the same project
-	// to diverge on `.crush/` location, snapshot work tree, and so on.
-	cfg, err := config.Init(key, args.DataDir, args.Debug)
+	ws, err := b.buildWorkspace(args, key, effectiveCwd)
 	if err != nil {
-		return nil, proto.Workspace{}, fmt.Errorf("failed to initialize config: %w", err)
+		return nil, proto.Workspace{}, err
 	}
-
-	// Seed yolo from the CLI flag, then restore a runtime toggle that a
-	// prior incarnation of this workspace made before it autoclosed: the
-	// override and permission service that held it were destroyed on
-	// teardown, so without this the setting would silently reset to the
-	// flag on every recreate. args.YOLO still wins when explicitly set.
-	skipPerms := args.YOLO
-	if !skipPerms {
-		b.mu.Lock()
-		skipPerms = b.yoloByRoot[key]
-		b.mu.Unlock()
-	}
-	cfg.Overrides().SkipPermissionRequests = skipPerms
-
-	if err := createDotCrushDir(cfg.Config().Options.DataDirectory); err != nil {
-		return nil, proto.Workspace{}, fmt.Errorf("failed to create data directory: %w", err)
-	}
-
-	conn, err := db.Connect(b.ctx, cfg.Config().Options.DataDirectory, db.WithDataDirLock(true))
-	if err != nil {
-		return nil, proto.Workspace{}, fmt.Errorf("failed to connect to database: %w", err)
-	}
-
-	// Discover skills once per workspace, before app.New. The backend
-	// hosts multiple workspaces concurrently, so the manager is
-	// constructed WITHOUT WithGlobalMirror to prevent last-writer-wins
-	// cross-talk between workspaces.
-	discoveryCfg := skillsDiscoveryConfig(cfg)
-	allSkills, activeSkills, skillStates := skills.DiscoverFromConfig(discoveryCfg)
-	skillsMgr := skills.NewManager(
-		allSkills, activeSkills, skillStates,
-		skills.WithResolvedPaths(discoveryCfg.ResolvePaths()),
-		skills.WithWorkingDir(discoveryCfg.WorkingDir),
-	)
-
-	appWorkspace, err := app.New(b.ctx, conn, cfg, skillsMgr, effectiveCwd)
-	if err != nil {
-		return nil, proto.Workspace{}, fmt.Errorf("failed to create app workspace: %w", err)
-	}
-
-	wsCtx, wsCancel := context.WithCancel(b.ctx)
-	ws := &Workspace{
-		App:          appWorkspace,
-		ID:           id,
-		Path:         key,
-		Cfg:          cfg,
-		Env:          args.Env,
-		Skills:       skillsMgr,
-		resolvedPath: key,
-		ctx:          wsCtx,
-		cancel:       wsCancel,
-		clients:      make(map[string]*clientState),
-	}
+	id := ws.ID
+	cfg := ws.Cfg
 
 	b.mu.Lock()
 	if !args.Isolated {
@@ -454,18 +381,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		// have won the race between the initial unlock and here.
 		if existingID, ok := b.pathIndex[key]; ok {
 			if existing, found := b.workspaces.Get(existingID); found {
-				logFirstWinsMismatch(existing, args)
-				b.registerClient(existing, clientID, args.Env, args.Path)
-				b.mu.Unlock()
-				ws.invokeShutdown()
-				b.reloadWorkspaceConfig(existing)
-				// Same re-wiring as the other dedup branch above: this
-				// caller lost the race and is handing back a workspace
-				// that may not have had wireSwarmBackend run on it yet.
-				if err := b.wireSwarmBackendIfMissing(b.ctx, existing); err != nil {
-					slog.Warn("Failed to wire swarm backend into reused workspace", "root", key, "error", err)
-				}
-				return existing, workspaceToProtoForClient(existing, effectiveCwd), nil
+				return b.adoptExistingWorkspace(existing, ws, clientID, args, effectiveCwd, key)
 			}
 			delete(b.pathIndex, key)
 		}
@@ -511,13 +427,115 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 			"client", args.Version,
 			"server", version.Version,
 		)
-		appWorkspace.SendEvent(util.NewWarnMsg(fmt.Sprintf(
+		ws.App.SendEvent(util.NewWarnMsg(fmt.Sprintf(
 			"Server version %q differs from client version %q. Consider restarting the server.",
 			version.Version, args.Version,
 		)))
 	}
 
 	return ws, workspaceToProtoForClient(ws, effectiveCwd), nil
+}
+
+// buildWorkspace constructs a fresh, un-registered *Workspace for the
+// project rooted at key: it initializes config, seeds the yolo
+// permission toggle, creates the data directory, opens the database,
+// discovers skills, and builds the embedded app.App. It performs no
+// registration or dedup — the caller owns inserting the returned
+// workspace into b.workspaces / b.pathIndex under b.mu.
+//
+// key is the canonical project root, used for config loading and all
+// downstream path consumers (snapshot restore target, agent default
+// cwd, git branch display); effectiveCwd is the client's original
+// launch directory, passed to app.New so tools and shell commands run
+// where the user actually is even inside a linked worktree.
+func (b *Backend) buildWorkspace(args proto.Workspace, key, effectiveCwd string) (*Workspace, error) {
+	cfg, err := config.Init(key, args.DataDir, args.Debug)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize config: %w", err)
+	}
+
+	// Seed yolo from the CLI flag, then restore a runtime toggle that a
+	// prior incarnation of this workspace made before it autoclosed: the
+	// override and permission service that held it were destroyed on
+	// teardown, so without this the setting would silently reset to the
+	// flag on every recreate. args.YOLO still wins when explicitly set.
+	skipPerms := args.YOLO
+	if !skipPerms {
+		b.mu.Lock()
+		skipPerms = b.yoloByRoot[key]
+		b.mu.Unlock()
+	}
+	cfg.Overrides().SkipPermissionRequests = skipPerms
+
+	if err := createDotCrushDir(cfg.Config().Options.DataDirectory); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	conn, err := db.Connect(b.ctx, cfg.Config().Options.DataDirectory, db.WithDataDirLock(true))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Discover skills once per workspace, before app.New. The backend
+	// hosts multiple workspaces concurrently, so the manager is
+	// constructed WITHOUT WithGlobalMirror to prevent last-writer-wins
+	// cross-talk between workspaces.
+	discoveryCfg := skillsDiscoveryConfig(cfg)
+	allSkills, activeSkills, skillStates := skills.DiscoverFromConfig(discoveryCfg)
+	skillsMgr := skills.NewManager(
+		allSkills, activeSkills, skillStates,
+		skills.WithResolvedPaths(discoveryCfg.ResolvePaths()),
+		skills.WithWorkingDir(discoveryCfg.WorkingDir),
+	)
+
+	appWorkspace, err := app.New(b.ctx, conn, cfg, skillsMgr, effectiveCwd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create app workspace: %w", err)
+	}
+
+	wsCtx, wsCancel := context.WithCancel(b.ctx)
+	return &Workspace{
+		App:          appWorkspace,
+		ID:           uuid.New().String(),
+		Path:         key,
+		Cfg:          cfg,
+		Env:          args.Env,
+		Skills:       skillsMgr,
+		resolvedPath: key,
+		ctx:          wsCtx,
+		cancel:       wsCancel,
+		clients:      make(map[string]*clientState),
+	}, nil
+}
+
+// adoptExistingWorkspace handles a CreateWorkspace dedup hit: the
+// caller found an already-attached workspace for the same root and
+// wants to hand it back instead of the workspace it was about to (or
+// just did) build. The caller MUST hold b.mu; this releases it.
+//
+// loser, when non-nil, is the redundant freshly-built workspace that
+// lost the attach race and must be torn down. It is shut down only
+// after b.mu is released, since Shutdown can block on in-flight agent
+// goroutines and must not be run under the backend lock.
+//
+// wireSwarmBackendIfMissing re-wires swarm on the reused workspace: a
+// prior CreateWorkspace for this path may have returned before its own
+// wireSwarmBackend call ran, leaving the cached *Workspace with a nil
+// swarm backend otherwise. It only pays the rebuild cost when wiring is
+// actually missing, so a plain already-wired switch/reconnect is a
+// no-op.
+func (b *Backend) adoptExistingWorkspace(existing, loser *Workspace, clientID string, args proto.Workspace, effectiveCwd, key string) (*Workspace, proto.Workspace, error) {
+	logFirstWinsMismatch(existing, args)
+	b.registerClient(existing, clientID, args.Env, args.Path)
+	b.mu.Unlock()
+	if loser != nil {
+		loser.invokeShutdown()
+	}
+	b.reloadWorkspaceConfig(existing)
+	if err := b.wireSwarmBackendIfMissing(b.ctx, existing); err != nil {
+		slog.Warn("Failed to wire swarm backend into reused workspace", "root", key, "error", err)
+	}
+	return existing, workspaceToProtoForClient(existing, effectiveCwd), nil
 }
 
 // AttachClient registers a new SSE stream for the given client on the

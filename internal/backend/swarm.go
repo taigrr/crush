@@ -98,52 +98,15 @@ func (b *Backend) LookupSwarmAddress(ctx context.Context, addrStr string) (Swarm
 		if app == nil {
 			continue
 		}
-		if addr.SessionID != "" {
-			s, err := app.Sessions.Get(ctx, addr.SessionID)
-			switch {
-			case err == nil:
-				if s.ArchivedAt == 0 {
-					addMatch(SwarmLookupResult{
-						WorkspaceID: ws.ID,
-						SessionID:   s.ID,
-						Color:       s.Color,
-						Animal:      s.Animal,
-						Sub:         isSubSession(s),
-					})
-				}
-			case errors.Is(err, sql.ErrNoRows):
-				// Session belongs to another workspace; not an error.
-			default:
-				if firstErr == nil {
-					firstErr = fmt.Errorf("swarm: workspace %s lookup: %w", ws.ID, err)
-				}
-			}
-			continue
-		}
-		// Color/animal path. Filter out sub-sessions here so a
-		// legacy title/summary/task-tool row that happens to share a
-		// color/animal with a real session never disambiguates by
-		// collision.
-		list, err := app.Sessions.FindByColorAnimal(ctx, addr.Color, addr.Animal)
+		found, err := matchAddressInApp(ctx, app.Sessions, ws.ID, addr)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("swarm: workspace %s lookup: %w", ws.ID, err)
 			}
 			continue
 		}
-		for _, s := range list {
-			if isSubSession(s) {
-				continue
-			}
-			if addr.ShortHash != "" && !strings.EqualFold(swarm.ShortHash(s.ID), addr.ShortHash) {
-				continue
-			}
-			addMatch(SwarmLookupResult{
-				WorkspaceID: ws.ID,
-				SessionID:   s.ID,
-				Color:       s.Color,
-				Animal:      s.Animal,
-			})
+		for _, m := range found {
+			addMatch(m)
 		}
 	}
 	switch len(matches) {
@@ -251,27 +214,11 @@ func (b *Backend) reattachForAddress(ctx context.Context, addr swarm.Address) (S
 	// workspace is actually attached: the peek above is a snapshot
 	// that could have raced a concurrent change (archive, delete) to
 	// the on-disk data between the peek and this reattach.
-	if addr.SessionID != "" {
-		s, err := ws.App.Sessions.Get(ctx, addr.SessionID)
-		if err != nil || s.ArchivedAt != 0 {
-			return SwarmLookupResult{}, ErrSwarmAddressNotFound
-		}
-		return SwarmLookupResult{WorkspaceID: ws.ID, SessionID: s.ID, Color: s.Color, Animal: s.Animal, Sub: isSubSession(s)}, nil
-	}
-	list, err := ws.App.Sessions.FindByColorAnimal(ctx, addr.Color, addr.Animal)
-	if err != nil {
+	found, err := matchAddressInApp(ctx, ws.App.Sessions, ws.ID, addr)
+	if err != nil || len(found) == 0 {
 		return SwarmLookupResult{}, ErrSwarmAddressNotFound
 	}
-	for _, s := range list {
-		if isSubSession(s) {
-			continue
-		}
-		if addr.ShortHash != "" && !strings.EqualFold(swarm.ShortHash(s.ID), addr.ShortHash) {
-			continue
-		}
-		return SwarmLookupResult{WorkspaceID: ws.ID, SessionID: s.ID, Color: s.Color, Animal: s.Animal}, nil
-	}
-	return SwarmLookupResult{}, ErrSwarmAddressNotFound
+	return found[0], nil
 }
 
 // peekDataDirForAddress returns the (non-archived, non-sub-session)
@@ -308,10 +255,7 @@ func peekDataDirForAddress(ctx context.Context, dataDir string, addr swarm.Addre
 			}
 			continue
 		}
-		if !strings.EqualFold(s.Color, addr.Color) || !strings.EqualFold(s.Animal, addr.Animal) {
-			continue
-		}
-		if addr.ShortHash != "" && !strings.EqualFold(swarm.ShortHash(s.ID), addr.ShortHash) {
+		if !addr.MatchesColorAnimal(s.Color, s.Animal, s.ID) {
 			continue
 		}
 		matches = append(matches, s)
@@ -378,18 +322,9 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 
 	// Confirm the target session still exists in that workspace,
 	// and cache its title for the outgoing notification below.
-	// Distinguish "no such session" from other DB failures so the
-	// tool doesn't report a real DB error as NotFound.
-	targetSess, err := ws.App.Sessions.Get(ctx, target.SessionID)
-	switch {
-	case err == nil:
-		if targetSess.ArchivedAt != 0 {
-			return SwarmSendResult{}, ErrSwarmAddressNotFound
-		}
-	case errors.Is(err, sql.ErrNoRows):
-		return SwarmSendResult{}, ErrSwarmAddressNotFound
-	default:
-		return SwarmSendResult{}, fmt.Errorf("swarm: target lookup: %w", err)
+	targetSess, err := getLiveSession(ctx, ws.App.Sessions, target.SessionID)
+	if err != nil {
+		return SwarmSendResult{}, err
 	}
 
 	delivery := "sent"
@@ -407,29 +342,54 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 	if err := b.SendMessage(target.WorkspaceID, msg); err != nil {
 		return SwarmSendResult{}, err
 	}
-	// Publish an incoming-swarm notification on the target
-	// workspace's notification broker so unfocused clients can
-	// surface a "message from <sender>" toast without loading the
-	// session. Best-effort; a full subscriber is dropped. The label
-	// uses the shorthash-qualified form so ambiguous color-animal
-	// pairs still identify the sender uniquely.
-	if notifier := ws.AgentNotifications(); notifier != nil {
-		senderAddr := swarm.FormatAddress(
-			swarm.Identity{Color: part.SenderColor, Animal: part.SenderAnimal},
-			part.SenderSessionID,
-		)
-		notifier.Publish(pubsub.CreatedEvent, notify.Notification{
-			SessionID:    target.SessionID,
-			SessionTitle: targetSess.Title,
-			Type:         notify.TypeSwarmReceived,
-			Message:      "message from " + senderAddr + ": " + part.Body,
-		})
-	}
+	publishSwarmReceived(ws, target.SessionID, targetSess.Title, part)
 	return SwarmSendResult{
 		WorkspaceID: target.WorkspaceID,
 		SessionID:   target.SessionID,
 		Delivery:    delivery,
 	}, nil
+}
+
+// getLiveSession fetches a non-archived session by id, mapping both
+// sql.ErrNoRows and an archived row to ErrSwarmAddressNotFound while
+// distinguishing genuine DB failures (so the tool doesn't report a
+// real error as NotFound).
+func getLiveSession(ctx context.Context, sessions session.Service, sessionID string) (session.Session, error) {
+	s, err := sessions.Get(ctx, sessionID)
+	switch {
+	case err == nil:
+		if s.ArchivedAt != 0 {
+			return session.Session{}, ErrSwarmAddressNotFound
+		}
+		return s, nil
+	case errors.Is(err, sql.ErrNoRows):
+		return session.Session{}, ErrSwarmAddressNotFound
+	default:
+		return session.Session{}, fmt.Errorf("swarm: target lookup: %w", err)
+	}
+}
+
+// publishSwarmReceived emits a best-effort incoming-swarm notification
+// on the target workspace's broker so unfocused clients can surface a
+// "message from <sender>" toast without loading the session. The label
+// uses the shorthash-qualified sender form so ambiguous color-animal
+// pairs still identify the sender uniquely. No-op if the workspace has
+// no notifier.
+func publishSwarmReceived(ws *Workspace, targetSessionID, targetTitle string, part proto.SwarmMessage) {
+	notifier := ws.AgentNotifications()
+	if notifier == nil {
+		return
+	}
+	senderAddr := swarm.FormatAddress(
+		swarm.Identity{Color: part.SenderColor, Animal: part.SenderAnimal},
+		part.SenderSessionID,
+	)
+	notifier.Publish(pubsub.CreatedEvent, notify.Notification{
+		SessionID:    targetSessionID,
+		SessionTitle: targetTitle,
+		Type:         notify.TypeSwarmReceived,
+		Message:      "message from " + senderAddr + ": " + part.Body,
+	})
 }
 
 // senderIdentity is the trusted view of the sender's session that
@@ -562,6 +522,62 @@ func (b *Backend) ArchiveWorkspaceSession(ctx context.Context, workspaceID, sess
 		return ErrSwarmWorkspaceNotFound
 	}
 	return ws.App.Sessions.Archive(ctx, sessionID)
+}
+
+// matchAddressInApp returns the non-archived sessions in a single
+// workspace's session service that match addr, tagged with
+// workspaceID. It is the one place the session-id and color/animal
+// lookup rules live, shared by the live-workspace loop in
+// LookupSwarmAddress and the post-attach re-verification in
+// reattachForAddress so the two can never drift.
+//
+// A raw-session-id address yields at most one result (flagged Sub if
+// it is a sub-session, so callers can report it). sql.ErrNoRows on
+// that path means the session lives in another workspace, not a
+// failure, so it returns (nil, nil). A color/animal address yields
+// every non-sub session that matches (sub-sessions are skipped so a
+// legacy collision can't disambiguate).
+func matchAddressInApp(ctx context.Context, sessions session.Service, workspaceID string, addr swarm.Address) ([]SwarmLookupResult, error) {
+	if addr.SessionID != "" {
+		s, err := sessions.Get(ctx, addr.SessionID)
+		switch {
+		case err == nil:
+			if s.ArchivedAt != 0 {
+				return nil, nil
+			}
+			return []SwarmLookupResult{{
+				WorkspaceID: workspaceID,
+				SessionID:   s.ID,
+				Color:       s.Color,
+				Animal:      s.Animal,
+				Sub:         isSubSession(s),
+			}}, nil
+		case errors.Is(err, sql.ErrNoRows):
+			return nil, nil
+		default:
+			return nil, err
+		}
+	}
+	list, err := sessions.FindByColorAnimal(ctx, addr.Color, addr.Animal)
+	if err != nil {
+		return nil, err
+	}
+	var out []SwarmLookupResult
+	for _, s := range list {
+		if isSubSession(s) {
+			continue
+		}
+		if !addr.MatchesColorAnimal(s.Color, s.Animal, s.ID) {
+			continue
+		}
+		out = append(out, SwarmLookupResult{
+			WorkspaceID: workspaceID,
+			SessionID:   s.ID,
+			Color:       s.Color,
+			Animal:      s.Animal,
+		})
+	}
+	return out, nil
 }
 
 // isSubSession recognizes the internal sub-agent session id formats
