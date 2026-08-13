@@ -27,7 +27,7 @@ var logoutCmd = &cobra.Command{
 	Long: `Logout Crush from a specified platform, removing stored credentials.
 The platform should be provided as an argument.
 If no argument is given, a list of logged-in platforms will be shown.
-Available platforms are: hyper, copilot.`,
+Available platforms are: hyper, copilot, grok.`,
 	Example: `
 # Sign out from Charm Hyper
 crush logout hyper
@@ -40,6 +40,7 @@ crush logout copilot
 		"copilot",
 		"github",
 		"github-copilot",
+		"grok",
 	},
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -84,6 +85,8 @@ crush logout copilot
 			return logoutHyper(c, ws.ID)
 		case "copilot", "github", "github-copilot":
 			return logoutCopilot(c, ws.ID)
+		case "grok", "xai-grok":
+			return logoutGrok(c, ws.ID)
 		default:
 			return fmt.Errorf("unknown platform: %s", provider)
 		}
@@ -115,6 +118,20 @@ func logoutCopilot(c *client.Client, wsID string) error {
 	}
 
 	fmt.Println(logoutHeaderStyle.Render("Successfully logged out of GitHub Copilot."))
+	return nil
+}
+
+func logoutGrok(c *client.Client, wsID string) error {
+	ctx := getLogoutContext()
+
+	if err := cmp.Or(
+		c.RemoveConfigField(ctx, wsID, config.ScopeGlobal, "providers.grok.api_key"),
+		c.RemoveConfigField(ctx, wsID, config.ScopeGlobal, "providers.grok.oauth"),
+	); err != nil {
+		return err
+	}
+
+	fmt.Println(logoutHeaderStyle.Render("Successfully logged out of Grok."))
 	return nil
 }
 

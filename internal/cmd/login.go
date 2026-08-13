@@ -16,6 +16,7 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/oauth/copilot"
+	"github.com/taigrr/crush/internal/oauth/grok"
 	"github.com/taigrr/crush/internal/oauth/hyper"
 )
 
@@ -25,13 +26,16 @@ var loginCmd = &cobra.Command{
 	Short:   "Login Crush to a platform",
 	Long: `Login Crush to a specified platform.
 The platform should be provided as an argument.
-Available platforms are: hyper, copilot.`,
+Available platforms are: hyper, copilot, grok.`,
 	Example: `
 # Authenticate with Charm Hyper
 crush login
 
 # Authenticate with GitHub Copilot
 crush login copilot
+
+# Authenticate with Grok (opens a browser; reuses your grok CLI login if present)
+crush login grok
 
 # Force re-authentication even if already logged in
 crush login -f copilot
@@ -41,6 +45,7 @@ crush login -f copilot
 		"copilot",
 		"github",
 		"github-copilot",
+		"grok",
 	},
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -66,6 +71,8 @@ crush login -f copilot
 			return loginHyper(c, ws.ID, force)
 		case "copilot", "github", "github-copilot":
 			return loginCopilot(c, ws.ID, force)
+		case "grok", "xai-grok":
+			return loginGrok(c, ws.ID, force)
 		default:
 			return fmt.Errorf("unknown platform: %s", args[0])
 		}
@@ -215,6 +222,85 @@ func loginCopilot(c *client.Client, wsID string, force bool) error {
 	fmt.Println()
 	fmt.Println("You're now authenticated with GitHub Copilot!")
 	return nil
+}
+
+func loginGrok(c *client.Client, wsID string, force bool) error {
+	ctx := getLoginContext()
+
+	if !force {
+		cfg, err := c.GetConfig(ctx, wsID)
+		if err == nil && cfg != nil {
+			if pc, ok := cfg.Providers.Get("grok"); ok && pc.OAuthToken != nil {
+				fmt.Println("You are already logged in to Grok.")
+				fmt.Println("Use --force to re-authenticate.")
+				return nil
+			}
+		}
+	}
+
+	token, err := grokToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	if err := cmp.Or(
+		c.SetConfigField(ctx, wsID, config.ScopeGlobal, "providers.grok.api_key", token.AccessToken),
+		c.SetConfigField(ctx, wsID, config.ScopeGlobal, "providers.grok.oauth", token),
+	); err != nil {
+		return err
+	}
+
+	fmt.Println()
+	fmt.Println("You're now authenticated with Grok!")
+	return nil
+}
+
+// grokToken obtains a Grok OAuth token. It reuses an existing grok CLI
+// credential when one is present on disk (refreshing if stale);
+// otherwise it runs the browser-based authorization-code + PKCE flow so
+// no grok CLI install is required.
+func grokToken(ctx context.Context) (*oauth.Token, error) {
+	if creds, ok := grok.CredentialsFromDisk(); ok {
+		fmt.Println("Found Grok CLI credentials. Verifying...")
+		token := grok.TokenFromCredentials(ctx, creds)
+		if token.IsExpired() {
+			fmt.Println("Refreshing access token...")
+			refreshed, err := grok.RefreshToken(ctx, token)
+			if err != nil {
+				return nil, fmt.Errorf("failed to refresh Grok token: %w", err)
+			}
+			token = refreshed
+		}
+		return token, nil
+	}
+
+	return grokBrowserLogin(ctx)
+}
+
+// grokBrowserLogin runs the loopback authorization-code + PKCE flow: it
+// opens the xAI sign-in page in the browser and waits for the redirect
+// to deliver the authorization code.
+func grokBrowserLogin(ctx context.Context) (*oauth.Token, error) {
+	session, err := grok.StartLogin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer session.Close()
+
+	fmt.Println("Opening your browser to sign in with xAI...")
+	fmt.Println()
+	fmt.Println(lipgloss.NewStyle().Hyperlink(session.AuthURL, "id=grok").Render(session.AuthURL))
+	fmt.Println()
+	if err := browser.OpenURL(session.AuthURL); err != nil {
+		fmt.Println("Could not open the browser automatically. Open the URL above manually.")
+	}
+	fmt.Println("Waiting for authorization...")
+
+	token, err := session.Wait(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return token, nil
 }
 
 func getLoginContext() context.Context {

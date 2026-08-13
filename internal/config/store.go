@@ -17,6 +17,7 @@ import (
 	"github.com/taigrr/crush/internal/lock"
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/oauth/copilot"
+	grokp "github.com/taigrr/crush/internal/oauth/grok"
 	"github.com/taigrr/crush/internal/oauth/hyper"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -348,6 +349,8 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
 			switch providerID {
 			case string(catwalk.InferenceProviderCopilot):
 				providerConfig.SetupGitHubCopilot()
+			case string(catwalk.InferenceProviderGrok):
+				providerConfig.SetupGrok()
 			}
 		}
 	}
@@ -426,6 +429,8 @@ func (s *ConfigStore) RefreshOAuthToken(ctx context.Context, scope Scope, provid
 	switch providerID {
 	case string(catwalk.InferenceProviderCopilot):
 		refreshedToken, refreshErr = copilot.RefreshToken(ctx, providerConfig.OAuthToken.RefreshToken)
+	case string(catwalk.InferenceProviderGrok):
+		refreshedToken, refreshErr = grokp.RefreshToken(ctx, providerConfig.OAuthToken)
 	case hyperp.Name:
 		refreshedToken, refreshErr = hyper.ExchangeToken(ctx, providerConfig.OAuthToken.RefreshToken)
 	default:
@@ -456,6 +461,8 @@ func (s *ConfigStore) RefreshOAuthToken(ctx context.Context, scope Scope, provid
 	switch providerID {
 	case string(catwalk.InferenceProviderCopilot):
 		providerConfig.SetupGitHubCopilot()
+	case string(catwalk.InferenceProviderGrok):
+		providerConfig.SetupGrok()
 	}
 
 	s.config.Providers.Set(providerID, providerConfig)
@@ -476,6 +483,9 @@ func (s *ConfigStore) applyToken(providerConfig ProviderConfig, token *oauth.Tok
 	providerConfig.APIKey = token.AccessToken
 	if providerID == string(catwalk.InferenceProviderCopilot) {
 		providerConfig.SetupGitHubCopilot()
+	}
+	if providerID == string(catwalk.InferenceProviderGrok) {
+		providerConfig.SetupGrok()
 	}
 	s.config.Providers.Set(providerID, providerConfig)
 	return nil

@@ -17,6 +17,7 @@ import (
 	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/oauth/copilot"
+	"github.com/taigrr/crush/internal/oauth/grok"
 )
 
 const (
@@ -170,6 +171,10 @@ func (c *ProviderConfig) ToProvider() catwalk.Provider {
 
 func (c *ProviderConfig) SetupGitHubCopilot() {
 	maps.Copy(c.ExtraHeaders, copilot.Headers())
+}
+
+func (c *ProviderConfig) SetupGrok() {
+	maps.Copy(c.ExtraHeaders, grok.Headers())
 }
 
 type MCPType string

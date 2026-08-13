@@ -431,8 +431,8 @@ github.com/tadvi/systray v0.0.0-20190226123456-11a2b8fa57af h1:6yITBqGTE2lEeTPG0
 github.com/tadvi/systray v0.0.0-20190226123456-11a2b8fa57af/go.mod h1:4F09kP5F+am0jAwlQLddpoMDM+iewkxxt6nxUQ5nq5o=
 github.com/taigrr/animals v0.0.2 h1:l3/EJ/v4NOPnjHgrj7VG+7B762xo+VH+mKQ7Y6ra8lE=
 github.com/taigrr/animals v0.0.2/go.mod h1:p/Dygvu1n5vyd5WIcigbTgVk8GILvXSZEnuOAyMWQ6o=
-github.com/taigrr/catwalk v0.51.3-fork h1:IjLz1eTLbFlgef+8xPq8HSa9Ewn6FwrkEMGzCiq8pk4=
-github.com/taigrr/catwalk v0.51.3-fork/go.mod h1:X1axRtrwz46qnkRkyXpj0obhCASciprQfgbaB4CR8Eo=
+github.com/taigrr/catwalk v0.51.4-fork h1:YB6mlqW+dBUvFO22whfQprk02DUsSGVkWJ+W5F8RXw8=
+github.com/taigrr/catwalk v0.51.4-fork/go.mod h1:X1axRtrwz46qnkRkyXpj0obhCASciprQfgbaB4CR8Eo=
 github.com/taigrr/colorhash v0.7.0 h1:Dr61sixSt3no4UFb/H1F2MoZJwpq/iivpJP8cNACXtw=
 github.com/taigrr/colorhash v0.7.0/go.mod h1:s86pdDrVQNWUEwME2Ngu/veCl13T2cXwfPQ5IMtK/7w=
 github.com/taigrr/fantasy v0.27.0-fork h1:B4jJgjSap0GmSbIkmKVy9ZIARqq304dZMqS1xbIalOQ=
