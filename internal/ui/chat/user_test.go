@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/message"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 // TestUserMessageItemRawRenderPreservesLiteralCharacters guards the
@@ -16,7 +16,7 @@ import (
 func TestUserMessageItemRawRenderPreservesLiteralCharacters(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	msg := &message.Message{
 		ID:   "m1",
 		Role: message.User,
@@ -41,7 +41,7 @@ func TestUserMessageItemRawRenderPreservesLiteralCharacters(t *testing.T) {
 func TestUserMessageItemRawRenderStripsControlSequences(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	msg := &message.Message{
 		ID:   "m2",
 		Role: message.User,
@@ -64,7 +64,7 @@ func TestUserMessageItemRawRenderStripsControlSequences(t *testing.T) {
 func TestUserMessageItemRawRenderNormalizesCarriageReturns(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	msg := &message.Message{
 		ID:   "m4",
 		Role: message.User,
@@ -92,7 +92,7 @@ func TestUserMessageItemRawRenderNormalizesCarriageReturns(t *testing.T) {
 func TestUserMessageItemRawRenderStripsBareControlBytes(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	msg := &message.Message{
 		ID:   "m5",
 		Role: message.User,
@@ -116,7 +116,7 @@ func TestUserMessageItemRawRenderStripsBareControlBytes(t *testing.T) {
 func TestUserMessageItemRawRenderAppliesBaseForeground(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	msg := &message.Message{
 		ID:   "m3",
 		Role: message.User,

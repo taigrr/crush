@@ -1,4 +1,4 @@
-package styles
+package themes
 
 import (
 	"os"
@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 func TestBuiltinThemeRegistry(t *testing.T) {
@@ -45,7 +46,7 @@ func TestResolveTheme(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "neon.lua"),
 		[]byte(`return { name = "Neon", bg_base = "#001122" }`), 0o644))
 
-	bg := func(s Styles) [4]uint32 { return colorRGBA(s.Background) }
+	bg := func(s styles.Styles) [4]uint32 { return colorRGBA(s.Background) }
 	want := colorRGBA(lipgloss.Color("#001122"))
 
 	// User theme resolves by name from dir.

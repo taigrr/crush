@@ -9,7 +9,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/common"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"github.com/taigrr/crush/internal/workspace"
 )
 
@@ -83,7 +83,7 @@ func (w *archiveStubWorkspace) BaseDir() string { return "" }
 
 func newArchiveTestUI(t *testing.T, ws *archiveStubWorkspace, activeID string) *UI {
 	t.Helper()
-	s := styles.CharmtonePantera()
+	s := themes.CharmtonePantera()
 	m := &UI{com: &common.Common{Styles: &s, Workspace: ws}}
 	m.session = &session.Session{ID: activeID}
 	return m
@@ -165,7 +165,7 @@ func TestArchiveSessionsCmd_CollectsAllFailures(t *testing.T) {
 		failIDs:  map[string]bool{"b": true},
 		sessions: nil, // ListWorkspaceOverviews via embedded stub returns nil, nil
 	}
-	s := styles.CharmtonePantera()
+	s := themes.CharmtonePantera()
 	m := &UI{com: &common.Common{Styles: &s, Workspace: ws}}
 
 	// a, b, c in deterministic order; b fails, a and c succeed.

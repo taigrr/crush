@@ -57,6 +57,7 @@ import (
 	"github.com/taigrr/crush/internal/ui/logo"
 	"github.com/taigrr/crush/internal/ui/notification"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"github.com/taigrr/crush/internal/ui/util"
 	"github.com/taigrr/crush/internal/version"
 	"github.com/taigrr/crush/internal/workspace"
@@ -2733,7 +2734,7 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 				themeName = cfg.Options.TUI.Theme
 			}
 			if themeName == "" {
-				m.applyTheme(styles.ThemeForProvider(providerID, m.hasDarkBackground))
+				m.applyTheme(themes.ThemeForProvider(providerID, m.hasDarkBackground))
 			}
 		}
 		if _, ok := cfg.Models[config.SelectedModelTypeSmall]; !ok {
@@ -4305,7 +4306,7 @@ func (m *UI) applyConfiguredTheme() {
 	if m.activeThemeName != "" {
 		themeName = m.activeThemeName
 	}
-	m.applyTheme(styles.ResolveTheme(themeName, config.GlobalThemesDir(), providerID, m.hasDarkBackground))
+	m.applyTheme(themes.ResolveTheme(themeName, config.GlobalThemesDir(), providerID, m.hasDarkBackground))
 }
 
 // refreshStyles pushes the current *m.com.Styles into every subcomponent

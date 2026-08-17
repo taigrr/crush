@@ -6,7 +6,7 @@ import (
 	"github.com/sahilm/fuzzy"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/ui/list"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 // TestEmbeddingItem_MutatorsBumpVersion covers the version-bump contract
@@ -14,7 +14,7 @@ import (
 func TestEmbeddingItem_MutatorsBumpVersion(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	item := &EmbeddingItem{
 		Versioned: list.NewVersioned(),
 		choice:    EmbeddingChoice{Provider: "bedrock", Model: "amazon.titan-embed-text-v2:0", Name: "Titan v2", Dimensions: 1024, Configured: true},
@@ -44,7 +44,7 @@ func TestEmbeddingItem_MutatorsBumpVersion(t *testing.T) {
 // rendering branches.
 func TestEmbeddingItem_Render(t *testing.T) {
 	t.Parallel()
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 
 	disabled := &EmbeddingItem{Versioned: list.NewVersioned(), choice: EmbeddingChoice{}, isCurrent: true, t: &sty}
 	require.Contains(t, disabled.Render(80), "Disabled")

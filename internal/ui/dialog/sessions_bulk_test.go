@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/common"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"github.com/taigrr/crush/internal/workspace"
 )
 
@@ -42,7 +42,7 @@ func (w *pickerStubWorkspace) AgentIsSessionBusy(string) bool { return false }
 
 func newTestPicker(t *testing.T, ws *pickerStubWorkspace, activeID string) *Session {
 	t.Helper()
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	com := &common.Common{Styles: &sty, Workspace: ws}
 	s, err := NewSessions(com, activeID)
 	require.NoError(t, err)

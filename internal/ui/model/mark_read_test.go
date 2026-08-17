@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/ui/common"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 // TestSidebar_MarkReadSelectionSpansWorkspaces verifies the bulk mark-read
@@ -52,7 +52,7 @@ func TestMarkSessionsReadCmd_CollectsAllFailures(t *testing.T) {
 	ws := &archiveStubWorkspace{
 		markFailIDs: map[string]bool{"b": true},
 	}
-	s := styles.CharmtonePantera()
+	s := themes.CharmtonePantera()
 	m := &UI{com: &common.Common{Styles: &s, Workspace: ws}}
 
 	msg := m.markSessionsReadCmd([]SessionTarget{{ID: "a"}, {ID: "b"}, {ID: "c"}})().(sessionsMarkedReadMsg)
@@ -70,7 +70,7 @@ func TestMarkSelectedSessionsRead_EmptyReportsInfo(t *testing.T) {
 	s.SetOverviews(sampleOverviews())
 	s.SetCurrentRoot("/proj/a")
 	ws := &archiveStubWorkspace{}
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	m := &UI{com: &common.Common{Styles: &sty, Workspace: ws}, leftSidebar: s}
 
 	cmd := m.markSelectedSessionsRead()
@@ -87,7 +87,7 @@ func TestHandleLeftSidebarKey_RMarksRead(t *testing.T) {
 	s.SetOverviews(sampleOverviews())
 	s.SetCurrentRoot("/proj/a")
 	ws := &archiveStubWorkspace{}
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	m := &UI{
 		keyMap:      DefaultKeyMap(),
 		leftSidebar: s,

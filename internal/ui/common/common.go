@@ -13,6 +13,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"github.com/taigrr/crush/internal/ui/util"
 	"github.com/taigrr/crush/internal/workspace"
 )
@@ -58,7 +59,7 @@ func DefaultCommon(ws workspace.Workspace) *Common {
 			themeName = cfg.Options.TUI.Theme
 		}
 	}
-	s := styles.ResolveTheme(themeName, config.GlobalThemesDir(), largeModelProviderID(ws))
+	s := themes.ResolveTheme(themeName, config.GlobalThemesDir(), largeModelProviderID(ws))
 	return &Common{
 		Workspace: ws,
 		Styles:    &s,

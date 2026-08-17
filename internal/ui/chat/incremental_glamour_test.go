@@ -6,7 +6,7 @@ import (
 
 	"charm.land/glamour/v2"
 	"github.com/stretchr/testify/require"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 // newTestRenderer builds a fresh glamour renderer for the given
@@ -16,7 +16,7 @@ import (
 // path into a "fresh" rendering path.
 func newTestRenderer(t *testing.T, width int) *glamour.TermRenderer {
 	t.Helper()
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	r, err := glamour.NewTermRenderer(
 		glamour.WithStyles(sty.Markdown),
 		glamour.WithWordWrap(width),
@@ -830,7 +830,7 @@ func TestStreamingMarkdown_LinkRefDefinition(t *testing.T) {
 func TestAssistantStreamingContent_ResetOnClearCache(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	doc := "Para one.\n\nPara two.\n\nPara three."
 	msg := finishedAssistantMessage("stream-clear", doc)
 	item := NewAssistantMessageItem(&sty, msg).(*AssistantMessageItem)

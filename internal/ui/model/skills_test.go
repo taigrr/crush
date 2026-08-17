@@ -7,7 +7,7 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/common"
-	uistyles "github.com/taigrr/crush/internal/ui/styles"
+	uithemes "github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 // TestSkillStatusItemsIncludesBuiltinSkills verifies sidebar skills include
@@ -16,7 +16,7 @@ import (
 func TestSkillStatusItemsIncludesBuiltinSkills(t *testing.T) {
 	t.Parallel()
 
-	st := uistyles.CharmtonePantera()
+	st := uithemes.CharmtonePantera()
 	ui := &UI{
 		com: &common.Common{Styles: &st},
 		skillStates: []*skills.SkillState{
@@ -61,7 +61,7 @@ func TestSkillStatusItemsIncludesBuiltinSkills(t *testing.T) {
 func TestSkillStatusItemsExcludesDisabledSkills(t *testing.T) {
 	t.Parallel()
 
-	st := uistyles.CharmtonePantera()
+	st := uithemes.CharmtonePantera()
 	ui := &UI{
 		com: &common.Common{
 			Styles:    &st,

@@ -9,7 +9,7 @@ import (
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/swarm"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 // SwarmConfig returns the swarm identity generator config resolved
@@ -24,7 +24,7 @@ func (app *App) SwarmConfig() swarm.Config {
 	if cfg != nil && cfg.Options != nil && cfg.Options.TUI != nil {
 		name = cfg.Options.TUI.Theme
 	}
-	theme := styles.ResolveSwarmTheme(name, themesDir)
+	theme := themes.ResolveSwarmTheme(name, themesDir)
 	return swarm.Config{
 		Palette: theme.Palette,
 		Animals: theme.Animals,

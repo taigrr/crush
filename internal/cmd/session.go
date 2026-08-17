@@ -29,7 +29,7 @@ import (
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/ui/chat"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 var sessionCmd = &cobra.Command{
@@ -477,7 +477,7 @@ func outputSessionHuman(ctx context.Context, cfg *config.ConfigStore, sess sessi
 	if cfg != nil {
 		providerID = cfg.Config().Models[config.SelectedModelTypeLarge].Provider
 	}
-	styles := styles.ThemeForProvider(providerID)
+	styles := themes.ThemeForProvider(providerID)
 	toolResults := chat.BuildToolResultMap(msgs)
 
 	width := sessionOutputWidth

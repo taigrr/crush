@@ -1,18 +1,18 @@
 package dialog
 
 import (
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/config"
-	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 func TestAppendModelItems(t *testing.T) {
 	t.Parallel()
 
-	st := styles.TokyoNight()
+	st := themes.TokyoNight()
 	provider := catwalk.Provider{ID: catwalk.InferenceProvider("openai")}
 	models := []catwalk.Model{
 		{ID: "gpt-4", Name: "GPT-4"},

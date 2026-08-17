@@ -11,6 +11,7 @@ import (
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 const (
@@ -111,7 +112,7 @@ func (d *Theme) currentThemeName() string {
 	if cfg != nil && cfg.Options != nil && cfg.Options.TUI != nil && cfg.Options.TUI.Theme != "" {
 		return cfg.Options.TUI.Theme
 	}
-	return styles.DefaultThemeName
+	return themes.DefaultThemeName
 }
 
 func (d *Theme) setThemeItems(preferred string) {
@@ -125,7 +126,7 @@ func (d *Theme) setThemeItems(preferred string) {
 	idx := 0
 
 	add := func(name string, isDark bool, s styles.Styles) {
-		isCurrent := styles.NormalizeThemeName(name) == styles.NormalizeThemeName(current)
+		isCurrent := themes.NormalizeThemeName(name) == themes.NormalizeThemeName(current)
 		items = append(items, &ThemeItem{
 			Versioned: list.NewVersioned(),
 			name:      name,
@@ -134,17 +135,17 @@ func (d *Theme) setThemeItems(preferred string) {
 			isCurrent: isCurrent,
 			t:         d.com.Styles,
 		})
-		if styles.NormalizeThemeName(name) == styles.NormalizeThemeName(preferred) {
+		if themes.NormalizeThemeName(name) == themes.NormalizeThemeName(preferred) {
 			selectedIndex = idx
 		}
 		idx++
 	}
 
-	for _, info := range styles.BuiltinThemeInfos() {
-		s, _ := styles.BuiltinThemeByName(info.Name, d.isDark)
+	for _, info := range themes.BuiltinThemeInfos() {
+		s, _ := themes.BuiltinThemeByName(info.Name, d.isDark)
 		add(info.Name, d.isDark, s)
 	}
-	userThemes, _ := styles.LoadUserThemes(config.GlobalThemesDir())
+	userThemes, _ := themes.LoadUserThemes(config.GlobalThemesDir())
 	for _, ut := range userThemes {
 		add(ut.Name, ut.IsDark, ut.Styles)
 	}
@@ -153,7 +154,7 @@ func (d *Theme) setThemeItems(preferred string) {
 	d.list.SetFilter(d.input.Value())
 	for index, item := range d.list.FilteredItems() {
 		theme, ok := item.(*ThemeItem)
-		if ok && styles.NormalizeThemeName(theme.name) == styles.NormalizeThemeName(preferred) {
+		if ok && themes.NormalizeThemeName(theme.name) == themes.NormalizeThemeName(preferred) {
 			selectedIndex = index
 			break
 		}

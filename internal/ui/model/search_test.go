@@ -9,7 +9,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/dialog"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"github.com/taigrr/crush/internal/workspace"
 )
 
@@ -32,7 +32,7 @@ func (w *commitStubWorkspace) SwitchWorkspace(_ context.Context, path string) er
 func (w *commitStubWorkspace) PermissionSkipRequests() bool { return false }
 
 func newCommitTestUI(ws *commitStubWorkspace) *UI {
-	s := styles.CharmtonePantera()
+	s := themes.CharmtonePantera()
 	m := &UI{com: &common.Common{Styles: &s, Workspace: ws}}
 	m.dialog = dialog.NewOverlay()
 	return m

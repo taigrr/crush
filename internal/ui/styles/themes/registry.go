@@ -1,7 +1,9 @@
-package styles
+package themes
 
 import (
 	"strings"
+
+	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 // DefaultThemeName is the name of the default builtin theme.
@@ -14,8 +16,8 @@ type ThemeInfo struct {
 
 // builtinTheme pairs explicit dark and light Styles builders.
 type builtinTheme struct {
-	dark  func() Styles
-	light func() Styles
+	dark  func() styles.Styles
+	light func() styles.Styles
 }
 
 // builtinThemes maps theme names to their builders. Names are matched
@@ -70,10 +72,10 @@ func BuiltinThemeInfos() []ThemeInfo {
 
 // BuiltinThemeByName returns the Styles for a builtin theme by name. The
 // lookup is case-insensitive. The boolean reports whether the theme exists.
-func BuiltinThemeByName(name string, isDark ...bool) (Styles, bool) {
+func BuiltinThemeByName(name string, isDark ...bool) (styles.Styles, bool) {
 	t, ok := builtinThemes[normalizeThemeName(name)]
 	if !ok {
-		return Styles{}, false
+		return styles.Styles{}, false
 	}
 	if len(isDark) == 0 || isDark[0] {
 		return t.dark(), true
@@ -90,7 +92,7 @@ func IsBuiltinTheme(name string) bool {
 // ThemeForProvider returns the Styles associated with the given provider
 // ID. Unknown or empty provider IDs yield the default Charmtone Pantera
 // theme.
-func ThemeForProvider(providerID string, isDark ...bool) Styles {
+func ThemeForProvider(providerID string, isDark ...bool) styles.Styles {
 	name := DefaultThemeName
 	if providerID == "hyper" {
 		name = "hypercrush"
@@ -102,7 +104,7 @@ func ThemeForProvider(providerID string, isDark ...bool) Styles {
 // ResolveTheme returns the Styles for the named theme, searching builtins
 // first and then user Lua themes in themesDir. If name is empty or cannot be
 // resolved, it falls back to the provider-derived default theme.
-func ResolveTheme(name, themesDir, providerID string, isDark ...bool) Styles {
+func ResolveTheme(name, themesDir, providerID string, isDark ...bool) styles.Styles {
 	if normalizeThemeName(name) != "" {
 		if s, ok := BuiltinThemeByName(name, isDark...); ok {
 			return s
