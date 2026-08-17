@@ -22,10 +22,11 @@ const (
 
 // Theme is a dialog for selecting the UI theme with a live preview.
 type Theme struct {
-	com   *common.Common
-	help  help.Model
-	list  *list.FilterableList
-	input textinput.Model
+	com    *common.Common
+	help   help.Model
+	list   *list.FilterableList
+	input  textinput.Model
+	isDark bool
 
 	keyMap struct {
 		Select   key.Binding
@@ -59,8 +60,12 @@ var (
 )
 
 // NewTheme creates a new theme picker dialog.
-func NewTheme(com *common.Common) (*Theme, error) {
-	d := &Theme{com: com}
+func NewTheme(com *common.Common, isDark ...bool) (*Theme, error) {
+	dark := true
+	if len(isDark) > 0 {
+		dark = isDark[0]
+	}
+	d := &Theme{com: com, isDark: dark}
 
 	h := help.New()
 	h.Styles = com.Styles.DialogHelpStyles()
@@ -93,7 +98,7 @@ func NewTheme(com *common.Common) (*Theme, error) {
 	)
 	d.keyMap.Close = CloseKey
 
-	d.setThemeItems()
+	d.setThemeItems("")
 	return d, nil
 }
 
@@ -109,8 +114,11 @@ func (d *Theme) currentThemeName() string {
 	return styles.DefaultThemeName
 }
 
-func (d *Theme) setThemeItems() {
+func (d *Theme) setThemeItems(preferred string) {
 	current := d.currentThemeName()
+	if preferred == "" {
+		preferred = current
+	}
 
 	var items []list.FilterableItem
 	selectedIndex := 0
@@ -126,15 +134,15 @@ func (d *Theme) setThemeItems() {
 			isCurrent: isCurrent,
 			t:         d.com.Styles,
 		})
-		if isCurrent {
+		if styles.NormalizeThemeName(name) == styles.NormalizeThemeName(preferred) {
 			selectedIndex = idx
 		}
 		idx++
 	}
 
 	for _, info := range styles.BuiltinThemeInfos() {
-		s, _ := styles.BuiltinThemeByName(info.Name)
-		add(info.Name, info.IsDark, s)
+		s, _ := styles.BuiltinThemeByName(info.Name, d.isDark)
+		add(info.Name, d.isDark, s)
 	}
 	userThemes, _ := styles.LoadUserThemes(config.GlobalThemesDir())
 	for _, ut := range userThemes {
@@ -142,8 +150,31 @@ func (d *Theme) setThemeItems() {
 	}
 
 	d.list.SetItems(items...)
+	d.list.SetFilter(d.input.Value())
+	for index, item := range d.list.FilteredItems() {
+		theme, ok := item.(*ThemeItem)
+		if ok && styles.NormalizeThemeName(theme.name) == styles.NormalizeThemeName(preferred) {
+			selectedIndex = index
+			break
+		}
+	}
 	d.list.SetSelected(selectedIndex)
 	d.list.ScrollToSelected()
+}
+
+func (d *Theme) SetDarkBackground(isDark bool) styles.Styles {
+	selectedName := ""
+	if item, ok := d.list.SelectedItem().(*ThemeItem); ok {
+		selectedName = item.name
+	}
+	if d.isDark != isDark {
+		d.isDark = isDark
+		d.setThemeItems(selectedName)
+	}
+	if item, ok := d.list.SelectedItem().(*ThemeItem); ok {
+		return item.styles
+	}
+	return *d.com.Styles
 }
 
 // previewAction returns the preview action for the currently selected theme,

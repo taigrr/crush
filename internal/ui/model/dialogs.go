@@ -166,7 +166,7 @@ func (m *UI) openThemeDialog() tea.Cmd {
 		return nil
 	}
 
-	themeDialog, err := dialog.NewTheme(m.com)
+	themeDialog, err := dialog.NewTheme(m.com, m.hasDarkBackground)
 	if err != nil {
 		return util.ReportError(err)
 	}

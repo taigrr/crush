@@ -29,9 +29,13 @@ func TestBuiltinThemeRegistry(t *testing.T) {
 	// Every advertised builtin must actually build (smoke test catches a
 	// new entry forgotten in the registry map vs. order slice).
 	for _, info := range infos {
-		s, ok := BuiltinThemeByName(info.Name)
+		dark, ok := BuiltinThemeByName(info.Name, true)
 		require.True(t, ok, "BuiltinThemeByName missing for %q", info.Name)
-		require.NotNil(t, s.Background, "%q builtin produced empty Styles", info.Name)
+		light, ok := BuiltinThemeByName(info.Name, false)
+		require.True(t, ok, "BuiltinThemeByName missing light variant for %q", info.Name)
+		require.NotNil(t, dark.Background, "%q builtin produced empty dark Styles", info.Name)
+		require.NotNil(t, light.Background, "%q builtin produced empty light Styles", info.Name)
+		require.NotEqual(t, colorRGBA(dark.Background), colorRGBA(light.Background), "%q variants use the same background", info.Name)
 	}
 }
 
@@ -50,8 +54,12 @@ func TestResolveTheme(t *testing.T) {
 	require.Equal(t, want, bg(ResolveTheme("nEoN", dir, "")))
 	// Builtin takes precedence and resolves.
 	require.Equal(t, colorRGBA(CharmtonePantera().Background), bg(ResolveTheme("charmtone", dir, "")))
+	require.Equal(t, colorRGBA(CharmtonePanteraLight().Background), bg(ResolveTheme("charmtone", dir, "", false)))
+	// User themes are fixed palettes and do not synthesize variants.
+	require.Equal(t, want, bg(ResolveTheme("Neon", dir, "", false)))
 	// Unknown name falls back to provider default (no panic).
 	require.NotPanics(t, func() { ResolveTheme("does-not-exist", dir, "hyper") })
-	// Empty name falls back to provider default.
+	// Empty name falls back to the provider's matching variant.
 	require.Equal(t, colorRGBA(HypercrushObsidiana().Background), bg(ResolveTheme("", dir, "hyper")))
+	require.Equal(t, colorRGBA(HypercrushObsidianaLight().Background), bg(ResolveTheme("", dir, "hyper", false)))
 }

@@ -12,29 +12,28 @@ const DefaultThemeName = "charmtone"
 
 // ThemeInfo describes a selectable theme for the picker.
 type ThemeInfo struct {
-	Name   string
-	IsDark bool
+	Name string
 }
 
-// builtinTheme pairs a Styles builder with dark/light metadata.
+// builtinTheme pairs explicit dark and light Styles builders.
 type builtinTheme struct {
-	isDark bool
-	build  func() Styles
+	dark  func() Styles
+	light func() Styles
 }
 
 // builtinThemes maps theme names to their builders. Names are matched
 // case-insensitively (see normalizeThemeName).
 var builtinThemes = map[string]builtinTheme{
-	"charmtone":        {isDark: true, build: CharmtonePantera},
-	"hypercrush":       {isDark: true, build: HypercrushObsidiana},
-	"tokyo-night":      {isDark: true, build: TokyoNight},
-	"catppuccin-mocha": {isDark: true, build: CatppuccinMocha},
-	"dracula":          {isDark: true, build: Dracula},
-	"nord":             {isDark: true, build: Nord},
-	"gruvbox-dark":     {isDark: true, build: GruvboxDark},
-	"rose-pine":        {isDark: true, build: RosePine},
-	"cyberpunk":        {isDark: true, build: Cyberpunk},
-	"vscode-dark":      {isDark: true, build: VSCodeDark},
+	"charmtone":        {dark: CharmtonePantera, light: CharmtonePanteraLight},
+	"hypercrush":       {dark: HypercrushObsidiana, light: HypercrushObsidianaLight},
+	"tokyo-night":      {dark: TokyoNight, light: TokyoNightLight},
+	"catppuccin-mocha": {dark: CatppuccinMocha, light: CatppuccinLatte},
+	"dracula":          {dark: Dracula, light: DraculaLight},
+	"nord":             {dark: Nord, light: NordLight},
+	"gruvbox-dark":     {dark: GruvboxDark, light: GruvboxLight},
+	"rose-pine":        {dark: RosePine, light: RosePineDawn},
+	"cyberpunk":        {dark: Cyberpunk, light: CyberpunkLight},
+	"vscode-dark":      {dark: VSCodeDark, light: VSCodeLight},
 }
 
 // builtinThemeOrder controls the display order in the theme picker.
@@ -67,19 +66,22 @@ func NormalizeThemeName(name string) string {
 func BuiltinThemeInfos() []ThemeInfo {
 	infos := make([]ThemeInfo, 0, len(builtinThemeOrder))
 	for _, name := range builtinThemeOrder {
-		infos = append(infos, ThemeInfo{Name: name, IsDark: builtinThemes[name].isDark})
+		infos = append(infos, ThemeInfo{Name: name})
 	}
 	return infos
 }
 
 // BuiltinThemeByName returns the Styles for a builtin theme by name. The
 // lookup is case-insensitive. The boolean reports whether the theme exists.
-func BuiltinThemeByName(name string) (Styles, bool) {
+func BuiltinThemeByName(name string, isDark ...bool) (Styles, bool) {
 	t, ok := builtinThemes[normalizeThemeName(name)]
 	if !ok {
 		return Styles{}, false
 	}
-	return t.build(), true
+	if len(isDark) == 0 || isDark[0] {
+		return t.dark(), true
+	}
+	return t.light(), true
 }
 
 // IsBuiltinTheme reports whether name refers to a builtin theme.
@@ -91,21 +93,21 @@ func IsBuiltinTheme(name string) bool {
 // ThemeForProvider returns the Styles associated with the given provider
 // ID. Unknown or empty provider IDs yield the default Charmtone Pantera
 // theme.
-func ThemeForProvider(providerID string) Styles {
-	switch providerID {
-	case "hyper":
-		return HypercrushObsidiana()
-	default:
-		return CharmtonePantera()
+func ThemeForProvider(providerID string, isDark ...bool) Styles {
+	name := DefaultThemeName
+	if providerID == "hyper" {
+		name = "hypercrush"
 	}
+	theme, _ := BuiltinThemeByName(name, isDark...)
+	return theme
 }
 
 // ResolveTheme returns the Styles for the named theme, searching builtins
 // first and then user Lua themes in themesDir. If name is empty or cannot be
 // resolved, it falls back to the provider-derived default theme.
-func ResolveTheme(name, themesDir, providerID string) Styles {
+func ResolveTheme(name, themesDir, providerID string, isDark ...bool) Styles {
 	if normalizeThemeName(name) != "" {
-		if s, ok := BuiltinThemeByName(name); ok {
+		if s, ok := BuiltinThemeByName(name, isDark...); ok {
 			return s
 		}
 		if themesDir != "" {
@@ -117,7 +119,7 @@ func ResolveTheme(name, themesDir, providerID string) Styles {
 			}
 		}
 	}
-	return ThemeForProvider(providerID)
+	return ThemeForProvider(providerID, isDark...)
 }
 
 // ResolveSwarmTheme returns the SwarmThemeConfig for the named theme,
