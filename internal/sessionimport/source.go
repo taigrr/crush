@@ -37,9 +37,9 @@ type harness interface {
 	// should stop.
 	matchWalk(path string, entry fs.DirEntry) (matched, skipDir bool)
 	// detect reports whether path was produced by this harness. isDir
-	// marks directory input; first is the first JSONL record for
-	// files and nil for directories.
-	detect(path string, isDir bool, first rawRecord) bool
+	// marks directory input; records holds the parsed JSONL records for
+	// files (non-empty) and is nil for directories.
+	detect(path string, isDir bool, records []rawRecord) bool
 	// parse reads a complete transcript from path.
 	parse(path string) (Session, error)
 	// discover reads cheap metadata from path into a [Candidate].
@@ -106,7 +106,7 @@ func detectSource(path string) (Source, error) {
 		return "", fmt.Errorf("session file %s is empty", path)
 	}
 	for _, h := range registry {
-		if h.detect(path, false, records[0]) {
+		if h.detect(path, false, records) {
 			return h.id(), nil
 		}
 	}

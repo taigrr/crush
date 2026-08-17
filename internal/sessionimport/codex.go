@@ -26,10 +26,11 @@ func (codexHarness) matchWalk(_ string, entry fs.DirEntry) (matched, skipDir boo
 	return matchJSONLFile(entry), false
 }
 
-func (codexHarness) detect(_ string, isDir bool, first rawRecord) bool {
+func (codexHarness) detect(_ string, isDir bool, records []rawRecord) bool {
 	if isDir {
 		return false
 	}
+	first := records[0]
 	return first["type"] == "session_meta" || first["type"] == "turn_context"
 }
 
@@ -139,8 +140,12 @@ func isCodexHumanPrompt(payload rawRecord) bool {
 	return !isGeneratedContent(payload["content"])
 }
 
+func jsonlSourceID(path string) string {
+	return strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".zst"), ".jsonl")
+}
+
 func codexIDFromPath(path string) string {
-	base := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".zst"), ".jsonl")
+	base := jsonlSourceID(path)
 	parts := strings.Split(base, "-")
 	if len(parts) >= 8 {
 		return strings.Join(parts[len(parts)-5:], "-")

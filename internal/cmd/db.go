@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -108,7 +109,7 @@ func runDBMerge(cmd *cobra.Command, args []string) error {
 	total := mergeTotals{}
 	for _, src := range sources {
 		cmd.Printf("Merging %s …\n", src)
-		got, err := mergeOneSource(ctx, cmd, conn, src)
+		got, err := mergeOneSource(ctx, conn, src)
 		if err != nil {
 			return fmt.Errorf("merge of %s failed: %w", src, err)
 		}
@@ -146,7 +147,7 @@ func (m *mergeTotals) print(cmd *cobra.Command) {
 
 // mergeOneSource copies a migrated, read-only copy of src into the target
 // connection and returns the per-table added-row counts.
-func mergeOneSource(ctx context.Context, cmd *cobra.Command, conn *sql.DB, srcDBPath string) (map[string]int64, error) {
+func mergeOneSource(ctx context.Context, conn *sql.DB, srcDBPath string) (map[string]int64, error) {
 	// Copy the source to a temp dir and migrate that copy to the current
 	// schema, so the original is never modified and old worktree DBs
 	// (potentially several migrations behind) line up column-for-column.
@@ -318,13 +319,11 @@ func mergeTable(ctx context.Context, tx *sql.Tx, table string) (int64, error) {
 	if len(cols) == 0 {
 		return 0, nil
 	}
-	colList := ""
+	quoted := make([]string, len(cols))
 	for i, c := range cols {
-		if i > 0 {
-			colList += ", "
-		}
-		colList += `"` + c + `"`
+		quoted[i] = `"` + c + `"`
 	}
+	colList := strings.Join(quoted, ", ")
 	q := fmt.Sprintf(
 		"INSERT OR IGNORE INTO main.%q (%s) SELECT %s FROM src.%q",
 		table, colList, colList, table,

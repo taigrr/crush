@@ -534,7 +534,7 @@ func (c *controllerV1) handlePostSessionImport(w http.ResponseWriter, r *http.Re
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
-	results, err := c.backend.ImportSessions(r.Context(), r.PathValue("id"), request.Paths)
+	results, err := c.backend.ImportSessions(r.Context(), r.PathValue("id"), request.Paths, sessionimport.Source(request.Source))
 	if err != nil {
 		c.handleError(w, r, err)
 		return

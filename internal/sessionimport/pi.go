@@ -24,10 +24,11 @@ func (piHarness) matchWalk(_ string, entry fs.DirEntry) (matched, skipDir bool) 
 	return matchJSONLFile(entry), false
 }
 
-func (piHarness) detect(_ string, isDir bool, first rawRecord) bool {
+func (piHarness) detect(_ string, isDir bool, records []rawRecord) bool {
 	if isDir {
 		return false
 	}
+	first := records[0]
 	return first["type"] == "session" && number(first["version"]) > 0
 }
 

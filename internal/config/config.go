@@ -174,6 +174,9 @@ func (c *ProviderConfig) SetupGitHubCopilot() {
 }
 
 func (c *ProviderConfig) SetupGrok() {
+	if c.ExtraHeaders == nil {
+		c.ExtraHeaders = make(map[string]string)
+	}
 	maps.Copy(c.ExtraHeaders, grok.Headers())
 }
 
@@ -708,6 +711,18 @@ type Config struct {
 	Embedding *EmbeddingConfig `json:"embedding,omitempty" jsonschema:"description=Global text-embedding model for vector/hybrid history search. Must be set globally (~/.config/crush); workspace overrides are ignored."`
 
 	Agents map[string]Agent `json:"-"`
+}
+
+// JSONSchemaProperty overrides the schema for the concurrent-map Providers
+// field so it renders as a plain string-keyed object of ProviderConfig,
+// instead of exposing csync.Map's internals. Routing the alias through the
+// containing struct (which holds no lock) keeps the map type lock-free while
+// still letting invopop register ProviderConfig in $defs.
+func (Config) JSONSchemaProperty(prop string) any {
+	if prop == "providers" {
+		return map[string]ProviderConfig{}
+	}
+	return nil
 }
 
 func (c *Config) EnabledProviders() []ProviderConfig {

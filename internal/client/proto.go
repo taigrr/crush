@@ -888,8 +888,8 @@ func (c *Client) DiscoverSessionImports(ctx context.Context, source string) ([]p
 	return candidates, nil
 }
 
-func (c *Client) ImportSessions(ctx context.Context, id string, paths []string) ([]proto.SessionImportResult, error) {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/session-import", id), nil, jsonBody(proto.SessionImportRequest{Paths: paths}), http.Header{"Content-Type": []string{"application/json"}})
+func (c *Client) ImportSessions(ctx context.Context, id string, paths []string, from string) ([]proto.SessionImportResult, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/session-import", id), nil, jsonBody(proto.SessionImportRequest{Paths: paths, Source: from}), http.Header{"Content-Type": []string{"application/json"}})
 	if err != nil {
 		return nil, fmt.Errorf("failed to import sessions: %w", err)
 	}

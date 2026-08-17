@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -36,12 +37,19 @@ func AuthFilePath() string {
 	if dir := os.Getenv("GROK_HOME"); dir != "" {
 		return filepath.Join(dir, "auth.json")
 	}
-	return filepath.Join(os.Getenv("HOME"), ".grok", "auth.json")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = os.Getenv("HOME")
+	}
+	return filepath.Join(home, ".grok", "auth.json")
 }
 
-// CredentialsFromDisk reads the Grok CLI auth file and returns the first
-// usable OIDC credential (one carrying a refresh token and client ID). The
-// bool is false when no such credential is present.
+// CredentialsFromDisk reads the Grok CLI auth file and returns the most
+// recently-expiring usable OIDC credential (one carrying an access token,
+// refresh token and client ID). Selection is deterministic: candidates
+// are ranked by expiry (furthest-future first) with the auth-file key as
+// a stable tie-break, so multiple logged-in accounts never produce a
+// coin-flip result. The bool is false when no usable credential exists.
 func CredentialsFromDisk() (*Credentials, bool) {
 	data, err := os.ReadFile(AuthFilePath())
 	if err != nil {
@@ -51,8 +59,18 @@ func CredentialsFromDisk() (*Credentials, bool) {
 	if err := json.Unmarshal(data, &entries); err != nil {
 		return nil, false
 	}
-	for _, e := range entries {
-		if e.RefreshToken == "" || e.OIDCClientID == "" {
+
+	keys := make([]string, 0, len(entries))
+	for k := range entries {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var best *Credentials
+	var bestExpiry time.Time
+	for _, k := range keys {
+		e := entries[k]
+		if e.Key == "" || e.RefreshToken == "" || e.OIDCClientID == "" {
 			continue
 		}
 		if e.AuthMode != "" && e.AuthMode != "oidc" {
@@ -67,10 +85,21 @@ func CredentialsFromDisk() (*Credentials, bool) {
 		if creds.Issuer == "" {
 			creds.Issuer = defaultIssuer
 		}
+		var expiry time.Time
 		if t, err := time.Parse(time.RFC3339, e.ExpiresAt); err == nil {
 			creds.ExpiresAt = t
+			expiry = t
 		}
-		return creds, true
+		// Prefer the credential whose access token lives longest; keys
+		// are already sorted, so equal expiries resolve deterministically
+		// to the first key.
+		if best == nil || expiry.After(bestExpiry) {
+			best = creds
+			bestExpiry = expiry
+		}
 	}
-	return nil, false
+	if best == nil {
+		return nil, false
+	}
+	return best, true
 }

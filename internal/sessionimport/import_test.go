@@ -70,6 +70,94 @@ func TestParseGrokDirectory(t *testing.T) {
 	require.Len(t, imported.Messages, 2)
 }
 
+func TestParseGrokUpdatesCoalescesChunksAndToolCalls(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "summary.json"), []byte(`{"info":{"id":"grok-stream","cwd":"/repo"},"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:04Z","session_summary":"Stream"}`), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "updates.jsonl"), []byte(`
+{"timestamp":"2026-01-01T00:00:00Z","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hel"}}}}
+{"timestamp":"2026-01-01T00:00:00Z","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"lo"}}}}
+{"timestamp":"2026-01-01T00:00:01Z","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"},"_meta":{"modelId":"grok-4"}}}}
+{"timestamp":"2026-01-01T00:00:02Z","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"c1","title":"view","kind":"read","rawInput":{"path":"README.md"},"status":"in_progress"}}}
+{"timestamp":"2026-01-01T00:00:03Z","params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed","rawOutput":"ok"}}}
+{"timestamp":1767225604,"params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}
+`), 0o600))
+
+	imported, err := Parse(dir, SourceAuto)
+	require.NoError(t, err)
+	require.Equal(t, SourceGrok, imported.Source)
+	require.Len(t, imported.Messages, 5)
+	require.Equal(t, message.User, imported.Messages[0].Role)
+	require.Equal(t, "hello", imported.Messages[0].Parts[0].(message.TextContent).Text)
+	require.Equal(t, message.Assistant, imported.Messages[1].Role)
+	require.Equal(t, "hi", imported.Messages[1].Parts[0].(message.TextContent).Text)
+	require.Equal(t, "grok-4", imported.Messages[1].Model)
+	require.Contains(t, imported.Messages[2].Parts, message.ToolCall{ID: "c1", Name: "view", Input: `{"path":"README.md"}`, Finished: true})
+	require.Equal(t, message.Tool, imported.Messages[3].Role)
+	require.Equal(t, "done", imported.Messages[4].Parts[0].(message.TextContent).Text)
+	require.Equal(t, int64(1767225604), imported.Messages[4].CreatedAt)
+}
+
+func TestParseGrokUpdatesFileAutoDetects(t *testing.T) {
+	t.Parallel()
+	path := writeFixture(t, "renamed-acp.jsonl", `
+{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi"}}}}
+{"params":{"update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"thinking"}}}}
+{"params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":" there"}}}}
+`)
+	imported, err := Parse(path, SourceAuto)
+	require.NoError(t, err)
+	require.Equal(t, SourceGrok, imported.Source)
+	require.Equal(t, filepath.Base(filepath.Dir(path)), imported.SourceID)
+	require.Len(t, imported.Messages, 1)
+	require.Equal(t, "hi there", imported.Messages[0].Parts[0].(message.TextContent).Text)
+}
+
+func TestParseGrokDedupesCompletedToolResults(t *testing.T) {
+	t.Parallel()
+	path := writeFixture(t, "updates.jsonl", `
+{"params":{"update":{"sessionUpdate":"tool_call","toolCallId":"c1","title":"view","status":"completed","rawOutput":"first"}}}
+{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"c1","kind":"read","status":"completed","rawOutput":"second"}}}
+`)
+	imported, err := Parse(path, SourceAuto)
+	require.NoError(t, err)
+	require.Len(t, imported.Messages, 2)
+	require.Contains(t, imported.Messages[0].Parts, message.ToolCall{ID: "c1", Name: "view", Input: "", Finished: true})
+	require.Equal(t, message.Tool, imported.Messages[1].Role)
+	require.Equal(t, "second", imported.Messages[1].Parts[0].(message.ToolResult).Content)
+}
+
+func TestParseGrokKeepsIDlessToolResultsSeparate(t *testing.T) {
+	t.Parallel()
+	path := writeFixture(t, "updates.jsonl", `
+{"params":{"update":{"sessionUpdate":"tool_call","title":"view","status":"completed","rawOutput":"first"}}}
+{"params":{"update":{"sessionUpdate":"tool_call","title":"grep","status":"completed","rawOutput":"second"}}}
+`)
+	imported, err := Parse(path, SourceAuto)
+	require.NoError(t, err)
+	results := make([]string, 0, 2)
+	for _, msg := range imported.Messages {
+		if msg.Role != message.Tool {
+			continue
+		}
+		results = append(results, msg.Parts[0].(message.ToolResult).Content)
+	}
+	require.Equal(t, []string{"first", "second"}, results)
+}
+
+func TestJSONLSourceIDStripsCompressionSuffix(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, "session", jsonlSourceID("/tmp/session.jsonl"))
+	require.Equal(t, "session", jsonlSourceID("/tmp/session.jsonl.zst"))
+}
+
+func TestParseTimestampAcceptsUnixAndRFC3339(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, int64(1767225604), parseTimestamp(float64(1767225604)))
+	require.Equal(t, int64(1767225604), parseTimestamp(float64(1767225604000)))
+	require.Equal(t, int64(1767225600), parseTimestamp("2026-01-01T00:00:00Z"))
+}
+
 func TestParsePiFollowsLatestBranchAndTracksModel(t *testing.T) {
 	t.Parallel()
 	path := writeFixture(t, "pi.jsonl", `
@@ -219,7 +307,8 @@ func TestImportReSyncAppendsNewSourceMessages(t *testing.T) {
 	require.Equal(t, 2, first.Imported)
 
 	grown := base
-	grown.Messages = append(append([]Message(nil), base.Messages...),
+	grown.Messages = append(
+		append([]Message(nil), base.Messages...),
 		Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "three"}, finish()}, CreatedAt: 102},
 	)
 	second, err := Import(context.Background(), database, grown)
@@ -274,7 +363,8 @@ func TestImportDoesNotClobberSessionModifiedInCrush(t *testing.T) {
 	require.NoError(t, err)
 
 	grown := imported
-	grown.Messages = append(append([]Message(nil), imported.Messages...),
+	grown.Messages = append(
+		append([]Message(nil), imported.Messages...),
 		Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "new source turn"}, finish()}, CreatedAt: 102},
 	)
 	second, err := Import(context.Background(), database, grown)

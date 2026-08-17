@@ -123,7 +123,7 @@ type Workspace interface {
 	ListArchivedSessions(ctx context.Context) ([]session.Session, error)
 	ListSessionImportSources(ctx context.Context) ([]sessionimport.SourceInfo, error)
 	DiscoverSessionImports(ctx context.Context, source sessionimport.Source) ([]sessionimport.Candidate, error)
-	ImportSessions(ctx context.Context, paths []string) ([]sessionimport.Result, error)
+	ImportSessions(ctx context.Context, paths []string, from sessionimport.Source) ([]sessionimport.Result, error)
 	SaveSession(ctx context.Context, sess session.Session) (session.Session, error)
 	DeleteSession(ctx context.Context, sessionID string) error
 	ArchiveSession(ctx context.Context, sessionID string) error

@@ -114,7 +114,8 @@ type CurrentSession struct {
 }
 
 type SessionImportRequest struct {
-	Paths []string `json:"paths"`
+	Paths  []string `json:"paths"`
+	Source string   `json:"source,omitempty"`
 }
 
 type SessionImportSources = sessionimport.SourceInfo

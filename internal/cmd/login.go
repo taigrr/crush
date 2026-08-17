@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
@@ -238,7 +239,7 @@ func loginGrok(c *client.Client, wsID string, force bool) error {
 		}
 	}
 
-	token, err := grokToken(ctx)
+	token, err := grokToken(ctx, force)
 	if err != nil {
 		return err
 	}
@@ -255,23 +256,29 @@ func loginGrok(c *client.Client, wsID string, force bool) error {
 	return nil
 }
 
-// grokToken obtains a Grok OAuth token. It reuses an existing grok CLI
-// credential when one is present on disk (refreshing if stale);
-// otherwise it runs the browser-based authorization-code + PKCE flow so
-// no grok CLI install is required.
-func grokToken(ctx context.Context) (*oauth.Token, error) {
-	if creds, ok := grok.CredentialsFromDisk(); ok {
-		fmt.Println("Found Grok CLI credentials. Verifying...")
-		token := grok.TokenFromCredentials(ctx, creds)
-		if token.IsExpired() {
+// grokToken obtains a Grok OAuth token. Unless force is set, it
+// reuses an existing grok CLI credential when one is present on disk
+// (refreshing if stale). A failed refresh, or --force, falls through
+// to the browser-based authorization-code + PKCE flow so a stale CLI
+// login cannot block Crush.
+func grokToken(ctx context.Context, force bool) (*oauth.Token, error) {
+	if !force {
+		if creds, ok := grok.CredentialsFromDisk(); ok {
+			fmt.Println("Found Grok CLI credentials. Verifying...")
+			token := grok.TokenFromCredentials(ctx, creds)
+			// Defensive: CredentialsFromDisk already skips entries with
+			// an empty access token, but guard here too so a blank bearer
+			// is never returned without a refresh.
+			if token.AccessToken != "" && !token.IsExpired() {
+				return token, nil
+			}
 			fmt.Println("Refreshing access token...")
 			refreshed, err := grok.RefreshToken(ctx, token)
-			if err != nil {
-				return nil, fmt.Errorf("failed to refresh Grok token: %w", err)
+			if err == nil {
+				return refreshed, nil
 			}
-			token = refreshed
+			fmt.Println("Could not refresh Grok CLI credentials. Opening a browser instead...")
 		}
-		return token, nil
 	}
 
 	return grokBrowserLogin(ctx)
@@ -281,6 +288,11 @@ func grokToken(ctx context.Context) (*oauth.Token, error) {
 // opens the xAI sign-in page in the browser and waits for the redirect
 // to deliver the authorization code.
 func grokBrowserLogin(ctx context.Context) (*oauth.Token, error) {
+	// Bound the flow so an abandoned browser login does not hang the CLI
+	// indefinitely; the signal-cancellable parent context still applies.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
 	session, err := grok.StartLogin(ctx)
 	if err != nil {
 		return nil, err

@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -147,24 +148,32 @@ func sessionSetup(cmd *cobra.Command) (context.Context, *sessionServices, func()
 		cfg:      cfg,
 		database: conn,
 	}
-	return ctx, svc, func() { conn.Close() }, nil
+	return ctx, svc, func() { _ = db.Release(dataDir) }, nil
 }
 
 func runSessionImport(cmd *cobra.Command, args []string) error {
-	ctx, svc, cleanup, err := sessionSetup(cmd)
+	c, ws, cleanup, err := connectToServer(cmd)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	imported, err := sessionimport.Parse(args[0], sessionimport.Source(sessionImportFrom))
+	ctx := cmd.Context()
+	// The path is resolved on the client and parsed server-side, which
+	// assumes the server shares this filesystem (the local single-user
+	// case). Remote/containerized servers would not see this path.
+	path, err := filepath.Abs(args[0])
 	if err != nil {
-		return fmt.Errorf("failed to parse session: %w", err)
+		return fmt.Errorf("failed to resolve session path: %w", err)
 	}
-	result, err := sessionimport.Import(ctx, svc.database, imported)
+	results, err := c.ImportSessions(ctx, ws.ID, []string{path}, sessionImportFrom)
 	if err != nil {
 		return fmt.Errorf("failed to import session: %w", err)
 	}
+	if len(results) == 0 {
+		return errors.New("import returned no result")
+	}
+	result := results[0]
 
 	out := cmd.OutOrStdout()
 	if sessionImportJSON {

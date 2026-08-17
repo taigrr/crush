@@ -372,7 +372,7 @@ func spawnAndWaitReady(cmd *cobra.Command, hostURL *url.URL) error {
 		// unsynchronized path rather than blocking the user.
 		slog.Warn("Failed to acquire spawn lock, proceeding without single-flight", "error", err)
 		removeStaleSocket(hostURL)
-		if err := startDetachedServer(cmd, hostURL); err != nil {
+		if err := startDetachedServer(hostURL); err != nil {
 			return err
 		}
 		return waitForServerReady(cmd.Context(), hostURL)
@@ -392,7 +392,7 @@ func spawnAndWaitReady(cmd *cobra.Command, hostURL *url.URL) error {
 	// No responsive server and we hold the lock: any socket on disk is
 	// stale (e.g. left by a crashed server). Remove it before binding.
 	removeStaleSocket(hostURL)
-	if err := startDetachedServer(cmd, hostURL); err != nil {
+	if err := startDetachedServer(hostURL); err != nil {
 		return err
 	}
 	return waitForServerReady(cmd.Context(), hostURL)
@@ -594,7 +594,7 @@ func restartIfStale(cmd *cobra.Command, hostURL *url.URL) (restarted bool, err e
 
 var safeNameRegexp = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
 
-func startDetachedServer(cmd *cobra.Command, hostURL *url.URL) error {
+func startDetachedServer(hostURL *url.URL) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %v", err)

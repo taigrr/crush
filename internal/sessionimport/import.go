@@ -598,6 +598,58 @@ func parseTime(value string) int64 {
 	return parsed.Unix()
 }
 
+// parseTimestamp accepts a unix epoch (seconds or milliseconds) or an
+// RFC3339 string. ACP streams mix both.
+func parseTimestamp(value any) int64 {
+	switch typed := value.(type) {
+	case string:
+		if typed == "" {
+			return 0
+		}
+		if stamp := parseTime(typed); stamp != 0 {
+			return stamp
+		}
+		n, err := json.Number(typed).Float64()
+		if err != nil {
+			return 0
+		}
+		return unixFromNumber(n)
+	case json.Number:
+		f, err := typed.Float64()
+		if err != nil {
+			return 0
+		}
+		return unixFromNumber(f)
+	case float64:
+		return unixFromNumber(typed)
+	case int64:
+		return unixFromNumber(float64(typed))
+	case int:
+		return unixFromNumber(float64(typed))
+	default:
+		return 0
+	}
+}
+
+func unixFromNumber(value float64) int64 {
+	if value <= 0 {
+		return 0
+	}
+	if value > 1e12 {
+		return int64(value / 1000)
+	}
+	return int64(value)
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
 func nullableString(value string) any {
 	if value == "" {
 		return nil

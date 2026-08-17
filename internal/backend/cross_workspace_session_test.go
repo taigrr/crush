@@ -103,7 +103,7 @@ func TestWithWorkspaceSession_DetachedBranch(t *testing.T) {
 	require.NoError(t, b.registry.Add(registry.Entry{Root: "/proj/detached", DataDir: dataDir}))
 
 	gotNil := false
-	require.NoError(t, b.withWorkspaceSession(ctx, "no-such-id", "/proj/detached", func(w *Workspace, s session.Service) error {
+	require.NoError(t, b.withWorkspaceSession("no-such-id", "/proj/detached", func(w *Workspace, s session.Service) error {
 		gotNil = w == nil
 		_, err := s.Get(ctx, "s1")
 		return err

@@ -186,7 +186,14 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		Forks:       forks,
 		Milestones:  milestone.NewService(conn, q),
 		SessionImporter: func(ctx context.Context, imported sessionimport.Session) (sessionimport.Result, error) {
-			return sessionimport.Import(ctx, conn, imported)
+			result, err := sessionimport.Import(ctx, conn, imported)
+			if err != nil {
+				return result, err
+			}
+			if result.Imported > 0 {
+				sessions.NotifyImported(ctx, result.ID, result.Imported == result.Messages)
+			}
+			return result, nil
 		},
 		embeddings: embedding.Build(q, store.EmbeddingParams()),
 		LSPManager: lsp.NewManager(store),

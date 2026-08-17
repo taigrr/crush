@@ -120,7 +120,17 @@ func (s *LoginSession) Wait(ctx context.Context) (*oauth.Token, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if errStr := q.Get("error"); errStr != "" {
+		errStr := q.Get("error")
+		code := q.Get("code")
+		// Ignore stray requests (favicon probes, browser prefetch, port
+		// scans) that carry neither a code nor an error, so they cannot
+		// latch the single-slot result channel and shadow the genuine
+		// redirect that arrives afterward.
+		if errStr == "" && code == "" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if errStr != "" {
 			desc := q.Get("error_description")
 			writeCallbackPage(w, false)
 			select {
@@ -131,7 +141,7 @@ func (s *LoginSession) Wait(ctx context.Context) (*oauth.Token, error) {
 		}
 		writeCallbackPage(w, true)
 		select {
-		case resultCh <- callbackResult{code: q.Get("code"), state: q.Get("state")}:
+		case resultCh <- callbackResult{code: code, state: q.Get("state")}:
 		default:
 		}
 	})
@@ -206,6 +216,12 @@ func (s *LoginSession) exchangeCode(ctx context.Context, code string) (*oauth.To
 	}
 	if result.AccessToken == "" {
 		return nil, fmt.Errorf("grok: token response missing access_token")
+	}
+	// expires_in is OPTIONAL per RFC 6749. Without it, SetExpiresAt would
+	// mark the fresh token immediately expired and every request would
+	// trigger a network refresh. Fall back to a conservative lifetime.
+	if result.ExpiresIn <= 0 {
+		result.ExpiresIn = defaultAccessTokenTTL
 	}
 
 	token := &oauth.Token{

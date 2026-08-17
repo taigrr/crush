@@ -38,6 +38,11 @@ const (
 	clientIdentifier = "grok-shell"
 	clientMode       = "cli"
 	userAgent        = "xai-grok-cli/" + clientVersion
+
+	// defaultAccessTokenTTL is the lifetime assumed for a refreshed
+	// access token when the IdP omits expires_in, so the token is not
+	// treated as immediately expired.
+	defaultAccessTokenTTL = 3600
 )
 
 // Headers returns the client-identifying headers the Grok subscription
@@ -98,7 +103,10 @@ func RefreshToken(ctx context.Context, token *oauth.Token) (*oauth.Token, error)
 	form.Set("grant_type", "refresh_token")
 	form.Set("refresh_token", token.RefreshToken)
 	form.Set("client_id", clientID)
-	form.Set("scope", scope)
+	// Deliberately omit scope: RFC 6749 §6 defaults a refresh to the
+	// originally-granted scope, and sending Crush's superset scope with
+	// the grok CLI's client_id (which may have been granted a narrower
+	// set) would trigger invalid_scope and break the disk-import flow.
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -107,6 +115,7 @@ func RefreshToken(ctx context.Context, token *oauth.Token) (*oauth.Token, error)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("x-grok-client-version", clientVersion)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -148,6 +157,12 @@ func RefreshToken(ctx context.Context, token *oauth.Token) (*oauth.Token, error)
 	// previous one so the credential stays refreshable.
 	if refreshed.RefreshToken == "" {
 		refreshed.RefreshToken = token.RefreshToken
+	}
+	// expires_in is OPTIONAL per RFC 6749. Without it, SetExpiresAt would
+	// mark the token immediately expired and every request would trigger
+	// another network refresh. Fall back to a conservative lifetime.
+	if refreshed.ExpiresIn <= 0 {
+		refreshed.ExpiresIn = defaultAccessTokenTTL
 	}
 	refreshed.SetExpiresAt()
 	return refreshed, nil

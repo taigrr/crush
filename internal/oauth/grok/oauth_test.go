@@ -53,6 +53,33 @@ func TestCredentialsFromDiskSkipsNonOIDC(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestCredentialsFromDiskSkipsEmptyAccessToken(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{
+  "https://auth.x.ai::c": {"key": "", "auth_mode": "oidc", "refresh_token": "r", "oidc_client_id": "c"}
+}`), 0o600))
+	t.Setenv("GROK_HOME", dir)
+
+	_, ok := CredentialsFromDisk()
+	require.False(t, ok)
+}
+
+func TestCredentialsFromDiskDeterministicPicksFurthestExpiry(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "auth.json"), []byte(`{
+  "https://auth.x.ai::old": {"key": "old-access", "auth_mode": "oidc", "refresh_token": "old-r", "oidc_client_id": "old-c", "expires_at": "2020-01-01T00:00:00Z"},
+  "https://auth.x.ai::new": {"key": "new-access", "auth_mode": "oidc", "refresh_token": "new-r", "oidc_client_id": "new-c", "expires_at": "2999-01-01T00:00:00Z"}
+}`), 0o600))
+	t.Setenv("GROK_HOME", dir)
+
+	for range 20 {
+		creds, ok := CredentialsFromDisk()
+		require.True(t, ok)
+		require.Equal(t, "new-access", creds.AccessToken)
+		require.Equal(t, "new-c", creds.ClientID)
+	}
+}
+
 func TestRefreshTokenRequiresRefreshToken(t *testing.T) {
 	t.Parallel()
 
@@ -104,6 +131,50 @@ func TestRefreshTokenKeepsRefreshTokenWhenOmitted(t *testing.T) {
 	refreshed, err := RefreshToken(t.Context(), tok)
 	require.NoError(t, err)
 	require.Equal(t, "keep-me", refreshed.RefreshToken)
+}
+
+func TestRefreshTokenDefaultsExpiryWhenOmitted(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// No expires_in in the response.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"new-access","refresh_token":"r"}`))
+	}))
+	defer srv.Close()
+
+	tok := &oauth.Token{
+		RefreshToken: "r",
+		Client:       &oauth.OAuthClient{ClientID: "client-abc", TokenURL: srv.URL},
+	}
+
+	refreshed, err := RefreshToken(t.Context(), tok)
+	require.NoError(t, err)
+	// Must not be treated as immediately expired (which would cause a
+	// refresh storm).
+	require.False(t, refreshed.IsExpired())
+	require.Greater(t, refreshed.ExpiresAt, int64(0))
+}
+
+func TestRefreshTokenOmitsScope(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseForm())
+		// Scope must be omitted on refresh so a superset scope cannot
+		// trigger invalid_scope against the grok CLI's client_id.
+		require.Empty(t, r.Form.Get("scope"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"a","refresh_token":"r","expires_in":3600}`))
+	}))
+	defer srv.Close()
+
+	tok := &oauth.Token{
+		RefreshToken: "r",
+		Client:       &oauth.OAuthClient{ClientID: "client-abc", TokenURL: srv.URL},
+	}
+	_, err := RefreshToken(t.Context(), tok)
+	require.NoError(t, err)
 }
 
 func TestHeaders(t *testing.T) {

@@ -27,7 +27,7 @@ import (
 // lock, corruption) is returned as an error for THIS workspace only, so a
 // caller processing several sessions can record a per-session failure and
 // continue with the rest — it never panics and never migrates.
-func (b *Backend) withWorkspaceSession(ctx context.Context, workspaceID, root string, fn func(ws *Workspace, s session.Service) error) error {
+func (b *Backend) withWorkspaceSession(workspaceID, root string, fn func(ws *Workspace, s session.Service) error) error {
 	if ws, err := b.GetWorkspace(workspaceID); err == nil && ws.App != nil {
 		return fn(ws, ws.App.Sessions)
 	}
@@ -175,7 +175,7 @@ func (b *Backend) DiscoverSessionImports(ctx context.Context, source sessionimpo
 	return sessionimport.Discover(ctx, source)
 }
 
-func (b *Backend) ImportSessions(ctx context.Context, workspaceID string, paths []string) ([]sessionimport.Result, error) {
+func (b *Backend) ImportSessions(ctx context.Context, workspaceID string, paths []string, from sessionimport.Source) ([]sessionimport.Result, error) {
 	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
 		return nil, err
@@ -184,8 +184,12 @@ func (b *Backend) ImportSessions(ctx context.Context, workspaceID string, paths 
 		return nil, ErrWorkspaceNotFound
 	}
 	results := make([]sessionimport.Result, 0, len(paths))
+	source := from
+	if source == "" {
+		source = sessionimport.SourceAuto
+	}
 	for _, path := range paths {
-		imported, parseErr := sessionimport.Parse(path, sessionimport.SourceAuto)
+		imported, parseErr := sessionimport.Parse(path, source)
 		if parseErr != nil {
 			return nil, parseErr
 		}
@@ -286,7 +290,7 @@ func (b *Backend) DeleteSession(ctx context.Context, workspaceID, sessionID stri
 // checkpoint service against the detached project dir, which this one-shot
 // path deliberately avoids.
 func (b *Backend) ArchiveSession(ctx context.Context, workspaceID, root, sessionID string) error {
-	return b.withWorkspaceSession(ctx, workspaceID, root, func(ws *Workspace, s session.Service) error {
+	return b.withWorkspaceSession(workspaceID, root, func(ws *Workspace, s session.Service) error {
 		if ws != nil {
 			return ws.ArchiveSession(ctx, sessionID)
 		}
@@ -298,7 +302,7 @@ func (b *Backend) ArchiveSession(ctx context.Context, workspaceID, root, session
 // unread state (LastFinishedAt > LastSeenAt). The session may live in an
 // attached or a detached workspace (resolved by root via the registry).
 func (b *Backend) MarkSessionSeen(ctx context.Context, workspaceID, root, sessionID string) error {
-	return b.withWorkspaceSession(ctx, workspaceID, root, func(_ *Workspace, s session.Service) error {
+	return b.withWorkspaceSession(workspaceID, root, func(_ *Workspace, s session.Service) error {
 		return s.MarkSeen(ctx, sessionID)
 	})
 }
@@ -306,7 +310,7 @@ func (b *Backend) MarkSessionSeen(ctx context.Context, workspaceID, root, sessio
 // UnarchiveSession unarchives a session. The session may live in an
 // attached or a detached workspace (resolved by root via the registry).
 func (b *Backend) UnarchiveSession(ctx context.Context, workspaceID, root, sessionID string) error {
-	return b.withWorkspaceSession(ctx, workspaceID, root, func(_ *Workspace, s session.Service) error {
+	return b.withWorkspaceSession(workspaceID, root, func(_ *Workspace, s session.Service) error {
 		return s.Unarchive(ctx, sessionID)
 	})
 }

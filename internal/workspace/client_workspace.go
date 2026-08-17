@@ -187,8 +187,8 @@ func (w *ClientWorkspace) DiscoverSessionImports(ctx context.Context, source ses
 	return w.client.DiscoverSessionImports(ctx, string(source))
 }
 
-func (w *ClientWorkspace) ImportSessions(ctx context.Context, paths []string) ([]sessionimport.Result, error) {
-	return w.client.ImportSessions(ctx, w.workspaceID(), paths)
+func (w *ClientWorkspace) ImportSessions(ctx context.Context, paths []string, from sessionimport.Source) ([]sessionimport.Result, error) {
+	return w.client.ImportSessions(ctx, w.workspaceID(), paths, string(from))
 }
 
 func (w *ClientWorkspace) SaveSession(ctx context.Context, sess session.Session) (session.Session, error) {

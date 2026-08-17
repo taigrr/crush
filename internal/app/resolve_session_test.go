@@ -104,6 +104,8 @@ func (m *mockSessionService) MarkSeen(context.Context, string) error {
 	return nil
 }
 
+func (m *mockSessionService) NotifyImported(context.Context, string, bool) {}
+
 func (m *mockSessionService) CreateAgentToolSessionID(messageID, toolCallID string) string {
 	return fmt.Sprintf("%s$$%s", messageID, toolCallID)
 }

@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"path/filepath"
 	"slices"
-	"strings"
 )
 
 // claudeHarness imports Claude Code sessions. Transcripts are single
@@ -25,10 +24,11 @@ func (claudeHarness) matchWalk(_ string, entry fs.DirEntry) (matched, skipDir bo
 	return matchJSONLFile(entry), false
 }
 
-func (claudeHarness) detect(_ string, isDir bool, first rawRecord) bool {
+func (claudeHarness) detect(_ string, isDir bool, records []rawRecord) bool {
 	if isDir {
 		return false
 	}
+	first := records[0]
 	if _, ok := first["sessionId"]; ok {
 		return true
 	}
@@ -56,7 +56,7 @@ func (claudeHarness) parse(path string) (Session, error) {
 	if err != nil {
 		return Session{}, err
 	}
-	imported := Session{Source: SourceClaude, SourceID: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))}
+	imported := Session{Source: SourceClaude, SourceID: jsonlSourceID(path)}
 	if malformed > 0 {
 		imported.Warnings = append(imported.Warnings, fmt.Sprintf("skipped %d malformed record(s)", malformed))
 	}
@@ -80,8 +80,7 @@ func (claudeHarness) parse(path string) (Session, error) {
 }
 
 func (claudeHarness) discover(path string) (Candidate, error) {
-	sourceID := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	return discoverMetadata(path, SourceClaude, sourceID, func(candidate *Candidate, record rawRecord) {
+	return discoverMetadata(path, SourceClaude, jsonlSourceID(path), func(candidate *Candidate, record rawRecord) {
 		if candidate.WorkingDir == "" {
 			candidate.WorkingDir = text(record["cwd"])
 		}

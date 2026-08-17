@@ -79,11 +79,11 @@ func NewSessionImport(com *common.Common, sources []sessionimport.SourceInfo) *S
 	dialog.list = list.NewFilterableList()
 	dialog.list.Focus()
 	dialog.keyMap.Select = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "choose"))
-	dialog.keyMap.Next = key.NewBinding(key.WithKeys("down", "ctrl+n", "j"), key.WithHelp("down", "next"))
-	dialog.keyMap.Previous = key.NewBinding(key.WithKeys("up", "ctrl+p", "k"), key.WithHelp("up", "previous"))
+	dialog.keyMap.Next = key.NewBinding(key.WithKeys("down", "ctrl+n"), key.WithHelp("down", "next"))
+	dialog.keyMap.Previous = key.NewBinding(key.WithKeys("up", "ctrl+p"), key.WithHelp("up", "previous"))
 	dialog.keyMap.UpDown = key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("up/down", "navigate"))
-	dialog.keyMap.Toggle = key.NewBinding(key.WithKeys("space", " "), key.WithHelp("space", "toggle"))
-	dialog.keyMap.All = key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all"))
+	dialog.keyMap.Toggle = key.NewBinding(key.WithKeys("ctrl+t", "ctrl+space"), key.WithHelp("ctrl+t", "toggle"))
+	dialog.keyMap.All = key.NewBinding(key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a", "all"))
 	dialog.keyMap.Import = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "import"))
 	dialog.keyMap.Back = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))
 	dialog.keyMap.Close = CloseKey
@@ -214,7 +214,7 @@ func (s *SessionImport) discoverCmd(source sessionimport.SourceInfo) tea.Cmd {
 
 func (s *SessionImport) importCmd(paths []string) tea.Cmd {
 	return func() tea.Msg {
-		results, err := s.com.Workspace.ImportSessions(context.Background(), paths)
+		results, err := s.com.Workspace.ImportSessions(context.Background(), paths, s.source.Source)
 		return sessionImportDoneMsg{results: results, err: err}
 	}
 }

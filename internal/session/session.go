@@ -119,6 +119,11 @@ type Service interface {
 	// MarkSeen stamps the time the viewing client last opened the session,
 	// clearing its unread state.
 	MarkSeen(ctx context.Context, id string) error
+	// NotifyImported publishes a Created or Updated event for a session
+	// that was written outside this service (the importer). Created is
+	// used on first import so swarm identity assignment and the sidebar
+	// pick the new row up; Updated is used on a re-sync.
+	NotifyImported(ctx context.Context, id string, created bool)
 
 	// Agent tool session management
 	CreateAgentToolSessionID(messageID, toolCallID string) string
@@ -434,6 +439,18 @@ func (s *service) publishByID(ctx context.Context, id string) {
 		return
 	}
 	s.Publish(pubsub.UpdatedEvent, s.fromDBItem(dbSession))
+}
+
+func (s *service) NotifyImported(ctx context.Context, id string, created bool) {
+	dbSession, err := s.q.GetSessionByID(ctx, id)
+	if err != nil {
+		return
+	}
+	event := pubsub.UpdatedEvent
+	if created {
+		event = pubsub.CreatedEvent
+	}
+	s.Publish(event, s.fromDBItem(dbSession))
 }
 
 func (s *service) applyEstimatedUsageState(session *Session) {
