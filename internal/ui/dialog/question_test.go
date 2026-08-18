@@ -7,12 +7,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/ui/common"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 func newTestQuestion(t *testing.T, req question.Request) *Question {
 	t.Helper()
-	s := styles.CharmtonePantera()
+	s := themes.CharmtonePantera()
 	com := &common.Common{Styles: &s}
 	return NewQuestion(com, req)
 }

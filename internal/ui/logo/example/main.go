@@ -9,7 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
 	"github.com/taigrr/crush/internal/ui/logo"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 func main() {
@@ -18,7 +18,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Could not get terminal size: %s", err)
 	}
 
-	s := styles.CharmtonePantera()
+	s := themes.CharmtonePantera()
 	opts := logo.Opts{
 		FieldColor:   s.Logo.FieldColor,
 		TitleColorA:  s.Logo.TitleColorA,

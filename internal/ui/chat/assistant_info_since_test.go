@@ -8,7 +8,7 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/message"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 // finishedInfoMessage builds a finished assistant message whose
@@ -52,7 +52,7 @@ func TestHumanizeSince_AdvancesWithNow(t *testing.T) {
 // when time advances, while returning false when the label is unchanged.
 func TestAssistantInfo_RefreshSinceUpdatesRender(t *testing.T) {
 	t.Parallel()
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	msg := finishedInfoMessage("info1", time.Now().Unix())
 	item := NewAssistantInfoItem(&sty, msg, testConfig(), time.Now()).(*AssistantInfoItem)
 
@@ -78,7 +78,7 @@ func TestAssistantInfo_RefreshSinceUpdatesRender(t *testing.T) {
 // the cache, so the ticker is cheap when nothing needs repainting.
 func TestAssistantInfo_RefreshSinceNoChangeIsStable(t *testing.T) {
 	t.Parallel()
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	msg := finishedInfoMessage("info2", time.Now().Unix())
 	item := NewAssistantInfoItem(&sty, msg, testConfig(), time.Now()).(*AssistantInfoItem)
 

@@ -8,7 +8,7 @@ import (
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/list"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 // versionedItem is the cross-cutting interface every dialog list
@@ -61,7 +61,7 @@ func equivMatch(seed fuzzy.Match) fuzzy.Match {
 func TestCommandItem_MutatorsBumpVersion(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	item := NewCommandItem(&sty, "id", "Title", "ctrl+t", nil)
 
 	requireBump(t, "SetFocused[true]", item, func() {
@@ -101,7 +101,7 @@ func TestCommandItem_MutatorsBumpVersion(t *testing.T) {
 func TestModelItem_MutatorsBumpVersion(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	prov := catwalk.Provider{ID: "openai", Name: "OpenAI"}
 	model := catwalk.Model{ID: "gpt-4", Name: "GPT-4"}
 	item := NewModelItem(&sty, prov, model, ModelTypeLarge, true)
@@ -140,7 +140,7 @@ func TestModelItem_MutatorsBumpVersion(t *testing.T) {
 func TestSessionItem_MutatorsBumpVersion(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	item := &SessionItem{
 		Versioned: list.NewVersioned(),
 		Session:   session.Session{ID: "sess-1", Title: "My Session"},
@@ -181,7 +181,7 @@ func TestSessionItem_MutatorsBumpVersion(t *testing.T) {
 func TestReasoningItem_MutatorsBumpVersion(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	item := &ReasoningItem{
 		Versioned: list.NewVersioned(),
 		effort:    "medium",

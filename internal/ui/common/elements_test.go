@@ -6,13 +6,13 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 func TestFormatTokensAndCostPrefixesEstimatedUsage(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 
 	rendered := formatTokensAndCost(&sty, 120, 1000, 0, true)
 	actual := ansi.Strip(rendered)
@@ -26,7 +26,7 @@ func TestFormatTokensAndCostPrefixesEstimatedUsage(t *testing.T) {
 func TestFormatTokensAndCostOmitsEstimatedPrefix(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 
 	actual := ansi.Strip(formatTokensAndCost(&sty, 120, 1000, 0, false))
 

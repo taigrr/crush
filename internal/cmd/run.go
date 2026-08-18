@@ -24,7 +24,7 @@ import (
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/anim"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 var runCmd = &cobra.Command{
@@ -165,7 +165,7 @@ func runNonInteractive(
 	progress = ws.Config.Options.Progress == nil || *ws.Config.Options.Progress
 
 	if !hideSpinner && stderrTTY {
-		t := styles.ThemeForProvider(ws.Config.Models[config.SelectedModelTypeLarge].Provider)
+		t := themes.ThemeForProvider(ws.Config.Models[config.SelectedModelTypeLarge].Provider)
 
 		hasDarkBG := true
 		if stdinTTY && stdoutTTY {

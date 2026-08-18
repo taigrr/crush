@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 func TestFileList(t *testing.T) {
@@ -112,7 +113,7 @@ func TestFileList(t *testing.T) {
 }
 
 func minimalFileStyles() *styles.Styles {
-	st := styles.CharmtonePantera()
+	st := themes.CharmtonePantera()
 	st.Files.Path = lipgloss.NewStyle()
 	st.Files.Additions = lipgloss.NewStyle()
 	st.Files.Deletions = lipgloss.NewStyle()

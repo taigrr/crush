@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 // TestToolHeaderWrapsInsteadOfTruncating verifies a long command param
@@ -15,7 +15,7 @@ import (
 func TestToolHeaderWrapsInsteadOfTruncating(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	longCmd := "AK=$(pass nds/aws/gsa-access-key 2>&1); SK=$(pass nds/aws/gsa-secret-key 2>&1) echo \"ak len: ${#AK}, sk len: ${#SK}\""
 
 	const width = 60
@@ -38,7 +38,7 @@ func TestToolHeaderWrapsInsteadOfTruncating(t *testing.T) {
 func TestToolHeaderIndentsContinuationLines(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	longCmd := strings.Repeat("word ", 40)
 
 	const width = 40
@@ -60,7 +60,7 @@ func TestToolHeaderIndentsContinuationLines(t *testing.T) {
 func TestToolHeaderShortParamSingleLine(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	header := toolHeader(&sty, ToolStatusSuccess, "Bash", 120, false, "ls -la")
 	require.NotContains(t, header, "\n")
 	require.Contains(t, ansi.Strip(header), "ls -la")

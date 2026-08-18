@@ -13,11 +13,12 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 func newTestSidebar(t *testing.T) *SessionsSidebar {
 	t.Helper()
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	com := &common.Common{Styles: &sty}
 	return NewSessionsSidebar(com)
 }
@@ -1501,7 +1502,7 @@ func TestSidebar_SelectionHighlightOnlyWhenFocused(t *testing.T) {
 		"focused and unfocused renders should differ by the selection highlight")
 
 	// The unfocused render must not carry the selected-item background.
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	highlight := sty.Dialog.SelectedItem.UnsetPadding().Width(30).Render("x")
 	seq, _, ok := strings.Cut(highlight, "x")
 	require.True(t, ok, "expected the selected-item style to emit a prefix sequence")

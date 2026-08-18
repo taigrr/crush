@@ -6,13 +6,13 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/message"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 // newTestRenderer builds a Renderer with the real theme attachment styles so
 // hit-testing math is exercised against the same styles used in production.
 func newTestRenderer() *Renderer {
-	s := styles.CharmtonePantera()
+	s := themes.CharmtonePantera()
 	return NewRenderer(
 		s.Attachments.Normal,
 		s.Attachments.Deleting,

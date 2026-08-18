@@ -1,4 +1,4 @@
-package styles
+package themes
 
 import (
 	"image/color"

@@ -7,12 +7,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/ui/common"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 func newTestPermissions(t *testing.T) *Permissions {
 	t.Helper()
-	s := styles.CharmtonePantera()
+	s := themes.CharmtonePantera()
 	com := &common.Common{Styles: &s}
 	perm := permission.PermissionRequest{
 		ID:         "perm-test",

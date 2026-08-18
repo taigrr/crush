@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 )
 
 func TestHumanizedToolName(t *testing.T) {
@@ -56,7 +56,7 @@ func TestLooksLikeMarkdown(t *testing.T) {
 func TestRenderToolResultTextContent(t *testing.T) {
 	t.Parallel()
 
-	sty := styles.CharmtonePantera()
+	sty := themes.CharmtonePantera()
 	styPtr := &sty
 	widths := toolResultContentWidths{Body: 80, Diff: 82}
 

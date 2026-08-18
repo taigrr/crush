@@ -57,6 +57,7 @@ import (
 	"github.com/taigrr/crush/internal/ui/logo"
 	"github.com/taigrr/crush/internal/ui/notification"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"github.com/taigrr/crush/internal/ui/util"
 	"github.com/taigrr/crush/internal/version"
 	"github.com/taigrr/crush/internal/workspace"
@@ -250,7 +251,9 @@ type UI struct {
 	height int
 	layout uiLayout
 
-	isTransparent bool
+	isTransparent     bool
+	hasDarkBackground bool
+	activeThemeName   string
 
 	focus uiFocusState
 	state uiState
@@ -504,6 +507,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		mcpStates:           make(map[string]mcp.ClientInfo),
 		notifyBackend:       notification.NoopBackend{},
 		notifyWindowFocused: true,
+		hasDarkBackground:   true,
 		initialSessionID:    initialSessionID,
 		continueLastSession: continueLast,
 		pendingPermissions:  make(map[string]*permission.PermissionRequest),
@@ -550,7 +554,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 
 // Init initializes the UI model.
 func (m *UI) Init() tea.Cmd {
-	var cmds []tea.Cmd
+	cmds := []tea.Cmd{tea.RequestBackgroundColor}
 	if m.state == uiOnboarding {
 		if cmd := m.openModelsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -710,6 +714,17 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Update terminal capabilities
 	m.caps.Update(msg)
 	switch msg := msg.(type) {
+	case tea.BackgroundColorMsg:
+		isDark := msg.IsDark()
+		if isDark != m.hasDarkBackground {
+			m.hasDarkBackground = isDark
+			m.applyConfiguredTheme()
+			if themeDialog, ok := m.dialog.Dialog(dialog.ThemeID).(*dialog.Theme); ok {
+				original := *m.com.Styles
+				m.themePreviewOriginal = &original
+				m.applyTheme(themeDialog.SetDarkBackground(isDark))
+			}
+		}
 	case tea.EnvMsg:
 		// Is this Windows Terminal?
 		if !m.sendProgressBar {
@@ -2514,6 +2529,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		m.applyTheme(msg.Styles)
 		m.themePreviewOriginal = nil
 		name := msg.Name
+		m.activeThemeName = name
 		cmds = append(cmds, func() tea.Msg {
 			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "options.tui.theme", name); err != nil {
 				return util.NewWarnMsg("Theme applied but not saved: " + err.Error())
@@ -2718,7 +2734,7 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 				themeName = cfg.Options.TUI.Theme
 			}
 			if themeName == "" {
-				m.applyTheme(styles.ThemeForProvider(providerID))
+				m.applyTheme(themes.ThemeForProvider(providerID, m.hasDarkBackground))
 			}
 		}
 		if _, ok := cfg.Models[config.SelectedModelTypeSmall]; !ok {
@@ -4276,6 +4292,21 @@ func (m *UI) applyTheme(s styles.Styles) {
 	*m.com.Styles = s
 	common.InvalidateMarkdownRendererCache()
 	m.refreshStyles()
+}
+
+func (m *UI) applyConfiguredTheme() {
+	cfg := m.com.Config()
+	var themeName, providerID string
+	if cfg != nil {
+		if cfg.Options != nil && cfg.Options.TUI != nil {
+			themeName = cfg.Options.TUI.Theme
+		}
+		providerID = cfg.Models[config.SelectedModelTypeLarge].Provider
+	}
+	if m.activeThemeName != "" {
+		themeName = m.activeThemeName
+	}
+	m.applyTheme(themes.ResolveTheme(themeName, config.GlobalThemesDir(), providerID, m.hasDarkBackground))
 }
 
 // refreshStyles pushes the current *m.com.Styles into every subcomponent

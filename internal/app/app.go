@@ -46,7 +46,7 @@ import (
 	"github.com/taigrr/crush/internal/shell"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/ui/anim"
-	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"github.com/taigrr/crush/internal/update"
 	"github.com/taigrr/crush/internal/version"
 	"github.com/taigrr/crush/internal/worktree"
@@ -593,7 +593,7 @@ func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt,
 	progress = app.config.Config().Options.Progress == nil || *app.config.Config().Options.Progress
 
 	if !hideSpinner && stderrTTY {
-		t := styles.ThemeForProvider(app.config.Config().Models[config.SelectedModelTypeLarge].Provider)
+		t := themes.ThemeForProvider(app.config.Config().Models[config.SelectedModelTypeLarge].Provider)
 
 		// Detect background color to set the appropriate color for the
 		// spinner's 'Generating...' text. Without this, that text would be

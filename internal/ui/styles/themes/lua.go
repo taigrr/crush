@@ -1,4 +1,4 @@
-package styles
+package themes
 
 import (
 	"fmt"
@@ -12,6 +12,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/exp/charmtone"
 	"github.com/taigrr/crush/internal/swarm"
+	"github.com/taigrr/crush/internal/ui/styles"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -97,7 +98,7 @@ type Palette struct {
 
 // toStyles builds a Styles from the palette. Empty fields fall back to the
 // default Charmtone palette so partial themes still produce a usable UI.
-func (p Palette) toStyles() Styles {
+func (p Palette) toStyles() styles.Styles {
 	def := defaultPalette()
 	c := func(v, fallback string) color.Color {
 		if strings.TrimSpace(v) == "" {
@@ -105,64 +106,64 @@ func (p Palette) toStyles() Styles {
 		}
 		return lipgloss.Color(v)
 	}
-	return quickStyle(quickStyleOpts{
-		primary:           c(p.Primary, def.Primary),
-		secondary:         c(p.Secondary, def.Secondary),
-		accent:            c(p.Accent, def.Accent),
-		keyword:           c(p.Keyword, def.Keyword),
-		fgBase:            c(p.FgBase, def.FgBase),
-		bgBase:            c(p.BgBase, def.BgBase),
-		separator:         c(p.Separator, def.Separator),
-		fgSubtle:          c(p.FgSubtle, def.FgSubtle),
-		fgMoreSubtle:      c(p.FgMoreSubtle, def.FgMoreSubtle),
-		fgMostSubtle:      c(p.FgMostSubtle, def.FgMostSubtle),
-		onPrimary:         c(p.OnPrimary, def.OnPrimary),
-		bgMostVisible:     c(p.BgMostVisible, def.BgMostVisible),
-		bgLessVisible:     c(p.BgLessVisible, def.BgLessVisible),
-		bgLeastVisible:    c(p.BgLeastVisible, def.BgLeastVisible),
-		destructive:       c(p.Destructive, def.Destructive),
-		error:             c(p.Error, def.Error),
-		warning:           c(p.Warning, def.Warning),
-		warningSubtle:     c(p.WarningSubtle, def.WarningSubtle),
-		denied:            c(p.Denied, def.Denied),
-		busy:              c(p.Busy, def.Busy),
-		info:              c(p.Info, def.Info),
-		infoMoreSubtle:    c(p.InfoMoreSubtle, def.InfoMoreSubtle),
-		infoMostSubtle:    c(p.InfoMostSubtle, def.InfoMostSubtle),
-		success:           c(p.Success, def.Success),
-		successMoreSubtle: c(p.SuccessMoreSubtle, def.SuccessMoreSubtle),
-		successMostSubtle: c(p.SuccessMostSubtle, def.SuccessMostSubtle),
+	return styles.QuickStyle(styles.QuickStyleOpts{
+		Primary:           c(p.Primary, def.Primary),
+		Secondary:         c(p.Secondary, def.Secondary),
+		Accent:            c(p.Accent, def.Accent),
+		Keyword:           c(p.Keyword, def.Keyword),
+		FgBase:            c(p.FgBase, def.FgBase),
+		BgBase:            c(p.BgBase, def.BgBase),
+		Separator:         c(p.Separator, def.Separator),
+		FgSubtle:          c(p.FgSubtle, def.FgSubtle),
+		FgMoreSubtle:      c(p.FgMoreSubtle, def.FgMoreSubtle),
+		FgMostSubtle:      c(p.FgMostSubtle, def.FgMostSubtle),
+		OnPrimary:         c(p.OnPrimary, def.OnPrimary),
+		BgMostVisible:     c(p.BgMostVisible, def.BgMostVisible),
+		BgLessVisible:     c(p.BgLessVisible, def.BgLessVisible),
+		BgLeastVisible:    c(p.BgLeastVisible, def.BgLeastVisible),
+		Destructive:       c(p.Destructive, def.Destructive),
+		Error:             c(p.Error, def.Error),
+		Warning:           c(p.Warning, def.Warning),
+		WarningSubtle:     c(p.WarningSubtle, def.WarningSubtle),
+		Denied:            c(p.Denied, def.Denied),
+		Busy:              c(p.Busy, def.Busy),
+		Info:              c(p.Info, def.Info),
+		InfoMoreSubtle:    c(p.InfoMoreSubtle, def.InfoMoreSubtle),
+		InfoMostSubtle:    c(p.InfoMostSubtle, def.InfoMostSubtle),
+		Success:           c(p.Success, def.Success),
+		SuccessMoreSubtle: c(p.SuccessMoreSubtle, def.SuccessMoreSubtle),
+		SuccessMostSubtle: c(p.SuccessMostSubtle, def.SuccessMostSubtle),
 
-		diffAddFg:        c(p.DiffAddFg, def.DiffAddFg),
-		diffAddBg:        c(p.DiffAddBg, def.DiffAddBg),
-		diffAddBgEmph:    c(p.DiffAddBgEmph, def.DiffAddBgEmph),
-		diffRemoveFg:     c(p.DiffRemoveFg, def.DiffRemoveFg),
-		diffRemoveBg:     c(p.DiffRemoveBg, def.DiffRemoveBg),
-		diffRemoveBgEmph: c(p.DiffRemoveBgEmph, def.DiffRemoveBgEmph),
+		DiffAddFg:        c(p.DiffAddFg, def.DiffAddFg),
+		DiffAddBg:        c(p.DiffAddBg, def.DiffAddBg),
+		DiffAddBgEmph:    c(p.DiffAddBgEmph, def.DiffAddBgEmph),
+		DiffRemoveFg:     c(p.DiffRemoveFg, def.DiffRemoveFg),
+		DiffRemoveBg:     c(p.DiffRemoveBg, def.DiffRemoveBg),
+		DiffRemoveBgEmph: c(p.DiffRemoveBgEmph, def.DiffRemoveBgEmph),
 
-		hypercredit: c(p.Hypercredit, def.Hypercredit),
+		Hypercredit: c(p.Hypercredit, def.Hypercredit),
 
-		syntaxLink:            c(p.SyntaxLink, def.SyntaxLink),
-		syntaxImage:           c(p.SyntaxImage, def.SyntaxImage),
-		syntaxCommentPreproc:  c(p.SyntaxCommentPreproc, def.SyntaxCommentPreproc),
-		syntaxKeywordReserved: c(p.SyntaxKeywordReserved, def.SyntaxKeywordReserved),
-		syntaxKeywordType:     c(p.SyntaxKeywordType, def.SyntaxKeywordType),
-		syntaxOperator:        c(p.SyntaxOperator, def.SyntaxOperator),
-		syntaxNameBuiltin:     c(p.SyntaxNameBuiltin, def.SyntaxNameBuiltin),
-		syntaxNameTag:         c(p.SyntaxNameTag, def.SyntaxNameTag),
-		syntaxNameAttribute:   c(p.SyntaxNameAttribute, def.SyntaxNameAttribute),
-		syntaxNameClass:       c(p.SyntaxNameClass, def.SyntaxNameClass),
-		syntaxNameDecorator:   c(p.SyntaxNameDecorator, def.SyntaxNameDecorator),
-		syntaxLiteralString:   c(p.SyntaxLiteralString, def.SyntaxLiteralString),
+		SyntaxLink:            c(p.SyntaxLink, def.SyntaxLink),
+		SyntaxImage:           c(p.SyntaxImage, def.SyntaxImage),
+		SyntaxCommentPreproc:  c(p.SyntaxCommentPreproc, def.SyntaxCommentPreproc),
+		SyntaxKeywordReserved: c(p.SyntaxKeywordReserved, def.SyntaxKeywordReserved),
+		SyntaxKeywordType:     c(p.SyntaxKeywordType, def.SyntaxKeywordType),
+		SyntaxOperator:        c(p.SyntaxOperator, def.SyntaxOperator),
+		SyntaxNameBuiltin:     c(p.SyntaxNameBuiltin, def.SyntaxNameBuiltin),
+		SyntaxNameTag:         c(p.SyntaxNameTag, def.SyntaxNameTag),
+		SyntaxNameAttribute:   c(p.SyntaxNameAttribute, def.SyntaxNameAttribute),
+		SyntaxNameClass:       c(p.SyntaxNameClass, def.SyntaxNameClass),
+		SyntaxNameDecorator:   c(p.SyntaxNameDecorator, def.SyntaxNameDecorator),
+		SyntaxLiteralString:   c(p.SyntaxLiteralString, def.SyntaxLiteralString),
 
 		// Optional brand surfaces — leave nil when the theme didn't set
 		// them so quickStyle's cascade picks up the brand pair.
-		headerCharm:     optColor(p.HeaderCharm),
-		headerDiagonals: optColor(p.HeaderDiagonals),
-		logoGradFrom:    optColor(p.LogoGradFrom),
-		logoGradTo:      optColor(p.LogoGradTo),
-		workingGradFrom: optColor(p.WorkingGradFrom),
-		workingGradTo:   optColor(p.WorkingGradTo),
+		HeaderCharm:     optColor(p.HeaderCharm),
+		HeaderDiagonals: optColor(p.HeaderDiagonals),
+		LogoGradFrom:    optColor(p.LogoGradFrom),
+		LogoGradTo:      optColor(p.LogoGradTo),
+		WorkingGradFrom: optColor(p.WorkingGradFrom),
+		WorkingGradTo:   optColor(p.WorkingGradTo),
 	})
 }
 
@@ -233,7 +234,7 @@ func defaultPalette() Palette {
 type UserTheme struct {
 	Name   string
 	IsDark bool
-	Styles Styles
+	Styles styles.Styles
 
 	// Swarm holds the theme's optional swarm identity configuration —
 	// the palette used to hash session colors and the animal list.
