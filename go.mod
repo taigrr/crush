@@ -81,7 +81,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.56.0
 	mvdan.cc/sh/moreinterp v0.0.0-20260510185049-f5c6e2779117
-	mvdan.cc/sh/v3 v3.13.1
+	mvdan.cc/sh/v3 v3.13.0 // pinned: v3.13.1 fails to build on windows (undefined access_*_OK)
 )
 
 require (
