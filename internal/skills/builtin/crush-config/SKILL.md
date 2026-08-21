@@ -232,7 +232,18 @@ overrides global, a theme can be set per-workspace (set it in a project
 
 Builtin themes: `charmtone` (default), `hypercrush`, `tokyo-night`,
 `catppuccin-mocha`, `dracula`, `nord`, `gruvbox-dark`, `rose-pine`,
-`cyberpunk`.
+`cyberpunk`, `vscode-dark`, `monochrome`.
+
+The `monochrome` family is grayscale except for a single accent, and comes in
+six accents: `monochrome` (orange), `monochrome-green`, `monochrome-blue`,
+`monochrome-yellow`, `monochrome-purple`, `monochrome-red`. Diffs stay
+red/green in all of them.
+
+Each builtin ships a dark and a light variant, and the TUI applies whichever
+matches the terminal background. The background is queried at startup and
+again whenever the window regains focus, so switching the OS between light
+and dark mode takes effect without a restart. User Lua themes are fixed
+palettes and do not get a synthesized variant.
 
 User themes are Lua files in `$XDG_CONFIG_HOME/crush/themes/*.lua` (typically
 `~/.config/crush/themes/`). Each file returns a table with a `name`, an

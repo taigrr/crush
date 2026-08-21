@@ -23,16 +23,22 @@ type builtinTheme struct {
 // builtinThemes maps theme names to their builders. Names are matched
 // case-insensitively (see normalizeThemeName).
 var builtinThemes = map[string]builtinTheme{
-	"charmtone":        {dark: CharmtonePantera, light: CharmtonePanteraLight},
-	"hypercrush":       {dark: HypercrushObsidiana, light: HypercrushObsidianaLight},
-	"tokyo-night":      {dark: TokyoNight, light: TokyoNightLight},
-	"catppuccin-mocha": {dark: CatppuccinMocha, light: CatppuccinLatte},
-	"dracula":          {dark: Dracula, light: DraculaLight},
-	"nord":             {dark: Nord, light: NordLight},
-	"gruvbox-dark":     {dark: GruvboxDark, light: GruvboxLight},
-	"rose-pine":        {dark: RosePine, light: RosePineDawn},
-	"cyberpunk":        {dark: Cyberpunk, light: CyberpunkLight},
-	"vscode-dark":      {dark: VSCodeDark, light: VSCodeLight},
+	"charmtone":         {dark: CharmtonePantera, light: CharmtonePanteraLight},
+	"hypercrush":        {dark: HypercrushObsidiana, light: HypercrushObsidianaLight},
+	"tokyo-night":       {dark: TokyoNight, light: TokyoNightLight},
+	"catppuccin-mocha":  {dark: CatppuccinMocha, light: CatppuccinLatte},
+	"dracula":           {dark: Dracula, light: DraculaLight},
+	"nord":              {dark: Nord, light: NordLight},
+	"gruvbox-dark":      {dark: GruvboxDark, light: GruvboxLight},
+	"rose-pine":         {dark: RosePine, light: RosePineDawn},
+	"cyberpunk":         {dark: Cyberpunk, light: CyberpunkLight},
+	"vscode-dark":       {dark: VSCodeDark, light: VSCodeLight},
+	"monochrome":        {dark: Monochrome, light: MonochromeLight},
+	"monochrome-green":  {dark: MonochromeGreen, light: MonochromeGreenLight},
+	"monochrome-blue":   {dark: MonochromeBlue, light: MonochromeBlueLight},
+	"monochrome-yellow": {dark: MonochromeYellow, light: MonochromeYellowLight},
+	"monochrome-purple": {dark: MonochromePurple, light: MonochromePurpleLight},
+	"monochrome-red":    {dark: MonochromeRed, light: MonochromeRedLight},
 }
 
 // builtinThemeOrder controls the display order in the theme picker.
@@ -47,6 +53,12 @@ var builtinThemeOrder = []string{
 	"rose-pine",
 	"cyberpunk",
 	"vscode-dark",
+	"monochrome",
+	"monochrome-green",
+	"monochrome-blue",
+	"monochrome-yellow",
+	"monochrome-purple",
+	"monochrome-red",
 }
 
 // normalizeThemeName lowercases and trims a theme name so lookups are

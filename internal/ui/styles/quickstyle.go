@@ -64,6 +64,15 @@ type QuickStyleOpts struct {
 	DiffRemoveBg     color.Color
 	DiffRemoveBgEmph color.Color
 
+	// Diff-derived text outside the diff view: the file list's +/- counts
+	// and markdown diff blocks. Both optional; when nil they cascade to the
+	// status ramp, which is what most themes want since their success/error
+	// colors are already green/red. Themes whose status ramp is not
+	// green/red (grayscale ones, say) set these so add/remove stays
+	// legible as a diff.
+	DiffAddText    color.Color
+	DiffRemoveText color.Color
+
 	// Brand accent used for the Hypercredit icon/count.
 	Hypercredit color.Color
 
@@ -132,6 +141,12 @@ func QuickStyle(o QuickStyleOpts) Styles {
 	logoGradTo := orColor(o.LogoGradTo, o.Primary)
 	workingGradFrom := orColor(o.WorkingGradFrom, o.Primary)
 	workingGradTo := orColor(o.WorkingGradTo, o.Secondary)
+
+	// Diff-derived text keeps its historical per-surface status defaults,
+	// so themes that don't set these are unaffected.
+	diffAddText := orColor(o.DiffAddText, o.SuccessMostSubtle)
+	filesDeletions := orColor(o.DiffRemoveText, o.Error)
+	genericDeleted := orColor(o.DiffRemoveText, o.Destructive)
 
 	s.Background = o.BgBase
 
@@ -366,13 +381,13 @@ func QuickStyle(o QuickStyleOpts) Styles {
 					Color: hex(o.SuccessMoreSubtle),
 				},
 				GenericDeleted: ansi.StylePrimitive{
-					Color: hex(o.Destructive),
+					Color: hex(genericDeleted),
 				},
 				GenericEmph: ansi.StylePrimitive{
 					Italic: new(true),
 				},
 				GenericInserted: ansi.StylePrimitive{
-					Color: hex(o.SuccessMostSubtle),
+					Color: hex(diffAddText),
 				},
 				GenericStrong: ansi.StylePrimitive{
 					Bold: new(true),
@@ -816,8 +831,8 @@ func QuickStyle(o QuickStyleOpts) Styles {
 
 	// Files
 	s.Files.Path = lipgloss.NewStyle().Foreground(o.FgMoreSubtle)
-	s.Files.Additions = lipgloss.NewStyle().Foreground(o.SuccessMostSubtle)
-	s.Files.Deletions = lipgloss.NewStyle().Foreground(o.Error)
+	s.Files.Additions = lipgloss.NewStyle().Foreground(diffAddText)
+	s.Files.Deletions = lipgloss.NewStyle().Foreground(filesDeletions)
 	s.Files.SectionTitle = lipgloss.NewStyle().Foreground(o.FgMostSubtle)
 	s.Files.EmptyMessage = lipgloss.NewStyle().Foreground(o.FgMostSubtle)
 	s.Files.TruncationHint = lipgloss.NewStyle().Foreground(o.FgMostSubtle)
