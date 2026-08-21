@@ -748,6 +748,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateNotificationBackend()
 	case tea.FocusMsg:
 		m.notifyWindowFocused = true
+		// Terminals report their background color only when asked, so a
+		// light/dark switch made while we were unfocused would otherwise go
+		// unnoticed. Re-ask so the theme variant catches up.
+		cmds = append(cmds, tea.RequestBackgroundColor)
 	case tea.BlurMsg:
 		m.notifyWindowFocused = false
 	case pubsub.Event[notify.Notification]:
