@@ -33,10 +33,11 @@ func (m *UI) modelInfo(width int) string {
 	}
 
 	var modelContext *common.ModelContextInfo
-	if model != nil && m.session != nil {
+	if model != nil && m.sidebarSession() != nil {
+		sess := m.sidebarSession()
 		modelContext = &common.ModelContextInfo{
-			ContextUsed:  m.session.CompletionTokens + m.session.PromptTokens,
-			Cost:         m.session.Cost,
+			ContextUsed:  sess.CompletionTokens + sess.PromptTokens,
+			Cost:         sess.Cost,
 			ModelContext: int64(model.CatwalkCfg.ContextWindow),
 		}
 	}
@@ -145,6 +146,12 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	width := area.Dx()
 	height := area.Dy()
 
+	// sess is the session whose stats this sidebar renders: the previewed
+	// session while a live preview is shown, otherwise the committed one
+	// (see sidebarSession). Everything session-specific below reads from
+	// sess so the sidebar tracks the chat's live preview.
+	sess := m.sidebarSession()
+
 	title := m.renderSessionTitle(t.Sidebar.SessionTitle, width)
 
 	// Swarm identity line: "<colorblock> <color-animal>" shown above
@@ -152,11 +159,11 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	// alongside its summary. Empty when the session has no assigned
 	// identity yet.
 	var swarmLine string
-	if m.session != nil && m.session.Color != "" && m.session.Animal != "" {
-		square := common.SwarmSquare(m.session.Color)
+	if sess != nil && sess.Color != "" && sess.Animal != "" {
+		square := common.SwarmSquare(sess.Color)
 		addr := swarm.FormatAddress(
-			swarm.Identity{Color: m.session.Color, Animal: m.session.Animal},
-			m.session.ID,
+			swarm.Identity{Color: sess.Color, Animal: sess.Animal},
+			sess.ID,
 		)
 		label := t.Sidebar.WorkingDir.Render(addr)
 		if square != "" {
@@ -177,8 +184,8 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	// cwd. Falls back to the client's launch cwd when unrecorded.
 	// Only shown when different from the config root (e.g. linked worktrees).
 	effectivePath := m.com.Workspace.EffectiveWorkingDir()
-	if m.session.WorkingDir != "" {
-		effectivePath = m.session.WorkingDir
+	if sess != nil && sess.WorkingDir != "" {
+		effectivePath = sess.WorkingDir
 	}
 	var cwdLine string
 	if effectivePath != cfgRootPath {
@@ -195,8 +202,8 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	// Build git/worktree info line with git symbol prefix.
 	var gitInfo string
 	var activeWorktree *worktree.Worktree
-	if m.com.Workspace.WorktreesEnabled() {
-		activeWorktree, _ = m.com.Workspace.GetActiveWorktree(context.Background(), m.session.ID)
+	if sess != nil && m.com.Workspace.WorktreesEnabled() {
+		activeWorktree, _ = m.com.Workspace.GetActiveWorktree(context.Background(), sess.ID)
 	}
 	if activeWorktree != nil {
 		gitInfo = t.Sidebar.WorkingDir.Render("⑂ " + activeWorktree.Name)
@@ -251,8 +258,9 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	// joined content. Give a very large available height so nothing is
 	// truncated by the per-section limits.
 	const maxAvailableHeight = 100000
+	sidebarFiles := m.sidebarFiles()
 	filesCount := 0
-	for _, f := range m.sessionFiles {
+	for _, f := range sidebarFiles {
 		if f.Additions == 0 && f.Deletions == 0 {
 			continue
 		}
@@ -275,7 +283,7 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	lspSection := m.lspInfo(width, maxLSPs, true)
 	mcpSection := m.mcpInfo(width, maxMCPs, true)
 	skillsSection := m.skillsInfo(width, maxSkills, true)
-	filesSection := m.filesInfo(m.com.Workspace.WorkingDir(), width, maxFiles, true)
+	filesSection := m.filesInfo(sidebarFiles, m.com.Workspace.WorkingDir(), width, maxFiles, true)
 
 	// Build the full sidebar content.
 	fullContent := lipgloss.JoinVertical(

@@ -220,6 +220,10 @@ type SessionOverview struct {
 	// back to no color square in that case.
 	Color  string `json:"color,omitempty"`
 	Animal string `json:"animal,omitempty"`
+	// Favorite pins the session to the top of the sidebar inbox (below
+	// sessions blocked on a permission prompt). It is read from the
+	// session's database (attached or detached) so it persists.
+	Favorite bool `json:"favorite,omitempty"`
 }
 
 // WorkspaceOverview groups a workspace's sessions for the picker. Attached
@@ -303,6 +307,16 @@ type SearchHistoryResult struct {
 type PeekMessagesParams struct {
 	Root      string `json:"root"`
 	SessionID string `json:"session_id"`
+}
+
+// PeekSessionInfoResult carries a session's metadata and history files
+// read from a possibly-foreign workspace, without switching the caller's
+// own workspace. It backs the session sidebar's live preview so the right
+// info-sidebar (title, swarm identity, working dir, cost/tokens, modified
+// files) reflects the highlighted session alongside its previewed messages.
+type PeekSessionInfoResult struct {
+	Session Session `json:"session"`
+	Files   []File  `json:"files"`
 }
 
 // AgentSession represents a session with its busy status.

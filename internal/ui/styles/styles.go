@@ -25,6 +25,8 @@ const (
 
 	ArrowRightIcon string = "→"
 
+	FavoriteIcon string = "★"
+
 	ToolPending string = "●"
 	ToolSuccess string = "✓"
 	ToolError   string = "×"

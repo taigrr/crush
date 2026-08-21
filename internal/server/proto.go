@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/backend"
@@ -747,6 +748,38 @@ func (c *controllerV1) handleMarkWorkspaceSessionSeen(w http.ResponseWriter, r *
 	w.WriteHeader(http.StatusOK)
 }
 
+// handleSetWorkspaceSessionFavorite pins or unpins a session (sticky top of
+// the sidebar inbox).
+//
+//	@Summary		Favorite or unfavorite a session
+//	@Tags			sessions
+//	@Param			id			path	string	true	"Workspace ID"
+//	@Param			sid			path	string	true	"Session ID"
+//	@Param			root		query	string	false	"Workspace root (routes to a detached workspace when id is not attached)"
+//	@Param			favorite	query	bool	false	"Whether the session should be favorited (default true)"
+//	@Success		200
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/sessions/{sid}/favorite [post]
+func (c *controllerV1) handleSetWorkspaceSessionFavorite(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+	root := r.URL.Query().Get("root")
+	// Default to favoriting when the flag is absent or unparseable; the
+	// client always sends an explicit true/false.
+	favorite := true
+	if v := r.URL.Query().Get("favorite"); v != "" {
+		if parsed, err := strconv.ParseBool(v); err == nil {
+			favorite = parsed
+		}
+	}
+	if err := c.backend.SetSessionFavorite(r.Context(), id, root, sid, favorite); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // handleUnarchiveWorkspaceSession unarchives a session.
 //
 //	@Summary		Unarchive a session
@@ -1216,6 +1249,49 @@ func (c *controllerV1) handlePostPeekMessages(w http.ResponseWriter, r *http.Req
 		return
 	}
 	jsonEncode(w, messagesToProto(messages))
+}
+
+// handlePostPeekSessionInfo returns a session's metadata and history files
+// from any known workspace (attached or registry-detached) identified by
+// root, without switching the caller's own workspace. It is the
+// sidebar-data companion to handlePostPeekMessages: the session sidebar's
+// live preview uses it to reflect the highlighted session's title, swarm
+// identity, working dir, cost/tokens, and modified files.
+//
+//	@Summary		Peek a session's info in any known workspace
+//	@Tags			sessions
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		proto.PeekMessagesParams	true	"Target workspace root and session id"
+//	@Success		200		{object}	proto.PeekSessionInfoResult
+//	@Failure		400		{object}	proto.Error
+//	@Failure		404		{object}	proto.Error
+//	@Failure		500		{object}	proto.Error
+//	@Router			/peek-session-info [post]
+func (c *controllerV1) handlePostPeekSessionInfo(w http.ResponseWriter, r *http.Request) {
+	var params proto.PeekMessagesParams
+	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+	if params.Root == "" || params.SessionID == "" {
+		jsonError(w, http.StatusBadRequest, "root and session_id are required")
+		return
+	}
+	sess, files, err := c.backend.PeekSessionInfo(r.Context(), params.Root, params.SessionID)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	protoFiles := make([]proto.File, len(files))
+	for i, f := range files {
+		protoFiles[i] = fileToProto(f)
+	}
+	jsonEncode(w, proto.PeekSessionInfoResult{
+		Session: sessionToProto(sess),
+		Files:   protoFiles,
+	})
 }
 
 // handlePostWorkspaceAgentSessionPromptClear clears the prompt queue for a session.

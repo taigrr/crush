@@ -435,22 +435,31 @@ func (s *SessionsSidebar) rebuildRows() {
 }
 
 // rebuildInboxRows projects a FLAT, cross-workspace list sectioned by
-// status: Running (busy) first, then Unread (unread, not busy), then Read
-// (everything else). Each section is sorted by UpdatedAt descending. There
-// are no workspace headers; the per-row workspace tag (basename of the
-// workspace root) supplies project context. Empty sections are omitted so
+// status. Section order (highest priority first): Blocked (waiting on a
+// permission/question prompt), Favorite (pinned by the user), then Running
+// (busy), Unread (unread, not busy), and Read (everything else). Each
+// session lands in exactly one section by that priority, so a favorited or
+// blocked session sticks to the top regardless of its busy/unread state.
+// Each section is sorted by UpdatedAt descending. There are no workspace
+// headers; the per-row workspace tag (basename of the workspace root)
+// supplies project context. Empty sections are omitted — in particular the
+// Favorite and Blocked sections do not render unless populated — so
 // filtering/hide-empty composes. Session rows still reference their source
 // (wsIdx, sessIdx), so sessionIDAt/rowForSessionID/Selected/ClickToActivate
 // and cross-workspace activation all work unchanged over the flat layout.
 func (s *SessionsSidebar) rebuildInboxRows() {
 	type ref struct{ wi, si int }
-	var running, unread, other []ref
+	var blocked, favorite, running, unread, other []ref
 	for wi, ws := range s.overviews {
 		for si, sess := range ws.Sessions {
 			if !s.sessionMatchesFilter(sess, ws.Root) {
 				continue
 			}
 			switch {
+			case s.HasPending(sess.ID):
+				blocked = append(blocked, ref{wi, si})
+			case sess.Favorite:
+				favorite = append(favorite, ref{wi, si})
 			case sess.IsBusy:
 				running = append(running, ref{wi, si})
 			case sess.Unread:
@@ -467,6 +476,8 @@ func (s *SessionsSidebar) rebuildInboxRows() {
 			return a.UpdatedAt > b.UpdatedAt
 		})
 	}
+	byUpdatedDesc(blocked)
+	byUpdatedDesc(favorite)
 	byUpdatedDesc(running)
 	byUpdatedDesc(unread)
 	byUpdatedDesc(other)
@@ -480,6 +491,8 @@ func (s *SessionsSidebar) rebuildInboxRows() {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: r.wi, sessIdx: r.si})
 		}
 	}
+	emit("Blocked", blocked)
+	emit("Favorite", favorite)
 	emit("Running", running)
 	emit("Unread", unread)
 	emit("Read", other)
@@ -1039,6 +1052,23 @@ func (s *SessionsSidebar) selectedSessionID() string {
 	return id
 }
 
+// FavoriteTargetUnderCursor resolves the session under the cursor to its
+// owning workspace target and current favorite state, so the toggle can
+// route the write to the session's OWN workspace (attached or detached).
+// ok is false when the cursor is not on a session row.
+func (s *SessionsSidebar) FavoriteTargetUnderCursor() (target SessionTarget, favorite, ok bool) {
+	if s.cursor < 0 || s.cursor >= len(s.rows) {
+		return SessionTarget{}, false, false
+	}
+	r := s.rows[s.cursor]
+	if r.kind != sidebarRowSession {
+		return SessionTarget{}, false, false
+	}
+	ws := s.overviews[r.wsIdx]
+	sess := ws.Sessions[r.sessIdx]
+	return SessionTarget{WorkspaceID: ws.WorkspaceID, Root: ws.Root, ID: sess.ID}, sess.Favorite, true
+}
+
 // visibleRows is how many rows fit in the given height.
 func (s *SessionsSidebar) ensureVisible() {
 	// scroll is corrected against the viewport height at render time; here
@@ -1336,13 +1366,20 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 	if tag != "" {
 		tagRaw = " " + ansi.Truncate(tag, maxWorkspaceTagWidth, "…")
 	}
-	avail := max(1, width-prefixWidth-ansi.StringWidth(tagRaw))
+	// Favorited sessions carry a trailing star so they read as pinned even
+	// in the grouped view (where there is no Favorite section). It is
+	// budgeted before the title, like the tag, so it never overruns.
+	favRaw := ""
+	if sess.Favorite {
+		favRaw = " " + styles.FavoriteIcon
+	}
+	avail := max(1, width-prefixWidth-ansi.StringWidth(tagRaw)-ansi.StringWidth(favRaw))
 	title = ansi.Truncate(title, avail, "…")
 
 	if selected && focused {
 		// Full-row highlight without extra padding (the dialog selected
 		// style adds Padding(0,1) which would overflow the sidebar width).
-		line := ansi.Truncate(prefixRaw+title+tagRaw, width, "…")
+		line := ansi.Truncate(prefixRaw+title+favRaw+tagRaw, width, "…")
 		return t.Dialog.SelectedItem.UnsetPadding().Width(width).Render(line)
 	}
 
@@ -1351,9 +1388,13 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		titleStyle = titleStyle.Bold(true)
 	}
 	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + squareCell + " "
+	styledFav := ""
+	if favRaw != "" {
+		styledFav = t.Resource.Name.Render(favRaw)
+	}
 	styledTag := ""
 	if tagRaw != "" {
 		styledTag = t.Resource.AdditionalText.Render(tagRaw)
 	}
-	return ansi.Truncate(styledPrefix+titleStyle.Render(title)+styledTag, width, "…")
+	return ansi.Truncate(styledPrefix+titleStyle.Render(title)+styledFav+styledTag, width, "…")
 }

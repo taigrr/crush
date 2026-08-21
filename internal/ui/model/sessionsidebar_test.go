@@ -1153,6 +1153,80 @@ func TestSidebar_InboxEmptySectionsOmitted(t *testing.T) {
 	require.Equal(t, []string{"a1", "a2"}, sessionOrder(s))
 }
 
+// TestSidebar_InboxFavoriteSection verifies a favorited session is
+// stickied into a Favorite section that sits above Running/Unread/Read,
+// regardless of the session's busy/unread state, and that the section is
+// absent when no session is favorited.
+func TestSidebar_InboxFavoriteSection(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/a",
+		Attached: true,
+		Sessions: []proto.SessionOverview{
+			{ID: "fav", Title: "orchestrator", Favorite: true, IsBusy: true, UpdatedAt: 5},
+			{ID: "busy", Title: "worker", IsBusy: true, UpdatedAt: 50},
+			{ID: "unr", Title: "unread", Unread: true, UpdatedAt: 20},
+			{ID: "read", Title: "read", UpdatedAt: 10},
+		},
+	}})
+	s.ToggleInbox()
+
+	var sections []string
+	for _, r := range s.rows {
+		if r.kind == sidebarRowSection {
+			sections = append(sections, r.label)
+		}
+	}
+	require.Equal(t, []string{"Favorite", "Running", "Unread", "Read"}, sections)
+	// The favorited (also busy) session must land in Favorite at the very
+	// top, not under Running.
+	require.Equal(t, []string{"fav", "busy", "unr", "read"}, sessionOrder(s))
+}
+
+// TestSidebar_InboxFavoriteSectionOmittedWhenEmpty verifies the Favorite
+// section does not render when nothing is favorited.
+func TestSidebar_InboxFavoriteSectionOmittedWhenEmpty(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(inboxOverviews())
+	s.ToggleInbox()
+	for _, r := range s.rows {
+		if r.kind == sidebarRowSection {
+			require.NotEqual(t, "Favorite", r.label)
+		}
+	}
+}
+
+// TestSidebar_InboxBlockedAboveFavorite verifies a session blocked on a
+// permission prompt lands in Blocked (top), above the Favorite section,
+// even when it is also favorited.
+func TestSidebar_InboxBlockedAboveFavorite(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/a",
+		Attached: true,
+		Sessions: []proto.SessionOverview{
+			{ID: "blk", Title: "blocked-fav", Favorite: true, IsBusy: true, UpdatedAt: 5},
+			{ID: "fav", Title: "favorite", Favorite: true, UpdatedAt: 4},
+			{ID: "read", Title: "read", UpdatedAt: 3},
+		},
+	}})
+	// "blk" is blocked on a prompt on this client.
+	s.SetPendingSessions(map[string]bool{"blk": true})
+	s.ToggleInbox()
+
+	var sections []string
+	for _, r := range s.rows {
+		if r.kind == sidebarRowSection {
+			sections = append(sections, r.label)
+		}
+	}
+	require.Equal(t, []string{"Blocked", "Favorite", "Read"}, sections)
+	require.Equal(t, []string{"blk", "fav", "read"}, sessionOrder(s))
+}
+
 // TestSidebar_InboxLongWorkspaceTagNoOverflow verifies a long workspace
 // basename is truncated so no inbox row exceeds the sidebar width.
 func TestSidebar_InboxLongWorkspaceTagNoOverflow(t *testing.T) {

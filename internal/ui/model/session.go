@@ -158,7 +158,15 @@ func (m *UI) loadSessionFiles(sessionID string) ([]SessionFile, error) {
 	if err != nil {
 		return nil, err
 	}
+	return computeSessionFiles(files), nil
+}
 
+// computeSessionFiles collapses a session's raw history versions into
+// per-path [SessionFile] entries with first/latest versions and diff
+// stats. It is shared by loadSessionFiles (current workspace) and the
+// live preview's foreign-workspace path, which peeks raw history files
+// without switching workspaces.
+func computeSessionFiles(files []history.File) []SessionFile {
 	filesByPath := make(map[string][]history.File)
 	for _, f := range files {
 		filesByPath[f.Path] = append(filesByPath[f.Path], f)
@@ -199,7 +207,7 @@ func (m *UI) loadSessionFiles(sessionID string) ([]SessionFile, error) {
 		}
 		return 0
 	})
-	return sessionFiles, nil
+	return sessionFiles
 }
 
 // handleFileEvent processes file change events and updates the session file
@@ -244,8 +252,10 @@ func (m *UI) applySessionFilesUpdate(msg sessionFilesUpdatesMsg) tea.Cmd {
 }
 
 // filesInfo renders the modified files section for the sidebar, showing files
-// with their addition/deletion counts.
-func (m *UI) filesInfo(cwd string, width, maxItems int, isSection bool) string {
+// with their addition/deletion counts. files is the session's modified-file
+// list to render (the committed session's, or a previewed session's while a
+// live preview is shown).
+func (m *UI) filesInfo(files []SessionFile, cwd string, width, maxItems int, isSection bool) string {
 	t := m.com.Styles
 
 	title := t.Files.SectionTitle.Render("Modified Files")
@@ -254,7 +264,7 @@ func (m *UI) filesInfo(cwd string, width, maxItems int, isSection bool) string {
 	}
 	list := t.Files.EmptyMessage.Render("None")
 	var filesWithChanges []SessionFile
-	for _, f := range m.sessionFiles {
+	for _, f := range files {
 		if f.Additions == 0 && f.Deletions == 0 {
 			continue
 		}

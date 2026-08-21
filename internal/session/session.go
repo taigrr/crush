@@ -79,6 +79,11 @@ type Session struct {
 	// elsewhere.
 	Color  string
 	Animal string
+
+	// Favorite pins the session to the top of the sidebar inbox (just
+	// below sessions blocked on a permission prompt) so an orchestrator
+	// session controlling swarm workers is easy to return to.
+	Favorite bool
 }
 
 // Unread reports whether the session finished a run more recently than it
@@ -105,6 +110,9 @@ type Service interface {
 
 	// SetWorkingDir records the directory the session runs its tools in.
 	SetWorkingDir(ctx context.Context, id, dir string) error
+	// SetFavorite pins or unpins a session so the sidebar inbox sticks it
+	// to the top. Publishes an update so the sidebar reprojects.
+	SetFavorite(ctx context.Context, id string, favorite bool) error
 	// SetSwarmIdentity stores the color/animal pair used by the swarm
 	// tool to address the session across workspaces. Idempotent.
 	SetSwarmIdentity(ctx context.Context, id, color, animal string) error
@@ -415,6 +423,21 @@ func (s *service) SetWorkingDir(ctx context.Context, id, dir string) error {
 	return nil
 }
 
+func (s *service) SetFavorite(ctx context.Context, id string, favorite bool) error {
+	fav := int64(0)
+	if favorite {
+		fav = 1
+	}
+	if err := s.q.SetSessionFavorite(ctx, db.SetSessionFavoriteParams{
+		ID:       id,
+		Favorite: fav,
+	}); err != nil {
+		return fmt.Errorf("setting session favorite: %w", err)
+	}
+	s.publishByID(ctx, id)
+	return nil
+}
+
 func (s *service) MarkFinished(ctx context.Context, id string) error {
 	if err := s.q.MarkSessionFinished(ctx, id); err != nil {
 		return fmt.Errorf("marking session finished: %w", err)
@@ -498,6 +521,7 @@ func (s *service) fromDBItem(item db.Session) Session {
 		ArchivedAt:       item.ArchivedAt.Int64,
 		Color:            item.Color.String,
 		Animal:           item.Animal.String,
+		Favorite:         item.Favorite != 0,
 	}
 }
 

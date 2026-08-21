@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/workspace"
@@ -16,6 +17,10 @@ import (
 type previewStubWorkspace struct {
 	workspace.Workspace
 	messages   map[string][]message.Message
+	sessions   map[string]session.Session
+	histories  map[string][]history.File
+	peekInfo   map[string]session.Session
+	peekFiles  map[string][]history.File
 	listErrIDs map[string]bool
 	calls      []string
 }
@@ -26,6 +31,23 @@ func (w *previewStubWorkspace) ListMessages(_ context.Context, id string) ([]mes
 		return nil, context.DeadlineExceeded
 	}
 	return w.messages[id], nil
+}
+
+func (w *previewStubWorkspace) GetSession(_ context.Context, id string) (session.Session, error) {
+	w.calls = append(w.calls, "getsession:"+id)
+	return w.sessions[id], nil
+}
+
+func (w *previewStubWorkspace) ListSessionHistory(_ context.Context, id string) ([]history.File, error) {
+	w.calls = append(w.calls, "history:"+id)
+	return w.histories[id], nil
+}
+
+// PeekSessionInfo records foreign-workspace sidebar-data peeks so tests can
+// assert the sidebar preview went through the peek path.
+func (w *previewStubWorkspace) PeekSessionInfo(_ context.Context, root, id string) (session.Session, []history.File, error) {
+	w.calls = append(w.calls, "peekinfo:"+root+":"+id)
+	return w.peekInfo[id], w.peekFiles[id], nil
 }
 
 func (w *previewStubWorkspace) BaseDir() string { return "/current" }
@@ -137,6 +159,69 @@ func TestPreview_LoadedSetsPreviewing(t *testing.T) {
 	m.handlePreviewLoaded(previewLoadedMsg{id: "s1"})
 	require.True(t, m.previewing())
 	require.Equal(t, "s1", m.previewSessionID)
+}
+
+// TestPreview_SidebarDataSameWorkspace verifies a same-workspace preview
+// load fetches the highlighted session's metadata and files so the right
+// info-sidebar reflects the previewed session (not the committed one), and
+// that cancelling restores the committed session's stats.
+func TestPreview_SidebarDataSameWorkspace(t *testing.T) {
+	t.Parallel()
+	committed := session.Session{ID: "committed", Title: "Committed"}
+	ws := &previewStubWorkspace{
+		messages:  map[string][]message.Message{"s1": nil, "committed": nil},
+		sessions:  map[string]session.Session{"s1": {ID: "s1", Title: "Previewed", Color: "red", Animal: "tiger"}},
+		histories: map[string][]history.File{"s1": {{ID: "f1", SessionID: "s1", Path: "a.go", Version: 1}}},
+	}
+	m := newPreviewTestUI(t, ws, "committed")
+	m.session = &committed
+
+	// Committed session drives the sidebar before any preview.
+	require.Same(t, m.session, m.sidebarSession())
+
+	m.pendingPreviewID = "s1"
+	msg := drainMsg(m.previewLoadCmd("s1", "")).(previewLoadedMsg)
+	require.NotNil(t, msg.sess)
+	require.Equal(t, "Previewed", msg.sess.Title)
+	require.Len(t, msg.files, 1)
+	require.Contains(t, ws.calls, "getsession:s1")
+	require.Contains(t, ws.calls, "history:s1")
+
+	m.handlePreviewLoaded(msg)
+	// Sidebar now reflects the previewed session.
+	require.Equal(t, "Previewed", m.sidebarSession().Title)
+	require.Len(t, m.sidebarFiles(), 1)
+
+	// Cancelling drops the preview stats back to the committed session.
+	m.cancelPreview()
+	require.Same(t, &committed, m.sidebarSession())
+	require.Nil(t, m.previewSess)
+	require.Nil(t, m.previewFiles)
+}
+
+// TestPreview_SidebarDataForeignWorkspace verifies a foreign-workspace
+// preview reads sidebar data through PeekSessionInfo (not GetSession) so it
+// works without switching this client's workspace.
+func TestPreview_SidebarDataForeignWorkspace(t *testing.T) {
+	t.Parallel()
+	ws := &previewStubWorkspace{
+		messages:  map[string][]message.Message{"fid": {{ID: "m1"}}},
+		peekInfo:  map[string]session.Session{"fid": {ID: "fid", Title: "Foreign"}},
+		peekFiles: map[string][]history.File{"fid": {{ID: "f1", SessionID: "fid", Path: "b.go", Version: 1}}},
+	}
+	m := newPreviewTestUI(t, ws, "committed")
+	m.session = &session.Session{ID: "committed"}
+	m.pendingPreviewID = "fid"
+
+	msg := drainMsg(m.previewLoadCmd("fid", "/other")).(previewLoadedMsg)
+	require.NotNil(t, msg.sess)
+	require.Equal(t, "Foreign", msg.sess.Title)
+	require.Len(t, msg.files, 1)
+	require.Contains(t, ws.calls, "peekinfo:/other:fid")
+	require.NotContains(t, ws.calls, "getsession:fid")
+
+	m.handlePreviewLoaded(msg)
+	require.Equal(t, "Foreign", m.sidebarSession().Title)
 }
 
 // TestPreview_CancelRestoresCommitted verifies esc/close discards the preview

@@ -140,6 +140,11 @@ type Workspace interface {
 	// ArchiveSessionInWorkspace. When workspaceID is empty the workspace is
 	// resolved by root.
 	MarkSessionSeenInWorkspace(ctx context.Context, workspaceID, root, sessionID string) error
+	// SetSessionFavoriteInWorkspace pins or unpins a session in an
+	// explicit workspace (attached or detached), mirroring
+	// MarkSessionSeenInWorkspace. When workspaceID is empty the workspace
+	// is resolved by root.
+	SetSessionFavoriteInWorkspace(ctx context.Context, workspaceID, root, sessionID string, favorite bool) error
 	CreateAgentToolSessionID(messageID, toolCallID string) string
 	ParseAgentToolSessionID(sessionID string) (messageID string, toolCallID string, ok bool)
 	// SetCurrentSession reports the session this client is currently
@@ -167,6 +172,13 @@ type Workspace interface {
 	// sidebar's live preview so previewing a session outside the
 	// currently-attached workspace doesn't require a heavy full switch.
 	PeekMessages(ctx context.Context, root, sessionID string) ([]message.Message, error)
+	// PeekSessionInfo returns a session's metadata and history files from
+	// any known workspace (attached or registry-detached) identified by
+	// root, WITHOUT switching this client's own workspace. It is the
+	// sidebar-data companion to PeekMessages: the session sidebar's live
+	// preview uses it to reflect the highlighted session's title, swarm
+	// identity, working dir, cost/tokens, and modified files.
+	PeekSessionInfo(ctx context.Context, root, sessionID string) (session.Session, []history.File, error)
 
 	// Agent
 	AgentRun(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) error

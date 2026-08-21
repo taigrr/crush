@@ -7,7 +7,9 @@ import (
 	"log/slog"
 
 	"github.com/taigrr/crush/internal/db"
+	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/session"
 )
 
 // ErrPreviewWorkspaceNotFound is returned by [Backend.PeekSessionMessages]
@@ -69,4 +71,66 @@ func (b *Backend) PeekSessionMessages(ctx context.Context, root, sessionID strin
 	queries := db.New(conn)
 	messages := message.NewService(queries)
 	return messages.List(ctx, sessionID)
+}
+
+// PeekSessionInfo returns a session's metadata and history files from the
+// workspace rooted at root, WITHOUT switching, attaching, or otherwise
+// disturbing the caller's own current workspace. It is the sidebar-data
+// companion to [Backend.PeekSessionMessages]: the session sidebar's live
+// preview reads a highlighted session's title, swarm identity, working
+// dir, cost/tokens, and modified files this way — including for a session
+// in a workspace the client isn't currently viewing — without paying for a
+// full workspace attach/switch.
+//
+// root is matched against attached workspaces first (live, in-memory
+// services); if none match, root is looked up in the on-disk registry and
+// read READ-ONLY via [db.OpenReadOnly] (no attach, no migrations, no
+// lock), mirroring [Backend.PeekSessionMessages].
+func (b *Backend) PeekSessionInfo(ctx context.Context, root, sessionID string) (session.Session, []history.File, error) {
+	if root == "" || sessionID == "" {
+		return session.Session{}, nil, fmt.Errorf("preview: root and session id are required")
+	}
+
+	for _, ws := range b.workspaces.Seq2() {
+		if ws.resolvedPath != root || ws.App == nil {
+			continue
+		}
+		sess, err := ws.Sessions.Get(ctx, sessionID)
+		if err != nil {
+			return session.Session{}, nil, err
+		}
+		files, err := ws.History.ListBySession(ctx, sessionID)
+		if err != nil {
+			return session.Session{}, nil, err
+		}
+		return sess, files, nil
+	}
+
+	dataDir, found, err := b.registryDataDirForRoot(root)
+	if err != nil {
+		return session.Session{}, nil, fmt.Errorf("preview: failed to list registry: %w", err)
+	}
+	if !found {
+		return session.Session{}, nil, ErrPreviewWorkspaceNotFound
+	}
+	conn, err := db.OpenReadOnly(dataDir)
+	if err != nil {
+		return session.Session{}, nil, fmt.Errorf("preview: %w", err)
+	}
+	if conn == nil {
+		// No database yet: an uninitialized/empty workspace has nothing
+		// to preview.
+		return session.Session{}, nil, nil
+	}
+	defer conn.Close()
+	queries := db.New(conn)
+	sess, err := session.NewService(queries, conn).Get(ctx, sessionID)
+	if err != nil {
+		return session.Session{}, nil, err
+	}
+	files, err := history.NewService(queries, conn).ListBySession(ctx, sessionID)
+	if err != nil {
+		return session.Session{}, nil, err
+	}
+	return sess, files, nil
 }

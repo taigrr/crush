@@ -123,6 +123,7 @@ type PeekedSession struct {
 	Archived       bool
 	Color          string
 	Animal         string
+	Favorite       bool
 }
 
 // Unread reports whether the session finished a run more recently than it
@@ -187,6 +188,7 @@ SELECT
     %s,
     %s,
     %s,
+    %s,
     %s
 FROM sessions
 WHERE parent_session_id IS NULL
@@ -198,6 +200,7 @@ ORDER BY updated_at DESC`,
 		archivedProjection(cols),
 		sel("color", "''"),
 		sel("animal", "''"),
+		sel("favorite", "0"),
 		archivedFilter(cols),
 	)
 
@@ -217,6 +220,7 @@ ORDER BY updated_at DESC`,
 			archived   sql.NullInt64
 			color      sql.NullString
 			animal     sql.NullString
+			favorite   sql.NullInt64
 		)
 		if err := rows.Scan(
 			&p.ID,
@@ -229,6 +233,7 @@ ORDER BY updated_at DESC`,
 			&archived,
 			&color,
 			&animal,
+			&favorite,
 		); err != nil {
 			return nil, err
 		}
@@ -238,6 +243,7 @@ ORDER BY updated_at DESC`,
 		p.Archived = archived.Valid && archived.Int64 != 0
 		p.Color = color.String
 		p.Animal = animal.String
+		p.Favorite = favorite.Valid && favorite.Int64 != 0
 		out = append(out, p)
 	}
 	if err := rows.Err(); err != nil {

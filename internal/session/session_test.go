@@ -7,6 +7,33 @@ import (
 	"github.com/taigrr/crush/internal/db"
 )
 
+func TestSetFavoritePersistsAndPublishes(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Cleanup(func() {
+		require.NoError(t, db.Release(dataDir))
+		db.ResetPool()
+	})
+
+	conn, err := db.Connect(t.Context(), dataDir)
+	require.NoError(t, err)
+
+	sessions := NewService(db.New(conn), conn)
+
+	created, err := sessions.Create(t.Context(), "test")
+	require.NoError(t, err)
+	require.False(t, created.Favorite)
+
+	require.NoError(t, sessions.SetFavorite(t.Context(), created.ID, true))
+	fetched, err := sessions.Get(t.Context(), created.ID)
+	require.NoError(t, err)
+	require.True(t, fetched.Favorite)
+
+	require.NoError(t, sessions.SetFavorite(t.Context(), created.ID, false))
+	fetched, err = sessions.Get(t.Context(), created.ID)
+	require.NoError(t, err)
+	require.False(t, fetched.Favorite)
+}
+
 func TestEstimatedUsageStateSurvivesFetchModifySave(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Cleanup(func() {

@@ -307,6 +307,15 @@ func (b *Backend) MarkSessionSeen(ctx context.Context, workspaceID, root, sessio
 	})
 }
 
+// SetSessionFavorite pins or unpins a session so the sidebar inbox sticks
+// it to the top. The session may live in an attached or a detached
+// workspace (resolved by root via the registry).
+func (b *Backend) SetSessionFavorite(ctx context.Context, workspaceID, root, sessionID string, favorite bool) error {
+	return b.withWorkspaceSession(workspaceID, root, func(_ *Workspace, s session.Service) error {
+		return s.SetFavorite(ctx, sessionID, favorite)
+	})
+}
+
 // UnarchiveSession unarchives a session. The session may live in an
 // attached or a detached workspace (resolved by root via the registry).
 func (b *Backend) UnarchiveSession(ctx context.Context, workspaceID, root, sessionID string) error {

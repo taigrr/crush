@@ -9,6 +9,7 @@ import (
 
 	"github.com/taigrr/crush/internal/app"
 	"github.com/taigrr/crush/internal/db"
+	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/registry"
 	"github.com/taigrr/crush/internal/session"
@@ -47,6 +48,7 @@ func insertAttachedMessageWorkspace(t *testing.T, b *Backend, root, sessionID st
 	ws.App = &app.App{
 		Sessions: session.NewService(q, conn),
 		Messages: messages,
+		History:  history.NewService(q, conn),
 	}
 	ws.ctx, ws.cancel = context.WithCancel(b.ctx)
 	b.mu.Lock()
@@ -106,5 +108,53 @@ func TestPeekSessionMessages_Detached(t *testing.T) {
 func TestPeekSessionMessages_UnknownWorkspace(t *testing.T) {
 	b := newTestBackendWithRegistry(t)
 	_, err := b.PeekSessionMessages(context.Background(), "/nowhere", "s1")
+	require.ErrorIs(t, err, ErrPreviewWorkspaceNotFound)
+}
+
+// TestPeekSessionInfo_Attached verifies a session's metadata is read from
+// an attached workspace's live in-memory service.
+func TestPeekSessionInfo_Attached(t *testing.T) {
+	t.Cleanup(db.ResetPool)
+	b, _ := newTestBackend(t)
+	insertAttachedMessageWorkspace(t, b, "/proj/attached", "s1")
+
+	sess, files, err := b.PeekSessionInfo(context.Background(), "/proj/attached", "s1")
+	require.NoError(t, err)
+	require.Equal(t, "attached", sess.Title)
+	require.Empty(t, files)
+}
+
+// TestPeekSessionInfo_Detached verifies a session's metadata is read
+// READ-ONLY from a registry-known but not-attached workspace, without
+// attaching it.
+func TestPeekSessionInfo_Detached(t *testing.T) {
+	t.Cleanup(db.ResetPool)
+	ctx := context.Background()
+
+	dataDir := t.TempDir()
+	conn, err := db.Connect(ctx, dataDir)
+	require.NoError(t, err)
+	q := db.New(conn)
+	_, err = q.CreateSession(ctx, db.CreateSessionParams{ID: "s1", Title: "detached"})
+	require.NoError(t, err)
+	require.NoError(t, db.Release(dataDir))
+	db.ResetPool()
+
+	b := newTestBackendWithRegistry(t)
+	require.NoError(t, b.registry.Add(registry.Entry{Root: "/proj/detached", DataDir: dataDir}))
+
+	sess, _, err := b.PeekSessionInfo(ctx, "/proj/detached", "s1")
+	require.NoError(t, err)
+	require.Equal(t, "detached", sess.Title)
+
+	// Peeking must not have attached the workspace.
+	require.Empty(t, b.workspaces.Len())
+}
+
+// TestPeekSessionInfo_UnknownWorkspace verifies an unrecognized root
+// returns ErrPreviewWorkspaceNotFound.
+func TestPeekSessionInfo_UnknownWorkspace(t *testing.T) {
+	b := newTestBackendWithRegistry(t)
+	_, _, err := b.PeekSessionInfo(context.Background(), "/nowhere", "s1")
 	require.ErrorIs(t, err, ErrPreviewWorkspaceNotFound)
 }

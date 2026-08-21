@@ -77,6 +77,7 @@ type KeyMap struct {
 		ToggleSelect  key.Binding
 		ArchiveSelect key.Binding
 		MarkRead      key.Binding
+		Favorite      key.Binding
 		Inbox         key.Binding
 		Search        key.Binding
 	}
@@ -370,6 +371,14 @@ func DefaultKeyMap() KeyMap {
 	km.SessionSidebar.MarkRead = key.NewBinding(
 		key.WithKeys("r"),
 		key.WithHelp("r", "mark read"),
+	)
+	// Toggle favorite on the session under the cursor. Favorites are
+	// stickied to the top of the inbox view (just below sessions blocked
+	// on a permission prompt). Only handled while the sidebar is focused,
+	// so it never collides with editor keys. "f" is mnemonic for favorite.
+	km.SessionSidebar.Favorite = key.NewBinding(
+		key.WithKeys("f"),
+		key.WithHelp("f", "favorite"),
 	)
 	// Inbox toggle: ctrl+i is byte 0x09 == Tab in terminals without the
 	// Kitty keyboard protocol (which Crush does not enable), and Tab is

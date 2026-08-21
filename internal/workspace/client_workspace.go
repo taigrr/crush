@@ -231,6 +231,14 @@ func (w *ClientWorkspace) MarkSessionSeenInWorkspace(ctx context.Context, worksp
 	return w.client.MarkSessionSeen(ctx, workspaceID, root, sessionID)
 }
 
+// SetSessionFavoriteInWorkspace pins or unpins a session in an explicit
+// workspace, which may differ from the attached one (including a detached
+// workspace routed by root). When workspaceID is empty the server resolves
+// the workspace from root.
+func (w *ClientWorkspace) SetSessionFavoriteInWorkspace(ctx context.Context, workspaceID, root, sessionID string, favorite bool) error {
+	return w.client.SetSessionFavorite(ctx, workspaceID, root, sessionID, favorite)
+}
+
 func (w *ClientWorkspace) ListArchivedSessions(ctx context.Context) ([]session.Session, error) {
 	protoSessions, err := w.client.ListArchivedSessions(ctx, w.workspaceID())
 	if err != nil {
@@ -298,6 +306,19 @@ func (w *ClientWorkspace) PeekMessages(ctx context.Context, root, sessionID stri
 		return nil, err
 	}
 	return protoToMessages(msgs), nil
+}
+
+// PeekSessionInfo returns a session's metadata and history files from the
+// workspace rooted at root — attached or registry-detached, this client's
+// own workspace or a foreign one — without switching this client's
+// workspace. Backs the session sidebar's live preview of the right
+// info-sidebar.
+func (w *ClientWorkspace) PeekSessionInfo(ctx context.Context, root, sessionID string) (session.Session, []history.File, error) {
+	res, err := w.client.PeekSessionInfo(ctx, root, sessionID)
+	if err != nil {
+		return session.Session{}, nil, err
+	}
+	return protoToSession(res.Session), protoToFiles(res.Files), nil
 }
 
 // EmbedPendingCount reports how many past messages a backfill would embed.

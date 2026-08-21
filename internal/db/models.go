@@ -86,6 +86,7 @@ type Session struct {
 	LastSeenAt           sql.NullInt64  `json:"last_seen_at"`
 	Color                sql.NullString `json:"color"`
 	Animal               sql.NullString `json:"animal"`
+	Favorite             int64          `json:"favorite"`
 }
 
 type Snapshot struct {

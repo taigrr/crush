@@ -2,10 +2,12 @@ package model
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/util"
 )
 
@@ -34,10 +36,15 @@ type previewTickMsg struct{ gen int }
 
 // previewLoadedMsg carries a fetched preview session's messages. id is the
 // session the load was for, so a load that resolved after the cursor moved
-// on can be dropped.
+// on can be dropped. sess and files carry the session's metadata and
+// modified-file stats so the right info-sidebar reflects the previewed
+// session; both are nil when the sidebar-data fetch failed (best-effort),
+// in which case the sidebar keeps showing the committed session's stats.
 type previewLoadedMsg struct {
-	id   string
-	msgs []message.Message
+	id    string
+	msgs  []message.Message
+	sess  *session.Session
+	files []SessionFile
 }
 
 // schedulePreview debounces a live-preview load for the highlighted session.
@@ -157,8 +164,38 @@ func (m *UI) previewLoadCmd(id, root string) tea.Cmd {
 		if err != nil {
 			return previewLoadFailedMsg{id: id, err: err}
 		}
-		return previewLoadedMsg{id: id, msgs: msgs}
+		sess, files := m.loadPreviewSidebarData(id, root)
+		return previewLoadedMsg{id: id, msgs: msgs, sess: sess, files: files}
 	}
+}
+
+// loadPreviewSidebarData fetches the previewed session's metadata and
+// modified-file stats so the right info-sidebar can reflect the highlighted
+// session. It is best-effort: a failure returns (nil, nil) and is logged,
+// leaving the sidebar on the committed session's stats rather than failing
+// the whole preview (the chat messages already loaded). root == "" reads
+// the current workspace directly; a non-empty root peeks any other known
+// workspace without switching this client's workspace.
+func (m *UI) loadPreviewSidebarData(id, root string) (*session.Session, []SessionFile) {
+	if root == "" {
+		sess, err := m.com.Workspace.GetSession(context.Background(), id)
+		if err != nil {
+			slog.Debug("Preview: failed to load session metadata", "session_id", id, "error", err)
+			return nil, nil
+		}
+		files, err := m.loadSessionFiles(id)
+		if err != nil {
+			slog.Debug("Preview: failed to load session files", "session_id", id, "error", err)
+			return &sess, nil
+		}
+		return &sess, files
+	}
+	sess, hist, err := m.com.Workspace.PeekSessionInfo(context.Background(), root, id)
+	if err != nil {
+		slog.Debug("Preview: failed to peek session info", "session_id", id, "root", root, "error", err)
+		return nil, nil
+	}
+	return &sess, computeSessionFiles(hist)
 }
 
 // previewLoadFailedMsg reports a failed preview fetch.
@@ -186,6 +223,11 @@ func (m *UI) handlePreviewLoaded(msg previewLoadedMsg) tea.Cmd {
 	m.previewSessionID = msg.id
 	m.pendingPreviewID = "" // load complete; no longer in-flight
 	m.pendingPreviewRoot = ""
+	// Swap the sidebar over to the previewed session's stats. Both are
+	// nil when the best-effort sidebar-data fetch failed; the sidebar
+	// then falls back to the committed session (see sidebarSession).
+	m.previewSess = msg.sess
+	m.previewFiles = msg.files
 	// Render the preview messages read-only into the chat view. This reuses
 	// the normal renderer but does NOT change m.session, so the committed
 	// session stays the routing target for live events.
@@ -216,6 +258,8 @@ func (m *UI) cancelPreview() tea.Cmd {
 		return nil
 	}
 	m.previewSessionID = ""
+	m.previewSess = nil
+	m.previewFiles = nil
 	m.previewGen++ // invalidate any in-flight tick/load for the preview
 	if m.session == nil {
 		m.chat.ClearMessages()
@@ -271,3 +315,26 @@ func (m *UI) handlePreviewRestore(msg previewRestoreMsg) tea.Cmd {
 // driven solely by previewSessionID (set on load, cleared on cancel/commit),
 // so it can never be wedged true by a dropped/failed async restore.
 func (m *UI) previewing() bool { return m.previewSessionID != "" }
+
+// sidebarSession returns the session whose stats the right info-sidebar
+// should render: the previewed session while a preview is shown and its
+// metadata loaded, otherwise the committed session. Gating on
+// previewSess != nil keeps the sidebar on the committed session when the
+// best-effort sidebar-data fetch failed rather than blanking it.
+func (m *UI) sidebarSession() *session.Session {
+	if m.previewing() && m.previewSess != nil {
+		return m.previewSess
+	}
+	return m.session
+}
+
+// sidebarFiles returns the modified-file stats the right info-sidebar
+// should render, mirroring sidebarSession: the previewed session's files
+// while previewing (and its data loaded), otherwise the committed
+// session's files.
+func (m *UI) sidebarFiles() []SessionFile {
+	if m.previewing() && m.previewSess != nil {
+		return m.previewFiles
+	}
+	return m.sessionFiles
+}

@@ -92,6 +92,10 @@ func (m *mockSessionService) SetSwarmIdentity(context.Context, string, string, s
 	return nil
 }
 
+func (m *mockSessionService) SetFavorite(context.Context, string, bool) error {
+	return nil
+}
+
 func (m *mockSessionService) FindByColorAnimal(context.Context, string, string) ([]session.Session, error) {
 	return nil, nil
 }

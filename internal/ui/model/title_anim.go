@@ -127,6 +127,12 @@ func (m *UI) handleTitleAnimTick(msg titleAnimTickMsg) tea.Cmd {
 // renderSessionTitle renders the session title within the given base style and
 // width, drawing the blinking/streaming animation when one is active.
 func (m *UI) renderSessionTitle(base lipgloss.Style, width int) string {
+	// While previewing another session, show that session's static title;
+	// the title animation belongs to the committed session's own
+	// streaming and must not bleed into the preview.
+	if m.previewing() && m.previewSess != nil {
+		return base.Width(width).MaxHeight(2).Render(m.previewSess.Title)
+	}
 	if !m.titleAnim.active {
 		return base.Width(width).MaxHeight(2).Render(m.session.Title)
 	}

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
@@ -558,6 +559,28 @@ func (c *Client) PeekMessages(ctx context.Context, root, sessionID string) ([]pr
 		return nil, fmt.Errorf("failed to decode messages: %w", err)
 	}
 	return msgs, nil
+}
+
+// PeekSessionInfo returns a session's metadata and history files from the
+// workspace rooted at root (attached or registry-detached), without
+// switching the caller's own workspace. It is the sidebar-data companion
+// to PeekMessages, backing the session sidebar's live preview of the right
+// info-sidebar for a session outside the currently-attached workspace.
+func (c *Client) PeekSessionInfo(ctx context.Context, root, sessionID string) (proto.PeekSessionInfoResult, error) {
+	rsp, err := c.post(ctx, "/peek-session-info", nil, jsonBody(proto.PeekMessagesParams{Root: root, SessionID: sessionID}),
+		http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return proto.PeekSessionInfoResult{}, fmt.Errorf("failed to peek session info: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return proto.PeekSessionInfoResult{}, fmt.Errorf("failed to peek session info: status code %d", rsp.StatusCode)
+	}
+	var res proto.PeekSessionInfoResult
+	if err := json.NewDecoder(rsp.Body).Decode(&res); err != nil && !errors.Is(err, io.EOF) {
+		return proto.PeekSessionInfoResult{}, fmt.Errorf("failed to decode session info: %w", err)
+	}
+	return res, nil
 }
 
 // GetAgentSessionGoal retrieves the active autonomous goal for a session.
@@ -1125,6 +1148,25 @@ func (c *Client) MarkSessionSeen(ctx context.Context, id, root, sessionID string
 	defer rsp.Body.Close()
 	if rsp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to mark session seen: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
+// SetSessionFavorite pins or unpins a session in a workspace. When id is
+// empty the request is routed to the detached workspace at root.
+func (c *Client) SetSessionFavorite(ctx context.Context, id, root, sessionID string, favorite bool) error {
+	q := rootQuery(root)
+	if q == nil {
+		q = url.Values{}
+	}
+	q.Set("favorite", strconv.FormatBool(favorite))
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/favorite", workspacePathID(id), sessionID), q, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to set session favorite: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to set session favorite: status code %d", rsp.StatusCode)
 	}
 	return nil
 }

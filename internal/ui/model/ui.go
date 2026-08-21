@@ -326,6 +326,16 @@ type UI struct {
 	pendingPreviewRoot string
 	previewGen         int
 
+	// previewSess and previewFiles hold the highlighted session's
+	// metadata and modified-file stats fetched alongside its preview
+	// messages, so the right info-sidebar reflects the previewed session
+	// (title, swarm identity, working dir, cost/tokens, modified files)
+	// rather than the committed one. They are only consulted while
+	// previewing() is true and previewSess is non-nil; both are cleared
+	// when a preview is cancelled or committed.
+	previewSess  *session.Session
+	previewFiles []SessionFile
+
 	// Leading-edge burst tracking (see session_preview.go). The first two
 	// preview loads inside a rolling burst window fire immediately; the
 	// third and later within the window fall back to the trailing debounce.
@@ -799,6 +809,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.previewSessionID = ""
 		m.pendingPreviewID = ""
 		m.pendingPreviewRoot = ""
+		m.previewSess = nil
+		m.previewFiles = nil
 		m.previewGen++
 		m.setState(uiChat, m.focus)
 		m.session = msg.session
@@ -842,6 +854,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.forceCompactMode {
 			m.isCompact = true
 		}
+		// A real commit supersedes any live preview.
+		m.previewSessionID = ""
+		m.pendingPreviewID = ""
+		m.pendingPreviewRoot = ""
+		m.previewSess = nil
+		m.previewFiles = nil
+		m.previewGen++
 		m.setState(uiChat, m.focus)
 		m.session = msg.session
 		m.sessionFiles = msg.files
@@ -1175,6 +1194,25 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, util.ReportInfo(fmt.Sprintf(
 				"Marked %d read", msg.succeeded,
 			)))
+		}
+	case favoriteToggledMsg:
+		if msg.err != nil {
+			cmds = append(cmds, util.ReportError(fmt.Errorf("Failed to update favorite: %w", msg.err)))
+			break
+		}
+		// Refresh the sidebar so the session moves in/out of the Favorite
+		// section. SetOverviews keeps the cursor on the same session.
+		if msg.overviews != nil {
+			m.leftSidebar.SetOverviews(msg.overviews)
+			m.leftSidebar.SetCurrentRoot(m.com.Workspace.BaseDir())
+			if m.session != nil {
+				m.leftSidebar.SetActiveSession(m.session.ID)
+			}
+		}
+		if msg.favorite {
+			cmds = append(cmds, util.ReportInfo("Favorited session"))
+		} else {
+			cmds = append(cmds, util.ReportInfo("Unfavorited session"))
 		}
 	case activeSessionArchivedMsg:
 		if msg.err != nil {
@@ -4692,6 +4730,8 @@ func (m *UI) newSession() tea.Cmd {
 	m.previewSessionID = ""
 	m.pendingPreviewID = ""
 	m.pendingPreviewRoot = ""
+	m.previewSess = nil
+	m.previewFiles = nil
 	m.previewGen++
 	m.leftSidebar.SetActiveSession("")
 	// Clear active session for worktree-aware working directory.
@@ -4762,7 +4802,7 @@ func (m *UI) drawSessionDetails(scr uv.Screen, area uv.Rectangle) {
 	lspSection := m.lspInfo(sectionWidth, maxItemsPerSection, false)
 	mcpSection := m.mcpInfo(sectionWidth, maxItemsPerSection, false)
 	skillsSection := m.skillsInfo(sectionWidth, maxItemsPerSection, false)
-	filesSection := m.filesInfo(m.com.Workspace.WorkingDir(), sectionWidth, maxItemsPerSection, false)
+	filesSection := m.filesInfo(m.sidebarFiles(), m.com.Workspace.WorkingDir(), sectionWidth, maxItemsPerSection, false)
 	sections := lipgloss.JoinHorizontal(lipgloss.Top, filesSection, " ", lspSection, " ", mcpSection, " ", skillsSection)
 	uv.NewStyledString(
 		s.CompactDetails.View.

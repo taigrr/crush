@@ -127,6 +127,8 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		return m.archiveSelectedSessions(), true
 	case key.Matches(msg, m.keyMap.SessionSidebar.MarkRead):
 		return m.markSelectedSessionsRead(), true
+	case key.Matches(msg, m.keyMap.SessionSidebar.Favorite):
+		return m.toggleFavoriteUnderCursor(), true
 	case key.Matches(msg, m.keyMap.SessionSidebar.Inbox):
 		// Toggle inbox/sessions view. The cursor stays on the same session
 		// where possible, so re-run the preview scheduler for the (possibly
@@ -392,6 +394,39 @@ func (m *UI) markSessionsReadCmd(targets []SessionTarget) tea.Cmd {
 			failed:    failed,
 			succeeded: succeeded,
 		}
+	}
+}
+
+// favoriteToggledMsg reports the outcome of toggling a session's favorite
+// flag: the refreshed overviews (nil if the refresh failed) so the sidebar
+// reprojects (moving the session in/out of the Favorite section), the now
+// favorite state, and any error.
+type favoriteToggledMsg struct {
+	overviews []proto.WorkspaceOverview
+	favorite  bool
+	err       error
+}
+
+// toggleFavoriteUnderCursor flips the favorite flag of the session under
+// the sidebar cursor, routing the write to the session's OWN workspace
+// (attached or detached), then refreshes the overviews so the inbox
+// reprojects. It is non-destructive and works in both grouped and inbox
+// views.
+func (m *UI) toggleFavoriteUnderCursor() tea.Cmd {
+	target, favorite, ok := m.leftSidebar.FavoriteTargetUnderCursor()
+	if !ok {
+		return nil
+	}
+	next := !favorite
+	return func() tea.Msg {
+		if err := m.com.Workspace.SetSessionFavoriteInWorkspace(context.Background(), target.WorkspaceID, target.Root, target.ID, next); err != nil {
+			return favoriteToggledMsg{favorite: next, err: err}
+		}
+		overviews, err := m.com.Workspace.ListWorkspaceOverviews(context.Background())
+		if err != nil {
+			return favoriteToggledMsg{favorite: next}
+		}
+		return favoriteToggledMsg{overviews: overviews, favorite: next}
 	}
 }
 
