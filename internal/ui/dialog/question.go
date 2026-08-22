@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/ui/common"
@@ -220,13 +221,13 @@ func (q *Question) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		body = q.renderOptions()
 	}
 
-	lines := []string{
+	header := []string{
 		t.Dialog.TitleText.Render(q.title()),
 		"",
 		t.Dialog.PrimaryText.Render(q.req.Prompt),
 		"",
-		body,
 	}
+	lines := append(append([]string{}, header...), body)
 	if q.hint != "" {
 		lines = append(lines, "", t.Dialog.SecondaryText.Render(q.hint))
 	}
@@ -237,6 +238,25 @@ func (q *Question) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 	if q.req.Kind == question.KindFreeText {
 		cur := q.input.Cursor()
+		if cur != nil {
+			inputStyle := t.Dialog.InputPrompt
+			// Offset the input-relative cursor by the dialog frame, the
+			// rendered header lines above the input (title, prompt, and
+			// blank separators), and the input prompt's own frame.
+			cur.X += dialogStyle.GetBorderLeftSize() +
+				dialogStyle.GetPaddingLeft() +
+				dialogStyle.GetMarginLeft() +
+				inputStyle.GetBorderLeftSize() +
+				inputStyle.GetPaddingLeft() +
+				inputStyle.GetMarginLeft()
+			cur.Y += dialogStyle.GetBorderTopSize() +
+				dialogStyle.GetPaddingTop() +
+				dialogStyle.GetMarginTop() +
+				lipgloss.Height(strings.Join(header, "\n")) +
+				inputStyle.GetBorderTopSize() +
+				inputStyle.GetPaddingTop() +
+				inputStyle.GetMarginTop()
+		}
 		DrawCenterCursor(scr, area, view, cur)
 		return cur
 	}
