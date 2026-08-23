@@ -22,9 +22,7 @@ func TestQuestionService_AskAnswer(t *testing.T) {
 		err    error
 		wg     sync.WaitGroup
 	)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		answer, err = svc.Ask(t.Context(), CreateQuestionRequest{
 			SessionID:  "s-1",
 			ToolCallID: "call-1",
@@ -32,7 +30,7 @@ func TestQuestionService_AskAnswer(t *testing.T) {
 			Prompt:     "Which one?",
 			Options:    []string{"a", "b"},
 		})
-	}()
+	})
 
 	var req Request
 	select {
@@ -114,16 +112,14 @@ func TestQuestionService_CancelPublishesCancellation(t *testing.T) {
 		err    error
 		wg     sync.WaitGroup
 	)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		answer, err = svc.Ask(ctx, CreateQuestionRequest{
 			SessionID:  "s-cancel",
 			ToolCallID: "call-cancel",
 			Kind:       KindFreeText,
 			Prompt:     "What should I do?",
 		})
-	}()
+	})
 
 	<-requests
 	cancel()

@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -316,12 +317,7 @@ func TestConnectionState_SwitchResetsBackoff(t *testing.T) {
 		if grownAt < 0 {
 			return false
 		}
-		for _, d := range observed[grownAt+1:] {
-			if d == base {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(observed[grownAt+1:], base)
 	}, 5*time.Second, 5*time.Millisecond, "backoff was not reset to base after a switch")
 
 	w.StopSubscribeLoopForTest()
@@ -401,12 +397,7 @@ func TestConnectionState_SwitchDuringConnectResetsBackoff(t *testing.T) {
 	require.Eventually(t, func() bool {
 		obsMu.Lock()
 		defer obsMu.Unlock()
-		for _, d := range observed[switchIdx:] {
-			if d == base {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(observed[switchIdx:], base)
 	}, 5*time.Second, 5*time.Millisecond, "backoff was not reset to base after an in-connect switch")
 
 	w.StopSubscribeLoopForTest()

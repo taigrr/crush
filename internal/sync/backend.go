@@ -67,7 +67,7 @@ type LookupResponse struct {
 type ProvisionRequest struct {
 	Fingerprint string `json:"fingerprint"`
 	DBID        string `json:"db_id"`
-	Hint        Hint   `json:"hint,omitempty"`
+	Hint        Hint   `json:"hint"`
 }
 
 // Hint carries non-authoritative project metadata for the dashboard.

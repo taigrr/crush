@@ -241,11 +241,9 @@ func TestChatDrawCache_FallbackOnNonAnsiMethod(t *testing.T) {
 
 	w, h := 40, 10
 	scr := fixedMethodScreen{
-		ScreenBuffer: uv.ScreenBuffer{
-			RenderBuffer: uv.NewRenderBuffer(w, h),
-			Method:       ansi.GraphemeWidth,
-		},
-		method: customWidth{},
+		RenderBuffer: uv.NewRenderBuffer(w, h),
+		Method:       ansi.GraphemeWidth,
+		method:       customWidth{},
 	}
 	// Sanity: the wrapper actually returns a non-ansi.Method type so
 	// the fallback path is exercised end-to-end.

@@ -816,7 +816,7 @@ func TestSidebar_ClickIgnoresFixedMatter(t *testing.T) {
 	s := newTestSidebar(t)
 	s.SetOverviews(sampleOverviews())
 	s.Render(30, 40, true)
-	for y := 0; y < 5; y++ { // title + 3 summary + blank
+	for y := range 5 { // title + 3 summary + blank
 		act, moved := s.ClickToActivate(y, 40)
 		require.False(t, act, "fixed matter click must not activate (y=%d)", y)
 		require.False(t, moved, "fixed matter click must not move cursor (y=%d)", y)
@@ -1244,7 +1244,7 @@ func TestSidebar_InboxLongWorkspaceTagNoOverflow(t *testing.T) {
 
 	const width = 30
 	out := s.Render(width, 40, true)
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		require.LessOrEqual(t, ansi.StringWidth(line), width,
 			"inbox row must not exceed sidebar width: %q", line)
 	}

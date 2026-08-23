@@ -142,12 +142,10 @@ func (m *UI) loadSessionAndSwitchWorktree(sessionID, worktreeID string) tea.Cmd 
 		}
 
 		return loadSessionAndSwitchWorktreeMsg{
-			loadSessionMsg: loadSessionMsg{
-				session:   &session,
-				files:     sessionFiles,
-				readFiles: readFiles,
-				yolo:      m.com.Workspace.PermissionSkipRequests(),
-			},
+			session:    &session,
+			files:      sessionFiles,
+			readFiles:  readFiles,
+			yolo:       m.com.Workspace.PermissionSkipRequests(),
 			worktreeID: worktreeID,
 		}
 	}

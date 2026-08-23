@@ -7,7 +7,8 @@ import (
 	"github.com/taigrr/catwalk/pkg/catwalk"
 )
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline
+func ptr[T any](v T) *T { return new(v) }
 
 func TestApplyModelOverrides(t *testing.T) {
 	t.Parallel()
@@ -44,7 +45,7 @@ func TestApplyModelOverrides(t *testing.T) {
 
 	t.Run("pointer fields preserved when override nil", func(t *testing.T) {
 		t.Parallel()
-		target := SelectedModel{Temperature: ptr(0.7), TopP: ptr(0.9)}
+		target := SelectedModel{Temperature: new(0.7), TopP: new(0.9)}
 		applyModelOverrides(&target, SelectedModel{}, model)
 		require.NotNil(t, target.Temperature)
 		require.Equal(t, 0.7, *target.Temperature)
@@ -56,11 +57,11 @@ func TestApplyModelOverrides(t *testing.T) {
 		target := SelectedModel{}
 		applyModelOverrides(&target, SelectedModel{
 			ReasoningEffort:  "high",
-			Temperature:      ptr(0.2),
-			TopP:             ptr(0.1),
-			TopK:             ptr(int64(40)),
-			FrequencyPenalty: ptr(0.5),
-			PresencePenalty:  ptr(0.6),
+			Temperature:      new(0.2),
+			TopP:             new(0.1),
+			TopK:             new(int64(40)),
+			FrequencyPenalty: new(0.5),
+			PresencePenalty:  new(0.6),
 			ProviderOptions:  map[string]any{"foo": "bar"},
 		}, model)
 		require.Equal(t, "high", target.ReasoningEffort)

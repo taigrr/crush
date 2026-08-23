@@ -1,6 +1,6 @@
 module github.com/taigrr/crush
 
-go 1.26.5
+go 1.27.0
 
 require (
 	charm.land/bubbles/v2 v2.2.0

@@ -633,9 +633,7 @@ func TestPermissionService_CancelPublishesDenial(t *testing.T) {
 	var granted bool
 	var err error
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		granted, err = service.Request(ctx, CreatePermissionRequest{
 			SessionID:  "s-cancel",
 			ToolCallID: "call-cancel",
@@ -643,7 +641,7 @@ func TestPermissionService_CancelPublishesDenial(t *testing.T) {
 			Action:     "read",
 			Path:       "/tmp",
 		})
-	}()
+	})
 
 	// Wait for the request to be published (the initial pending
 	// notification is published first, then the request itself).

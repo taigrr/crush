@@ -171,7 +171,6 @@ func TestToolErrorContract(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			resp, err := tc.tool.Run(tc.ctx(), tc.call)
@@ -347,7 +346,6 @@ func TestFileMutationHistoryFailureIsRecoverable(t *testing.T) {
 	}
 
 	for _, s := range steps {
-		s := s
 		t.Run(s.name, func(t *testing.T) {
 			t.Parallel()
 			workingDir := t.TempDir()

@@ -66,9 +66,7 @@ func (b *Backend) startAttentionForwarder(ws *Workspace) {
 	qReqs := ws.Questions.Subscribe(attnCtx)
 	qNotifs := ws.Questions.SubscribeNotifications(attnCtx)
 
-	ws.attnWG.Add(1)
-	go func() {
-		defer ws.attnWG.Done()
+	ws.attnWG.Go(func() {
 		for {
 			select {
 			case ev, ok := <-permReqs:
@@ -107,5 +105,5 @@ func (b *Backend) startAttentionForwarder(ws *Workspace) {
 				return
 			}
 		}
-	}()
+	})
 }

@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -713,7 +714,7 @@ func (s *SessionsSidebar) MoveBottom() {
 	if len(s.rows) == 0 {
 		return
 	}
-	for i := len(s.rows) - 1; i >= 0; i-- {
+	for i := range slices.Backward(s.rows) {
 		if s.selectableRow(i) {
 			s.cursor = i
 			s.ensureVisible()
