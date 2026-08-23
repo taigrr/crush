@@ -181,7 +181,7 @@ func (e Encoding) Transmit(id string, img image.Image, cs CellSize, cols, rows i
 			Columns:          fitCols,
 			Rows:             fitRows,
 			VirtualPlacement: true,
-			Quite:            1,
+			Quiet:            1,
 			Chunk:            true,
 			ChunkFormatter: func(chunk string) string {
 				if tmux {
