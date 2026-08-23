@@ -60,8 +60,8 @@ type SessionAgentCall struct {
 	// reliable completion contract (e.g. `crush run` against a
 	// session that may be busy) MUST set it; SessionID alone is
 	// ambiguous when concurrent turns share the same session.
-	RunID            string
-	Prompt           string
+	RunID  string
+	Prompt string
 	// SwarmParts, when non-empty, replaces the default single
 	// TextContent user-message part with these SwarmMessage parts
 	// (see message.SwarmMessage). Used by Backend.SwarmSend so the

@@ -349,7 +349,6 @@ func (a *sessionAgent) cancelAndClearQueue(sessionID string) {
 	a.publishCanceledQueueDrops(queued)
 }
 
-
 func (a *sessionAgent) CancelAll() {
 	if !a.IsBusy() {
 		return

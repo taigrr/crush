@@ -40,16 +40,17 @@ type LoginSession struct {
 // login and needs no pre-existing grok CLI credentials.
 func StartLogin(ctx context.Context) (*LoginSession, error) {
 	authEndpoint, tokenEndpoint := discoverEndpoints(ctx, defaultIssuer)
-	return newLoginSession(authEndpoint, tokenEndpoint)
+	return newLoginSession(ctx, authEndpoint, tokenEndpoint)
 }
 
 // newLoginSession builds a login session against explicit endpoints. It
 // is split from [StartLogin] so tests can supply local endpoints without
 // running OIDC discovery over the network.
-func newLoginSession(authEndpoint, tokenEndpoint string) (*LoginSession, error) {
+func newLoginSession(ctx context.Context, authEndpoint, tokenEndpoint string) (*LoginSession, error) {
 	// Loopback redirect on an OS-assigned port, matching the Grok CLI's
 	// http://127.0.0.1:<port>/callback contract.
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	var lc net.ListenConfig
+	listener, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("grok: could not start callback server: %w", err)
 	}

@@ -29,7 +29,7 @@ import (
 // continue with the rest — it never panics and never migrates.
 func (b *Backend) withWorkspaceSession(workspaceID, root string, fn func(ws *Workspace, s session.Service) error) error {
 	if ws, err := b.GetWorkspace(workspaceID); err == nil && ws.App != nil {
-		return fn(ws, ws.App.Sessions)
+		return fn(ws, ws.Sessions)
 	}
 
 	// The caller may route by root with an empty (or placeholder) id even
@@ -69,7 +69,7 @@ func (b *Backend) withWorkspaceSession(workspaceID, root string, fn func(ws *Wor
 	if root != "" {
 		if ws, exists := b.attachedByRoot(root); exists {
 			if ws.App != nil {
-				return fn(ws, ws.App.Sessions)
+				return fn(ws, ws.Sessions)
 			}
 			// Present but unusable (tearing down): fail closed rather than
 			// racing a second writable open against its still-open DB.
@@ -180,7 +180,7 @@ func (b *Backend) ImportSessions(ctx context.Context, workspaceID string, paths 
 	if err != nil {
 		return nil, err
 	}
-	if ws.App == nil || ws.App.SessionImporter == nil {
+	if ws.App == nil || ws.SessionImporter == nil {
 		return nil, ErrWorkspaceNotFound
 	}
 	results := make([]sessionimport.Result, 0, len(paths))
@@ -193,7 +193,7 @@ func (b *Backend) ImportSessions(ctx context.Context, workspaceID string, paths 
 		if parseErr != nil {
 			return nil, parseErr
 		}
-		result, importErr := ws.App.SessionImporter(ctx, imported)
+		result, importErr := ws.SessionImporter(ctx, imported)
 		if importErr != nil {
 			return nil, importErr
 		}

@@ -236,7 +236,7 @@ func (b *Backend) wireSwarmBackend(ctx context.Context, ws *Workspace) error {
 	if !ok {
 		return nil
 	}
-	return setter.SetSwarmBackend(ctx, &swarmShim{b: b}, ws.ID, ws.App.SwarmConfig)
+	return setter.SetSwarmBackend(ctx, &swarmShim{b: b}, ws.ID, ws.SwarmConfig)
 }
 
 // wireSwarmBackendIfMissing self-heals a workspace whose swarm
@@ -255,7 +255,7 @@ func (b *Backend) wireSwarmBackendIfMissing(ctx context.Context, ws *Workspace) 
 	if !ok {
 		return nil
 	}
-	return setter.WireSwarmBackendIfMissing(ctx, &swarmShim{b: b}, ws.ID, ws.App.SwarmConfig)
+	return setter.WireSwarmBackendIfMissing(ctx, &swarmShim{b: b}, ws.ID, ws.SwarmConfig)
 }
 
 // UpdateAgent reloads the agent model configuration.

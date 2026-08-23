@@ -35,7 +35,7 @@ func TestGeneratePKCE(t *testing.T) {
 func TestStartLoginBuildsAuthURL(t *testing.T) {
 	t.Parallel()
 
-	session, err := newLoginSession(defaultAuthURL, defaultTokenURL)
+	session, err := newLoginSession(context.Background(), defaultAuthURL, defaultTokenURL)
 	require.NoError(t, err)
 	defer session.Close()
 
@@ -91,7 +91,7 @@ func TestLoginSessionExchangeCode(t *testing.T) {
 func TestLoginSessionWaitRejectsStateMismatch(t *testing.T) {
 	t.Parallel()
 
-	session, err := newLoginSession(defaultAuthURL, defaultTokenURL)
+	session, err := newLoginSession(context.Background(), defaultAuthURL, defaultTokenURL)
 	require.NoError(t, err)
 
 	u, err := url.Parse(session.AuthURL)

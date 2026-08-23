@@ -1,8 +1,9 @@
 package dialog
 
 import (
-	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"testing"
+
+	"github.com/taigrr/crush/internal/ui/styles/themes"
 
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/catwalk/pkg/catwalk"

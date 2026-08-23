@@ -111,7 +111,7 @@ func browserRedirect(code string) func(string) error {
 		cbq.Set("state", q.Get("state"))
 		cb.RawQuery = cbq.Encode()
 		go func() {
-			resp, err := http.Get(cb.String()) //nolint:noctx
+			resp, err := http.Get(cb.String())
 			if err == nil {
 				resp.Body.Close()
 			}
@@ -371,7 +371,7 @@ func TestHandler_AuthorizeError(t *testing.T) {
 		q.Set("error_description", "user said no")
 		cb.RawQuery = q.Encode()
 		go func() {
-			resp, gerr := http.Get(cb.String()) //nolint:noctx
+			resp, gerr := http.Get(cb.String())
 			if gerr == nil {
 				resp.Body.Close()
 			}

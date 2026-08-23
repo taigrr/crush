@@ -214,7 +214,7 @@ func (b *Backend) reattachForAddress(ctx context.Context, addr swarm.Address) (S
 	// workspace is actually attached: the peek above is a snapshot
 	// that could have raced a concurrent change (archive, delete) to
 	// the on-disk data between the peek and this reattach.
-	found, err := matchAddressInApp(ctx, ws.App.Sessions, ws.ID, addr)
+	found, err := matchAddressInApp(ctx, ws.Sessions, ws.ID, addr)
 	if err != nil || len(found) == 0 {
 		return SwarmLookupResult{}, ErrSwarmAddressNotFound
 	}
@@ -322,7 +322,7 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 
 	// Confirm the target session still exists in that workspace,
 	// and cache its title for the outgoing notification below.
-	targetSess, err := getLiveSession(ctx, ws.App.Sessions, target.SessionID)
+	targetSess, err := getLiveSession(ctx, ws.Sessions, target.SessionID)
 	if err != nil {
 		return SwarmSendResult{}, err
 	}
@@ -414,7 +414,7 @@ func lookupSenderIdentity(ctx context.Context, b *Backend, senderSessionID strin
 		if ws.App == nil {
 			continue
 		}
-		s, err := ws.App.Sessions.Get(ctx, senderSessionID)
+		s, err := ws.Sessions.Get(ctx, senderSessionID)
 		if err != nil {
 			continue
 		}
@@ -441,15 +441,15 @@ func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title str
 	if !workspaceSwarmEnabled(ws) {
 		return session.Session{}, ErrSwarmDisabled
 	}
-	sess, err := ws.App.Sessions.Create(ctx, title)
+	sess, err := ws.Sessions.Create(ctx, title)
 	if err != nil {
 		return session.Session{}, err
 	}
 	// EnsureSwarmIdentity is idempotent and covers the case where the
 	// pubsub subscriber hasn't consumed the create event yet.
-	filled, err := ws.App.EnsureSwarmIdentity(ctx, sess)
+	filled, err := ws.EnsureSwarmIdentity(ctx, sess)
 	if err != nil {
-		if archiveErr := ws.App.Sessions.Archive(context.Background(), sess.ID); archiveErr != nil {
+		if archiveErr := ws.Sessions.Archive(context.Background(), sess.ID); archiveErr != nil {
 			slog.Warn("Failed to archive orphaned swarm session after identity failure",
 				"session_id", sess.ID, "error", archiveErr)
 		}
@@ -521,7 +521,7 @@ func (b *Backend) ArchiveWorkspaceSession(ctx context.Context, workspaceID, sess
 	if !ok {
 		return ErrSwarmWorkspaceNotFound
 	}
-	return ws.App.Sessions.Archive(ctx, sessionID)
+	return ws.Sessions.Archive(ctx, sessionID)
 }
 
 // matchAddressInApp returns the non-archived sessions in a single

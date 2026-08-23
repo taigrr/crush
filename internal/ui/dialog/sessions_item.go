@@ -144,7 +144,7 @@ func (s *SessionItem) Render(width int) string {
 	// bare s.Title — stay correctly anchored. When the row is
 	// multi-selected, a ✓ replaces the square for a clear, consistent
 	// selection treatment (matching the sidebar).
-	prefix := sessionTitlePrefix(s.Session.Color)
+	prefix := sessionTitlePrefix(s.Color)
 	if s.marked {
 		prefix = s.t.Tool.IconSuccess.String() + " "
 	}

@@ -30,6 +30,7 @@ func (c *recordingCoordinator) BeginAccepted(string) *agent.AcceptedRun { return
 func (c *recordingCoordinator) Cancel(sessionID string) {
 	c.cancelCalls = append(c.cancelCalls, sessionID)
 }
+
 func (c *recordingCoordinator) CancelAll()                                    { c.cancelAllHits.Add(1) }
 func (c *recordingCoordinator) IsBusy() bool                                  { return false }
 func (c *recordingCoordinator) IsSessionBusy(string) bool                     { return false }

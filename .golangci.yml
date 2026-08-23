@@ -37,6 +37,29 @@ linters:
       - text: '(slog|log)\.\w+'
         linters:
           - noctx
+      # Test helpers routinely build requests/listeners without a caller
+      # context; requiring one adds noise without value.
+      - path: _test\.go
+        linters:
+          - noctx
+      # SA4023 false-positives on cmp.Or with error interface values: the
+      # result can be nil, but staticcheck treats it as never-nil. Scoped
+      # to the login/logout commands where the cmp.Or(...) pattern lives.
+      - path: 'internal/cmd/log(in|out)\.go'
+        text: 'SA4023'
+        linters:
+          - staticcheck
+      # User-facing UI toast strings are intentionally capitalized.
+      - path: 'internal/(ui|cmd)/'
+        text: 'ST1005'
+        linters:
+          - staticcheck
+      # MCP logging API is deprecated but functional during a 12-month
+      # window; migration is tracked separately.
+      - path: 'internal/agent/tools/mcp/'
+        text: 'SA1019'
+        linters:
+          - staticcheck
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

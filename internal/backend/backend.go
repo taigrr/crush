@@ -428,7 +428,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 			"client", args.Version,
 			"server", version.Version,
 		)
-		ws.App.SendEvent(util.NewWarnMsg(fmt.Sprintf(
+		ws.SendEvent(util.NewWarnMsg(fmt.Sprintf(
 			"Server version %q differs from client version %q. Consider restarting the server.",
 			version.Version, args.Version,
 		)))
