@@ -2,12 +2,34 @@ package backend
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/home"
 )
+
+// TestResolveWorkspaceKey_ExpandsTilde verifies that a leading `~` in
+// the swarm path is expanded to the home directory rather than being
+// treated as a literal directory name under the current working
+// directory (which previously produced a stray `.../~/...` tree).
+func TestResolveWorkspaceKey_ExpandsTilde(t *testing.T) {
+	t.Parallel()
+	if home.Dir() == "" {
+		t.Skip("home directory unavailable")
+	}
+
+	got, err := resolveWorkspaceKey(filepath.FromSlash("~/code/foss/vswarm"))
+	require.NoError(t, err)
+
+	want, err := resolveWorkspaceKey(filepath.Join(home.Dir(), "code", "foss", "vswarm"))
+	require.NoError(t, err)
+
+	require.Equal(t, want, got)
+	require.NotContains(t, got, string(filepath.Separator)+"~"+string(filepath.Separator))
+}
 
 // TestResolveWorkspaceByPath_Found verifies that a path indexed under
 // its canonical project root resolves to the registered workspace id.

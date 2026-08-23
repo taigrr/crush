@@ -22,6 +22,7 @@ import (
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/editor"
 	editornvim "github.com/taigrr/crush/internal/editor/nvim"
+	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/registry"
@@ -349,7 +350,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	// commands, and file edits run in the directory the user actually
 	// launched Crush from — even when that directory is a linked worktree
 	// that collapses to a different project root for .crush/ purposes.
-	effectiveCwd, err := filepath.Abs(args.Path)
+	effectiveCwd, err := filepath.Abs(home.Expand(args.Path))
 	if err != nil {
 		effectiveCwd = args.Path
 	}
@@ -1070,6 +1071,12 @@ func (b *Backend) ShutdownWorkspaces() {
 // effectiveCwd and threaded into the coordinator so tools and shell
 // commands run in the directory the user actually launched from.
 func resolveWorkspaceKey(path string) (string, error) {
+	path = home.Expand(path)
+	if strings.HasPrefix(path, "~") {
+		// Expansion failed (unknown home directory); refuse rather
+		// than silently creating a literal `~` directory tree.
+		return "", fmt.Errorf("%w: cannot expand home directory in %q", ErrPathRequired, path)
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err

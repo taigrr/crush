@@ -45,3 +45,22 @@ func Long(p string) string {
 	}
 	return strings.Replace(p, "~", homedir, 1)
 }
+
+// Expand expands a leading `~` or `~/` in p to the user's home
+// directory. Unlike [Long], it only rewrites a leading tilde segment
+// (`~` alone or `~/...`), leaving embedded tildes and `~user` forms
+// untouched, and returns p unchanged when the home directory is
+// unknown. Use this to normalize user-supplied paths before resolving
+// or creating filesystem locations.
+func Expand(p string) string {
+	if homedir == "" {
+		return p
+	}
+	if p == "~" {
+		return homedir
+	}
+	if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~\\") {
+		return filepath.Join(homedir, p[2:])
+	}
+	return p
+}
