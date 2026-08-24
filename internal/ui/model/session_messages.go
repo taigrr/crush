@@ -10,7 +10,122 @@ import (
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/ui/chat"
+	"github.com/taigrr/crush/internal/ui/util"
 )
+
+// handleLoadSession applies a committed session load: it resets any live
+// preview, swaps in the new session and files, syncs dialogs, starts LSPs,
+// loads the message history, and refreshes prompt history and layout.
+func (m *UI) handleLoadSession(msg loadSessionMsg) []tea.Cmd {
+	var cmds []tea.Cmd
+	if m.forceCompactMode {
+		m.isCompact = true
+	}
+	// Re-sync the cached yolo indicator from the value fetched off the
+	// Update goroutine alongside this session load (msg.yolo).
+	// m.yoloMode is otherwise only refreshed on this client's own
+	// toggle / workspace switch, so this self-heals the display if
+	// another client (or the CLI) flipped skip-requests on the
+	// workspace we're viewing — the indicator converges on the next
+	// navigation rather than staying stale indefinitely, without a
+	// blocking RPC on the hot Update path.
+	m.setEditorPrompt(msg.yolo)
+	// A real commit supersedes any live preview.
+	m.previewSessionID = ""
+	m.pendingPreviewID = ""
+	m.pendingPreviewRoot = ""
+	m.previewSess = nil
+	m.previewFiles = nil
+	m.previewGen++
+	m.setState(uiChat, m.focus)
+	m.session = msg.session
+	m.sessionFiles = msg.files
+	m.rightSidebarOffset = 0
+	// Set active session for worktree-aware working directory.
+	m.com.Workspace.SetActiveSessionID(m.session.ID)
+	if cmd := m.syncPermissionDialogForSession(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.syncQuestionDialogForSession(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
+	msgs, err := m.com.Workspace.ListMessages(context.Background(), m.session.ID)
+	if err != nil {
+		cmds = append(cmds, util.ReportError(err))
+		return cmds
+	}
+	if cmd := m.setSessionMessages(msgs); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.autoExpandPillsIfReasonable(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if hasInProgressTodo(m.session.Todos) {
+		// only start spinner if there is an in-progress todo
+		if m.isAgentBusy() {
+			m.todoIsSpinning = true
+			cmds = append(cmds, m.todoSpinner.Tick)
+		}
+		m.updateLayoutAndSize()
+	}
+	// Reload prompt history for the new session.
+	m.historyReset()
+	cmds = append(cmds, m.loadPromptHistory())
+	m.updateLayoutAndSize()
+	return cmds
+}
+
+// handleLoadSessionAndSwitchWorktree performs the same session load as
+// handleLoadSession (without the yolo re-sync or pill auto-expand) and then
+// switches to the session's worktree.
+func (m *UI) handleLoadSessionAndSwitchWorktree(msg loadSessionAndSwitchWorktreeMsg) []tea.Cmd {
+	var cmds []tea.Cmd
+	// First do all the session loading (same as loadSessionMsg).
+	if m.forceCompactMode {
+		m.isCompact = true
+	}
+	// A real commit supersedes any live preview.
+	m.previewSessionID = ""
+	m.pendingPreviewID = ""
+	m.pendingPreviewRoot = ""
+	m.previewSess = nil
+	m.previewFiles = nil
+	m.previewGen++
+	m.setState(uiChat, m.focus)
+	m.session = msg.session
+	m.sessionFiles = msg.files
+	m.rightSidebarOffset = 0
+	m.com.Workspace.SetActiveSessionID(m.session.ID)
+	if cmd := m.syncPermissionDialogForSession(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.syncQuestionDialogForSession(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
+	msgs, err := m.com.Workspace.ListMessages(context.Background(), m.session.ID)
+	if err != nil {
+		cmds = append(cmds, util.ReportError(err))
+		return cmds
+	}
+	if cmd := m.setSessionMessages(msgs); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if hasInProgressTodo(m.session.Todos) {
+		if m.isAgentBusy() {
+			m.todoIsSpinning = true
+			cmds = append(cmds, m.todoSpinner.Tick)
+		}
+		m.updateLayoutAndSize()
+	}
+	m.historyReset()
+	cmds = append(cmds, m.loadPromptHistory())
+	m.updateLayoutAndSize()
+	// Now switch the worktree.
+	cmds = append(cmds, m.switchWorktree(msg.session.ID, msg.worktreeID))
+	return cmds
+}
 
 // setSessionMessages sets the messages for the current session in the chat
 func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {

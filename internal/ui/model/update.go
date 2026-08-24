@@ -119,106 +119,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	case loadSessionMsg:
-		if m.forceCompactMode {
-			m.isCompact = true
-		}
-		// Re-sync the cached yolo indicator from the value fetched off the
-		// Update goroutine alongside this session load (msg.yolo).
-		// m.yoloMode is otherwise only refreshed on this client's own
-		// toggle / workspace switch, so this self-heals the display if
-		// another client (or the CLI) flipped skip-requests on the
-		// workspace we're viewing — the indicator converges on the next
-		// navigation rather than staying stale indefinitely, without a
-		// blocking RPC on the hot Update path.
-		m.setEditorPrompt(msg.yolo)
-		// A real commit supersedes any live preview.
-		m.previewSessionID = ""
-		m.pendingPreviewID = ""
-		m.pendingPreviewRoot = ""
-		m.previewSess = nil
-		m.previewFiles = nil
-		m.previewGen++
-		m.setState(uiChat, m.focus)
-		m.session = msg.session
-		m.sessionFiles = msg.files
-		m.rightSidebarOffset = 0
-		// Set active session for worktree-aware working directory.
-		m.com.Workspace.SetActiveSessionID(m.session.ID)
-		if cmd := m.syncPermissionDialogForSession(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		if cmd := m.syncQuestionDialogForSession(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
-		msgs, err := m.com.Workspace.ListMessages(context.Background(), m.session.ID)
-		if err != nil {
-			cmds = append(cmds, util.ReportError(err))
-			break
-		}
-		if cmd := m.setSessionMessages(msgs); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		if cmd := m.autoExpandPillsIfReasonable(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		if hasInProgressTodo(m.session.Todos) {
-			// only start spinner if there is an in-progress todo
-			if m.isAgentBusy() {
-				m.todoIsSpinning = true
-				cmds = append(cmds, m.todoSpinner.Tick)
-			}
-			m.updateLayoutAndSize()
-		}
-		// Reload prompt history for the new session.
-		m.historyReset()
-		cmds = append(cmds, m.loadPromptHistory())
-		m.updateLayoutAndSize()
+		cmds = append(cmds, m.handleLoadSession(msg)...)
 
 	case loadSessionAndSwitchWorktreeMsg:
-		// First do all the session loading (same as loadSessionMsg).
-		if m.forceCompactMode {
-			m.isCompact = true
-		}
-		// A real commit supersedes any live preview.
-		m.previewSessionID = ""
-		m.pendingPreviewID = ""
-		m.pendingPreviewRoot = ""
-		m.previewSess = nil
-		m.previewFiles = nil
-		m.previewGen++
-		m.setState(uiChat, m.focus)
-		m.session = msg.session
-		m.sessionFiles = msg.files
-		m.rightSidebarOffset = 0
-		m.com.Workspace.SetActiveSessionID(m.session.ID)
-		if cmd := m.syncPermissionDialogForSession(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		if cmd := m.syncQuestionDialogForSession(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
-		msgs, err := m.com.Workspace.ListMessages(context.Background(), m.session.ID)
-		if err != nil {
-			cmds = append(cmds, util.ReportError(err))
-			break
-		}
-		if cmd := m.setSessionMessages(msgs); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		if hasInProgressTodo(m.session.Todos) {
-			if m.isAgentBusy() {
-				m.todoIsSpinning = true
-				cmds = append(cmds, m.todoSpinner.Tick)
-			}
-			m.updateLayoutAndSize()
-		}
-		m.historyReset()
-		cmds = append(cmds, m.loadPromptHistory())
-		m.updateLayoutAndSize()
-		// Now switch the worktree.
-		cmds = append(cmds, m.switchWorktree(msg.session.ID, msg.worktreeID))
+		cmds = append(cmds, m.handleLoadSessionAndSwitchWorktree(msg)...)
 
 	case sessionFilesUpdatesMsg:
 		cmds = append(cmds, m.applySessionFilesUpdate(msg))
