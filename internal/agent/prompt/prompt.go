@@ -212,11 +212,7 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		AvailSkillXML: availSkillXML,
 	}
 	if isGit {
-		var err error
-		data.GitStatus, err = getGitStatus(ctx, store.WorkingDir())
-		if err != nil {
-			return PromptDat{}, err
-		}
+		data.GitStatus = getGitStatus(ctx, store.WorkingDir())
 	}
 
 	for _, contextFiles := range files {
@@ -238,54 +234,45 @@ func isGitRepo(dir string) bool {
 	return err == nil
 }
 
-func getGitStatus(ctx context.Context, dir string) (string, error) {
+// getGitStatus returns a best-effort human-readable git summary for dir.
+// Gathering never fails: individual git commands that error simply
+// contribute an empty section.
+func getGitStatus(ctx context.Context, dir string) string {
 	sh := shell.NewShell(&shell.Options{
 		WorkingDir: dir,
 	})
-	branch, err := getGitBranch(ctx, sh)
-	if err != nil {
-		return "", err
-	}
-	status, err := getGitStatusSummary(ctx, sh)
-	if err != nil {
-		return "", err
-	}
-	commits, err := getGitRecentCommits(ctx, sh)
-	if err != nil {
-		return "", err
-	}
-	return branch + status + commits, nil
+	return getGitBranch(ctx, sh) + getGitStatusSummary(ctx, sh) + getGitRecentCommits(ctx, sh)
 }
 
-func getGitBranch(ctx context.Context, sh *shell.Shell) (string, error) {
+func getGitBranch(ctx context.Context, sh *shell.Shell) string {
 	out, _, err := sh.Exec(ctx, "git branch --show-current 2>/dev/null")
 	if err != nil {
-		return "", nil
+		return ""
 	}
 	out = strings.TrimSpace(out)
 	if out == "" {
-		return "", nil
+		return ""
 	}
-	return fmt.Sprintf("Current branch: %s\n", out), nil
+	return fmt.Sprintf("Current branch: %s\n", out)
 }
 
-func getGitStatusSummary(ctx context.Context, sh *shell.Shell) (string, error) {
+func getGitStatusSummary(ctx context.Context, sh *shell.Shell) string {
 	out, _, err := sh.Exec(ctx, "git status --short 2>/dev/null | head -20")
 	if err != nil {
-		return "", nil
+		return ""
 	}
 	out = strings.TrimSpace(out)
 	if out == "" {
-		return "Status: clean\n", nil
+		return "Status: clean\n"
 	}
-	return fmt.Sprintf("Status:\n%s\n", out), nil
+	return fmt.Sprintf("Status:\n%s\n", out)
 }
 
-func getGitRecentCommits(ctx context.Context, sh *shell.Shell) (string, error) {
+func getGitRecentCommits(ctx context.Context, sh *shell.Shell) string {
 	out, _, err := sh.Exec(ctx, "git log --oneline -n 3 2>/dev/null")
 	if err != nil || out == "" {
-		return "", nil
+		return ""
 	}
 	out = strings.TrimSpace(out)
-	return fmt.Sprintf("Recent commits:\n%s\n", out), nil
+	return fmt.Sprintf("Recent commits:\n%s\n", out)
 }
