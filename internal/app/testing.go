@@ -41,18 +41,18 @@ func NewForTest(ctx context.Context) *App {
 
 	eventsCtx, cancel := context.WithCancel(ctx)
 	app.eventsCtx = eventsCtx
-	setupSubscriber(eventsCtx, app.serviceEventsWG, "permissions",
-		app.Permissions.Subscribe, app.events)
-	setupSubscriber(eventsCtx, app.serviceEventsWG, "permissions-notifications",
-		app.Permissions.SubscribeNotifications, app.events)
-	setupSubscriber(eventsCtx, app.serviceEventsWG, "questions",
-		app.Questions.Subscribe, app.events)
-	setupSubscriber(eventsCtx, app.serviceEventsWG, "questions-notifications",
-		app.Questions.SubscribeNotifications, app.events)
-	setupSubscriber(eventsCtx, app.serviceEventsWG, "agent-notifications",
-		app.agentNotifications.Subscribe, app.events)
-	setupSubscriber(eventsCtx, app.serviceEventsWG, "run-completions",
-		app.runCompletions.Subscribe, app.events)
+	app.subscribe(eventsCtx, "permissions",
+		app.Permissions.Subscribe)
+	app.subscribe(eventsCtx, "permissions-notifications",
+		app.Permissions.SubscribeNotifications)
+	app.subscribe(eventsCtx, "questions",
+		app.Questions.Subscribe)
+	app.subscribe(eventsCtx, "questions-notifications",
+		app.Questions.SubscribeNotifications)
+	app.subscribe(eventsCtx, "agent-notifications",
+		app.agentNotifications.Subscribe)
+	app.subscribe(eventsCtx, "run-completions",
+		app.runCompletions.Subscribe)
 	app.cleanupFuncs = append(app.cleanupFuncs, func(context.Context) error {
 		cancel()
 		app.serviceEventsWG.Wait()
