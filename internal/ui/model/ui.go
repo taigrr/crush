@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"image"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -3497,7 +3497,7 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 	// Debugging rendering (visually see when the tui rerenders)
 	if os.Getenv("CRUSH_UI_DEBUG") == "true" {
-		debugView := lipgloss.NewStyle().Background(lipgloss.ANSIColor(rand.Intn(256))).Width(4).Height(2)
+		debugView := lipgloss.NewStyle().Background(lipgloss.ANSIColor(rand.IntN(256))).Width(4).Height(2)
 		debug := uv.NewStyledString(debugView.String())
 		debug.Draw(scr, image.Rectangle{
 			Min: image.Pt(4, 1),
@@ -3577,7 +3577,7 @@ func (m *UI) View() tea.View {
 	if m.progressBarEnabled && m.sendProgressBar && m.isAgentBusy() {
 		// HACK: use a random percentage to prevent ghostty from hiding it
 		// after a timeout.
-		v.ProgressBar = tea.NewProgressBar(tea.ProgressBarIndeterminate, rand.Intn(100))
+		v.ProgressBar = tea.NewProgressBar(tea.ProgressBarIndeterminate, rand.IntN(100))
 	}
 
 	return v
@@ -4271,8 +4271,8 @@ func (m *UI) hasSession() bool {
 
 // mimeOf detects the MIME type of the given content.
 func (m *UI) randomizePlaceholders() {
-	m.workingPlaceholder = workingPlaceholders[rand.Intn(len(workingPlaceholders))]
-	m.readyPlaceholder = readyPlaceholders[rand.Intn(len(readyPlaceholders))]
+	m.workingPlaceholder = workingPlaceholders[rand.IntN(len(workingPlaceholders))]
+	m.readyPlaceholder = readyPlaceholders[rand.IntN(len(readyPlaceholders))]
 }
 
 // editorContentWidth returns the width the editor block (attachments row

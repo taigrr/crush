@@ -1,6 +1,6 @@
 package common
 
-import "sort"
+import "slices"
 
 // MultiSelect is a reusable vim-style multi-selection state machine shared
 // by the left session sidebar and the session picker popup. It tracks a set
@@ -47,7 +47,7 @@ func (m *MultiSelect) IDs() []string {
 	for id := range m.selected {
 		ids = append(ids, id)
 	}
-	sort.Strings(ids)
+	slices.Sort(ids)
 	return ids
 }
 

@@ -8,7 +8,7 @@ package swarm
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/taigrr/animals"
@@ -89,12 +89,12 @@ func Assign(sessionID string, cfg Config) Identity {
 	// Copy before sorting so we don't mutate a slice the palette
 	// package might share across callers (map-order defensively).
 	colorNames := append([]string(nil), palette.Names()...)
-	sort.Strings(colorNames)
+	slices.Sort(colorNames)
 	if len(colorNames) == 0 {
 		colorNames = []string{"white"}
 	}
 	list := append([]string(nil), animalList(cfg)...)
-	sort.Strings(list)
+	slices.Sort(list)
 	if len(list) == 0 {
 		list = []string{"unknown"}
 	}

@@ -304,12 +304,12 @@ func searchFilesWithRegex(pattern, rootPath, include string) ([]grepMatch, error
 	// Create walker with gitignore and crushignore support
 	walker := fsext.NewFastGlobWalker(rootPath)
 
-	err = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+	err = filepath.WalkDir(rootPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip errors
 		}
 
-		if info.IsDir() {
+		if d.IsDir() {
 			// Check if directory should be skipped
 			if walker.ShouldSkip(path) {
 				return filepath.SkipDir
@@ -335,6 +335,16 @@ func searchFilesWithRegex(pattern, rootPath, include string) ([]grepMatch, error
 		lineMatches, err := fileMatches(path, regex)
 		if err != nil {
 			return nil // Skip files we can't read
+		}
+		if len(lineMatches) == 0 {
+			return nil
+		}
+
+		// Stat lazily: only matching files need mod time, so WalkDir
+		// avoids a stat syscall for every skipped or non-matching file.
+		info, err := d.Info()
+		if err != nil {
+			return nil // File vanished between walk and stat; skip it.
 		}
 
 		for _, lm := range lineMatches {
