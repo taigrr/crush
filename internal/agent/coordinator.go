@@ -1044,7 +1044,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	swarmWorkspaceID := c.swarmWorkspaceID
 	swarmConfigFn := c.swarmConfig
 	c.swarmMu.Unlock()
-	if !isSubAgent && swarmBackend != nil && c.cfg.Config().Options.SwarmEnabled() {
+	if !isSubAgent && swarmBackend != nil {
 		if swarmConfigFn == nil {
 			swarmConfigFn = swarm.Default
 		}

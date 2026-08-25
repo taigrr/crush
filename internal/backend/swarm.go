@@ -19,29 +19,12 @@ import (
 
 // Swarm errors.
 var (
-	ErrSwarmDisabled          = errors.New("swarm is disabled")
 	ErrSwarmAddressAmbiguous  = errors.New("swarm address matches multiple sessions")
 	ErrSwarmAddressNotFound   = errors.New("swarm address does not match any session")
 	ErrSwarmTargetIsSubagent  = errors.New("swarm target is a sub-agent session (not addressable)")
 	ErrSwarmSelfAddressed     = errors.New("swarm target is the sender's own session")
 	ErrSwarmWorkspaceNotFound = errors.New("swarm target workspace not found")
 )
-
-// swarmEnabled reports whether the given workspace has swarm turned
-// on. The gate lives at the workspace layer (not the backend's
-// server-wide config) because each workspace has its own
-// ConfigStore, and users typically opt into swarm via a project's
-// crush.json. Defensively handles nil Options / Swarm.
-func workspaceSwarmEnabled(ws *Workspace) bool {
-	if ws == nil || ws.App == nil {
-		return false
-	}
-	cfg := ws.Cfg.Config()
-	if cfg == nil {
-		return false
-	}
-	return cfg.Options.SwarmEnabled()
-}
 
 // SwarmLookupResult describes a resolved swarm address across all
 // running workspaces. Callers hold the returned WorkspaceID/SessionID
@@ -207,9 +190,6 @@ func (b *Backend) reattachForAddress(ctx context.Context, addr swarm.Address) (S
 	if err != nil {
 		return SwarmLookupResult{}, fmt.Errorf("swarm: failed to reattach workspace %s: %w", root, err)
 	}
-	if !workspaceSwarmEnabled(ws) {
-		return SwarmLookupResult{}, ErrSwarmAddressNotFound
-	}
 	// Re-verify against the live session service now that the
 	// workspace is actually attached: the peek above is a snapshot
 	// that could have raced a concurrent change (archive, delete) to
@@ -299,14 +279,6 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 	if !ok {
 		return SwarmSendResult{}, ErrSwarmWorkspaceNotFound
 	}
-	// Gate on the target workspace's config: each workspace owns
-	// its own ConfigStore, and the swarm tool is registered based
-	// on the sender workspace's opt-in. Refuse to deliver to a
-	// workspace that hasn't opted in itself.
-	if !workspaceSwarmEnabled(ws) {
-		return SwarmSendResult{}, ErrSwarmDisabled
-	}
-
 	// Locate the sender session so we can stamp the outgoing part
 	// with a trusted identity rather than the caller-supplied values.
 	// Not fatal if the sender's session lives in a different
@@ -437,9 +409,6 @@ func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title str
 	ws, ok := b.workspaces.Get(workspaceID)
 	if !ok {
 		return session.Session{}, ErrSwarmWorkspaceNotFound
-	}
-	if !workspaceSwarmEnabled(ws) {
-		return session.Session{}, ErrSwarmDisabled
 	}
 	sess, err := ws.Sessions.Create(ctx, title)
 	if err != nil {

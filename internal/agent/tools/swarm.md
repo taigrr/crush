@@ -45,8 +45,6 @@ the target's UI can render a colored header.
 
 Restrictions:
 
-- Swarm must be enabled globally (`options.swarm.enabled = true` in
-  crush.json).
 - Sub-agent sessions (task tool children, title/summary sessions) are
   not addressable.
 - Sessions cannot address themselves.

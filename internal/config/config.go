@@ -335,26 +335,6 @@ type Options struct {
 	DisableNotifications      bool         `json:"disable_notifications,omitempty" jsonschema:"description=Deprecated: Use notification_style instead. Disable desktop notifications,default=false"`
 	NotificationStyle         string       `json:"notification_style,omitempty" jsonschema:"description=Notification style to use. Options: auto (default), native, osc, bell, disabled. Auto selects based on environment: native for local sessions, osc for SSH (with automatic OSC 99/777 detection).,enum=auto,enum=native,enum=osc,enum=bell,enum=disabled,default=auto"`
 	DisabledSkills            []string     `json:"disabled_skills,omitempty" jsonschema:"description=List of skill names to disable and hide from the agent,example=crush-config"`
-	Swarm                     *SwarmConfig `json:"swarm,omitempty" jsonschema:"description=Cross-session coordination (\"swarm\") settings"`
-}
-
-// SwarmConfig gates the cross-session swarm tool. When Enabled is
-// true, the tool is registered on all main agents and coder/task
-// prompts advertise it; when false it is completely absent. This is a
-// global (not per-workspace) setting because swarm addresses cross
-// workspaces. Default: enabled (set Enabled to false to opt out).
-type SwarmConfig struct {
-	Enabled *bool `json:"enabled,omitempty" jsonschema:"description=Enable cross-session swarm messaging (color-animal addressing),default=true"`
-}
-
-// SwarmEnabled reports whether swarm is turned on in the options
-// block. Safe to call on a nil-received Options pointer. Swarm is
-// enabled by default; it is only off when explicitly set to false.
-func (o *Options) SwarmEnabled() bool {
-	if o == nil || o.Swarm == nil || o.Swarm.Enabled == nil {
-		return true
-	}
-	return *o.Swarm.Enabled
 }
 
 type MCPs map[string]MCPConfig

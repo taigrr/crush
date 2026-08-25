@@ -454,7 +454,6 @@ The procedure should read as if the user wrote it themselves — capturing their
 </procedures>
 {{end}}
 
-{{if and .Config.Options .Config.Options.SwarmEnabled}}
 
 <swarm>
 Cross-session coordination is enabled: your session has a unique
@@ -494,5 +493,4 @@ sender's address; there is no automatic reply channel.
 Sub-agent sessions (task tool children, title/summary generators) are
 not addressable. You cannot address your own session.
 </swarm>
-{{end}}
 

@@ -591,7 +591,7 @@ for slow links and SSH sessions.
 
 ## Swarm (Cross-Session Coordination)
 
-Opt-in feature (`options.swarm.enabled`) that lets one session send a
+Lets one session send a
 user-turn message to another session on the same backend, including
 across workspaces.
 

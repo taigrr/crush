@@ -93,8 +93,8 @@ internal/
 - **Swarm**: `internal/swarm/` derives per-session `color-animal`
   identities from session UUIDs (`colorhash` + `animals`). Backend
   cross-workspace routing lives in `internal/backend/swarm.go`; the
-  agent-facing tool is `internal/agent/tools/swarm.go` and is gated
-  behind `options.swarm.enabled`. Sender identity is stamped by the
+  agent-facing tool is `internal/agent/tools/swarm.go` and is always
+  enabled. Sender identity is stamped by the
   backend from the sender's session row (untrusted tool input is
   overwritten) to prevent spoofing.
 

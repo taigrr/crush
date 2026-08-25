@@ -202,9 +202,6 @@ reviewed.
     "attribution": {
       "trailer_style": "assisted-by",
       "generated_with": true
-    },
-    "swarm": {
-      "enabled": false
     }
   }
 }
@@ -375,25 +372,10 @@ Swarm lets one Crush session send a message to another session — in
 the same workspace or in a different workspace on the same backend —
 addressed by a human-readable `color-animal` identifier derived
 deterministically from the session's UUID (via a colorhash palette
-and an animals list). Off by default; opt in globally:
+and an animals list). Swarm is always enabled; there is no config
+switch to turn it off.
 
-```json
-{
-  "options": {
-    "swarm": {
-      "enabled": true
-    }
-  }
-}
-```
-
-Swarm can also be toggled at runtime from the command palette
-("Enable/Disable Swarm Mode") without editing `crush.json`; the flip is
-persisted to the global config and the coder agent's tool set refreshes
-immediately (when the agent is idle) so the `swarm` tool appears or
-disappears without a restart.
-
-When enabled, main agents (coder) get a `swarm` tool that accepts:
+Main agents (coder) get a `swarm` tool that accepts:
 
 - `address`: `color-animal` (e.g. `aliceblue-tiger`),
   `color-animal-<4hex>` disambiguated form, a raw session UUID, or
