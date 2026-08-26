@@ -281,9 +281,46 @@ func (s *ConfigStore) RemoveConfigField(scope Scope, key string) error {
 	return nil
 }
 
+// applyModelDefaults fills in fields the caller left unset from the
+// model's catalog entry. Only unset fields are touched, so an explicit
+// choice (including one the user made earlier and is re-saving) always
+// wins. Unknown models are left alone — validation happens elsewhere.
+func (s *ConfigStore) applyModelDefaults(model *SelectedModel) {
+	if model == nil || model.Provider == "" || model.Model == "" {
+		return
+	}
+	catalog := s.config.GetModel(model.Provider, model.Model)
+	if catalog == nil {
+		return
+	}
+	if model.MaxTokens == 0 {
+		model.MaxTokens = catalog.DefaultMaxTokens
+	}
+	// Only seed an effort the model actually advertises. Writing an
+	// effort outside reasoning_levels would fail shouldSetEffort's
+	// membership check anyway, and on some providers an unrecognized
+	// value is a hard request error.
+	if model.ReasoningEffort == "" && catalog.DefaultReasoningEffort != "" &&
+		slices.Contains(catalog.ReasoningLevels, catalog.DefaultReasoningEffort) {
+		model.ReasoningEffort = catalog.DefaultReasoningEffort
+	}
+}
+
 // UpdatePreferredModel updates the preferred model for the given type and
 // persists it to the config file at the given scope.
 func (s *ConfigStore) UpdatePreferredModel(scope Scope, modelType SelectedModelType, model SelectedModel) error {
+	// Backfill catalog defaults the caller didn't specify. The model
+	// dialog and `crush run -m` both build a selection from just
+	// provider+model, while the default-selection path in
+	// configureSelectedModels seeds MaxTokens and ReasoningEffort from
+	// the catalog. Without this, switching models drops both.
+	//
+	// ReasoningEffort matters beyond a default: shouldSetEffort gates on
+	// the selection's effort being one of the model's reasoning_levels,
+	// so an empty effort means Crush never asks the provider to reason
+	// and no thinking traces come back.
+	s.applyModelDefaults(&model)
+
 	s.config.Models[modelType] = model
 	if err := s.SetConfigField(scope, fmt.Sprintf("models.%s", modelType), model); err != nil {
 		return fmt.Errorf("failed to update preferred model: %w", err)
