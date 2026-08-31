@@ -1386,7 +1386,7 @@ func (c *coordinator) buildAzureProvider(baseURL, apiKey string, headers map[str
 	return azure.New(opts...)
 }
 
-func (c *coordinator) buildBedrockProvider(apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
+func (c *coordinator) buildBedrockProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
 	var opts []bedrock.Option
 	if c.cfg.Config().Options.Debug {
 		httpClient := log.NewHTTPClient()
@@ -1394,6 +1394,15 @@ func (c *coordinator) buildBedrockProvider(apiKey string, headers map[string]str
 	}
 	if len(headers) > 0 {
 		opts = append(opts, bedrock.WithHeaders(headers))
+	}
+
+	// Allow overriding the Bedrock endpoint via config base URL or the
+	// AWS_ENDPOINT_URL_BEDROCK environment variable.
+	if baseURL == "" {
+		baseURL = os.Getenv("AWS_ENDPOINT_URL_BEDROCK")
+	}
+	if baseURL != "" {
+		opts = append(opts, bedrock.WithBaseURL(baseURL))
 	}
 
 	switch {
@@ -1489,7 +1498,7 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 	case azure.Name:
 		return c.buildAzureProvider(baseURL, apiKey, headers, providerCfg.ExtraParams)
 	case bedrock.Name:
-		return c.buildBedrockProvider(apiKey, headers, providerCfg.ID)
+		return c.buildBedrockProvider(baseURL, apiKey, headers, providerCfg.ID)
 	case google.Name:
 		return c.buildGoogleProvider(baseURL, apiKey, headers)
 	case "google-vertex":

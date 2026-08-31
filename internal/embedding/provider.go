@@ -39,6 +39,9 @@ func buildEmbeddingModel(ctx context.Context, p ProviderParams, modelID string) 
 		case os.Getenv("AWS_BEARER_TOKEN_BEDROCK") != "":
 			opts = append(opts, bedrock.WithAPIKey(os.Getenv("AWS_BEARER_TOKEN_BEDROCK")))
 		}
+		if p.BaseURL == "" {
+			p.BaseURL = os.Getenv("AWS_ENDPOINT_URL_BEDROCK")
+		}
 		if p.BaseURL != "" {
 			opts = append(opts, bedrock.WithBaseURL(p.BaseURL))
 		}
