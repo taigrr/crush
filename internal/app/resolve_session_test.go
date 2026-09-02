@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
 )
@@ -28,8 +29,20 @@ func (m *mockSessionService) Create(_ context.Context, title string) (session.Se
 	return s, nil
 }
 
+func (m *mockSessionService) CreateWithModel(ctx context.Context, title string, _ *config.SelectedModel) (session.Session, error) {
+	return m.Create(ctx, title)
+}
+
 func (m *mockSessionService) CreateTitleSession(context.Context, string) (session.Session, error) {
 	return session.Session{}, nil
+}
+
+func (m *mockSessionService) CreateTaskSessionWithModel(context.Context, string, string, string, *config.SelectedModel) (session.Session, error) {
+	return session.Session{}, nil
+}
+
+func (m *mockSessionService) SetModel(context.Context, string, *config.SelectedModel) error {
+	return nil
 }
 
 func (m *mockSessionService) CreateTaskSession(context.Context, string, string, string) (session.Session, error) {

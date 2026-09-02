@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/zeebo/xxh3"
@@ -84,6 +85,27 @@ type Session struct {
 	// below sessions blocked on a permission prompt) so an orchestrator
 	// session controlling swarm workers is easy to return to.
 	Favorite bool
+
+	// Model is the session's own model selection, when it has one. A
+	// human-opened session is stamped with the configured orchestrator
+	// model at creation; a swarm worker or sub-agent child is stamped
+	// only when its creator passed an explicit model. Nil means "resolve
+	// to the workspace's large model at run time", which is how every
+	// session behaved before per-session models existed. Only Provider,
+	// Model, ReasoningEffort, and Think are persisted; the remaining
+	// tuning fields are filled from the catalog when the run resolves it.
+	Model *config.SelectedModel
+}
+
+// ModelOrNil returns a copy of the session's own selection, or nil.
+// Convenience for callers that want value semantics without aliasing
+// the stored pointer.
+func (s Session) ModelOrNil() *config.SelectedModel {
+	if s.Model == nil {
+		return nil
+	}
+	m := *s.Model
+	return &m
 }
 
 // Unread reports whether the session finished a run more recently than it
@@ -95,8 +117,18 @@ func (s Session) Unread() bool {
 type Service interface {
 	pubsub.Subscriber[Session]
 	Create(ctx context.Context, title string) (Session, error)
+	// CreateWithModel creates a top-level session stamped with its own
+	// model selection. A nil model behaves exactly like Create.
+	CreateWithModel(ctx context.Context, title string, model *config.SelectedModel) (Session, error)
 	CreateTitleSession(ctx context.Context, parentSessionID string) (Session, error)
 	CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error)
+	// CreateTaskSessionWithModel is CreateTaskSession with a per-session
+	// model stamp for the child. A nil model behaves like
+	// CreateTaskSession.
+	CreateTaskSessionWithModel(ctx context.Context, toolCallID, parentSessionID, title string, model *config.SelectedModel) (Session, error)
+	// SetModel stamps (non-nil) or clears (nil) the session's own model
+	// selection and publishes an update so viewers re-render.
+	SetModel(ctx context.Context, id string, model *config.SelectedModel) error
 	Get(ctx context.Context, id string) (Session, error)
 	GetLast(ctx context.Context) (Session, error)
 	List(ctx context.Context) ([]Session, error)
@@ -152,30 +184,76 @@ type service struct {
 }
 
 func (s *service) Create(ctx context.Context, title string) (Session, error) {
-	dbSession, err := s.q.CreateSession(ctx, db.CreateSessionParams{
+	return s.CreateWithModel(ctx, title, nil)
+}
+
+func (s *service) CreateWithModel(ctx context.Context, title string, model *config.SelectedModel) (Session, error) {
+	return s.create(ctx, db.CreateSessionParams{
 		ID:    uuid.New().String(),
 		Title: title,
-	})
+	}, model)
+}
+
+func (s *service) CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error) {
+	return s.CreateTaskSessionWithModel(ctx, toolCallID, parentSessionID, title, nil)
+}
+
+func (s *service) CreateTaskSessionWithModel(ctx context.Context, toolCallID, parentSessionID, title string, model *config.SelectedModel) (Session, error) {
+	return s.create(ctx, db.CreateSessionParams{
+		ID:              toolCallID,
+		ParentSessionID: sql.NullString{String: parentSessionID, Valid: true},
+		Title:           title,
+	}, model)
+}
+
+// create inserts the row and, when a model is given, stamps it in the
+// same call before publishing Created. Stamping before publish matters:
+// subscribers (sidebar, swarm identity backfill) see one consistent row
+// rather than a Created without a model followed by an Updated with one.
+func (s *service) create(ctx context.Context, params db.CreateSessionParams, model *config.SelectedModel) (Session, error) {
+	dbSession, err := s.q.CreateSession(ctx, params)
 	if err != nil {
 		return Session{}, err
+	}
+	if model != nil && model.Provider != "" && model.Model != "" {
+		if err := s.q.SetSessionModel(ctx, sessionModelParams(dbSession.ID, model)); err != nil {
+			return Session{}, fmt.Errorf("stamping session model: %w", err)
+		}
+		dbSession, err = s.q.GetSessionByID(ctx, dbSession.ID)
+		if err != nil {
+			return Session{}, err
+		}
 	}
 	session := s.fromDBItem(dbSession)
 	s.Publish(pubsub.CreatedEvent, session)
 	return session, nil
 }
 
-func (s *service) CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error) {
-	dbSession, err := s.q.CreateSession(ctx, db.CreateSessionParams{
-		ID:              toolCallID,
-		ParentSessionID: sql.NullString{String: parentSessionID, Valid: true},
-		Title:           title,
-	})
-	if err != nil {
-		return Session{}, err
+func (s *service) SetModel(ctx context.Context, id string, model *config.SelectedModel) error {
+	if err := s.q.SetSessionModel(ctx, sessionModelParams(id, model)); err != nil {
+		return fmt.Errorf("setting session model: %w", err)
 	}
-	session := s.fromDBItem(dbSession)
-	s.Publish(pubsub.CreatedEvent, session)
-	return session, nil
+	s.publishUpdate(ctx, id)
+	return nil
+}
+
+// sessionModelParams maps a selection onto the nullable columns. A nil
+// or incomplete selection clears all three so the row falls back to the
+// workspace large model.
+func sessionModelParams(id string, model *config.SelectedModel) db.SetSessionModelParams {
+	p := db.SetSessionModelParams{ID: id}
+	if model == nil || model.Provider == "" || model.Model == "" {
+		return p
+	}
+	p.ModelProvider = sql.NullString{String: model.Provider, Valid: true}
+	p.ModelID = sql.NullString{String: model.Model, Valid: true}
+	p.ModelReasoningEffort = sql.NullString{String: model.ReasoningEffort, Valid: model.ReasoningEffort != ""}
+	var think int64
+	if model.Think {
+		think = 1
+	}
+	p.ModelThink = sql.NullInt64{Int64: think, Valid: true}
+	return p
 }
 
 func (s *service) CreateTitleSession(ctx context.Context, parentSessionID string) (Session, error) {
@@ -522,6 +600,23 @@ func (s *service) fromDBItem(item db.Session) Session {
 		Color:            item.Color.String,
 		Animal:           item.Animal.String,
 		Favorite:         item.Favorite != 0,
+		Model:            modelFromDBItem(item),
+	}
+}
+
+// modelFromDBItem rebuilds the session's own selection from the nullable
+// columns. Both provider and id must be present; a half-written row is
+// treated as unset rather than producing an unresolvable selection.
+func modelFromDBItem(item db.Session) *config.SelectedModel {
+	if !item.ModelProvider.Valid || !item.ModelID.Valid ||
+		item.ModelProvider.String == "" || item.ModelID.String == "" {
+		return nil
+	}
+	return &config.SelectedModel{
+		Provider:        item.ModelProvider.String,
+		Model:           item.ModelID.String,
+		ReasoningEffort: item.ModelReasoningEffort.String,
+		Think:           item.ModelThink.Valid && item.ModelThink.Int64 != 0,
 	}
 }
 

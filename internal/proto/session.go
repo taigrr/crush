@@ -1,5 +1,7 @@
 package proto
 
+import "github.com/taigrr/crush/internal/config"
+
 // Session represents a session in the proto layer.
 //
 // IsBusy is computed on read (it is not persisted with the session) and
@@ -33,6 +35,10 @@ type Session struct {
 	// address label / no color square in that case.
 	Color  string `json:"color,omitempty"`
 	Animal string `json:"animal,omitempty"`
+	// Model is the session's own model selection (see
+	// [session.Session.Model]). Nil when the session resolves to the
+	// workspace's large model.
+	Model *config.SelectedModel `json:"model,omitempty"`
 }
 
 // Todo represents a single todo entry on a session in the proto layer.

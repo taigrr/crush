@@ -46,7 +46,7 @@ INSERT INTO sessions (
     ?,
     strftime('%s', 'now'),
     strftime('%s', 'now')
-) RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite
+) RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_provider, model_id, model_reasoning_effort, model_think
 `
 
 type CreateSessionParams struct {
@@ -93,6 +93,10 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.Color,
 		&i.Animal,
 		&i.Favorite,
+		&i.ModelProvider,
+		&i.ModelID,
+		&i.ModelReasoningEffort,
+		&i.ModelThink,
 	)
 	return i, err
 }
@@ -108,7 +112,7 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 }
 
 const findSessionsByColorAnimal = `-- name: FindSessionsByColorAnimal :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_provider, model_id, model_reasoning_effort, model_think
 FROM sessions
 WHERE color = ? AND animal = ? AND archived_at IS NULL
 `
@@ -148,6 +152,10 @@ func (q *Queries) FindSessionsByColorAnimal(ctx context.Context, arg FindSession
 			&i.Color,
 			&i.Animal,
 			&i.Favorite,
+			&i.ModelProvider,
+			&i.ModelID,
+			&i.ModelReasoningEffort,
+			&i.ModelThink,
 		); err != nil {
 			return nil, err
 		}
@@ -163,7 +171,7 @@ func (q *Queries) FindSessionsByColorAnimal(ctx context.Context, arg FindSession
 }
 
 const getLastSession = `-- name: GetLastSession :one
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_provider, model_id, model_reasoning_effort, model_think
 FROM sessions
 ORDER BY updated_at DESC
 LIMIT 1
@@ -193,12 +201,16 @@ func (q *Queries) GetLastSession(ctx context.Context) (Session, error) {
 		&i.Color,
 		&i.Animal,
 		&i.Favorite,
+		&i.ModelProvider,
+		&i.ModelID,
+		&i.ModelReasoningEffort,
+		&i.ModelThink,
 	)
 	return i, err
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_provider, model_id, model_reasoning_effort, model_think
 FROM sessions
 WHERE id = ? LIMIT 1
 `
@@ -227,12 +239,16 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Session, error
 		&i.Color,
 		&i.Animal,
 		&i.Favorite,
+		&i.ModelProvider,
+		&i.ModelID,
+		&i.ModelReasoningEffort,
+		&i.ModelThink,
 	)
 	return i, err
 }
 
 const listArchivedSessions = `-- name: ListArchivedSessions :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_provider, model_id, model_reasoning_effort, model_think
 FROM sessions
 WHERE parent_session_id is NULL
   AND archived_at IS NOT NULL
@@ -269,6 +285,10 @@ func (q *Queries) ListArchivedSessions(ctx context.Context) ([]Session, error) {
 			&i.Color,
 			&i.Animal,
 			&i.Favorite,
+			&i.ModelProvider,
+			&i.ModelID,
+			&i.ModelReasoningEffort,
+			&i.ModelThink,
 		); err != nil {
 			return nil, err
 		}
@@ -284,7 +304,7 @@ func (q *Queries) ListArchivedSessions(ctx context.Context) ([]Session, error) {
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_provider, model_id, model_reasoning_effort, model_think
 FROM sessions
 WHERE parent_session_id is NULL
   AND archived_at IS NULL
@@ -321,6 +341,10 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.Color,
 			&i.Animal,
 			&i.Favorite,
+			&i.ModelProvider,
+			&i.ModelID,
+			&i.ModelReasoningEffort,
+			&i.ModelThink,
 		); err != nil {
 			return nil, err
 		}
@@ -419,6 +443,36 @@ func (q *Queries) SetSessionFavorite(ctx context.Context, arg SetSessionFavorite
 	return err
 }
 
+const setSessionModel = `-- name: SetSessionModel :exec
+UPDATE sessions
+SET model_provider = ?,
+    model_id = ?,
+    model_reasoning_effort = ?,
+    model_think = ?
+WHERE id = ?
+`
+
+type SetSessionModelParams struct {
+	ModelProvider        sql.NullString `json:"model_provider"`
+	ModelID              sql.NullString `json:"model_id"`
+	ModelReasoningEffort sql.NullString `json:"model_reasoning_effort"`
+	ModelThink           sql.NullInt64  `json:"model_think"`
+	ID                   string         `json:"id"`
+}
+
+// Stamps (or clears, when all three are NULL) the session's own model
+// selection. NULL columns mean "resolve to the workspace large model".
+func (q *Queries) SetSessionModel(ctx context.Context, arg SetSessionModelParams) error {
+	_, err := q.exec(ctx, q.setSessionModelStmt, setSessionModel,
+		arg.ModelProvider,
+		arg.ModelID,
+		arg.ModelReasoningEffort,
+		arg.ModelThink,
+		arg.ID,
+	)
+	return err
+}
+
 const setSessionSwarmIdentity = `-- name: SetSessionSwarmIdentity :execrows
 UPDATE sessions
 SET color = ?,
@@ -486,7 +540,7 @@ SET
     cost = ?,
     todos = ?
 WHERE id = ?
-RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite
+RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_provider, model_id, model_reasoning_effort, model_think
 `
 
 type UpdateSessionParams struct {
@@ -531,6 +585,10 @@ func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) (S
 		&i.Color,
 		&i.Animal,
 		&i.Favorite,
+		&i.ModelProvider,
+		&i.ModelID,
+		&i.ModelReasoningEffort,
+		&i.ModelThink,
 	)
 	return i, err
 }

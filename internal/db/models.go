@@ -87,6 +87,10 @@ type Session struct {
 	Color                sql.NullString `json:"color"`
 	Animal               sql.NullString `json:"animal"`
 	Favorite             int64          `json:"favorite"`
+	ModelProvider        sql.NullString `json:"model_provider"`
+	ModelID              sql.NullString `json:"model_id"`
+	ModelReasoningEffort sql.NullString `json:"model_reasoning_effort"`
+	ModelThink           sql.NullInt64  `json:"model_think"`
 }
 
 type Snapshot struct {

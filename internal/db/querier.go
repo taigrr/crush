@@ -88,6 +88,9 @@ type Querier interface {
 	RecordFileRead(ctx context.Context, arg RecordFileReadParams) error
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
 	SetSessionFavorite(ctx context.Context, arg SetSessionFavoriteParams) error
+	// Stamps (or clears, when all three are NULL) the session's own model
+	// selection. NULL columns mean "resolve to the workspace large model".
+	SetSessionModel(ctx context.Context, arg SetSessionModelParams) error
 	// Only assign the identity if the row does not already have BOTH
 	// fields set, so concurrent writers (startup backfill + Created-event
 	// subscriber) can't clobber a persisted identity with a

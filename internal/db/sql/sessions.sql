@@ -114,6 +114,16 @@ UPDATE sessions
 SET favorite = ?
 WHERE id = ?;
 
+-- name: SetSessionModel :exec
+-- Stamps (or clears, when all three are NULL) the session's own model
+-- selection. NULL columns mean "resolve to the workspace large model".
+UPDATE sessions
+SET model_provider = ?,
+    model_id = ?,
+    model_reasoning_effort = ?,
+    model_think = ?
+WHERE id = ?;
+
 -- name: SetSessionSwarmIdentity :execrows
 -- Only assign the identity if the row does not already have BOTH
 -- fields set, so concurrent writers (startup backfill + Created-event
@@ -134,6 +144,6 @@ FROM sessions
 WHERE color IS NULL OR animal IS NULL OR color = '' OR animal = '';
 
 -- name: FindSessionsByColorAnimal :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite
+SELECT *
 FROM sessions
 WHERE color = ? AND animal = ? AND archived_at IS NULL;
