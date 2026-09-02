@@ -34,7 +34,7 @@ func (a *sessionAgent) persistCanceledTurn(ctx context.Context, call SessionAgen
 			return err
 		}
 	}
-	largeModel := a.largeModel.Get()
+	largeModel := a.turnModel(call)
 	assistant, err := a.messages.Create(writeCtx, call.SessionID, message.CreateMessageParams{
 		Role:     message.Assistant,
 		Parts:    []message.ContentPart{},
@@ -205,7 +205,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// context (e.g. editor tools when the initiating client has no
 	// attached editor).
 	agentTools := tools.FilterAvailableTools(ctx, a.tools.Copy())
-	largeModel := a.largeModel.Get()
+	// The turn's model: the caller's per-session/per-call override when
+	// set, else the shared large model. Everything below (assistant
+	// message attribution, image limits, context window, usage/cost)
+	// reads this one value so the transcript always records what
+	// actually ran.
+	largeModel := a.turnModel(call)
 	systemPrompt := a.systemPrompt.Get()
 	promptPrefix := a.systemPromptPrefix.Get()
 	var instructions strings.Builder

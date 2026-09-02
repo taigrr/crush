@@ -62,6 +62,13 @@ type SessionAgentCall struct {
 	// ambiguous when concurrent turns share the same session.
 	RunID  string
 	Prompt string
+	// Model, when non-nil, is the model this turn runs on instead of
+	// the agent's large model. The coordinator sets it from the
+	// session's own stamp (orchestrator sessions) or from a tool's
+	// per-call `model` parameter (sub-agents). It is carried through
+	// the busy-session queue so a queued turn still runs on the model
+	// that was resolved for it. Nil means the large model.
+	Model *Model
 	// SwarmParts, when non-empty, replaces the default single
 	// TextContent user-message part with these SwarmMessage parts
 	// (see message.SwarmMessage). Used by Backend.SwarmSend so the
@@ -295,6 +302,17 @@ func (a *sessionAgent) SetSystemPrompt(systemPrompt string) {
 }
 
 func (a *sessionAgent) Model() Model {
+	return a.largeModel.Get()
+}
+
+// turnModel returns the model a call runs on: its explicit override, or
+// the agent's current large model. Resolved per call, never at
+// construction, because one sessionAgent serves every session in the
+// workspace and different sessions run different models.
+func (a *sessionAgent) turnModel(call SessionAgentCall) Model {
+	if call.Model != nil && call.Model.Model != nil {
+		return *call.Model
+	}
 	return a.largeModel.Get()
 }
 

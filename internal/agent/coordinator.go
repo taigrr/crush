@@ -26,6 +26,7 @@ import (
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/embedding"
 	"github.com/taigrr/crush/internal/filetracker"
 	"github.com/taigrr/crush/internal/history"
@@ -107,6 +108,9 @@ type Coordinator interface {
 	ClearQueue(sessionID string)
 	Summarize(context.Context, string) error
 	RegenerateTitle(ctx context.Context, sessionID string) error
+	// Model returns the workspace's large model. A session may run
+	// something else (its own stamp); see session.Session.Model and
+	// common.EffectiveModel for what a given session actually runs.
 	Model() Model
 	UpdateModels(ctx context.Context) error
 	UpdateModelsWhenIdle(ctx context.Context) (deferred bool, err error)
@@ -159,6 +163,15 @@ type coordinator struct {
 
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
+
+	// modelCache memoizes built per-session/per-call models within the
+	// lifetime of one UpdateModels cycle (it is cleared on every
+	// UpdateModels, which runs before each top-level turn, so a config
+	// reload that changes credentials or base URLs is never served a
+	// stale provider). Within a turn, N sub-agent calls that name the
+	// same model share one provider/LanguageModel instead of rebuilding
+	// it per call. Keyed by [modelCacheKey].
+	modelCache *csync.Map[string, Model]
 
 	// Skills discovery results (session-start snapshot).
 	allSkills    []*skills.Skill // Pre-filter: all discovered after dedup.
@@ -365,6 +378,7 @@ func NewCoordinator(
 		notify:              notify,
 		runComplete:         runComplete,
 		agents:              make(map[string]SessionAgent),
+		modelCache:          csync.NewMap[string, Model](),
 		allSkills:           allSkills,
 		activeSkills:        activeSkills,
 		skillTracker:        skillTracker,
@@ -502,7 +516,16 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		return nil, fmt.Errorf("failed to update models: %w", err)
 	}
 
-	model := c.currentAgent.Model()
+	// Resolve the model for THIS session. One coordinator (and one
+	// sessionAgent) serves every session in the workspace, so the
+	// answer is per turn, never per agent: a human-opened session
+	// stamped with the orchestrator runs it here, while a swarm worker
+	// created alongside it (no stamp) resolves to the workspace large
+	// model. A nil override means "use the agent's large model".
+	model, sessionModel, err := c.modelForSession(ctx, sessionID, false)
+	if err != nil {
+		return nil, err
+	}
 	maxTokens := model.CatwalkCfg.DefaultMaxTokens
 	if model.ModelCfg.MaxTokens != 0 {
 		maxTokens = model.ModelCfg.MaxTokens
@@ -574,6 +597,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 			return c.currentAgent.Run(ctx, SessionAgentCall{
 				SessionID:        sessionID,
 				RunID:            runID,
+				Model:            sessionModel,
 				Prompt:           currentPrompt,
 				SwarmParts:       currentSwarmParts,
 				Attachments:      currentAttachments,
@@ -1160,6 +1184,123 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	return filteredTools, nil
 }
 
+// resolveModelRef adapts the config resolver for tools: it reads the
+// live config on every call so a reload that adds a role or provider is
+// honored without rebuilding tools.
+func (c *coordinator) resolveModelRef(ref string) (config.SelectedModel, error) {
+	return c.cfg.Config().ResolveModelRef(ref)
+}
+
+// optionalModelRef resolves an optional tool `model` parameter. Empty
+// means "no override" (nil, nil).
+func (c *coordinator) optionalModelRef(ref string) (*config.SelectedModel, error) {
+	if strings.TrimSpace(ref) == "" {
+		return nil, nil
+	}
+	sel, err := c.resolveModelRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	return &sel, nil
+}
+
+// modelCacheKey identifies a built [Model] for memoization. It covers
+// every input that changes how the provider or language model is
+// constructed (provider, model id, thinking flag, sub-agent client
+// variant). Tuning that only affects per-call options (effort,
+// temperature) is overlaid on the cached value by buildModel instead.
+func modelCacheKey(sel config.SelectedModel, isSubAgent bool) string {
+	return fmt.Sprintf("%s\x00%s\x00%t\x00%t", sel.Provider, sel.Model, sel.Think, isSubAgent)
+}
+
+// buildModel constructs a runnable [Model] for an explicit selection.
+// It is the one place a provider + LanguageModel is built from a
+// SelectedModel; the large/small pair, per-session stamps, and per-call
+// tool overrides all go through it. The selection's provider must be
+// configured and must list the model.
+//
+// Catalog defaults (max tokens, reasoning effort) are backfilled onto
+// the returned ModelCfg when the selection left them unset, so a stamp
+// that only carries provider/model still runs with sane limits.
+func (c *coordinator) buildModel(ctx context.Context, sel config.SelectedModel, isSubAgent bool) (Model, error) {
+	if sel.Provider == "" || sel.Model == "" {
+		return Model{}, errLargeModelNotSelected
+	}
+	cfg := c.cfg.Config()
+	providerCfg, ok := cfg.Providers.Get(sel.Provider)
+	if !ok {
+		return Model{}, fmt.Errorf("%w: %q", errModelProviderNotConfigured, sel.Provider)
+	}
+	catwalkModel := cfg.GetModel(sel.Provider, sel.Model)
+	if catwalkModel == nil {
+		return Model{}, fmt.Errorf("provider %q has no model %q", sel.Provider, sel.Model)
+	}
+
+	key := modelCacheKey(sel, isSubAgent)
+	built, cached := c.modelCache.Get(key)
+	if !cached {
+		provider, err := c.buildProvider(providerCfg, sel, isSubAgent)
+		if err != nil {
+			return Model{}, err
+		}
+		modelID := sel.Model
+		if sel.Provider == openrouter.Name && isExactoSupported(modelID) {
+			modelID += ":exacto"
+		}
+		lm, err := provider.LanguageModel(ctx, modelID)
+		if err != nil {
+			return Model{}, err
+		}
+		built = Model{
+			Model:      lm,
+			CatwalkCfg: *catwalkModel,
+			FlatRate:   providerCfg.FlatRate,
+		}
+		c.modelCache.Set(key, built)
+	}
+
+	// Overlay this selection's tuning on the shared language model.
+	built.ModelCfg = sel
+	if built.ModelCfg.MaxTokens == 0 {
+		built.ModelCfg.MaxTokens = catwalkModel.DefaultMaxTokens
+	}
+	if built.ModelCfg.ReasoningEffort == "" && catwalkModel.DefaultReasoningEffort != "" &&
+		slices.Contains(catwalkModel.ReasoningLevels, catwalkModel.DefaultReasoningEffort) {
+		built.ModelCfg.ReasoningEffort = catwalkModel.DefaultReasoningEffort
+	}
+	return built, nil
+}
+
+// modelForSession resolves the model a turn on sessionID must run on:
+// the session's own stamp when it has one, otherwise the agent's large
+// model. The second return is the override to put on the
+// SessionAgentCall (nil when the large model applies) so the agent
+// records the right model on every assistant message.
+//
+// A missing session row is not an error here: the run will fail later
+// with a clearer message, and a transient lookup failure must never
+// silently promote or demote a session's model.
+func (c *coordinator) modelForSession(ctx context.Context, sessionID string, isSubAgent bool) (Model, *Model, error) {
+	large := c.currentAgent.Model()
+	if c.sessions == nil || sessionID == "" {
+		return large, nil, nil
+	}
+	sess, err := c.sessions.Get(ctx, sessionID)
+	if err != nil {
+		slog.Warn("Failed to load session for model resolution; using large model",
+			"session_id", sessionID, "error", err)
+		return large, nil, nil
+	}
+	if sess.Model == nil {
+		return large, nil, nil
+	}
+	m, err := c.buildModel(ctx, *sess.Model, isSubAgent)
+	if err != nil {
+		return Model{}, nil, fmt.Errorf("session %s is set to %s/%s: %w", sessionID, sess.Model.Provider, sess.Model.Model, err)
+	}
+	return m, &m, nil
+}
+
 // TODO: when we support multiple agents we need to change this so that we pass in the agent specific model config
 func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Model, Model, error) {
 	largeModelCfg, ok := c.cfg.Config().Models[config.SelectedModelTypeLarge]
@@ -1171,79 +1312,31 @@ func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Mo
 		return Model{}, Model{}, errSmallModelNotSelected
 	}
 
-	largeProviderCfg, ok := c.cfg.Config().Providers.Get(largeModelCfg.Provider)
-	if !ok {
+	// Preserve the historical error vocabulary for the two required
+	// slots so onboarding/validation paths that match on them keep
+	// working; buildModel reports the generic form for everything else.
+	if _, ok := c.cfg.Config().Providers.Get(largeModelCfg.Provider); !ok {
 		return Model{}, Model{}, errLargeModelProviderNotConfigured
 	}
-
-	largeProvider, err := c.buildProvider(largeProviderCfg, largeModelCfg, isSubAgent)
-	if err != nil {
-		return Model{}, Model{}, err
-	}
-
-	smallProviderCfg, ok := c.cfg.Config().Providers.Get(smallModelCfg.Provider)
-	if !ok {
+	if _, ok := c.cfg.Config().Providers.Get(smallModelCfg.Provider); !ok {
 		return Model{}, Model{}, errSmallModelProviderNotConfigured
 	}
-
-	smallProvider, err := c.buildProvider(smallProviderCfg, smallModelCfg, true)
-	if err != nil {
-		return Model{}, Model{}, err
-	}
-
-	var largeCatwalkModel *catwalk.Model
-	var smallCatwalkModel *catwalk.Model
-
-	for _, m := range largeProviderCfg.Models {
-		if m.ID == largeModelCfg.Model {
-			largeCatwalkModel = &m
-		}
-	}
-	for _, m := range smallProviderCfg.Models {
-		if m.ID == smallModelCfg.Model {
-			smallCatwalkModel = &m
-		}
-	}
-
-	if largeCatwalkModel == nil {
+	if c.cfg.Config().GetModel(largeModelCfg.Provider, largeModelCfg.Model) == nil {
 		return Model{}, Model{}, errLargeModelNotFound
 	}
-
-	if smallCatwalkModel == nil {
+	if c.cfg.Config().GetModel(smallModelCfg.Provider, smallModelCfg.Model) == nil {
 		return Model{}, Model{}, errSmallModelNotFound
 	}
 
-	largeModelID := largeModelCfg.Model
-	smallModelID := smallModelCfg.Model
-
-	if largeModelCfg.Provider == openrouter.Name && isExactoSupported(largeModelID) {
-		largeModelID += ":exacto"
-	}
-
-	if smallModelCfg.Provider == openrouter.Name && isExactoSupported(smallModelID) {
-		smallModelID += ":exacto"
-	}
-
-	largeModel, err := largeProvider.LanguageModel(ctx, largeModelID)
+	large, err := c.buildModel(ctx, largeModelCfg, isSubAgent)
 	if err != nil {
 		return Model{}, Model{}, err
 	}
-	smallModel, err := smallProvider.LanguageModel(ctx, smallModelID)
+	// The small model is always built on the sub-agent client variant
+	// (titles, summaries, milestones are background work).
+	small, err := c.buildModel(ctx, smallModelCfg, true)
 	if err != nil {
 		return Model{}, Model{}, err
-	}
-
-	large := Model{
-		Model:      largeModel,
-		CatwalkCfg: *largeCatwalkModel,
-		ModelCfg:   largeModelCfg,
-		FlatRate:   largeProviderCfg.FlatRate,
-	}
-	small := Model{
-		Model:      smallModel,
-		CatwalkCfg: *smallCatwalkModel,
-		ModelCfg:   smallModelCfg,
-		FlatRate:   smallProviderCfg.FlatRate,
 	}
 	return large, small, nil
 }
@@ -1577,6 +1670,10 @@ func (c *coordinator) Model() Model {
 }
 
 func (c *coordinator) UpdateModels(ctx context.Context) error {
+	// Drop memoized per-session/per-call models so they are rebuilt
+	// against the freshly loaded config, exactly like large/small.
+	c.modelCache.Reset(map[string]Model{})
+
 	// build the models again so we make sure we get the latest config
 	large, small, err := c.buildAgentModels(ctx, false)
 	if err != nil {
@@ -1751,15 +1848,36 @@ type subAgentParams struct {
 	// SessionSetup is an optional callback invoked after session creation
 	// but before agent execution, for custom session configuration.
 	SessionSetup func(sessionID string)
+	// Model, when non-nil, is the per-call model override for this
+	// sub-agent run. It is stamped on the child session (so the
+	// transcript and any later inspection show what ran) and applied to
+	// the turn without rebuilding the agent. Nil runs the agent's large
+	// model.
+	Model *config.SelectedModel
 }
 
 // runSubAgent runs a sub-agent and handles session management and cost accumulation.
 // It creates a sub-session, runs the agent with the given prompt, and propagates
 // the cost to the parent session.
 func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (fantasy.ToolResponse, error) {
+	// Resolve the per-call model BEFORE creating the child session so a
+	// bad selection never leaves an empty orphan session behind.
+	model := params.Agent.Model()
+	var override *Model
+	if params.Model != nil {
+		built, err := c.buildModel(ctx, *params.Model, true)
+		if err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf(
+				"cannot run sub-agent on model %s/%s: %s", params.Model.Provider, params.Model.Model, err,
+			)), nil
+		}
+		model = built
+		override = &built
+	}
+
 	// Create sub-session
 	agentToolSessionID := c.sessions.CreateAgentToolSessionID(params.AgentMessageID, params.ToolCallID)
-	session, err := c.sessions.CreateTaskSession(ctx, agentToolSessionID, params.SessionID, params.SessionTitle)
+	session, err := c.sessions.CreateTaskSessionWithModel(ctx, agentToolSessionID, params.SessionID, params.SessionTitle, params.Model)
 	if err != nil {
 		return fantasy.ToolResponse{}, fmt.Errorf("create session: %w", err)
 	}
@@ -1769,8 +1887,6 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 		params.SessionSetup(session.ID)
 	}
 
-	// Get model configuration
-	model := params.Agent.Model()
 	maxTokens := model.CatwalkCfg.DefaultMaxTokens
 	if model.ModelCfg.MaxTokens != 0 {
 		maxTokens = model.ModelCfg.MaxTokens
@@ -1785,6 +1901,7 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	run := func() (*fantasy.AgentResult, error) {
 		return params.Agent.Run(ctx, SessionAgentCall{
 			SessionID:        session.ID,
+			Model:            override,
 			Prompt:           params.Prompt,
 			MaxOutputTokens:  maxTokens,
 			ProviderOptions:  getProviderOptions(model, providerCfg),
