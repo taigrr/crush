@@ -20,7 +20,12 @@ func newTestSidebar(t *testing.T) *SessionsSidebar {
 	t.Helper()
 	sty := themes.CharmtonePantera()
 	com := &common.Common{Styles: &sty}
-	return NewSessionsSidebar(com)
+	s := NewSessionsSidebar(com)
+	// Tests assume the workspace-grouped view unless they toggle to inbox
+	// explicitly; pin it here so the constructor's default mode can change
+	// without churning every test.
+	s.mode = sidebarModeSessions
+	return s
 }
 
 func sampleOverviews() []proto.WorkspaceOverview {
@@ -1709,9 +1714,7 @@ func TestSidebar_SectionNavigationInbox(t *testing.T) {
 	t.Parallel()
 	s := newTestSidebar(t)
 	s.SetOverviews(inboxOverviews())
-	if !s.InboxMode() {
-		s.ToggleInbox()
-	}
+	s.ToggleInbox()
 	require.True(t, s.InboxMode())
 
 	// Record the first selectable row index of each section.
