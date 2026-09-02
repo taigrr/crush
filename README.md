@@ -234,6 +234,44 @@ $HOME/.local/share/crush/crush.json
 > - `CRUSH_GLOBAL_CONFIG`
 > - `CRUSH_GLOBAL_DATA`
 
+### Models and roles
+
+The `models` object maps role names to a provider/model pair. Two roles are
+required and one is optional:
+
+- `large`: the default for sessions, `agent` sub-agents, `review` reviewers,
+  and `swarm` workers.
+- `small`: titles, summaries, and other small background work.
+- `orchestrator` (optional): the default for sessions **you** open. When set,
+  a new session in the TUI or from `crush run` runs this model, while
+  everything that session spawns still runs `large`. Use it to talk to a
+  strong model that delegates to cheaper ones.
+
+Any other key defines a named role you can hand to tools:
+
+```json
+{
+  "models": {
+    "orchestrator": { "provider": "anthropic", "model": "claude-fable-5-1", "reasoning_effort": "low" },
+    "large":        { "provider": "openai",    "model": "gpt-5.6-sol(xhigh)" },
+    "small":        { "provider": "openai",    "model": "gpt-5.6-luna(high)" },
+    "scout":        { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" }
+  }
+}
+```
+
+The `agent`, `review`, and `swarm` (with `address: "new"`) tools accept a
+`model` parameter: a role name (`large`, `small`, `orchestrator`, `scout`),
+`provider/model`, or a bare model id. A bare id offered by two providers is
+rejected with a hint to qualify it. `crush_info` prints the roles and the
+full provider/model catalog the agent may delegate to.
+
+A model choice is a property of a session, not of the process. The model
+picker (`ctrl+m`) has a **Session** tab that changes only the open session,
+plus **Large**, **Small**, and **Orchestrator** tabs that change the defaults
+in config. `crush run -m <model>` applies to that run's session only. The
+sidebar always shows the model the open session actually runs.
+
 ### LSPs
 
 Crush can use LSPs for additional context to help inform its decisions, just

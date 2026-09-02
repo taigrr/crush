@@ -603,7 +603,7 @@ Highlights:
 - New `swarm` tool exposed to main agents only. Params: `address`
   (color-animal / with-shorthash / raw UUID / `"new"`), `prompt`,
   optional `mode` (`queue` default, `btw` prefixes `[btw]`),
-  `workspace_id` (for `new`), `title` (for `new`).
+  `workspace_id` / `path` / `title` / `model` (for `new`).
 - Cross-workspace address resolution via `Backend.LookupSwarmAddress`;
   per-workspace DB errors are collected but never mask a real match.
 - Delivered as a `SwarmMessage` content part with structured sender
@@ -623,6 +623,54 @@ Highlights:
   theme file.
 - Identities are backfilled at startup and assigned to new sessions
   via a pubsub subscriber; both writers are idempotent.
+
+---
+
+## Per-Session Models and Roles (orchestrator tier)
+
+A session carries its own optional model selection
+(`sessions.model_provider` / `model_id` / `model_reasoning_effort` /
+`model_think`). Nil means "resolve to the workspace `large` model at
+run time", which is the historical behavior for every existing row.
+
+Highlights:
+
+- `models.orchestrator` (optional) is the default stamp for
+  human-opened sessions (TUI new session, `crush run` without
+  `--session`, the in-process runner). Swarm workers and task/review
+  children are never stamped by default, so the person talks to the
+  orchestrator while everything it spawns runs `large`. No global
+  "tier" and no `spawned` flag: the stamp is the discriminator and it
+  is inspectable per session.
+- Any other `models.<name>` key is a named role (loom-style tier
+  registry). Roles are validated at config load and dropped with a
+  warning when unresolvable; they are never defaulted.
+- `model` parameter on `agent`, `review`, and `swarm address:"new"`:
+  role name, `provider/model`, or bare id (ambiguous bare ids error
+  with a "qualify it as <provider>/<id>" hint). Resolution happens
+  before any session is created, so a bad reference leaves no orphan.
+  `model` on an existing swarm address is rejected.
+- Resolution is per turn in `coordinator.modelForSession`: one
+  coordinator serves every session in a workspace, so the override
+  rides `SessionAgentCall.Model` and survives the busy-session queue.
+  Sub-agent overrides no longer rebuild the agent; built models are
+  memoized per (provider, model, think, sub-agent) and cleared on
+  every `UpdateModels`.
+- `crush run -m` stamps the run's session (and re-stamps a continued
+  one) instead of rewriting the workspace `large` slot; `--small-model`
+  still writes config because titles/summaries have no per-session home.
+- TUI: the model picker gains a **Session** tab (stamps only the open
+  session; picking the current `large` clears the stamp) and an
+  **Orchestrator** tab. The sidebar, reasoning-effort dialog, and
+  thinking toggle all read the session's effective model
+  (`common.EffectiveModel`), so the header never claims `large` while
+  the transcript records something else.
+- `crush_info` prints `[model]` with orchestrator/large/small/roles and
+  a `[model_catalog]` of every `provider/model` the agent may delegate
+  to. The coder prompt gets a `<delegation_models>` paragraph.
+- REST: `POST /v1/workspaces/{id}/sessions` accepts `model`;
+  `POST /v1/workspaces/{id}/sessions/{sid}/model` stamps or clears.
+  `proto.Session.model` carries the stamp to clients.
 
 ---
 

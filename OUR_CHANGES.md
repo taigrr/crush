@@ -158,6 +158,13 @@ Legend: readme = should document in README · uniq = unique to us
 - `cc4d2d8f` harden parallel review fan-out
 - `deedc0bb` review slash command
 
+## Per-session models + orchestrator role + tool `model` param — uniq, readme
+- `models.orchestrator` default stamp for human-opened sessions; named roles under `models.<name>`
+- `model` param on `agent`/`review`/`swarm new` (role, provider/model, or bare id; ambiguity errors)
+- per-turn resolution in the coordinator, memoized model builds, no agent rebuild per call
+- Session tab + Orchestrator tab in the model picker; sidebar shows the session's effective model
+- `crush run -m` stamps the session instead of rewriting config
+
 ## Notifications — overlaps upstream (terminal-notifier)
 - `79293d97` ssh terminal notifications
 - `9227a9bf` configurable backend + bell support
@@ -267,6 +274,7 @@ Compare implementations; likely keep ours, cherry-pick upstream fixes.
 - **Ephemeral sysadmin mode** toggle
 - **Low-bandwidth / reduced-motion** mode
 - **Review flow** (parallel adversarial reviewers + slash command)
+- **Per-session models**: `orchestrator` role, named roles, `model` param on agent/review/swarm
 - **Bedrock Mantle** (GPT-5.5 via mantle) + Bedrock Europe
 - De-charmed: taigrr module path, no PostHog telemetry, own update checker
 
