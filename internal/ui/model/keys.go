@@ -80,6 +80,8 @@ type KeyMap struct {
 		Favorite      key.Binding
 		Inbox         key.Binding
 		Search        key.Binding
+		PrevSection   key.Binding
+		NextSection   key.Binding
 	}
 
 	// Global key maps
@@ -396,6 +398,16 @@ func DefaultKeyMap() KeyMap {
 	km.SessionSidebar.Search = key.NewBinding(
 		key.WithKeys("/"),
 		key.WithHelp("/", "filter"),
+	)
+	// Jump between sections (workspaces in grouped mode, status sections in
+	// inbox mode). Mirrors vim's paragraph motions.
+	km.SessionSidebar.PrevSection = key.NewBinding(
+		key.WithKeys("{"),
+		key.WithHelp("{", "prev section"),
+	)
+	km.SessionSidebar.NextSection = key.NewBinding(
+		key.WithKeys("}"),
+		key.WithHelp("}", "next section"),
 	)
 
 	return km

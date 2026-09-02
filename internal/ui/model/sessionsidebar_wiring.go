@@ -117,6 +117,12 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case key.Matches(msg, m.keyMap.Chat.End):
 		m.leftSidebar.MoveBottom()
 		return m.scheduleSidebarPreview(), true
+	case key.Matches(msg, m.keyMap.SessionSidebar.PrevSection):
+		m.leftSidebar.MovePrevSection()
+		return m.scheduleSidebarPreview(), true
+	case key.Matches(msg, m.keyMap.SessionSidebar.NextSection):
+		m.leftSidebar.MoveNextSection()
+		return m.scheduleSidebarPreview(), true
 	case key.Matches(msg, m.keyMap.SessionSidebar.VisualSelect):
 		m.leftSidebar.ToggleVisualMode()
 		return nil, true

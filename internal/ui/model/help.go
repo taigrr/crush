@@ -124,6 +124,8 @@ func (m *UI) FullHelp() [][]key.Binding {
 				k.Chat.UpDown,
 				k.Chat.Home,
 				k.Chat.End,
+				k.SessionSidebar.PrevSection,
+				k.SessionSidebar.NextSection,
 			},
 			[]key.Binding{
 				k.SessionSidebar.VisualSelect,

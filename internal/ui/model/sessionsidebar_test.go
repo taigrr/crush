@@ -1702,3 +1702,53 @@ func TestResizeLeftSidebar_WidenNeverShrinks(t *testing.T) {
 		"widen must not shrink the sidebar below the available room")
 	require.LessOrEqual(t, u.leftSidebarWidth, maxLeftSidebarWidth)
 }
+
+// TestSidebar_SectionNavigationInbox verifies { and } jump between status
+// sections in inbox mode, landing on the first selectable row of each.
+func TestSidebar_SectionNavigationInbox(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews(inboxOverviews())
+	if !s.InboxMode() {
+		s.ToggleInbox()
+	}
+	require.True(t, s.InboxMode())
+
+	// Record the first selectable row index of each section.
+	var sectionFirsts []int
+	for i, r := range s.rows {
+		if r.kind == sidebarRowSection {
+			if j := s.firstSelectableAfter(i); j >= 0 {
+				sectionFirsts = append(sectionFirsts, j)
+			}
+		}
+	}
+	require.GreaterOrEqual(t, len(sectionFirsts), 2, "need multiple sections")
+
+	s.MoveTop()
+	require.Equal(t, sectionFirsts[0], s.cursor)
+
+	// } advances through each subsequent section.
+	for i := 1; i < len(sectionFirsts); i++ {
+		s.MoveNextSection()
+		require.Equal(t, sectionFirsts[i], s.cursor, "next section %d", i)
+	}
+	// At the last section, } does nothing.
+	last := s.cursor
+	s.MoveNextSection()
+	require.Equal(t, last, s.cursor)
+
+	// { walks back to the start of each previous section.
+	for i := len(sectionFirsts) - 2; i >= 0; i-- {
+		s.MovePrevSection()
+		require.Equal(t, sectionFirsts[i], s.cursor, "prev section %d", i)
+	}
+
+	// { from a mid-section cursor first snaps to the section start.
+	s.MoveNextSection()
+	start := s.cursor
+	s.MoveDown()
+	require.NotEqual(t, start, s.cursor, "expected a second row in the section")
+	s.MovePrevSection()
+	require.Equal(t, start, s.cursor, "prev jumps to current section start first")
+}

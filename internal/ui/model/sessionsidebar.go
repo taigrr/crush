@@ -173,7 +173,7 @@ func NewSessionsSidebar(com *common.Common) *SessionsSidebar {
 	if com != nil && com.Styles != nil {
 		ti.SetStyles(com.Styles.TextInput)
 	}
-	return &SessionsSidebar{com: com, selected: map[string]bool{}, searchInput: ti}
+	return &SessionsSidebar{com: com, mode: sidebarModeInbox, selected: map[string]bool{}, searchInput: ti}
 }
 
 // EnterSearch activates the "/" text filter: focuses the input, clears any
@@ -717,6 +717,90 @@ func (s *SessionsSidebar) MoveBottom() {
 	for i := range slices.Backward(s.rows) {
 		if s.selectableRow(i) {
 			s.cursor = i
+			s.ensureVisible()
+			s.extendVisual()
+			return
+		}
+	}
+}
+
+// isSectionHeader reports whether the row at i is a section boundary: a
+// workspace header (grouped mode) or a status-section header (inbox mode).
+func (s *SessionsSidebar) isSectionHeader(i int) bool {
+	if i < 0 || i >= len(s.rows) {
+		return false
+	}
+	k := s.rows[i].kind
+	return k == sidebarRowWorkspace || k == sidebarRowSection
+}
+
+// firstSelectableAfter returns the index of the first selectable row after
+// header index h, or -1 if none.
+func (s *SessionsSidebar) firstSelectableAfter(h int) int {
+	for j := h + 1; j < len(s.rows); j++ {
+		if s.selectableRow(j) {
+			return j
+		}
+	}
+	return -1
+}
+
+// MoveNextSection jumps the cursor to the first selectable row of the next
+// section (workspace in grouped mode, status section in inbox mode).
+func (s *SessionsSidebar) MoveNextSection() {
+	if len(s.rows) == 0 {
+		return
+	}
+	for i := s.cursor + 1; i < len(s.rows); i++ {
+		if !s.isSectionHeader(i) {
+			continue
+		}
+		if j := s.firstSelectableAfter(i); j >= 0 {
+			s.cursor = j
+			s.ensureVisible()
+			s.extendVisual()
+			return
+		}
+	}
+}
+
+// MovePrevSection jumps the cursor to the first selectable row of the current
+// section; if already there, it jumps to the first selectable row of the
+// previous section.
+func (s *SessionsSidebar) MovePrevSection() {
+	if len(s.rows) == 0 {
+		return
+	}
+	// Find the header of the current section.
+	curHeader := -1
+	for i := s.cursor - 1; i >= 0; i-- {
+		if s.isSectionHeader(i) {
+			curHeader = i
+			break
+		}
+	}
+	firstOfCur := -1
+	if curHeader >= 0 {
+		firstOfCur = s.firstSelectableAfter(curHeader)
+	}
+	if curHeader >= 0 && s.cursor > firstOfCur {
+		s.cursor = firstOfCur
+		s.ensureVisible()
+		s.extendVisual()
+		return
+	}
+	// Already at the section start (or no current header): go to the
+	// previous section.
+	start := curHeader
+	if start < 0 {
+		start = s.cursor
+	}
+	for i := start - 1; i >= 0; i-- {
+		if !s.isSectionHeader(i) {
+			continue
+		}
+		if j := s.firstSelectableAfter(i); j >= 0 {
+			s.cursor = j
 			s.ensureVisible()
 			s.extendVisual()
 			return
