@@ -57,7 +57,26 @@ func (s SelectedModelType) String() string {
 const (
 	SelectedModelTypeLarge SelectedModelType = "large"
 	SelectedModelTypeSmall SelectedModelType = "small"
+	// SelectedModelTypeOrchestrator is an optional default for
+	// human-opened sessions. When configured, a session created by a
+	// person (TUI "new session", `crush run` without --session) is
+	// stamped with this selection at creation time, so the person talks
+	// to the orchestrator while everything the session spawns (swarm
+	// workers, task/review sub-agents) resolves to "large". It is a
+	// per-session stamp, not a global tier: a session's model is a
+	// property of that session row and can be changed independently.
+	SelectedModelTypeOrchestrator SelectedModelType = "orchestrator"
 )
+
+// IsBuiltinModelType reports whether t is one of the fixed model slots
+// (large, small, orchestrator) as opposed to a user-defined role name.
+func IsBuiltinModelType(t SelectedModelType) bool {
+	switch t {
+	case SelectedModelTypeLarge, SelectedModelTypeSmall, SelectedModelTypeOrchestrator:
+		return true
+	}
+	return false
+}
 
 const (
 	AgentCoder    string = "coder"
@@ -739,8 +758,13 @@ func (h *HookConfig) TimeoutDuration() time.Duration {
 type Config struct {
 	Schema string `json:"$schema,omitempty"`
 
-	// We currently only support large/small as values here.
-	Models map[SelectedModelType]SelectedModel `json:"models,omitempty" jsonschema:"description=Model configurations for different model types,example={\"large\":{\"model\":\"gpt-4o\",\"provider\":\"openai\"}}"`
+	// Keys are "large", "small", the optional "orchestrator", and any
+	// user-defined role names (see ModelRoles). Role names are the
+	// vocabulary the `model` parameter on the agent/review/swarm tools
+	// accepts, so an operator can map e.g. "scout" to a cheap model on
+	// one machine and a different one on another without prompts
+	// changing.
+	Models map[SelectedModelType]SelectedModel `json:"models,omitempty" jsonschema:"description=Model configurations by role. Built-in roles: large (default for sessions and sub-agents), small (titles/summaries), orchestrator (optional default for human-opened sessions). Any other key defines a named role usable as the model parameter on the agent/review/swarm tools,example={\"large\":{\"model\":\"gpt-4o\",\"provider\":\"openai\"}}"`
 
 	// Recently used models stored in the data directory config.
 	RecentModels map[SelectedModelType][]SelectedModel `json:"recent_models,omitempty" jsonschema:"-"`
@@ -824,6 +848,37 @@ func (c *Config) GetModelByType(modelType SelectedModelType) *catwalk.Model {
 		return nil
 	}
 	return c.GetModel(model.Provider, model.Model)
+}
+
+// OrchestratorModel returns the configured orchestrator selection when it
+// is set and resolvable against the current providers. ok is false when
+// no orchestrator is configured or its provider/model is unknown, in
+// which case human-opened sessions simply run "large".
+func (c *Config) OrchestratorModel() (SelectedModel, bool) {
+	sel, ok := c.Models[SelectedModelTypeOrchestrator]
+	if !ok || sel.Model == "" || sel.Provider == "" {
+		return SelectedModel{}, false
+	}
+	if c.GetModel(sel.Provider, sel.Model) == nil {
+		return SelectedModel{}, false
+	}
+	return sel, true
+}
+
+// ModelRoles returns the user-defined role names configured under
+// "models", sorted, excluding the built-in large/small/orchestrator
+// slots. These are the names the tools' `model` parameter accepts in
+// addition to provider/model references.
+func (c *Config) ModelRoles() []SelectedModelType {
+	var roles []SelectedModelType
+	for t := range c.Models {
+		if IsBuiltinModelType(t) {
+			continue
+		}
+		roles = append(roles, t)
+	}
+	slices.Sort(roles)
+	return roles
 }
 
 func (c *Config) LargeModel() *catwalk.Model {
