@@ -55,6 +55,13 @@ tasks:
     generates:
       - crush{{exeExt}}
 
+  build:full:
+    desc: Build with all optional features (Google providers, pprof, Swagger UI)
+    vars:
+      LDFLAGS: '{{if .VERSION}}-ldflags="-X github.com/taigrr/crush/internal/version.Version={{.VERSION}}"{{end}}'
+    cmds:
+      - "go build -v -tags fantasy_google,pprof,swaggerui {{.LDFLAGS}} ."
+
   run:
     desc: Run build
     cmds:
@@ -83,6 +90,7 @@ tasks:
     desc: Run tests
     cmds:
       - go test -race -failfast ./... {{.CLI_ARGS}}
+      - go test -race -failfast -tags fantasy_google ./internal/config ./internal/agent ./internal/message {{.CLI_ARGS}}
 
   test:record:
     desc: Run tests and record all VCR cassettes again
@@ -111,7 +119,7 @@ tasks:
     env:
       CRUSH_PROFILE: true
     cmds:
-      - go run .
+      - go run -tags pprof,fantasy_google .
 
   install:
     desc: Install the application
@@ -199,13 +207,12 @@ tasks:
   swag:
     desc: Generate OpenAPI spec from swag annotations
     cmds:
-      - go run github.com/swaggo/swag/cmd/swag@v1.16.6 init --generalInfo main.go --dir . --output internal/swagger --packageName swagger --parseDependency --parseInternal --parseDepth 5
+      - go run github.com/swaggo/swag/cmd/swag@v1.16.6 init --generalInfo main.go --dir . --output internal/swagger --packageName swagger --outputTypes json,yaml --parseDependency --parseInternal --parseDepth 5
     sources:
       - internal/server/*.go
       - internal/proto/*.go
       - main.go
     generates:
-      - internal/swagger/docs.go
       - internal/swagger/swagger.json
       - internal/swagger/swagger.yaml
 

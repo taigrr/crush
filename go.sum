@@ -46,6 +46,8 @@ github.com/ProtonMail/go-crypto v1.4.1/go.mod h1:e1OaTyu5SYVrO9gKOEhTc+5UcXtTUa+
 github.com/PuerkitoBio/goquery v1.9.2/go.mod h1:GHPCaP0ODyyxqcNoFGYlAprUFH81NuRPd0GX3Zu2Mvk=
 github.com/PuerkitoBio/goquery v1.13.0 h1:mqHbjD7Jmnul4DTR24LKTjo1uUmHUh072kteGV+xpFM=
 github.com/PuerkitoBio/goquery v1.13.0/go.mod h1:Hip5mdBL8K2wEGKJdr27sRaNwIdDajmCwB/ExUPwW+g=
+github.com/aldouus/fantasy v0.0.0-20260902233827-4d646a0c0b99 h1:DYioBodZx2sM1ImHOItdweS8zDik22IKGiQk3y2NMp4=
+github.com/aldouus/fantasy v0.0.0-20260902233827-4d646a0c0b99/go.mod h1:U7XGOFwsVdLD3f9c95MJrjX+OE6hisNFkyR1krqnH2M=
 github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=
 github.com/alecthomas/assert/v2 v2.11.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/chroma/v2 v2.27.0 h1:FodwmyOBgJULFYmDqibcp9pvfDLWdtPRh9v/r5BXYZs=
@@ -440,8 +442,6 @@ github.com/taigrr/catwalk v0.51.5-fork h1:LfXi8zzsW4C7SBEL251bprUesqTxqBb+GunpA5
 github.com/taigrr/catwalk v0.51.5-fork/go.mod h1:X1axRtrwz46qnkRkyXpj0obhCASciprQfgbaB4CR8Eo=
 github.com/taigrr/colorhash v0.8.0 h1:AlPmt+NXJTxOoLl+1J6xC4dslesBvHX5rR8Zoya6los=
 github.com/taigrr/colorhash v0.8.0/go.mod h1:35hegIvmQlkp+MLhVfoMZ2WQMVyn2hbxNU4LlsI/A4U=
-github.com/taigrr/fantasy v0.27.0-fork h1:B4jJgjSap0GmSbIkmKVy9ZIARqq304dZMqS1xbIalOQ=
-github.com/taigrr/fantasy v0.27.0-fork/go.mod h1:BElsLxPHEz7U1K1UTf9DXeJJLUW8UJy/RbKnS5+cm3k=
 github.com/taigrr/simplecolorpalettes v0.10.1 h1:RzMF1P6uWKZmdDAZFliFquzTrjj/JprXmqKAGVTunew=
 github.com/taigrr/simplecolorpalettes v0.10.1/go.mod h1:BY4QmT0/721SP4Ae/7dIh7S2+lTAiXKWJmGN9P+Ng2o=
 github.com/tidwall/gjson v1.14.2/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=
