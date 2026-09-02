@@ -63,7 +63,7 @@ require (
 	github.com/swaggo/http-swagger/v2 v2.0.2
 	github.com/swaggo/swag v1.16.6
 	github.com/taigrr/animals v0.0.3
-	github.com/taigrr/catwalk v0.51.4-fork
+	github.com/taigrr/catwalk v0.51.5-fork
 	github.com/taigrr/colorhash v0.8.0
 	github.com/taigrr/fantasy v0.27.0-fork
 	github.com/taigrr/simplecolorpalettes v0.10.1
