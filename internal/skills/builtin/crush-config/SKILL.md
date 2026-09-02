@@ -213,6 +213,29 @@ reviewed.
 
 Other options: `context_paths`, `progress`, `notification_style` (`auto`, `native`, `osc`, `bell`, `disabled`; supersedes the deprecated `disable_notifications`), `disable_auto_summarize`, `disable_metrics`, `disable_provider_auto_update`, `disable_default_providers`, `data_directory`, `initialize_as`.
 
+## End-of-turn sound
+
+The server plays a short chime when an agent turn finishes. It is on by
+default. Configure it under `options.sound`:
+
+```json
+{
+  "options": {
+    "sound": {
+      "disabled": false,
+      "path": "~/.config/crush/done.wav"
+    }
+  }
+}
+```
+
+- `disabled`: set to `true` to turn the sound off completely.
+- `path`: optional custom WAV or MP3 file. When empty, a bundled chime
+  plays.
+
+If the user has configured a `Stop` hook, the default sound defers to
+that hook and does not play.
+
 ## Sessions sidebar width
 
 `options.tui.sessions_sidebar_width` sets the width in columns of the left

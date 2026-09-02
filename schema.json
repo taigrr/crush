@@ -639,6 +639,10 @@
           },
           "type": "array",
           "description": "List of skill names to disable and hide from the agent"
+        },
+        "sound": {
+          "$ref": "#/$defs/SoundOptions",
+          "description": "End-of-turn notification sound settings played by the server"
         }
       },
       "additionalProperties": false,
@@ -858,6 +862,24 @@
           },
           "type": "array",
           "description": "Glob patterns to exclude from snapshots (e.g. node_modules)"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SoundOptions": {
+      "properties": {
+        "disabled": {
+          "type": "boolean",
+          "description": "Disable the end-of-turn notification sound",
+          "default": false
+        },
+        "path": {
+          "type": "string",
+          "description": "Path to a custom sound file (WAV or MP3) to play at end of turn. When empty a bundled chime is used.",
+          "examples": [
+            "~/.config/crush/done.wav"
+          ]
         }
       },
       "additionalProperties": false,

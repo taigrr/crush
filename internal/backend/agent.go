@@ -10,10 +10,12 @@ import (
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/hooks"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/shell"
+	"github.com/taigrr/crush/internal/sound"
 )
 
 // SendMessage validates and accepts a prompt for the workspace's agent,
@@ -147,7 +149,14 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 	}
 
 	_, err := ws.AgentCoordinator.RunAccepted(ctx, accept, msg.SessionID, msg.Prompt, proto.AttachmentsToMessage(msg.Attachments)...)
-	if err == nil || errors.Is(err, context.Canceled) {
+	if err == nil {
+		// Genuine end of turn: play the notification sound. Skipped
+		// on cancellation and error below so the chime signals only a
+		// successfully completed turn. Best-effort and asynchronous.
+		b.playEndOfTurnSound(ws)
+		return
+	}
+	if errors.Is(err, context.Canceled) {
 		return
 	}
 
@@ -178,6 +187,29 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 			Error:     err.Error(),
 		})
 	}
+}
+
+// playEndOfTurnSound plays the bundled (or user-configured) end-of-turn
+// notification sound when a run finishes. It is best-effort and returns
+// immediately, delegating playback to a background goroutine. It is a
+// no-op when the workspace config disables sound, or when the user has
+// configured their own Stop hook — the hook then owns the end-of-turn
+// notification and the default sound defers to it.
+func (b *Backend) playEndOfTurnSound(ws *Workspace) {
+	if ws == nil || ws.Cfg == nil {
+		return
+	}
+	cfg := ws.Cfg.Config()
+	if cfg == nil {
+		return
+	}
+	if !cfg.Options.SoundEnabled() {
+		return
+	}
+	if len(cfg.Hooks[hooks.EventStop]) > 0 {
+		return
+	}
+	sound.PlayAsync(cfg.Options.SoundPath())
 }
 
 // GetAgentInfo returns the agent's model and busy status.
