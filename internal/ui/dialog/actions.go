@@ -78,6 +78,9 @@ type ActionSelectModel struct {
 	Model          config.SelectedModel
 	ModelType      config.SelectedModelType
 	ReAuthenticate bool
+	// SessionID, when set, means the selection applies to that session
+	// only (stamped on the session row) and ModelType is ignored.
+	SessionID string
 }
 
 // Messages for commands

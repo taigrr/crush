@@ -106,7 +106,7 @@ func (m *UI) openModelsDialog() tea.Cmd {
 	}
 
 	isOnboarding := m.state == uiOnboarding
-	modelsDialog, err := dialog.NewModels(m.com, isOnboarding)
+	modelsDialog, err := dialog.NewModels(m.com, isOnboarding, m.session)
 	if err != nil {
 		return util.ReportError(err)
 	}
@@ -124,15 +124,11 @@ func (m *UI) openCommandsDialog() tea.Cmd {
 		return nil
 	}
 
-	var sessionID string
 	hasSession := m.session != nil
-	if hasSession {
-		sessionID = m.session.ID
-	}
 	hasTodos := hasSession && hasIncompleteTodos(m.session.Todos)
 	hasQueue := m.promptQueue > 0
 
-	commands, err := dialog.NewCommands(m.com, sessionID, hasSession, hasTodos, hasQueue, m.customCommands, m.mcpPrompts)
+	commands, err := dialog.NewCommands(m.com, m.session, hasTodos, hasQueue, m.customCommands, m.mcpPrompts)
 	if err != nil {
 		return util.ReportError(err)
 	}
@@ -149,7 +145,7 @@ func (m *UI) openReasoningDialog() tea.Cmd {
 		return nil
 	}
 
-	reasoningDialog, err := dialog.NewReasoning(m.com)
+	reasoningDialog, err := dialog.NewReasoning(m.com, m.session)
 	if err != nil {
 		return util.ReportError(err)
 	}

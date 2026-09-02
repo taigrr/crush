@@ -9,7 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/sahilm/fuzzy"
-	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
@@ -24,10 +24,11 @@ const (
 
 // Reasoning represents a dialog for selecting reasoning effort.
 type Reasoning struct {
-	com   *common.Common
-	help  help.Model
-	list  *list.FilterableList
-	input textinput.Model
+	com     *common.Common
+	session *session.Session
+	help    help.Model
+	list    *list.FilterableList
+	input   textinput.Model
 
 	keyMap struct {
 		Select   key.Binding
@@ -61,9 +62,10 @@ var (
 	_ ListItem = (*ReasoningItem)(nil)
 )
 
-// NewReasoning creates a new reasoning effort dialog.
-func NewReasoning(com *common.Common) (*Reasoning, error) {
-	r := &Reasoning{com: com}
+// NewReasoning creates a new reasoning effort dialog for the effective
+// model of sess (nil means the workspace's large model).
+func NewReasoning(com *common.Common, sess *session.Session) (*Reasoning, error) {
+	r := &Reasoning{com: com, session: sess}
 
 	help := help.New()
 	help.Styles = com.Styles.DialogHelpStyles()
@@ -226,13 +228,10 @@ func (r *Reasoning) FullHelp() [][]key.Binding {
 
 func (r *Reasoning) setReasoningItems() error {
 	cfg := r.com.Config()
-	agentCfg, ok := cfg.Agents[config.AgentCoder]
-	if !ok {
-		return errors.New("agent configuration not found")
+	if cfg == nil {
+		return errors.New("configuration not found")
 	}
-
-	selectedModel := cfg.Models[agentCfg.Model]
-	model := cfg.GetModelByType(agentCfg.Model)
+	selectedModel, model, _ := common.EffectiveModel(cfg, r.session)
 	if model == nil {
 		return errors.New("model configuration not found")
 	}

@@ -11,7 +11,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"github.com/taigrr/crush/internal/ui/util"
@@ -142,4 +144,30 @@ func CopyToClipboardWithCallback(text, successMessage string, callback tea.Cmd) 
 		callback,
 		util.ReportInfo(successMessage),
 	)
+}
+
+// EffectiveModel returns the selection and catalog entry a session runs
+// on: its own stamp when it has one and the stamp resolves against the
+// current providers, otherwise the workspace's large selection. This is
+// the single rule the sidebar, the model picker, and the reasoning
+// controls share so they never disagree about what a session runs.
+// The bool reports whether the result came from a session stamp.
+func EffectiveModel(cfg *config.Config, sess *session.Session) (config.SelectedModel, *catwalk.Model, bool) {
+	if cfg == nil {
+		return config.SelectedModel{}, nil, false
+	}
+	if sess != nil && sess.Model != nil {
+		if m := cfg.GetModel(sess.Model.Provider, sess.Model.Model); m != nil {
+			sel := *sess.Model
+			if sel.MaxTokens == 0 {
+				sel.MaxTokens = m.DefaultMaxTokens
+			}
+			if sel.ReasoningEffort == "" {
+				sel.ReasoningEffort = m.DefaultReasoningEffort
+			}
+			return sel, m, true
+		}
+	}
+	sel := cfg.Models[config.SelectedModelTypeLarge]
+	return sel, cfg.GetModel(sel.Provider, sel.Model), false
 }

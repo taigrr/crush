@@ -145,6 +145,10 @@ type Workspace interface {
 	// MarkSessionSeenInWorkspace. When workspaceID is empty the workspace
 	// is resolved by root.
 	SetSessionFavoriteInWorkspace(ctx context.Context, workspaceID, root, sessionID string, favorite bool) error
+	// SetSessionModel stamps (non-nil) or clears (nil) a session's own
+	// model selection. The session then runs that model instead of the
+	// workspace's large model; sessions it spawns are unaffected.
+	SetSessionModel(ctx context.Context, sessionID string, model *config.SelectedModel) error
 	CreateAgentToolSessionID(messageID, toolCallID string) string
 	ParseAgentToolSessionID(sessionID string) (messageID string, toolCallID string, ok bool)
 	// SetCurrentSession reports the session this client is currently

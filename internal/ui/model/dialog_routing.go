@@ -280,6 +280,21 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 				return util.ReportError(errors.New("configuration not found"))()
 			}
 
+			// A stamped session owns its own tuning: toggle on the
+			// stamp, not on the Large default the session is not using.
+			if sess := m.sidebarSession(); sess != nil && sess.Model != nil {
+				stamp := *sess.Model
+				stamp.Think = !stamp.Think
+				if err := m.com.Workspace.SetSessionModel(context.Background(), sess.ID, &stamp); err != nil {
+					return util.ReportError(err)()
+				}
+				status := "disabled"
+				if stamp.Think {
+					status = "enabled"
+				}
+				return util.NewInfoMsg("Thinking mode " + status + " for this session")
+			}
+
 			agentCfg, ok := cfg.Agents[config.AgentCoder]
 			if !ok {
 				return util.ReportError(errors.New("agent configuration not found"))()
@@ -438,6 +453,22 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		cfg := m.com.Config()
 		if cfg == nil {
 			cmds = append(cmds, util.ReportError(errors.New("configuration not found")))
+			break
+		}
+
+		// A stamped session owns its own effort; write it to the stamp
+		// and skip the config path entirely.
+		if sess := m.sidebarSession(); sess != nil && sess.Model != nil {
+			stamp := *sess.Model
+			stamp.ReasoningEffort = msg.Effort
+			sessID := sess.ID
+			cmds = append(cmds, func() tea.Msg {
+				if err := m.com.Workspace.SetSessionModel(context.Background(), sessID, &stamp); err != nil {
+					return util.ReportError(err)()
+				}
+				return util.NewInfoMsg("Reasoning effort set to " + msg.Effort + " for this session")
+			})
+			m.dialog.CloseDialog(dialog.ReasoningID)
 			break
 		}
 

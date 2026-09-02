@@ -115,6 +115,14 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 
+	// Session-scoped selection: stamp the session row and stop. No
+	// config is written, so nothing else (new sessions, workers,
+	// sub-agents) changes. The Updated event re-renders the sidebar;
+	// the coordinator resolves the stamp on the next turn.
+	if msg.SessionID != "" {
+		return m.applySessionModel(msg)
+	}
+
 	if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, msg.ModelType, msg.Model); err != nil {
 		cmds = append(cmds, util.ReportError(err))
 	} else {
@@ -143,14 +151,11 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 			return util.ReportError(err)
 		}
 
-		var (
-			modelType = stringext.Capitalize(string(msg.ModelType))
-			modelName = msg.Model.Model
-		)
-		if catwalkModel := cfg.GetModel(msg.Model.Provider, msg.Model.Model); catwalkModel != nil && catwalkModel.Name != "" {
-			modelName = catwalkModel.Name
+		modelType := stringext.Capitalize(string(msg.ModelType))
+		modelMsg := fmt.Sprintf("%s model changed to %s", modelType, m.displayModelName(msg.Model))
+		if msg.ModelType == config.SelectedModelTypeOrchestrator {
+			modelMsg += " (applies to sessions you open from now on)"
 		}
-		modelMsg := fmt.Sprintf("%s model changed to %s", modelType, modelName)
 
 		return util.NewInfoMsg(modelMsg)
 	})
@@ -196,4 +201,38 @@ func (m *UI) openAuthenticationDialog(provider catwalk.Provider, model config.Se
 
 	m.dialog.OpenDialogWithGrace(dlg)
 	return cmd
+}
+
+// displayModelName prefers the catalog's display name for a selection.
+func (m *UI) displayModelName(sel config.SelectedModel) string {
+	if cfg := m.com.Config(); cfg != nil {
+		if cw := cfg.GetModel(sel.Provider, sel.Model); cw != nil && cw.Name != "" {
+			return cw.Name
+		}
+	}
+	return sel.Model
+}
+
+// applySessionModel stamps the selection on the session named by msg.
+// Picking the workspace's large model clears the stamp instead of
+// pinning it, so the session follows the Large default again.
+func (m *UI) applySessionModel(msg dialog.ActionSelectModel) tea.Cmd {
+	cfg := m.com.Config()
+	sel := msg.Model
+	stamp := &sel
+	if large, ok := cfg.Models[config.SelectedModelTypeLarge]; ok &&
+		large.Provider == sel.Provider && large.Model == sel.Model {
+		stamp = nil
+	}
+	m.dialog.CloseDialog(dialog.ModelsID)
+	name := m.displayModelName(sel)
+	return func() tea.Msg {
+		if err := m.com.Workspace.SetSessionModel(context.Background(), msg.SessionID, stamp); err != nil {
+			return util.ReportError(err)()
+		}
+		if stamp == nil {
+			return util.NewInfoMsg("This session now follows the Large model (" + name + ")")
+		}
+		return util.NewInfoMsg("This session now runs " + name)
+	}
 }

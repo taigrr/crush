@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
+	"strings"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
@@ -13,6 +14,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/util"
 )
@@ -21,29 +23,48 @@ import (
 type ModelType int
 
 const (
-	ModelTypeLarge ModelType = iota
+	// ModelTypeSession targets the OPEN session only: picking a model
+	// stamps that session (it and only it runs the new model) without
+	// touching any config. Listed first because it is what a person
+	// switching models mid-conversation almost always means. Absent
+	// when the dialog is opened with no session.
+	ModelTypeSession ModelType = iota
+	ModelTypeLarge
 	ModelTypeSmall
+	// ModelTypeOrchestrator sets the default for NEW human-opened
+	// sessions (persisted to config). Spawned workers and sub-agents
+	// stay on Large.
+	ModelTypeOrchestrator
 )
 
 // String returns the string representation of the [ModelType].
 func (mt ModelType) String() string {
+	// Kept short: four radios plus the dialog title must fit in the
+	// 73-column dialog without wrapping.
 	switch mt {
+	case ModelTypeSession:
+		return "Session"
 	case ModelTypeLarge:
-		return "Large Task"
+		return "Large"
 	case ModelTypeSmall:
-		return "Small Task"
+		return "Small"
+	case ModelTypeOrchestrator:
+		return "Orchestrator"
 	default:
 		return "Unknown"
 	}
 }
 
-// Config returns the corresponding config model type.
+// Config returns the corresponding config model type. ModelTypeSession
+// has no config slot; it is applied to the session row instead.
 func (mt ModelType) Config() config.SelectedModelType {
 	switch mt {
 	case ModelTypeLarge:
 		return config.SelectedModelTypeLarge
 	case ModelTypeSmall:
 		return config.SelectedModelTypeSmall
+	case ModelTypeOrchestrator:
+		return config.SelectedModelTypeOrchestrator
 	default:
 		return ""
 	}
@@ -52,19 +73,25 @@ func (mt ModelType) Config() config.SelectedModelType {
 // Placeholder returns the input placeholder for the model type.
 func (mt ModelType) Placeholder() string {
 	switch mt {
+	case ModelTypeSession:
+		return sessionModelInputPlaceholder
 	case ModelTypeLarge:
 		return largeModelInputPlaceholder
 	case ModelTypeSmall:
 		return smallModelInputPlaceholder
+	case ModelTypeOrchestrator:
+		return orchestratorModelInputPlaceholder
 	default:
 		return ""
 	}
 }
 
 const (
-	onboardingModelInputPlaceholder = "Find your fave"
-	largeModelInputPlaceholder      = "Choose a model for large, complex tasks"
-	smallModelInputPlaceholder      = "Choose a model for small, simple tasks"
+	onboardingModelInputPlaceholder   = "Find your fave"
+	sessionModelInputPlaceholder      = "Choose a model for this session only"
+	largeModelInputPlaceholder        = "Choose the default model for sessions and sub-agents"
+	smallModelInputPlaceholder        = "Choose a model for small, simple tasks"
+	orchestratorModelInputPlaceholder = "Choose the default model for new sessions you open"
 )
 
 // ModelsID is the identifier for the model selection dialog.
@@ -77,7 +104,14 @@ type Models struct {
 	com          *common.Common
 	isOnboarding bool
 
+	// session is the session the dialog was opened from, or nil on the
+	// landing screen. It enables the "This Session" tab and seeds its
+	// current selection from the session's effective model.
+	session *session.Session
+
 	modelType ModelType
+	// tabs is the Tab cycle order for this dialog instance.
+	tabs      []ModelType
 	providers []catwalk.Provider
 
 	keyMap struct {
@@ -96,12 +130,22 @@ type Models struct {
 
 var _ Dialog = (*Models)(nil)
 
-// NewModels creates a new Models dialog.
-func NewModels(com *common.Common, isOnboarding bool) (*Models, error) {
+// NewModels creates a new Models dialog. sess is the open session (nil
+// on the landing screen or during onboarding); when set, the dialog
+// starts on the "This Session" tab.
+func NewModels(com *common.Common, isOnboarding bool, sess *session.Session) (*Models, error) {
 	t := com.Styles
 	m := &Models{}
 	m.com = com
 	m.isOnboarding = isOnboarding
+	m.session = sess
+	if sess != nil && !isOnboarding {
+		m.tabs = []ModelType{ModelTypeSession, ModelTypeLarge, ModelTypeSmall, ModelTypeOrchestrator}
+		m.modelType = ModelTypeSession
+	} else {
+		m.tabs = []ModelType{ModelTypeLarge, ModelTypeSmall, ModelTypeOrchestrator}
+		m.modelType = ModelTypeLarge
+	}
 
 	help := help.New()
 	help.Styles = t.DialogHelpStyles()
@@ -197,21 +241,21 @@ func (m *Models) HandleMsg(msg tea.Msg) Action {
 
 			isEdit := key.Matches(msg, m.keyMap.Edit)
 
-			return ActionSelectModel{
+			action := ActionSelectModel{
 				Provider:       modelItem.prov,
 				Model:          modelItem.SelectedModel(),
 				ModelType:      modelItem.SelectedModelType(),
 				ReAuthenticate: isEdit,
 			}
+			if m.modelType == ModelTypeSession && m.session != nil {
+				action.SessionID = m.session.ID
+			}
+			return action
 		case key.Matches(msg, m.keyMap.Tab):
 			if m.isOnboarding {
 				break
 			}
-			if m.modelType == ModelTypeLarge {
-				m.modelType = ModelTypeSmall
-			} else {
-				m.modelType = ModelTypeLarge
-			}
+			m.modelType = m.nextTab(key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))))
 			if err := m.setProviderItems(); err != nil {
 				return util.ReportError(err)
 			}
@@ -234,24 +278,51 @@ func (m *Models) Cursor() *tea.Cursor {
 	return InputCursor(m.com.Styles, m.input.Cursor())
 }
 
+// nextTab returns the tab after (or before, when reverse) the current one
+// in this dialog's cycle.
+func (m *Models) nextTab(reverse bool) ModelType {
+	n := len(m.tabs)
+	if n == 0 {
+		return m.modelType
+	}
+	idx := 0
+	for i, t := range m.tabs {
+		if t == m.modelType {
+			idx = i
+			break
+		}
+	}
+	if reverse {
+		return m.tabs[(idx-1+n)%n]
+	}
+	return m.tabs[(idx+1)%n]
+}
+
 // modelTypeRadioView returns the radio view for model type selection.
 func (m *Models) modelTypeRadioView() string {
 	t := m.com.Styles
 	textStyle := t.Radio.Label
-	largeRadioStyle := t.Radio.Off
-	smallRadioStyle := t.Radio.Off
-	if m.modelType == ModelTypeLarge {
-		largeRadioStyle = t.Radio.On
-	} else {
-		smallRadioStyle = t.Radio.On
+	parts := make([]string, 0, len(m.tabs))
+	for _, mt := range m.tabs {
+		style := t.Radio.Off
+		if m.modelType == mt {
+			style = t.Radio.On
+		}
+		parts = append(parts, style.Padding(0, 1).Render()+textStyle.Render(mt.String()))
 	}
+	return strings.Join(parts, "  ")
+}
 
-	largeRadio := largeRadioStyle.Padding(0, 1).Render()
-	smallRadio := smallRadioStyle.Padding(0, 1).Render()
-
-	return fmt.Sprintf("%s%s  %s%s",
-		largeRadio, textStyle.Render(ModelTypeLarge.String()),
-		smallRadio, textStyle.Render(ModelTypeSmall.String()))
+// currentSelection returns the selection the active tab should highlight
+// as "current": the session's effective model on the session tab, else
+// the config slot for that tab.
+func (m *Models) currentSelection() config.SelectedModel {
+	cfg := m.com.Config()
+	if m.modelType == ModelTypeSession {
+		sel, _, _ := common.EffectiveModel(cfg, m.session)
+		return sel
+	}
+	return cfg.Models[m.modelType.Config()]
 }
 
 // Draw implements [Dialog].
@@ -277,6 +348,11 @@ func (m *Models) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	rc := NewRenderContext(t, width)
 	rc.Title = "Switch Model"
 	rc.TitleInfo = m.modelTypeRadioView()
+	if !m.isOnboarding {
+		if hint := m.tabHint(); hint != "" {
+			rc.AddPart(t.Dialog.PrimaryText.Render(hint))
+		}
+	}
 
 	if m.isOnboarding {
 		titleText := t.Dialog.PrimaryText.Render("To start, let's choose a provider and model.")
@@ -309,6 +385,22 @@ func (m *Models) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		DrawCenterCursor(scr, area, view, cur)
 	}
 	return cur
+}
+
+// tabHint explains the scope of the active tab in one line so the person
+// knows whether they are changing this conversation or a default.
+func (m *Models) tabHint() string {
+	switch m.modelType {
+	case ModelTypeSession:
+		return "Applies to this session only; sub-agents and workers keep Large."
+	case ModelTypeLarge:
+		return "Default for new sessions, sub-agents, and swarm workers."
+	case ModelTypeSmall:
+		return "Titles, summaries, and other small background tasks."
+	case ModelTypeOrchestrator:
+		return "Default for sessions you open. Leave unset to use Large."
+	}
+	return ""
 }
 
 // ShortHelp returns the short help view.
@@ -356,8 +448,13 @@ func (m *Models) setProviderItems() error {
 	cfg := m.com.Config()
 
 	var selectedItemID string
+	// The session tab shares Large's recent list: both pick "the model
+	// that does the work", just at different scopes.
 	selectedType := m.modelType.Config()
-	currentModel := cfg.Models[selectedType]
+	if m.modelType == ModelTypeSession {
+		selectedType = config.SelectedModelTypeLarge
+	}
+	currentModel := m.currentSelection()
 	recentItems := cfg.RecentModels[selectedType]
 
 	// Track providers already added to avoid duplicates

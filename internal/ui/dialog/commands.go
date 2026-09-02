@@ -12,6 +12,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/commands"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
@@ -55,9 +56,12 @@ type Commands struct {
 
 	sessionID  string
 	hasSession bool
-	hasTodos   bool
-	hasQueue   bool
-	selected   CommandType
+	// session is the open session (nil on the landing screen); used
+	// to judge which model the reasoning commands should target.
+	session  *session.Session
+	hasTodos bool
+	hasQueue bool
+	selected CommandType
 
 	spinner spinner.Model
 	loading bool
@@ -78,10 +82,16 @@ type Commands struct {
 var _ Dialog = (*Commands)(nil)
 
 // NewCommands creates a new commands dialog.
-func NewCommands(com *common.Common, sessionID string, hasSession, hasTodos, hasQueue bool, customCommands []commands.CustomCommand, mcpPrompts []commands.MCPPrompt) (*Commands, error) {
+func NewCommands(com *common.Common, sess *session.Session, hasTodos, hasQueue bool, customCommands []commands.CustomCommand, mcpPrompts []commands.MCPPrompt) (*Commands, error) {
+	var sessionID string
+	hasSession := sess != nil && sess.ID != ""
+	if hasSession {
+		sessionID = sess.ID
+	}
 	c := &Commands{
 		com:            com,
 		selected:       SystemCommands,
+		session:        sess,
 		sessionID:      sessionID,
 		hasSession:     hasSession,
 		hasTodos:       hasTodos,
@@ -440,14 +450,13 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		commands = append(commands, NewCommandItem(c.com.Styles, "summarize", "Summarize Session", "", ActionSummarize{SessionID: c.sessionID}))
 	}
 
-	// Add reasoning toggle for models that support it
+	// Add reasoning toggle for models that support it, judged on the
+	// model the open session actually runs (its stamp, else Large).
 	cfg := c.com.Config()
-	if agentCfg, ok := cfg.Agents[config.AgentCoder]; ok {
-		providerCfg := cfg.GetProviderForModel(agentCfg.Model)
-		model := cfg.GetModelByType(agentCfg.Model)
-		if providerCfg != nil && model != nil && model.CanReason {
-			selectedModel := cfg.Models[agentCfg.Model]
-
+	if cfg != nil {
+		selectedModel, model, _ := common.EffectiveModel(cfg, c.session)
+		_, providerOK := cfg.Providers.Get(selectedModel.Provider)
+		if providerOK && model != nil && model.CanReason {
 			// Anthropic models: thinking toggle
 			if model.CanReason && len(model.ReasoningLevels) == 0 {
 				status := "Enable"

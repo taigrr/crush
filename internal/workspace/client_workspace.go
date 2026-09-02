@@ -239,6 +239,11 @@ func (w *ClientWorkspace) SetSessionFavoriteInWorkspace(ctx context.Context, wor
 	return w.client.SetSessionFavorite(ctx, workspaceID, root, sessionID, favorite)
 }
 
+// SetSessionModel stamps or clears the session's own model selection.
+func (w *ClientWorkspace) SetSessionModel(ctx context.Context, sessionID string, model *config.SelectedModel) error {
+	return w.client.SetSessionModel(ctx, w.workspaceID(), "", sessionID, model)
+}
+
 func (w *ClientWorkspace) ListArchivedSessions(ctx context.Context) ([]session.Session, error) {
 	protoSessions, err := w.client.ListArchivedSessions(ctx, w.workspaceID())
 	if err != nil {
@@ -1712,7 +1717,18 @@ func protoToSession(s proto.Session) session.Session {
 		UpdatedAt:        s.UpdatedAt,
 		Color:            s.Color,
 		Animal:           s.Animal,
+		Model:            cloneSelectedModel(s.Model),
 	}
+}
+
+// cloneSelectedModel copies a wire-level selection so the domain session
+// never aliases the decoded request/response struct.
+func cloneSelectedModel(m *config.SelectedModel) *config.SelectedModel {
+	if m == nil {
+		return nil
+	}
+	c := *m
+	return &c
 }
 
 func protoToFile(f proto.File) history.File {
@@ -1823,6 +1839,7 @@ func sessionToProto(s session.Session) proto.Session {
 		UpdatedAt:        s.UpdatedAt,
 		Color:            s.Color,
 		Animal:           s.Animal,
+		Model:            s.ModelOrNil(),
 	}
 }
 

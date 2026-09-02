@@ -21,6 +21,38 @@ func (m *UI) selectedLargeModel() *workspace.AgentModel {
 	return nil
 }
 
+// effectiveModel returns the model the sidebar's session actually runs
+// on: the session's own stamp (an orchestrator session, a `crush run -m`
+// session, a worker spawned with `model`) when it has one, otherwise the
+// coordinator's large model. On the landing screen, where there is no
+// session yet, it previews what a NEW session will get: the configured
+// orchestrator when set, else large. The header must never claim "large"
+// while the transcript records something else.
+func (m *UI) effectiveModel() *workspace.AgentModel {
+	large := m.selectedLargeModel()
+	if large == nil {
+		return nil
+	}
+	cfg := m.com.Config()
+	if cfg == nil {
+		return large
+	}
+	sess := m.sidebarSession()
+	if sess == nil {
+		if sel, ok := cfg.OrchestratorModel(); ok {
+			if cw := cfg.GetModel(sel.Provider, sel.Model); cw != nil {
+				return &workspace.AgentModel{CatwalkCfg: *cw, ModelCfg: sel}
+			}
+		}
+		return large
+	}
+	sel, cw, stamped := common.EffectiveModel(cfg, sess)
+	if !stamped || cw == nil {
+		return large
+	}
+	return &workspace.AgentModel{CatwalkCfg: *cw, ModelCfg: sel}
+}
+
 // landingView renders the landing page view showing the current working
 // directory, model information, and LSP/MCP status in a two-column layout.
 func (m *UI) landingView() string {
