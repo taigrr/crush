@@ -74,6 +74,22 @@ const docTemplate = `{
                 }
             }
         },
+        "/events": {
+            "get": {
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Stream global attention events (SSE)",
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "tags": [
@@ -83,6 +99,111 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK"
+                    }
+                }
+            }
+        },
+        "/peek-messages": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Peek a session's messages in any known workspace",
+                "parameters": [
+                    {
+                        "description": "Target workspace root and session id",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.PeekMessagesParams"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Message"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/peek-session-info": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Peek a session's info in any known workspace",
+                "parameters": [
+                    {
+                        "description": "Target workspace root and session id",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.PeekMessagesParams"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.PeekSessionInfoResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
                     }
                 }
             }
@@ -101,6 +222,34 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/proto.VersionInfo"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspace-overviews": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "List workspace/session overviews",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/proto.WorkspaceOverview"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
                         }
                     }
                 }
@@ -333,6 +482,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/workspaces/{id}/agent/cancel": {
+            "post": {
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Cancel all agent sessions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/workspaces/{id}/agent/default-small-model": {
             "get": {
                 "produces": [
@@ -466,6 +649,195 @@ const docTemplate = `{
                     "agent"
                 ],
                 "summary": "Cancel agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/agent/sessions/{sid}/cwd": {
+            "post": {
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Set session working directory",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Working directory",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.SetWorkingDirRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/agent/sessions/{sid}/goal": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Get goal status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.GoalStatus"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Set goal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Goal",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.SetGoalRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/agent/sessions/{sid}/goal/clear": {
+            "post": {
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Clear goal",
                 "parameters": [
                     {
                         "type": "string",
@@ -710,6 +1082,47 @@ const docTemplate = `{
                     "agent"
                 ],
                 "summary": "Summarize session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/agent/sessions/{sid}/title": {
+            "post": {
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Regenerate session title",
                 "parameters": [
                     {
                         "type": "string",
@@ -2542,6 +2955,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/workspaces/{id}/questions/answer": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "questions"
+                ],
+                "summary": "Answer question",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Question answer",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.QuestionAnswer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.QuestionAnswerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/workspaces/{id}/sessions": {
             "get": {
                 "produces": [
@@ -2853,6 +3321,65 @@ const docTemplate = `{
                         "name": "sid",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace root (routes to a detached workspace when id is not attached)",
+                        "name": "root",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/favorite": {
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Favorite or unfavorite a session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace root (routes to a detached workspace when id is not attached)",
+                        "name": "root",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Whether the session should be favorited (default true)",
+                        "name": "favorite",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -3058,6 +3585,118 @@ const docTemplate = `{
                                 "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Message"
                             }
                         }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/model": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Set a session's model",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace root (routes to a detached workspace when id is not attached)",
+                        "name": "root",
+                        "in": "query"
+                    },
+                    {
+                        "description": "Model to stamp; a null model clears the stamp",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionModelRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/seen": {
+            "post": {
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Mark a session as read",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace root (routes to a detached workspace when id is not attached)",
+                        "name": "root",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
                     },
                     "404": {
                         "description": "Not Found",
@@ -4049,6 +4688,10 @@ const docTemplate = `{
                 "default_reasoning_effort": {
                     "type": "string"
                 },
+                "dimensions": {
+                    "description": "Dimensions is the size of the output vector for embedding models.\nFor embedding models that support multiple output sizes this is the\ndefault/recommended dimensionality. It is zero for chat models.",
+                    "type": "integer"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -4137,18 +4780,30 @@ const docTemplate = `{
                 }
             }
         },
-        "config.ContextMode": {
-            "type": "string",
-            "enum": [
-                "standard",
-                "extended",
-                "dynamic"
-            ],
-            "x-enum-varnames": [
-                "ContextModeStandard",
-                "ContextModeExtended",
-                "ContextModeDynamic"
-            ]
+        "config.EmbeddingConfig": {
+            "type": "object",
+            "properties": {
+                "dimensions": {
+                    "description": "Dimensions optionally requests a specific output dimensionality for\nmodels that support it. Zero means the model default.",
+                    "type": "integer"
+                },
+                "hybrid_search": {
+                    "description": "HybridSearch controls whether search surfaces fuse the semantic\n(vector) signal with substring matching. Nil means the default\n(true when an embedder is configured). When false, search is pure\nsubstring and no query embeddings are computed. Toggling this does\nNOT invalidate stored vectors (it is not part of the signature).",
+                    "type": "boolean"
+                },
+                "model": {
+                    "description": "Model is the embedding model id as used by the provider API.",
+                    "type": "string"
+                },
+                "normalize": {
+                    "description": "Normalize requests unit-normalized vectors (so cosine reduces to a\ndot product) for models that support it.",
+                    "type": "boolean"
+                },
+                "provider": {
+                    "description": "Provider is the provider id, matching a key in the providers\nconfig (same semantics as SelectedModel.Provider).",
+                    "type": "string"
+                }
+            }
         },
         "config.HookConfig": {
             "type": "object",
@@ -4259,6 +4914,30 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "oauth": {
+                    "description": "OAuth enables the MCP OAuth 2.1 authorization flow for HTTP\ntransport servers. When true, the client uses dynamic client\nregistration and opens a browser for the user to authorize.\nTokens are persisted automatically. Only supported for type=http.",
+                    "type": "boolean"
+                },
+                "oauth_callback_port": {
+                    "description": "OAuthCallbackPort pins the localhost port used for the OAuth\nredirect listener. Set this when the OAuth provider requires an\nexact-match callback URL (e.g. GitHub OAuth Apps). When omitted,\nCrush picks the first free port from its default range.",
+                    "type": "integer"
+                },
+                "oauth_client_id": {
+                    "description": "OAuthClientID is an optional pre-registered OAuth client ID. Set\nit for servers that do not support dynamic client registration\n(e.g. GitHub, Slack) and instead issue client credentials when you\nregister an OAuth app. Values run through shell expansion, so\n$VAR and $(cmd) work.",
+                    "type": "string"
+                },
+                "oauth_client_secret": {
+                    "description": "OAuthClientSecret is the optional secret paired with\nOAuthClientID for confidential clients. Values run through shell\nexpansion, so $VAR and $(cmd) work.",
+                    "type": "string"
+                },
+                "oauth_token": {
+                    "description": "OAuthToken is the persisted OAuth token for this server. It is\nmanaged internally and stored in the global data config.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/oauth.Token"
+                        }
+                    ]
+                },
                 "timeout": {
                     "type": "integer"
                 },
@@ -4316,14 +4995,6 @@ const docTemplate = `{
         "config.SelectedModel": {
             "type": "object",
             "properties": {
-                "context_mode": {
-                    "description": "ContextMode controls how the model handles context window limits for models that support extended context.",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/config.ContextMode"
-                        }
-                    ]
-                },
                 "frequency_penalty": {
                     "type": "number"
                 },
@@ -4370,11 +5041,13 @@ const docTemplate = `{
             "type": "string",
             "enum": [
                 "large",
-                "small"
+                "small",
+                "orchestrator"
             ],
             "x-enum-varnames": [
                 "SelectedModelTypeLarge",
-                "SelectedModelTypeSmall"
+                "SelectedModelTypeSmall",
+                "SelectedModelTypeOrchestrator"
             ]
         },
         "config.SnapshotsConfig": {
@@ -4408,6 +5081,10 @@ const docTemplate = `{
                 "low_bandwidth": {
                     "description": "LowBandwidth, when true, swaps the animated spinner for a simple\n\"Generating .\", \"..\", \"...\" cycle, halves the renderer FPS, and\ndisables the session-title reveal animation. Useful over slow\nlinks or when the user wants reduced motion. Toggleable from the\ncommand palette and forced on by the CRUSH_LOW_BANDWIDTH env var.",
                     "type": "boolean"
+                },
+                "sessions_sidebar_width": {
+                    "description": "SessionsSidebarWidth is the width in columns of the left session\nnavigator, persisted so a resize survives restarts. Zero means use\nthe built-in default.",
+                    "type": "integer"
                 },
                 "theme": {
                     "description": "Theme selects the UI color theme by name. Builtin themes (\"charmtone\",\n\"hypercrush\") and user themes from $config/crush/themes/*.lua are\nsupported. Local config overrides global, so a theme can be set\nper-workspace. Empty falls back to the provider-derived default.",
@@ -4511,6 +5188,9 @@ const docTemplate = `{
                 "$schema": {
                     "type": "string"
                 },
+                "embedding": {
+                    "$ref": "#/definitions/config.EmbeddingConfig"
+                },
                 "hooks": {
                     "type": "object",
                     "additionalProperties": {
@@ -4527,7 +5207,7 @@ const docTemplate = `{
                     "$ref": "#/definitions/config.MCPs"
                 },
                 "models": {
-                    "description": "We currently only support large/small as values here.",
+                    "description": "Keys are \"large\", \"small\", the optional \"orchestrator\", and any\nuser-defined role names (see ModelRoles). Role names are the\nvocabulary the ` + "`" + `model` + "`" + ` parameter on the agent/review/swarm tools\naccepts, so an operator can map e.g. \"scout\" to a cheap model on\none machine and a different one on another without prompts\nchanging.",
                     "type": "object",
                     "additionalProperties": {
                         "$ref": "#/definitions/config.SelectedModel"
@@ -4700,6 +5380,46 @@ const docTemplate = `{
                 "StateDisabled"
             ]
         },
+        "oauth.OAuthClient": {
+            "type": "object",
+            "properties": {
+                "auth_style": {
+                    "type": "integer"
+                },
+                "auth_url": {
+                    "type": "string"
+                },
+                "client_id": {
+                    "type": "string"
+                },
+                "client_secret": {
+                    "type": "string"
+                },
+                "token_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "oauth.Token": {
+            "type": "object",
+            "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "client": {
+                    "$ref": "#/definitions/oauth.OAuthClient"
+                },
+                "expires_at": {
+                    "type": "integer"
+                },
+                "expires_in": {
+                    "type": "integer"
+                },
+                "refresh_token": {
+                    "type": "string"
+                }
+            }
+        },
         "proto.APIKeyKind": {
             "type": "string",
             "enum": [
@@ -4749,14 +5469,28 @@ const docTemplate = `{
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "swarm_parts": {
+                    "description": "SwarmParts, when set, replaces the default TextContent user\nmessage with one or more [SwarmMessage] parts. Used by\n[Backend.SwarmSend] so the receiving session records\nstructured sender metadata (color, animal, workspace) instead\nof a plain text prefix. The Prompt field must still be set to\nthe concatenated user-visible text so downstream code that\ntreats prompts as strings (queue drop notifications, run\nlogs) keeps working.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.SwarmMessage"
+                    }
                 }
             }
         },
         "proto.AgentSession": {
             "type": "object",
             "properties": {
+                "animal": {
+                    "type": "string"
+                },
                 "attached_clients": {
                     "type": "integer"
+                },
+                "color": {
+                    "description": "Color and Animal are the session's swarm identity (see\n[session.Session.Color] / .Animal). Empty when the session\nhas not yet been backfilled; UI code should fall back to no\naddress label / no color square in that case.",
+                    "type": "string"
                 },
                 "completion_tokens": {
                     "type": "integer"
@@ -4773,11 +5507,16 @@ const docTemplate = `{
                 "is_busy": {
                     "type": "boolean"
                 },
-                "is_extended_context": {
-                    "type": "boolean"
-                },
                 "message_count": {
                     "type": "integer"
+                },
+                "model": {
+                    "description": "Model is the session's own model selection (see\n[session.Session.Model]). Nil when the session resolves to the\nworkspace's large model.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.SelectedModel"
+                        }
+                    ]
                 },
                 "parent_session_id": {
                     "type": "string"
@@ -4954,6 +5693,23 @@ const docTemplate = `{
                 }
             }
         },
+        "proto.GoalStatus": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "boolean"
+                },
+                "condition": {
+                    "type": "string"
+                },
+                "max_turns": {
+                    "type": "integer"
+                },
+                "turns": {
+                    "type": "integer"
+                }
+            }
+        },
         "proto.ImportCopilotResponse": {
             "type": "object",
             "properties": {
@@ -5063,13 +5819,15 @@ const docTemplate = `{
                 0,
                 1,
                 2,
-                3
+                3,
+                4
             ],
             "x-enum-varnames": [
                 "MCPStateDisabled",
                 "MCPStateStarting",
                 "MCPStateConnected",
-                "MCPStateError"
+                "MCPStateError",
+                "MCPStateNeedsAuth"
             ]
         },
         "proto.MessageRole": {
@@ -5086,6 +5844,31 @@ const docTemplate = `{
                 "System",
                 "Tool"
             ]
+        },
+        "proto.PeekMessagesParams": {
+            "type": "object",
+            "properties": {
+                "root": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.PeekSessionInfoResult": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.File"
+                    }
+                },
+                "session": {
+                    "$ref": "#/definitions/proto.Session"
+                }
+            }
         },
         "proto.PermissionAction": {
             "type": "string",
@@ -5178,6 +5961,37 @@ const docTemplate = `{
                 }
             }
         },
+        "proto.QuestionAnswer": {
+            "type": "object",
+            "properties": {
+                "cancelled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "selected": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.QuestionAnswerResponse": {
+            "type": "object",
+            "properties": {
+                "resolved": {
+                    "type": "boolean"
+                }
+            }
+        },
         "proto.ReadSkillRequest": {
             "type": "object",
             "properties": {
@@ -5211,8 +6025,15 @@ const docTemplate = `{
         "proto.Session": {
             "type": "object",
             "properties": {
+                "animal": {
+                    "type": "string"
+                },
                 "attached_clients": {
                     "type": "integer"
+                },
+                "color": {
+                    "description": "Color and Animal are the session's swarm identity (see\n[session.Session.Color] / .Animal). Empty when the session\nhas not yet been backfilled; UI code should fall back to no\naddress label / no color square in that case.",
+                    "type": "string"
                 },
                 "completion_tokens": {
                     "type": "integer"
@@ -5231,6 +6052,14 @@ const docTemplate = `{
                 },
                 "message_count": {
                     "type": "integer"
+                },
+                "model": {
+                    "description": "Model is the session's own model selection (see\n[session.Session.Model]). Nil when the session resolves to the\nworkspace's large model.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.SelectedModel"
+                        }
+                    ]
                 },
                 "parent_session_id": {
                     "type": "string"
@@ -5255,9 +6084,74 @@ const docTemplate = `{
                 }
             }
         },
+        "proto.SessionModelRequest": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "$ref": "#/definitions/config.SelectedModel"
+                }
+            }
+        },
+        "proto.SessionOverview": {
+            "type": "object",
+            "properties": {
+                "animal": {
+                    "type": "string"
+                },
+                "color": {
+                    "description": "Color and Animal are the session's swarm identity (see\n[session.Session.Color] / .Animal). Empty when the session\nhas not yet been backfilled; the picker/sidebar should fall\nback to no color square in that case.",
+                    "type": "string"
+                },
+                "favorite": {
+                    "description": "Favorite pins the session to the top of the sidebar inbox (below\nsessions blocked on a permission prompt). It is read from the\nsession's database (attached or detached) so it persists.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_busy": {
+                    "type": "boolean"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "unread": {
+                    "type": "boolean"
+                },
+                "updated_at": {
+                    "type": "integer"
+                },
+                "working_dir": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.SetGoalRequest": {
+            "type": "object",
+            "properties": {
+                "condition": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.SetWorkingDirRequest": {
+            "type": "object",
+            "properties": {
+                "working_dir": {
+                    "type": "string"
+                }
+            }
+        },
         "proto.ShellCommandRequest": {
             "type": "object",
             "properties": {
+                "client_id": {
+                    "description": "ClientID identifies the client that initiated the command so the\nserver can run it in that client's launch directory. Multiple\nclients can share one workspace (subdirectories or sibling git\nworktrees collapsing to the same project root); without it the\ncommand would run in whichever client created the workspace first.",
+                    "type": "string"
+                },
                 "command": {
                     "type": "string"
                 },
@@ -5343,6 +6237,32 @@ const docTemplate = `{
                 }
             }
         },
+        "proto.SwarmMessage": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "btw": {
+                    "type": "boolean"
+                },
+                "sender_animal": {
+                    "type": "string"
+                },
+                "sender_color": {
+                    "type": "string"
+                },
+                "sender_session_id": {
+                    "type": "string"
+                },
+                "sender_workspace_id": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
         "proto.Todo": {
             "type": "object",
             "properties": {
@@ -5419,8 +6339,34 @@ const docTemplate = `{
                 "version": {
                     "type": "string"
                 },
+                "working_dir": {
+                    "type": "string"
+                },
                 "yolo": {
                     "type": "boolean"
+                }
+            }
+        },
+        "proto.WorkspaceOverview": {
+            "type": "object",
+            "properties": {
+                "attached": {
+                    "type": "boolean"
+                },
+                "data_dir": {
+                    "type": "string"
+                },
+                "root": {
+                    "type": "string"
+                },
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.SessionOverview"
+                    }
+                },
+                "workspace_id": {
+                    "type": "string"
                 }
             }
         },
