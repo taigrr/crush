@@ -12,14 +12,24 @@ import (
 	"strings"
 	"time"
 
-	httpswagger "github.com/swaggo/http-swagger/v2"
 	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/config"
-	_ "github.com/taigrr/crush/internal/swagger"
+	"github.com/taigrr/crush/internal/swagger"
 )
 
 // ErrServerClosed is returned when the server is closed.
 var ErrServerClosed = http.ErrServerClosed
+
+// swaggerUIHandler serves the interactive Swagger UI under /v1/docs/. It is
+// nil unless the binary was built with the swaggerui tag; the raw spec is
+// always served regardless.
+var swaggerUIHandler http.Handler
+
+// serveSwaggerJSON writes the embedded OpenAPI spec.
+func serveSwaggerJSON(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(swagger.JSON)
+}
 
 // ParseHostURL parses a host URL into a [url.URL].
 func ParseHostURL(host string) (*url.URL, error) {
@@ -218,7 +228,11 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("DELETE /v1/workspaces/{id}/worktrees/{wtid}", c.handleDeleteWorkspaceWorktree)
 	mux.HandleFunc("GET /v1/workspaces/{id}/git/branches", c.handleGetWorkspaceGitBranches)
 	mux.HandleFunc("POST /v1/workspaces/{id}/fork", c.handlePostWorkspaceFork)
-	mux.Handle("/v1/docs/", httpswagger.WrapHandler)
+	mux.HandleFunc("GET /v1/docs/swagger.json", serveSwaggerJSON)
+	mux.HandleFunc("GET /v1/docs/doc.json", serveSwaggerJSON)
+	if swaggerUIHandler != nil {
+		mux.Handle("/v1/docs/", swaggerUIHandler)
+	}
 	s.h = &http.Server{
 		Protocols: &p,
 		Handler:   s.recoverHandler(s.loggingHandler(mux)),

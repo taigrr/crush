@@ -107,7 +107,16 @@ internal/
 - **Format**: `task fmt` (`gofumpt -w .`)
 - **Modernize**: `task modernize` (runs `modernize` which makes code
   simplifications)
-- **Dev**: `task dev` (runs with profiling enabled)
+- **Dev**: `task dev` (runs with profiling enabled via `-tags pprof`)
+- **Optional build tags** (all off by default to keep release binaries
+  small):
+  - `pprof` enables the `CRUSH_PROFILE` pprof server.
+  - `swaggerui` embeds the Swagger UI at `/v1/docs/`; the raw spec is always
+    served at `/v1/docs/swagger.json`.
+  - `fantasy_google` compiles in Google Gemini and Vertex AI (including
+    Anthropic-on-Vertex). Without it, `google`/`google-vertex` providers are
+    dropped at config load with a warning. Use `task build:full` for a
+    build with every optional feature.
 
 ## Code Style Guidelines
 

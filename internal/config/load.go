@@ -26,6 +26,7 @@ import (
 	"github.com/taigrr/crush/internal/filepathext"
 	"github.com/taigrr/crush/internal/fsext"
 	"github.com/taigrr/crush/internal/home"
+	"github.com/taigrr/fantasy/providers/google"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -313,6 +314,12 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 			continue
 		}
 
+		if !googleTypeSupported(providerConfig.Type) {
+			slog.Warn("Skipping custom provider because Google support is not compiled in; rebuild with -tags fantasy_google", "provider", id)
+			c.Providers.Del(id)
+			continue
+		}
+
 		if providerConfig.Disable {
 			slog.Debug("Skipping custom provider due to disable flag", "provider", id)
 			c.Providers.Del(id)
@@ -375,6 +382,10 @@ func (c *Config) applyProviderSpecificConfig(store *ConfigStore, env env.Env, re
 			c.Providers.Del(string(p.ID))
 		}
 		return true
+	}
+
+	if !googleTypeSupported(p.Type) {
+		return skipMissing("Skipping provider because Google support is not compiled in; rebuild with -tags fantasy_google", "provider", p.ID)
 	}
 
 	switch {
@@ -852,6 +863,18 @@ func loadFromBytes(configs [][]byte) (*Config, error) {
 		return nil, err
 	}
 	return &config, nil
+}
+
+// googleTypeSupported reports whether a provider of the given type can be
+// served by this binary. Gemini and Vertex AI need the fantasy_google build
+// tag; everything else is always available.
+func googleTypeSupported(t catwalk.Type) bool {
+	switch t {
+	case catwalk.TypeGoogle, catwalk.TypeVertexAI:
+		return google.Enabled
+	default:
+		return true
+	}
 }
 
 func hasAWSCredentials(env env.Env) bool {
