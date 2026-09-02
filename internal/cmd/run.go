@@ -145,10 +145,22 @@ func runNonInteractive(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if largeModel != "" || smallModel != "" {
-		if err := overrideModels(ctx, c, ws, largeModel, smallModel); err != nil {
+	// --small-model still rewrites the workspace's small slot (titles,
+	// summaries have no per-session home). --model is applied to the
+	// session itself below, so it never leaks into config or into the
+	// sessions this run spawns.
+	if smallModel != "" {
+		if err := overrideModels(ctx, c, ws, "", smallModel); err != nil {
 			return fmt.Errorf("failed to override models: %w", err)
 		}
+	}
+	var sessionModel *config.SelectedModel
+	if largeModel != "" {
+		sel, err := resolveRunModel(ctx, c, ws, largeModel)
+		if err != nil {
+			return err
+		}
+		sessionModel = &sel
 	}
 
 	var (
@@ -208,12 +220,19 @@ func runNonInteractive(
 
 	defer stopSpinner()
 
-	sess, err := resolveSession(ctx, c, ws.ID, continueSessionID, useLast)
+	sess, err := resolveSession(ctx, c, ws.ID, continueSessionID, useLast, sessionModel)
 	if err != nil {
 		return fmt.Errorf("failed to resolve session: %w", err)
 	}
 	if continueSessionID != "" || useLast {
 		slog.Info("Continuing session for non-interactive run", "session_id", sess.ID)
+		// An explicit -m on a continued session re-stamps it: the user
+		// asked for this model for this conversation from here on.
+		if sessionModel != nil {
+			if err := c.SetSessionModel(ctx, ws.ID, "", sess.ID, sessionModel); err != nil {
+				return fmt.Errorf("failed to set session model: %w", err)
+			}
+		}
 	} else {
 		slog.Info("Created session for non-interactive run", "session_id", sess.ID)
 	}
@@ -580,7 +599,10 @@ func validateModelMatches(matches []modelMatch, modelID, label string) (modelMat
 // If continueSessionID is set it fetches that session; if useLast is set it
 // returns the most recently updated top-level session; otherwise it creates a
 // new one.
-func resolveSession(ctx context.Context, c *client.Client, wsID, continueSessionID string, useLast bool) (*proto.Session, error) {
+//
+// model, when non-nil, stamps a NEWLY created session. Continued sessions
+// are returned as-is; the caller decides whether to re-stamp them.
+func resolveSession(ctx context.Context, c *client.Client, wsID, continueSessionID string, useLast bool, model *config.SelectedModel) (*proto.Session, error) {
 	switch {
 	case continueSessionID != "":
 		sess, err := c.GetSession(ctx, wsID, continueSessionID)
@@ -604,8 +626,24 @@ func resolveSession(ctx context.Context, c *client.Client, wsID, continueSession
 		return last, nil
 
 	default:
-		return c.CreateSession(ctx, wsID, "non-interactive")
+		return c.CreateSessionWithModel(ctx, wsID, "non-interactive", model)
 	}
+}
+
+// resolveRunModel maps the -m flag to a selection using the server's
+// config so role names, provider/model, and bare ids all work and an
+// ambiguous bare id is reported rather than guessed.
+func resolveRunModel(ctx context.Context, c *client.Client, ws *proto.Workspace, ref string) (config.SelectedModel, error) {
+	cfg, err := c.GetConfig(ctx, ws.ID)
+	if err != nil {
+		return config.SelectedModel{}, fmt.Errorf("failed to get config: %w", err)
+	}
+	sel, err := cfg.ResolveModelRef(ref)
+	if err != nil {
+		return config.SelectedModel{}, fmt.Errorf("--model: %w", err)
+	}
+	slog.Info("Using model for this run's session", "provider", sel.Provider, "model", sel.Model)
+	return sel, nil
 }
 
 // latestTopLevelSession returns the most recently updated top-level (non-child)
