@@ -229,10 +229,15 @@ func (m *UI) pasteImageFromClipboard() tea.Msg {
 	}
 }
 
-var pasteRE = regexp.MustCompile(`paste_(\d+).txt`)
+var pasteRE = regexp.MustCompile(`^paste_(\d+)\.(txt|png)$`)
 
+// pasteIdx returns the next paste attachment index for this session. It
+// counts every paste attached so far in the session, not only the ones
+// still pending in the tray, so names never repeat across messages: the
+// inline image renderer caches by file name, and a second "paste_1.png"
+// would be drawn (and could be sent) as the first.
 func (m *UI) pasteIdx() int {
-	result := 0
+	result := m.pasteCount
 	for _, at := range m.attachments.List() {
 		found := pasteRE.FindStringSubmatch(at.FileName)
 		if len(found) == 0 {
@@ -243,7 +248,8 @@ func (m *UI) pasteIdx() int {
 			result = max(result, idx)
 		}
 	}
-	return result + 1
+	m.pasteCount = result + 1
+	return m.pasteCount
 }
 
 // drawSessionDetails draws the session details in compact mode.

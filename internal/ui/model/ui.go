@@ -175,8 +175,11 @@ type (
 
 // UI represents the main user interface model.
 type UI struct {
-	com          *common.Common
-	session      *session.Session
+	com     *common.Common
+	session *session.Session
+	// pasteCount is the highest paste_N index handed out in this UI so
+	// far; see pasteIdx.
+	pasteCount   int
 	sessionFiles []SessionFile
 
 	// pendingPermissions caches unresolved permission requests keyed by

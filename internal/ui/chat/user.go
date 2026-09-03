@@ -2,6 +2,8 @@ package chat
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"image"
 	_ "image/gif"  // GIF decoding.
@@ -211,8 +213,8 @@ func (m *UserMessageItem) renderAttachments(width int) string {
 			}
 			cols, rows := imageRenderDims(m.imageConfig)
 
-			if fimage.HasTransmitted(bc.Path, cols, rows) {
-				imgRender := m.imageConfig.Encoding.Render(bc.Path, cols, rows)
+			if fimage.HasTransmitted(imageCacheID(bc), cols, rows) {
+				imgRender := m.imageConfig.Encoding.Render(imageCacheID(bc), cols, rows)
 				parts = append(parts, imgRender)
 			}
 		}
@@ -253,7 +255,7 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 
 		cols, rows := imageRenderDims(m.imageConfig)
 
-		if fimage.HasTransmitted(bc.Path, cols, rows) {
+		if fimage.HasTransmitted(imageCacheID(bc), cols, rows) {
 			continue
 		}
 
@@ -273,7 +275,7 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 			Height: m.imageConfig.CellHeight,
 		}
 
-		cmd := m.imageConfig.Encoding.Transmit(bc.Path, img, cs, cols, rows, m.imageConfig.Tmux)
+		cmd := m.imageConfig.Encoding.Transmit(imageCacheID(bc), img, cs, cols, rows, m.imageConfig.Tmux)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -283,6 +285,18 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 		return nil
 	}
 	return tea.Batch(cmds...)
+}
+
+// imageCacheID identifies an image attachment for the terminal image cache.
+// Pasted images across a session can share a file name ("paste_1.png"), so
+// the name alone would make a later paste render as an earlier one; mix in
+// a hash of the bytes when they are available.
+func imageCacheID(bc message.BinaryContent) string {
+	if len(bc.Data) == 0 {
+		return bc.Path
+	}
+	sum := sha256.Sum256(bc.Data)
+	return bc.Path + "#" + hex.EncodeToString(sum[:8])
 }
 
 // loadImageFromFile loads an image from a file path.
