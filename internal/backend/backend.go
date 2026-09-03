@@ -49,6 +49,16 @@ var (
 // released. Exposed as a package variable so tests can shorten it.
 var DefaultCreateGrace = 30 * time.Second
 
+// DefaultReconnectGrace is the window an already-attached client has to
+// re-open its event stream after the last one drops before the
+// workspace is torn down. Without it, a transient SSE blip (an
+// "unexpected EOF" or the brief gap during a workspace switch) drops
+// the stream count to zero and, if this is the last workspace, shuts
+// the whole server down out from under a still-running client — which
+// then spins in its reconnect backoff against a dead socket. Exposed
+// as a package variable so tests can shorten it.
+var DefaultReconnectGrace = 2 * time.Minute
+
 // ShutdownFunc is called when the backend needs to trigger a server
 // shutdown (e.g. when the last workspace is removed).
 type ShutdownFunc func()
@@ -67,10 +77,11 @@ type Backend struct {
 	pathIndex map[string]string
 	mu        sync.Mutex
 
-	cfg         *config.ConfigStore
-	ctx         context.Context
-	shutdownFn  ShutdownFunc
-	createGrace time.Duration
+	cfg            *config.ConfigStore
+	ctx            context.Context
+	shutdownFn     ShutdownFunc
+	createGrace    time.Duration
+	reconnectGrace time.Duration
 
 	// registry is the global, cross-workspace index of workspace roots
 	// used so the picker (and server on startup) can enumerate
@@ -105,9 +116,12 @@ type Backend struct {
 //
 //   - streams counts the number of live SSE event streams the client
 //     currently has open against the workspace.
-//   - holdTimer is non-nil iff the client created the workspace but has
-//     not yet attached an SSE stream; it fires after createGrace and
-//     releases the hold.
+//   - holdTimer is non-nil while the client's claim is being held open
+//     on a timer without a live SSE stream: either after creation
+//     before the first stream attaches (fires after createGrace), or
+//     after the last stream drops while awaiting a reconnect (fires
+//     after reconnectGrace). In both cases it releases the hold when it
+//     fires and is stopped the moment a stream (re)attaches.
 //   - currentSessionID records which session this client is currently
 //     viewing. Empty string means the client has no session selected
 //     (e.g. the landing screen). Cleared automatically when the
@@ -284,15 +298,16 @@ func (w *Workspace) Shutdown() {
 // New creates a new [Backend].
 func New(ctx context.Context, cfg *config.ConfigStore, shutdownFn ShutdownFunc) *Backend {
 	return &Backend{
-		workspaces:  csync.NewMap[string, *Workspace](),
-		pathIndex:   make(map[string]string),
-		cfg:         cfg,
-		ctx:         ctx,
-		shutdownFn:  shutdownFn,
-		createGrace: DefaultCreateGrace,
-		registry:    registry.New(),
-		attention:   pubsub.NewBroker[proto.AttentionEvent](),
-		yoloByRoot:  make(map[string]bool),
+		workspaces:     csync.NewMap[string, *Workspace](),
+		pathIndex:      make(map[string]string),
+		cfg:            cfg,
+		ctx:            ctx,
+		shutdownFn:     shutdownFn,
+		createGrace:    DefaultCreateGrace,
+		reconnectGrace: DefaultReconnectGrace,
+		registry:       registry.New(),
+		attention:      pubsub.NewBroker[proto.AttentionEvent](),
+		yoloByRoot:     make(map[string]bool),
 	}
 }
 
@@ -302,6 +317,14 @@ func (b *Backend) SetCreateGrace(d time.Duration) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.createGrace = d
+}
+
+// SetReconnectGrace overrides the reconnect-grace window. Intended for
+// tests that need short timeouts.
+func (b *Backend) SetReconnectGrace(d time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.reconnectGrace = d
 }
 
 // GetWorkspace retrieves a workspace by ID.
@@ -722,6 +745,7 @@ func (b *Backend) releaseHoldLocked(ws *Workspace, clientID string) {
 }
 
 func (b *Backend) detachStream(ws *Workspace, clientID string) {
+	grace := b.reconnectGrace
 	ws.clientsMu.Lock()
 	cs, ok := ws.clients[clientID]
 	if !ok {
@@ -731,16 +755,32 @@ func (b *Backend) detachStream(ws *Workspace, clientID string) {
 	if cs.streams > 0 {
 		cs.streams--
 	}
-	teardown := false
 	if cs.streams == 0 && cs.holdTimer == nil {
-		cs.closeBridge()
-		delete(ws.clients, clientID)
-		teardown = len(ws.clients) == 0
+		// The client's last event stream just dropped, but the client
+		// process may still be alive and about to reconnect (a
+		// transient SSE blip, or the gap during a workspace switch).
+		// Arm a reconnect-grace timer rather than deleting the entry
+		// and tearing down immediately: AttachClient stops this timer
+		// when the same client re-attaches, and expireHold removes the
+		// entry (and tears the workspace down if still idle) only once
+		// the grace window elapses with no reconnect. Without this, the
+		// last stream loss can shut the whole server down out from under
+		// a live client.
+		if grace <= 0 {
+			cs.closeBridge()
+			delete(ws.clients, clientID)
+			teardown := len(ws.clients) == 0
+			ws.clientsMu.Unlock()
+			if teardown {
+				b.teardownIfIdle(ws)
+			}
+			return
+		}
+		cs.holdTimer = time.AfterFunc(grace, func() {
+			b.expireHold(ws, clientID, cs)
+		})
 	}
 	ws.clientsMu.Unlock()
-	if teardown {
-		b.teardownIfIdle(ws)
-	}
 }
 
 // teardownIfIdle tears the workspace down only when it has no attached

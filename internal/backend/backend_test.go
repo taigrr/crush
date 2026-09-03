@@ -389,6 +389,120 @@ func TestConcurrentAttachDetach(t *testing.T) {
 	require.Contains(t, ws.clients, cid)
 }
 
+// TestSecondClientHoldsWorkspaceOpen verifies that when two clients are
+// attached to the same workspace and the first detaches, the workspace
+// is kept alive by the second client and the server is not shut down.
+// This is the "second TUI joined an already-attached session, then the
+// original detached" scenario: distinct client IDs must each hold their
+// own claim.
+func TestSecondClientHoldsWorkspaceOpen(t *testing.T) {
+	t.Parallel()
+
+	b, shutdownCount := newTestBackend(t)
+	// Immediate teardown on true idleness (no reconnect grace) so the
+	// test asserts holding purely via the second client's presence.
+	b.reconnectGrace = 0
+	ws, shutdowns := insertTestWorkspace(t, b, "/tmp/two-clients")
+
+	cidA := newClientID(t)
+	cidB := newClientID(t)
+	require.NoError(t, b.AttachClient(ws.ID, cidA))
+	require.NoError(t, b.AttachClient(ws.ID, cidB))
+
+	// Original client leaves.
+	b.DetachClient(ws.ID, cidA)
+
+	ws.clientsMu.Lock()
+	_, aPresent := ws.clients[cidA]
+	_, bPresent := ws.clients[cidB]
+	ws.clientsMu.Unlock()
+	require.False(t, aPresent, "detached client A must be released")
+	require.True(t, bPresent, "client B must still hold the workspace")
+	require.Equal(t, int32(0), shutdowns.Load(), "workspace must not tear down while B attached")
+	require.Equal(t, int32(0), shutdownCount.Load(), "server must not shut down while B attached")
+
+	// Now B leaves too: with no reconnect grace the workspace tears down.
+	b.DetachClient(ws.ID, cidB)
+	require.Equal(t, int32(1), shutdowns.Load(), "workspace must tear down once last client leaves")
+	require.Equal(t, int32(1), shutdownCount.Load(), "server must shut down once last client leaves")
+}
+
+// TestReconnectGraceKeepsWorkspaceAlive verifies that a lone client's
+// transient stream drop does not immediately tear down the workspace:
+// a reconnect-grace timer is armed, and re-attaching within the window
+// cancels it so no teardown/shutdown occurs.
+func TestReconnectGraceKeepsWorkspaceAlive(t *testing.T) {
+	t.Parallel()
+
+	b, shutdownCount := newTestBackend(t)
+	b.reconnectGrace = 500 * time.Millisecond
+	ws, shutdowns := insertTestWorkspace(t, b, "/tmp/reconnect-grace")
+
+	cid := newClientID(t)
+	require.NoError(t, b.AttachClient(ws.ID, cid))
+
+	// Stream drops (e.g. "unexpected EOF").
+	b.DetachClient(ws.ID, cid)
+
+	ws.clientsMu.Lock()
+	cs, present := ws.clients[cid]
+	var hasTimer bool
+	if present {
+		hasTimer = cs.holdTimer != nil && cs.streams == 0
+	}
+	ws.clientsMu.Unlock()
+	require.True(t, present, "client must be retained during reconnect grace")
+	require.True(t, hasTimer, "a reconnect-grace timer must be armed")
+	require.Equal(t, int32(0), shutdowns.Load(), "no teardown during grace window")
+	require.Equal(t, int32(0), shutdownCount.Load(), "no shutdown during grace window")
+
+	// Client reconnects within the window.
+	require.NoError(t, b.AttachClient(ws.ID, cid))
+
+	ws.clientsMu.Lock()
+	cs, present = ws.clients[cid]
+	var streams int
+	var timerCleared bool
+	if present {
+		streams = cs.streams
+		timerCleared = cs.holdTimer == nil
+	}
+	ws.clientsMu.Unlock()
+	require.True(t, present, "client must remain after reconnect")
+	require.Equal(t, 1, streams, "reconnect restores the stream count")
+	require.True(t, timerCleared, "reconnect must cancel the grace timer")
+
+	// Wait past the original grace window to ensure the cancelled timer
+	// does not fire a spurious teardown.
+	time.Sleep(700 * time.Millisecond)
+	require.Equal(t, int32(0), shutdowns.Load(), "cancelled timer must not tear down")
+	require.Equal(t, int32(0), shutdownCount.Load(), "cancelled timer must not shut down")
+}
+
+// TestReconnectGraceExpiresWithoutReconnect verifies that if the client
+// never reconnects, the grace timer fires and the idle workspace is
+// torn down.
+func TestReconnectGraceExpiresWithoutReconnect(t *testing.T) {
+	t.Parallel()
+
+	b, shutdownCount := newTestBackend(t)
+	b.reconnectGrace = 20 * time.Millisecond
+	ws, shutdowns := insertTestWorkspace(t, b, "/tmp/grace-expire")
+
+	cid := newClientID(t)
+	require.NoError(t, b.AttachClient(ws.ID, cid))
+	b.DetachClient(ws.ID, cid)
+
+	require.Eventually(t, func() bool {
+		return shutdowns.Load() == 1 && shutdownCount.Load() == 1
+	}, time.Second, 5*time.Millisecond, "workspace must tear down after grace expires")
+
+	ws.clientsMu.Lock()
+	_, present := ws.clients[cid]
+	ws.clientsMu.Unlock()
+	require.False(t, present, "client entry must be removed after grace expiry")
+}
+
 // TestReconnectReloadsStaleConfig verifies that when a client
 // reconnects to a workspace the server kept alive after earlier
 // clients left, an edit made to the workspace's config file on disk is
