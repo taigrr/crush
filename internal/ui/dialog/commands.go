@@ -579,6 +579,13 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	}
 	commands = append(commands, NewCommandItem(c.com.Styles, "toggle_low_bandwidth", lowBandwidthLabel, "", ActionToggleLowBandwidth{}))
 
+	// Sound effects mute toggle. Mirrors options.sound.disabled.
+	soundLabel := "Mute Sound Effects"
+	if cfg != nil && cfg.Options != nil && cfg.Options.Sound != nil && cfg.Options.Sound.Disabled {
+		soundLabel = "Unmute Sound Effects"
+	}
+	commands = append(commands, NewCommandItem(c.com.Styles, "toggle_sound", soundLabel, "", ActionToggleSound{}))
+
 	commands = append(
 		commands,
 		NewCommandItem(c.com.Styles, "quit", "Quit", "ctrl+c", tea.QuitMsg{}).WithAliases("exit"),

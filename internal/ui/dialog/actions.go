@@ -110,6 +110,7 @@ type (
 	ActionConfirmBackfill             struct{}
 	ActionToggleTransparentBackground struct{}
 	ActionToggleLowBandwidth          struct{}
+	ActionToggleSound                 struct{}
 	ActionInitializeProject           struct{}
 	// ActionArchiveSession is emitted when the user confirms archiving the
 	// current (active) session in the archive-confirmation dialog.

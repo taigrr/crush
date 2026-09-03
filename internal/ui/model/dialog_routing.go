@@ -342,6 +342,25 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			return util.NewInfoMsg("Low-bandwidth mode " + status)
 		})
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionToggleSound:
+		cmds = append(cmds, func() tea.Msg {
+			cfg := m.com.Config()
+			if cfg == nil {
+				return util.ReportError(errors.New("configuration not found"))()
+			}
+			muted := cfg.Options != nil && cfg.Options.Sound != nil && cfg.Options.Sound.Disabled
+			newValue := !muted
+			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "options.sound.disabled", newValue); err != nil {
+				return util.ReportError(err)()
+			}
+
+			status := "unmuted"
+			if newValue {
+				status = "muted"
+			}
+			return util.NewInfoMsg("Sound effects " + status)
+		})
+		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionQuit:
 		cmds = append(cmds, tea.Quit)
 	case dialog.ActionEnableDockerMCP:
