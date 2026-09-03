@@ -123,6 +123,7 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		return m.applySessionModel(msg)
 	}
 
+	prevOrchestrator, hadPrevOrchestrator := cfg.Models[config.SelectedModelTypeOrchestrator]
 	if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, msg.ModelType, msg.Model); err != nil {
 		cmds = append(cmds, util.ReportError(err))
 	} else {
@@ -146,6 +147,11 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		}
 	}
 
+	// A new orchestrator should be felt now, not only in the next
+	// session: re-stamp the open session when it is still following the
+	// previous orchestrator (or has no stamp and none was configured).
+	restamp := msg.ModelType == config.SelectedModelTypeOrchestrator && m.followsOrchestrator(prevOrchestrator, hadPrevOrchestrator)
+
 	cmds = append(cmds, func() tea.Msg {
 		if err := m.com.Workspace.UpdateAgentModel(context.TODO()); err != nil {
 			return util.ReportError(err)
@@ -153,12 +159,22 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 
 		modelType := stringext.Capitalize(string(msg.ModelType))
 		modelMsg := fmt.Sprintf("%s model changed to %s", modelType, m.displayModelName(msg.Model))
-		if msg.ModelType == config.SelectedModelTypeOrchestrator {
+		if msg.ModelType == config.SelectedModelTypeOrchestrator && !restamp {
 			modelMsg += " (applies to sessions you open from now on)"
 		}
 
 		return util.NewInfoMsg(modelMsg)
 	})
+	if restamp {
+		sel := msg.Model
+		sessionID := m.session.ID
+		cmds = append(cmds, func() tea.Msg {
+			if err := m.com.Workspace.SetSessionModel(context.Background(), sessionID, &sel); err != nil {
+				return util.ReportError(err)()
+			}
+			return nil
+		})
+	}
 
 	m.dialog.CloseDialog(dialog.APIKeyInputID)
 	m.dialog.CloseDialog(dialog.OAuthID)
@@ -211,6 +227,24 @@ func (m *UI) displayModelName(sel config.SelectedModel) string {
 		}
 	}
 	return sel.Model
+}
+
+// followsOrchestrator reports whether the open session is running the
+// orchestrator by default rather than a deliberate one-off pick: it has
+// no stamp and no orchestrator was configured, or its stamp equals the
+// orchestrator that was configured before the change.
+func (m *UI) followsOrchestrator(prev config.SelectedModel, hadPrev bool) bool {
+	if !m.hasSession() {
+		return false
+	}
+	cur := m.session.Model
+	switch {
+	case cur == nil:
+		return !hadPrev
+	case hadPrev:
+		return cur.Provider == prev.Provider && cur.Model == prev.Model
+	}
+	return false
 }
 
 // applySessionModel stamps the selection on the session named by msg.

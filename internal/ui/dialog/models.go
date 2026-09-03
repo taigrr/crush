@@ -23,18 +23,18 @@ import (
 type ModelType int
 
 const (
-	// ModelTypeSession targets the OPEN session only: picking a model
-	// stamps that session (it and only it runs the new model) without
-	// touching any config. Listed first because it is what a person
-	// switching models mid-conversation almost always means. Absent
-	// when the dialog is opened with no session.
-	ModelTypeSession ModelType = iota
+	// ModelTypeOrchestrator is the model a person talks to: the default
+	// stamp for human-opened sessions (persisted to config). Spawned
+	// workers and sub-agents stay on Large. Listed first because it is
+	// the one a person most often means.
+	ModelTypeOrchestrator ModelType = iota
 	ModelTypeLarge
 	ModelTypeSmall
-	// ModelTypeOrchestrator sets the default for NEW human-opened
-	// sessions (persisted to config). Spawned workers and sub-agents
-	// stay on Large.
-	ModelTypeOrchestrator
+	// ModelTypeSession is a one-off override for the OPEN session only:
+	// picking a model stamps that session (it and only it runs the new
+	// model) without touching any config. Absent when the dialog is
+	// opened with no session.
+	ModelTypeSession
 )
 
 // String returns the string representation of the [ModelType].
@@ -43,7 +43,7 @@ func (mt ModelType) String() string {
 	// 73-column dialog without wrapping.
 	switch mt {
 	case ModelTypeSession:
-		return "Session"
+		return "This session"
 	case ModelTypeLarge:
 		return "Large"
 	case ModelTypeSmall:
@@ -131,20 +131,22 @@ type Models struct {
 var _ Dialog = (*Models)(nil)
 
 // NewModels creates a new Models dialog. sess is the open session (nil
-// on the landing screen or during onboarding); when set, the dialog
-// starts on the "This Session" tab.
+// on the landing screen or during onboarding); when set, a "This session"
+// tab is added for one-off overrides. The dialog starts on Orchestrator
+// when one is configured, otherwise Large.
 func NewModels(com *common.Common, isOnboarding bool, sess *session.Session) (*Models, error) {
 	t := com.Styles
 	m := &Models{}
 	m.com = com
 	m.isOnboarding = isOnboarding
 	m.session = sess
+	m.tabs = []ModelType{ModelTypeOrchestrator, ModelTypeLarge, ModelTypeSmall}
 	if sess != nil && !isOnboarding {
-		m.tabs = []ModelType{ModelTypeSession, ModelTypeLarge, ModelTypeSmall, ModelTypeOrchestrator}
-		m.modelType = ModelTypeSession
-	} else {
-		m.tabs = []ModelType{ModelTypeLarge, ModelTypeSmall, ModelTypeOrchestrator}
-		m.modelType = ModelTypeLarge
+		m.tabs = append(m.tabs, ModelTypeSession)
+	}
+	m.modelType = ModelTypeLarge
+	if _, ok := com.Config().Models[config.SelectedModelTypeOrchestrator]; ok && !isOnboarding {
+		m.modelType = ModelTypeOrchestrator
 	}
 
 	help := help.New()
