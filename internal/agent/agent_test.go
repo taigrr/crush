@@ -237,6 +237,77 @@ func TestPreparePrompt_OrphanedToolUseMixed(t *testing.T) {
 	require.Equal(t, 1, syntheticCount, "expected exactly one synthetic result for the orphaned call")
 }
 
+func TestPreparePrompt_ToolResultReorderedAfterInterposedUser(t *testing.T) {
+	// Reproduces the lightgreen-crocodile failure: a folded /btw user
+	// message is persisted between a tool_use and its tool_result, and the
+	// real tool_result gets a later created_at than that user turn. On
+	// reload the tool_use would be followed by the user message instead of
+	// its result, which providers reject. preparePrompt must re-attach the
+	// result directly after the calling assistant message.
+	env := testEnv(t)
+	sa := testSessionAgent(env, nil, nil, "test prompt")
+	agent := sa.(*sessionAgent)
+
+	ctx := t.Context()
+	sess, err := env.sessions.Create(ctx, "test")
+	require.NoError(t, err)
+
+	// Assistant emits a tool call.
+	_, err = env.messages.Create(ctx, sess.ID, message.CreateMessageParams{
+		Role: message.Assistant,
+		Parts: []message.ContentPart{
+			message.ToolCall{ID: "call_x", Name: "view", Input: `{"path":"/f"}`, Finished: true},
+		},
+	})
+	require.NoError(t, err)
+
+	// A [btw] user aside is folded in before the tool finishes.
+	_, err = env.messages.Create(ctx, sess.ID, message.CreateMessageParams{
+		Role:  message.User,
+		Parts: []message.ContentPart{message.TextContent{Text: "[btw] rename that param"}},
+	})
+	require.NoError(t, err)
+
+	// The real tool result is persisted last (later created_at).
+	_, err = env.messages.Create(ctx, sess.ID, message.CreateMessageParams{
+		Role: message.Tool,
+		Parts: []message.ContentPart{
+			message.ToolResult{ToolCallID: "call_x", Name: "view", Content: "file contents"},
+		},
+	})
+	require.NoError(t, err)
+
+	msgs, err := env.messages.List(ctx, sess.ID)
+	require.NoError(t, err)
+
+	history, _ := agent.preparePrompt(msgs, true)
+
+	// Find the assistant message carrying the tool call and assert the
+	// message immediately after it is the tool result (not the user turn).
+	asstIdx := -1
+	for i, m := range history {
+		if m.Role != fantasy.MessageRoleAssistant {
+			continue
+		}
+		for _, part := range m.Content {
+			if tc, ok := fantasy.AsMessagePart[fantasy.ToolCallPart](part); ok && tc.ToolCallID == "call_x" {
+				asstIdx = i
+			}
+		}
+	}
+	require.NotEqual(t, -1, asstIdx, "assistant tool call message must be present")
+	require.Less(t, asstIdx+1, len(history), "a message must follow the tool call")
+
+	next := history[asstIdx+1]
+	require.Equal(t, fantasy.MessageRoleTool, next.Role, "tool result must immediately follow its tool_use")
+	tr, ok := fantasy.AsMessagePart[fantasy.ToolResultPart](next.Content[0])
+	require.True(t, ok)
+	require.Equal(t, "call_x", tr.ToolCallID)
+	txt, ok := tr.Output.(fantasy.ToolResultOutputContentText)
+	require.True(t, ok, "the real result (not a synthetic error) must be used")
+	require.Contains(t, txt.Text, "file contents")
+}
+
 func TestProviderRetryLogFields(t *testing.T) {
 	t.Run("nil provider error", func(t *testing.T) {
 		fields := providerRetryLogFields(nil, 2*time.Second)

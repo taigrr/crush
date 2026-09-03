@@ -19,6 +19,7 @@ import (
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/oauth/copilot"
 	"github.com/taigrr/crush/internal/oauth/grok"
+	"github.com/taigrr/crush/internal/sound"
 )
 
 const (
@@ -336,34 +337,80 @@ type Options struct {
 	DisableNotifications      bool          `json:"disable_notifications,omitempty" jsonschema:"description=Deprecated: Use notification_style instead. Disable desktop notifications,default=false"`
 	NotificationStyle         string        `json:"notification_style,omitempty" jsonschema:"description=Notification style to use. Options: auto (default), native, osc, bell, disabled. Auto selects based on environment: native for local sessions, osc for SSH (with automatic OSC 99/777 detection).,enum=auto,enum=native,enum=osc,enum=bell,enum=disabled,default=auto"`
 	DisabledSkills            []string      `json:"disabled_skills,omitempty" jsonschema:"description=List of skill names to disable and hide from the agent,example=crush-config"`
-	Sound                     *SoundOptions `json:"sound,omitempty" jsonschema:"description=End-of-turn notification sound settings played by the server"`
+	Sound                     *SoundOptions `json:"sound,omitempty" jsonschema:"description=Server-side notification sound settings"`
 }
 
-// SoundOptions controls the server-side sound played when an agent turn
-// finishes. Sound is enabled by default; set Disabled to turn it off
-// completely. A bundled chime is used unless Path points to a custom
-// WAV or MP3 file. When the user has configured their own Stop hook the
-// default sound defers to it and does not play.
+// SoundOptions controls the server-side notification sounds. Sounds are
+// enabled by default; set Disabled to turn them all off. Each event can
+// be individually disabled or pointed at a custom WAV or MP3 file via its
+// SoundEvent block. When the user has configured a matching hook the
+// built-in sound defers to it and does not play.
 type SoundOptions struct {
-	Disabled bool   `json:"disabled,omitempty" jsonschema:"description=Disable the end-of-turn notification sound,default=false"`
-	Path     string `json:"path,omitempty" jsonschema:"description=Path to a custom sound file (WAV or MP3) to play at end of turn. When empty a bundled chime is used.,example=~/.config/crush/done.wav"`
+	Disabled  bool        `json:"disabled,omitempty" jsonschema:"description=Disable all notification sounds,default=false"`
+	EndOfTurn *SoundEvent `json:"end_of_turn,omitempty" jsonschema:"description=Sound played when an agent turn finishes successfully"`
+	Swarm     *SoundEvent `json:"swarm,omitempty" jsonschema:"description=Sound played when a swarm message is dispatched to another session"`
+	Blocked   *SoundEvent `json:"blocked,omitempty" jsonschema:"description=Sound played when a session becomes blocked awaiting the user (permission or question)"`
+	ToolError *SoundEvent `json:"tool_error,omitempty" jsonschema:"description=Sound played when a tool call fails"`
+	Queued    *SoundEvent `json:"queued,omitempty" jsonschema:"description=Sound played when a message is queued behind an active turn"`
 }
 
-// SoundEnabled reports whether the end-of-turn notification sound should
-// play. Sound defaults to on: it is enabled unless the user explicitly
-// disabled it.
-func (o *Options) SoundEnabled() bool {
-	return o == nil || o.Sound == nil || !o.Sound.Disabled
+// SoundEvent configures a single notification sound. Disabled silences
+// just this event; Path overrides the bundled default with a custom WAV
+// or MP3 file.
+type SoundEvent struct {
+	Disabled bool   `json:"disabled,omitempty" jsonschema:"description=Disable this notification sound,default=false"`
+	Path     string `json:"path,omitempty" jsonschema:"description=Path to a custom sound file (WAV or MP3). When empty a bundled sound is used.,example=~/.config/crush/done.wav"`
 }
 
-// SoundPath returns the configured custom sound file path with a
-// leading ~ expanded to the user's home directory, or the empty string
-// when the bundled default should be used.
-func (o *Options) SoundPath() string {
-	if o == nil || o.Sound == nil || o.Sound.Path == "" {
+// event returns the per-event config for s, or nil when unset.
+func (o *SoundOptions) event(s sound.Sound) *SoundEvent {
+	if o == nil {
+		return nil
+	}
+	switch s {
+	case sound.EndOfTurn:
+		return o.EndOfTurn
+	case sound.Swarm:
+		return o.Swarm
+	case sound.Blocked:
+		return o.Blocked
+	case sound.ToolError:
+		return o.ToolError
+	case sound.Queued:
+		return o.Queued
+	default:
+		return nil
+	}
+}
+
+// SoundEnabled reports whether the given notification sound should play.
+// Sounds default to on: an event plays unless all sounds are disabled or
+// that specific event is disabled.
+func (o *Options) SoundEnabled(s sound.Sound) bool {
+	if o == nil || o.Sound == nil {
+		return true
+	}
+	if o.Sound.Disabled {
+		return false
+	}
+	if ev := o.Sound.event(s); ev != nil && ev.Disabled {
+		return false
+	}
+	return true
+}
+
+// SoundPath returns the configured custom file path for the given sound
+// with a leading ~ expanded to the user's home directory, or the empty
+// string when the bundled default should be used.
+func (o *Options) SoundPath(s sound.Sound) string {
+	if o == nil || o.Sound == nil {
 		return ""
 	}
-	return home.Long(o.Sound.Path)
+	ev := o.Sound.event(s)
+	if ev == nil || ev.Path == "" {
+		return ""
+	}
+	return home.Long(ev.Path)
 }
 
 type MCPs map[string]MCPConfig

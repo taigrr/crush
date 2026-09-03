@@ -213,28 +213,46 @@ reviewed.
 
 Other options: `context_paths`, `progress`, `notification_style` (`auto`, `native`, `osc`, `bell`, `disabled`; supersedes the deprecated `disable_notifications`), `disable_auto_summarize`, `disable_metrics`, `disable_provider_auto_update`, `disable_default_providers`, `data_directory`, `initialize_as`.
 
-## End-of-turn sound
+## Notification sounds
 
-The server plays a short chime when an agent turn finishes. It is on by
-default. Configure it under `options.sound`:
+The server plays short notification sounds for several events. They are on
+by default. Configure them under `options.sound`:
 
 ```json
 {
   "options": {
     "sound": {
       "disabled": false,
-      "path": "~/.config/crush/done.wav"
+      "end_of_turn": { "disabled": false, "path": "~/.config/crush/done.wav" },
+      "swarm": { "disabled": false },
+      "blocked": { "disabled": true },
+      "tool_error": { "disabled": false },
+      "queued": { "disabled": false }
     }
   }
 }
 ```
 
-- `disabled`: set to `true` to turn the sound off completely.
-- `path`: optional custom WAV or MP3 file. When empty, a bundled chime
-  plays.
+- `disabled` (top level): set to `true` to turn off **all** sounds.
+- Each event block (`end_of_turn`, `swarm`, `blocked`, `tool_error`,
+  `queued`) accepts:
+  - `disabled`: set to `true` to silence just that event.
+  - `path`: optional custom WAV or MP3 file. When empty, a bundled sound
+    plays.
 
-If the user has configured a `Stop` hook, the default sound defers to
-that hook and does not play.
+Events:
+
+- `end_of_turn`: an agent turn finished successfully.
+- `swarm`: a swarm message was dispatched to another session.
+- `blocked`: the session is blocked awaiting the user (permission prompt
+  or question) — the red-border state.
+- `tool_error`: a tool call failed.
+- `queued`: a message was queued behind an active turn.
+
+Each event defers to a matching hook when one is configured: `end_of_turn`
+→ `Stop`, `swarm` → `Swarm`, `blocked` → `Blocked`, `tool_error` →
+`ToolError`, `queued` → `Queued`. When such a hook is present the built-in
+sound stays silent so the hook owns the notification.
 
 ## Sessions sidebar width
 

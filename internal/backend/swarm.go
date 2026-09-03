@@ -14,6 +14,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/sound"
 	"github.com/taigrr/crush/internal/swarm"
 )
 
@@ -34,6 +35,12 @@ type SwarmLookupResult struct {
 	SessionID   string
 	Color       string
 	Animal      string
+	// WorkspaceRoot is the target workspace's resolved project root. It
+	// lets [Backend.SwarmSend] re-bring-up the workspace if it was
+	// idle-torn-down between address resolution and delivery, so a
+	// cross-workspace send never spuriously fails with "workspace not
+	// found" due to that race.
+	WorkspaceRoot string
 	// Sub is true when the session is a title/summary/task-tool
 	// sub-session; callers should refuse to send.
 	Sub bool
@@ -89,6 +96,7 @@ func (b *Backend) LookupSwarmAddress(ctx context.Context, addrStr string) (Swarm
 			continue
 		}
 		for _, m := range found {
+			m.WorkspaceRoot = ws.resolvedPath
 			addMatch(m)
 		}
 	}
@@ -198,6 +206,7 @@ func (b *Backend) reattachForAddress(ctx context.Context, addr swarm.Address) (S
 	if err != nil || len(found) == 0 {
 		return SwarmLookupResult{}, ErrSwarmAddressNotFound
 	}
+	found[0].WorkspaceRoot = ws.resolvedPath
 	return found[0], nil
 }
 
@@ -223,16 +232,21 @@ func peekDataDirForAddress(ctx context.Context, dataDir string, addr swarm.Addre
 	}
 	var matches []db.PeekedSession
 	for _, s := range peeked {
-		if s.Archived {
-			continue
-		}
 		if strings.HasPrefix(s.ID, "title-") || strings.Contains(s.ID, "$$") {
 			continue
 		}
 		if addr.SessionID != "" {
+			// A precise session-id address may resurrect an archived
+			// session (the send path unarchives it), so archived rows
+			// are not filtered on this branch.
 			if s.ID == addr.SessionID {
 				matches = append(matches, s)
 			}
+			continue
+		}
+		// Color/animal resolution never resurrects an archived session
+		// (a palette collision could otherwise revive the wrong one).
+		if s.Archived {
 			continue
 		}
 		if !addr.MatchesColorAnimal(s.Color, s.Animal, s.ID) {
@@ -277,7 +291,23 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 	}
 	ws, ok := b.workspaces.Get(target.WorkspaceID)
 	if !ok {
-		return SwarmSendResult{}, ErrSwarmWorkspaceNotFound
+		// The target workspace was idle-torn-down between address
+		// resolution and now. If we know its root, bring it back up
+		// (attaching the detached-but-intact workspace) so a
+		// cross-workspace send doesn't spuriously fail on this race.
+		if target.WorkspaceRoot != "" {
+			reattached, _, err := b.CreateWorkspace(proto.Workspace{
+				Path:     target.WorkspaceRoot,
+				ClientID: uuid.New().String(),
+			})
+			if err == nil && reattached != nil {
+				ws, target.WorkspaceID = reattached, reattached.ID
+				ok = true
+			}
+		}
+		if !ok {
+			return SwarmSendResult{}, ErrSwarmWorkspaceNotFound
+		}
 	}
 	// Locate the sender session so we can stamp the outgoing part
 	// with a trusted identity rather than the caller-supplied values.
@@ -293,8 +323,10 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 	}
 
 	// Confirm the target session still exists in that workspace,
-	// and cache its title for the outgoing notification below.
-	targetSess, err := getLiveSession(ctx, ws.Sessions, target.SessionID)
+	// and cache its title for the outgoing notification below. An
+	// archived target is resurrected (unarchived) so a swarm message
+	// can revive a dormant conversation.
+	targetSess, err := resurrectTargetSession(ctx, ws.Sessions, target.SessionID)
 	if err != nil {
 		return SwarmSendResult{}, err
 	}
@@ -315,6 +347,18 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 		return SwarmSendResult{}, err
 	}
 	publishSwarmReceived(ws, target.SessionID, targetSess.Title, part)
+
+	// Swarm squelch on the sender's workspace: a swarm message fired via
+	// a tool call. Best-effort; defers to a Swarm hook when configured.
+	if senderWS, ok := b.workspaces.Get(part.SenderWorkspaceID); ok {
+		b.playSound(senderWS, sound.Swarm)
+	}
+	// Queued bump on the target when the message landed behind an active
+	// turn rather than starting immediately.
+	if delivery == "queued" {
+		b.playSound(ws, sound.Queued)
+	}
+
 	return SwarmSendResult{
 		WorkspaceID: target.WorkspaceID,
 		SessionID:   target.SessionID,
@@ -322,16 +366,20 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 	}, nil
 }
 
-// getLiveSession fetches a non-archived session by id, mapping both
-// sql.ErrNoRows and an archived row to ErrSwarmAddressNotFound while
-// distinguishing genuine DB failures (so the tool doesn't report a
-// real error as NotFound).
-func getLiveSession(ctx context.Context, sessions session.Service, sessionID string) (session.Session, error) {
+// resurrectTargetSession fetches a swarm target by id, unarchiving it
+// first if it was archived so a swarm message can revive a dormant
+// conversation. sql.ErrNoRows maps to ErrSwarmAddressNotFound; genuine
+// DB failures are distinguished (so the tool doesn't report a real
+// error as NotFound). Returns the live (unarchived) session.
+func resurrectTargetSession(ctx context.Context, sessions session.Service, sessionID string) (session.Session, error) {
 	s, err := sessions.Get(ctx, sessionID)
 	switch {
 	case err == nil:
 		if s.ArchivedAt != 0 {
-			return session.Session{}, ErrSwarmAddressNotFound
+			if err := sessions.Unarchive(ctx, sessionID); err != nil {
+				return session.Session{}, fmt.Errorf("swarm: unarchive target: %w", err)
+			}
+			s.ArchivedAt = 0
 		}
 		return s, nil
 	case errors.Is(err, sql.ErrNoRows):
@@ -511,9 +559,11 @@ func matchAddressInApp(ctx context.Context, sessions session.Service, workspaceI
 		s, err := sessions.Get(ctx, addr.SessionID)
 		switch {
 		case err == nil:
-			if s.ArchivedAt != 0 {
-				return nil, nil
-			}
+			// An archived session is still a valid target when
+			// addressed by its precise, unambiguous session id: the
+			// send path unarchives it (resurrects it). Color/animal
+			// resolution below deliberately does NOT resurrect, to
+			// avoid reviving the wrong session on a palette collision.
 			return []SwarmLookupResult{{
 				WorkspaceID: workspaceID,
 				SessionID:   s.ID,

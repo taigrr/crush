@@ -95,13 +95,24 @@ func Search(
 	})
 }
 
+// sessionTitles maps every session id to its title so hits can be
+// labelled. Archived sessions are included: their messages are still
+// searched (the messages table is never filtered by archive state), so
+// omitting their titles would render their hits as "(untitled)".
 func sessionTitles(ctx context.Context, sessions session.Service) (map[string]string, error) {
-	all, err := sessions.List(ctx)
+	active, err := sessions.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	titles := make(map[string]string, len(all))
-	for _, s := range all {
+	archived, err := sessions.ListArchived(ctx)
+	if err != nil {
+		return nil, err
+	}
+	titles := make(map[string]string, len(active)+len(archived))
+	for _, s := range active {
+		titles[s.ID] = s.Title
+	}
+	for _, s := range archived {
 		titles[s.ID] = s.Title
 	}
 	return titles, nil

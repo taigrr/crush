@@ -9,15 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDefaultChimeDecodes verifies the bundled sound file is a valid,
+// TestBundledSoundsDecode verifies every bundled sound file is a valid,
 // non-empty WAV that beep can decode. This runs without an audio device
 // (no speaker.Init), so it is safe in headless CI.
-func TestDefaultChimeDecodes(t *testing.T) {
+func TestBundledSoundsDecode(t *testing.T) {
 	t.Parallel()
-	require.NotEmpty(t, defaultChime, "bundled default chime must not be empty")
+	for s, name := range bundledFile {
+		data, err := bundled.ReadFile(name)
+		require.NoErrorf(t, err, "reading bundled sound %q", s)
+		require.NotEmptyf(t, data, "bundled sound %q must not be empty", s)
 
-	streamer, format, err := wav.Decode(io.NopCloser(bytes.NewReader(defaultChime)))
-	require.NoError(t, err)
-	defer streamer.Close()
-	require.Positive(t, int(format.SampleRate))
+		streamer, format, err := wav.Decode(io.NopCloser(bytes.NewReader(data)))
+		require.NoErrorf(t, err, "decoding bundled sound %q", s)
+		streamer.Close()
+		require.Positivef(t, int(format.SampleRate), "sound %q sample rate", s)
+	}
 }

@@ -17,6 +17,22 @@ const (
 	// control to the user. A Stop hook can block the stop and force the
 	// agent to keep working (see [StopResult] and [InterpretStop]).
 	EventStop = "Stop"
+	// EventSwarm fires when a swarm message is dispatched to another
+	// session. When configured it owns the swarm notification and the
+	// built-in swarm sound defers to it.
+	EventSwarm = "Swarm"
+	// EventBlocked fires when a session becomes blocked awaiting the
+	// user (permission prompt or question). When configured it owns the
+	// blocked notification and the built-in blocked sound defers to it.
+	EventBlocked = "Blocked"
+	// EventToolError fires when a tool call fails. When configured it
+	// owns the tool-error notification and the built-in sound defers to
+	// it.
+	EventToolError = "ToolError"
+	// EventQueued fires when a message is queued behind an active turn.
+	// When configured it owns the queued notification and the built-in
+	// sound defers to it.
+	EventQueued = "Queued"
 )
 
 // StopResult is the typed interpretation of a Stop event's aggregate

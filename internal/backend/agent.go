@@ -10,7 +10,6 @@ import (
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/config"
-	"github.com/taigrr/crush/internal/hooks"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
@@ -148,12 +147,22 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 		ctx = agent.WithSwarmParts(ctx, parts)
 	}
 
-	_, err := ws.AgentCoordinator.RunAccepted(ctx, accept, msg.SessionID, msg.Prompt, proto.AttachmentsToMessage(msg.Attachments)...)
+	result, err := ws.AgentCoordinator.RunAccepted(ctx, accept, msg.SessionID, msg.Prompt, proto.AttachmentsToMessage(msg.Attachments)...)
 	if err == nil {
-		// Genuine end of turn: play the notification sound. Skipped
-		// on cancellation and error below so the chime signals only a
-		// successfully completed turn. Best-effort and asynchronous.
-		b.playEndOfTurnSound(ws)
+		switch {
+		case result != nil:
+			// Genuine end of turn: a turn actually ran to completion.
+			// result is non-nil only on the completed path; the
+			// enqueue/fold paths return (nil, nil). This is why a
+			// folded /btw aside (empty RunID, no result) is silent and
+			// does not double-chime with the turn it folds into.
+			b.playSound(ws, sound.EndOfTurn)
+		case msg.RunID != "":
+			// The message was queued behind an active turn (busy
+			// session, non-empty RunID). It will run as its own turn
+			// later, drained by the active run; play a queued bump now.
+			b.playSound(ws, sound.Queued)
+		}
 		return
 	}
 	if errors.Is(err, context.Canceled) {
@@ -187,29 +196,6 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 			Error:     err.Error(),
 		})
 	}
-}
-
-// playEndOfTurnSound plays the bundled (or user-configured) end-of-turn
-// notification sound when a run finishes. It is best-effort and returns
-// immediately, delegating playback to a background goroutine. It is a
-// no-op when the workspace config disables sound, or when the user has
-// configured their own Stop hook — the hook then owns the end-of-turn
-// notification and the default sound defers to it.
-func (b *Backend) playEndOfTurnSound(ws *Workspace) {
-	if ws == nil || ws.Cfg == nil {
-		return
-	}
-	cfg := ws.Cfg.Config()
-	if cfg == nil {
-		return
-	}
-	if !cfg.Options.SoundEnabled() {
-		return
-	}
-	if len(cfg.Hooks[hooks.EventStop]) > 0 {
-		return
-	}
-	sound.PlayAsync(cfg.Options.SoundPath())
 }
 
 // GetAgentInfo returns the agent's model and busy status.

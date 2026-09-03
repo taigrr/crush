@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/taigrr/crush/internal/embedding"
 	"github.com/taigrr/crush/internal/historysearch"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/registry"
 	"github.com/taigrr/crush/internal/session"
 )
 
@@ -27,6 +29,7 @@ var (
 	searchLimit    int
 	searchOffset   int
 	searchNoVector bool
+	searchAllWS    bool
 )
 
 var searchCmd = &cobra.Command{
@@ -48,6 +51,7 @@ func init() {
 	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Max results per page")
 	searchCmd.Flags().IntVar(&searchOffset, "offset", 0, "Results to skip (pagination)")
 	searchCmd.Flags().BoolVar(&searchNoVector, "no-vector", false, "Disable semantic search (substring only)")
+	searchCmd.Flags().BoolVar(&searchAllWS, "all-workspaces", false, "Search across every known workspace (attached and detached)")
 	rootCmd.AddCommand(searchCmd)
 }
 
@@ -85,6 +89,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	if searchNoVector {
 		off := false
 		semantic = &off
+	}
+
+	if searchAllWS {
+		return runSearchAcrossWorkspaces(cmd, ctx, cwd, dataDir, sessions, messages, emb, cfg.EmbeddingParams(), query, semantic)
 	}
 
 	res, err := historysearch.Search(ctx, messages, sessions, emb, query, historysearch.Options{
@@ -214,4 +222,143 @@ func clampInt(v, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+// runSearchAcrossWorkspaces fans the query out over the current workspace
+// plus every registry-known workspace, opening each detached workspace's
+// database read-only. Results are merged, ranked, and collapsed per
+// (workspace, session) by historysearch.SearchWorkspaces.
+func runSearchAcrossWorkspaces(
+	cmd *cobra.Command,
+	ctx context.Context,
+	cwd, dataDir string,
+	sessions session.Service,
+	messages message.Service,
+	emb embedding.Service,
+	embParams embedding.Params,
+	query string,
+	semantic *bool,
+) error {
+	sources := []historysearch.Source{{
+		Root:     cwd,
+		Messages: messages,
+		Sessions: sessions,
+		Emb:      emb,
+	}}
+
+	// Track data dirs already covered so the current workspace isn't
+	// searched twice when it also appears in the registry.
+	seen := map[string]struct{}{dataDir: {}}
+	entries, err := registry.New().List()
+	if err != nil {
+		return fmt.Errorf("failed to read workspace registry: %w", err)
+	}
+	var closers []func()
+	defer func() {
+		for _, c := range closers {
+			c()
+		}
+	}()
+	for _, e := range entries {
+		if e.DataDir == "" || e.Root == "" {
+			continue
+		}
+		if _, ok := seen[e.DataDir]; ok {
+			continue
+		}
+		seen[e.DataDir] = struct{}{}
+		conn, err := db.OpenReadOnly(e.DataDir)
+		if err != nil || conn == nil {
+			continue // unreadable or no database yet: skip
+		}
+		closers = append(closers, func() { _ = conn.Close() })
+		q := db.New(conn)
+		sources = append(sources, historysearch.Source{
+			Root:     e.Root,
+			Messages: message.NewService(q),
+			Sessions: session.NewService(q, conn),
+			Emb:      embedding.Build(q, embParams),
+		})
+	}
+
+	res, err := historysearch.SearchAcross(ctx, sources, query,
+		historysearch.Scope(searchScope), semantic, searchLimit*4, searchLimit)
+	if err != nil {
+		return fmt.Errorf("search failed: %w", err)
+	}
+
+	if searchJSON {
+		enc := json.NewEncoder(cmd.OutOrStdout())
+		enc.SetEscapeHTML(false)
+		return enc.Encode(res)
+	}
+	return renderWorkspaceSearchTable(cmd, query, res)
+}
+
+// renderWorkspaceSearchTable prints cross-workspace hits with a WORKSPACE
+// column so each match's originating project is visible.
+func renderWorkspaceSearchTable(cmd *cobra.Command, query string, res historysearch.CrossResult) error {
+	if res.Total == 0 {
+		cmd.Printf("No matches for %q across workspaces\n", query)
+		return nil
+	}
+	mode := "substring"
+	if res.SemanticUsed {
+		mode = "hybrid"
+	}
+	headers := []string{"#", "MATCH", "WORKSPACE", "SESSION", "TITLE", "MESSAGE", "ROLE", "WHEN", "SNIPPET"}
+	rows := make([][]string, 0, len(res.Hits))
+	for i, h := range res.Hits {
+		title := h.SessionTitle
+		if title == "" {
+			title = "(untitled)"
+		}
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", i+1),
+			string(h.Match),
+			h.Root,
+			h.SessionID,
+			title,
+			h.MessageID,
+			h.Role,
+			h.CreatedAt.Local().Format("2006-01-02 15:04"),
+			h.Snippet,
+		})
+	}
+
+	if term.IsTerminal(os.Stdout.Fd()) {
+		width := 120
+		if tw, _, err := term.GetSize(os.Stdout.Fd()); err == nil && tw > 0 {
+			width = tw
+		}
+		wsCap := clampInt(width/6, 12, 40)
+		titleCap := clampInt(width/6, 12, 30)
+		snippetCap := clampInt(width/4, 20, 60)
+		for i := range rows {
+			rows[i][2] = ansi.Truncate(rows[i][2], wsCap, "…")
+			rows[i][4] = ansi.Truncate(rows[i][4], titleCap, "…")
+			rows[i][8] = ansi.Truncate(strings.ReplaceAll(rows[i][8], "\n", " "), snippetCap, "…")
+		}
+		t := table.New().
+			Border(lipgloss.RoundedBorder()).
+			StyleFunc(func(row, col int) lipgloss.Style {
+				return lipgloss.NewStyle().Padding(0, 1)
+			}).
+			Headers(headers...).
+			Rows(rows...)
+		lipgloss.Println(t)
+		cmd.Printf("Matches 1-%d of %d for %q across workspaces (%s)\n",
+			len(res.Hits), res.Total, query, mode)
+		return nil
+	}
+
+	cmd.Println(strings.Join(headers, "\t"))
+	for _, r := range rows {
+		clean := make([]string, len(r))
+		for i, c := range r {
+			clean[i] = strings.ReplaceAll(c, "\n", " ")
+		}
+		cmd.Println(strings.Join(clean, "\t"))
+	}
+	return nil
 }

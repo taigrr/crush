@@ -24,21 +24,23 @@ func (s *swarmShim) LookupAddress(ctx context.Context, addr string) (tools.Swarm
 		return tools.SwarmLookupResult{}, err
 	}
 	return tools.SwarmLookupResult{
-		WorkspaceID: r.WorkspaceID,
-		SessionID:   r.SessionID,
-		Color:       r.Color,
-		Animal:      r.Animal,
-		Sub:         r.Sub,
+		WorkspaceID:   r.WorkspaceID,
+		SessionID:     r.SessionID,
+		Color:         r.Color,
+		Animal:        r.Animal,
+		WorkspaceRoot: r.WorkspaceRoot,
+		Sub:           r.Sub,
 	}, nil
 }
 
 func (s *swarmShim) Send(ctx context.Context, senderSessionID string, target tools.SwarmLookupResult, part message.SwarmMessage) (string, error) {
 	res, err := s.b.SwarmSend(ctx, senderSessionID, SwarmLookupResult{
-		WorkspaceID: target.WorkspaceID,
-		SessionID:   target.SessionID,
-		Color:       target.Color,
-		Animal:      target.Animal,
-		Sub:         target.Sub,
+		WorkspaceID:   target.WorkspaceID,
+		SessionID:     target.SessionID,
+		Color:         target.Color,
+		Animal:        target.Animal,
+		WorkspaceRoot: target.WorkspaceRoot,
+		Sub:           target.Sub,
 	}, proto.SwarmMessage{
 		Text:              part.Text,
 		Body:              part.Body,
@@ -68,4 +70,39 @@ func (s *swarmShim) ResolveWorkspaceByPath(ctx context.Context, path string) (st
 
 func (s *swarmShim) CreateSessionInWorkspaceAtPath(ctx context.Context, path, title string) (string, session.Session, error) {
 	return s.b.CreateSwarmSessionAtPath(ctx, path, title)
+}
+
+// SearchAllWorkspaces fans a history query out over every known
+// workspace (attached and registry-detached) and returns the merged,
+// per-session result mapped into the tool-facing type so the tools
+// package needn't import backend/proto.
+func (s *swarmShim) SearchAllWorkspaces(ctx context.Context, requestingWorkspaceID, query, scope string, semantic *bool, limit int) (tools.CrossWorkspaceResult, error) {
+	res, err := s.b.searchAllWorkspaces(ctx, requestingWorkspaceID, proto.SearchHistoryParams{
+		Query:         query,
+		Scope:         scope,
+		Semantic:      semantic,
+		Limit:         limit,
+		AllWorkspaces: true,
+	})
+	if err != nil {
+		return tools.CrossWorkspaceResult{}, err
+	}
+	hits := make([]tools.CrossWorkspaceHit, 0, len(res.Hits))
+	for _, h := range res.Hits {
+		hits = append(hits, tools.CrossWorkspaceHit{
+			SessionID:     h.SessionID,
+			SessionTitle:  h.SessionTitle,
+			WorkspaceRoot: h.WorkspaceRoot,
+			Match:         h.Match,
+			Snippet:       h.Snippet,
+			MessageID:     h.MessageID,
+			Role:          h.Role,
+			CreatedAt:     h.CreatedAt,
+		})
+	}
+	return tools.CrossWorkspaceResult{
+		Hits:         hits,
+		Total:        res.Total,
+		SemanticUsed: res.SemanticUsed,
+	}, nil
 }

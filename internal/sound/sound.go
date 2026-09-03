@@ -6,7 +6,7 @@ package sound
 
 import (
 	"bytes"
-	_ "embed"
+	"embed"
 	"io"
 	"log/slog"
 	"os"
@@ -21,14 +21,40 @@ import (
 	"github.com/gopxl/beep/v2/wav"
 )
 
-// defaultChime is the bundled end-of-turn sound, played when the user
-// has not configured a custom sound file.
+// Sound identifies a bundled notification sound. Each value maps to an
+// embedded WAV file and to a configurable event in the user's config.
+type Sound string
+
+const (
+	// EndOfTurn plays when an agent turn finishes successfully.
+	EndOfTurn Sound = "end_of_turn"
+	// Swarm plays when a swarm message is dispatched to another session.
+	Swarm Sound = "swarm"
+	// Blocked plays when a session becomes blocked awaiting the user
+	// (permission prompt or question) — the red-border state.
+	Blocked Sound = "blocked"
+	// ToolError plays when a tool call fails.
+	ToolError Sound = "tool_error"
+	// Queued plays when a message is queued behind an active turn.
+	Queued Sound = "queued"
+)
+
+// bundled holds the embedded default audio for each Sound.
 //
-//go:embed default.wav
-var defaultChime []byte
+//go:embed end_of_turn.wav swarm.wav blocked.wav tool_error.wav queued.wav
+var bundled embed.FS
+
+// bundledFile maps a Sound to its embedded file name.
+var bundledFile = map[Sound]string{
+	EndOfTurn: "end_of_turn.wav",
+	Swarm:     "swarm.wav",
+	Blocked:   "blocked.wav",
+	ToolError: "tool_error.wav",
+	Queued:    "queued.wav",
+}
 
 // speakerSampleRate is the sample rate the shared speaker is initialized
-// with. The bundled chime is authored at this rate; custom files with a
+// with. The bundled sounds are authored at this rate; custom files with a
 // different rate are resampled to match.
 const speakerSampleRate beep.SampleRate = 44100
 
@@ -48,7 +74,7 @@ func initSpeaker() error {
 }
 
 // decode picks a decoder based on the file extension. Custom paths may
-// be WAV or MP3; the bundled default is WAV.
+// be WAV or MP3; the bundled defaults are WAV.
 func decode(name string, r io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) {
 	if strings.EqualFold(filepath.Ext(name), ".mp3") {
 		return mp3.Decode(r)
@@ -56,27 +82,38 @@ func decode(name string, r io.ReadCloser) (beep.StreamSeekCloser, beep.Format, e
 	return wav.Decode(r)
 }
 
-// Play plays a notification sound and blocks until it finishes. If path
-// is non-empty the file at that path is played; otherwise the bundled
-// default chime is used. Any error is returned (and callers typically
+// open returns a reader for the sound to play. When path is non-empty the
+// file at that path is used; otherwise the bundled default for s is
+// returned. The returned name carries the correct extension so decode can
+// pick the right decoder.
+func open(s Sound, path string) (io.ReadCloser, string, error) {
+	if path != "" {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, "", err
+		}
+		return f, path, nil
+	}
+	name := bundledFile[s]
+	data, err := bundled.ReadFile(name)
+	if err != nil {
+		return nil, "", err
+	}
+	return io.NopCloser(bytes.NewReader(data)), name, nil
+}
+
+// Play plays the given sound and blocks until it finishes. If path is
+// non-empty the file at that path is played; otherwise the bundled
+// default for s is used. Any error is returned (and callers typically
 // just log it) — playback failures are never fatal.
-func Play(path string) error {
+func Play(s Sound, path string) error {
 	if err := initSpeaker(); err != nil {
 		return err
 	}
 
-	var (
-		rc   io.ReadCloser
-		name string
-	)
-	if path != "" {
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		rc, name = f, path
-	} else {
-		rc, name = io.NopCloser(bytes.NewReader(defaultChime)), "default.wav"
+	rc, name, err := open(s, path)
+	if err != nil {
+		return err
 	}
 
 	streamer, format, err := decode(name, rc)
@@ -103,10 +140,10 @@ func Play(path string) error {
 // immediately, logging any error. Use this when the caller must not
 // block on playback (e.g. an end-of-turn chime fired from a run's
 // completion path).
-func PlayAsync(path string) {
+func PlayAsync(s Sound, path string) {
 	go func() {
-		if err := Play(path); err != nil {
-			slog.Debug("Failed to play notification sound", "path", path, "error", err)
+		if err := Play(s, path); err != nil {
+			slog.Debug("Failed to play notification sound", "sound", string(s), "path", path, "error", err)
 		}
 	}()
 }

@@ -642,7 +642,7 @@
         },
         "sound": {
           "$ref": "#/$defs/SoundOptions",
-          "description": "End-of-turn notification sound settings played by the server"
+          "description": "Server-side notification sound settings"
         }
       },
       "additionalProperties": false,
@@ -867,19 +867,50 @@
       "additionalProperties": false,
       "type": "object"
     },
-    "SoundOptions": {
+    "SoundEvent": {
       "properties": {
         "disabled": {
           "type": "boolean",
-          "description": "Disable the end-of-turn notification sound",
+          "description": "Disable this notification sound",
           "default": false
         },
         "path": {
           "type": "string",
-          "description": "Path to a custom sound file (WAV or MP3) to play at end of turn. When empty a bundled chime is used.",
+          "description": "Path to a custom sound file (WAV or MP3). When empty a bundled sound is used.",
           "examples": [
             "~/.config/crush/done.wav"
           ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "SoundOptions": {
+      "properties": {
+        "disabled": {
+          "type": "boolean",
+          "description": "Disable all notification sounds",
+          "default": false
+        },
+        "end_of_turn": {
+          "$ref": "#/$defs/SoundEvent",
+          "description": "Sound played when an agent turn finishes successfully"
+        },
+        "swarm": {
+          "$ref": "#/$defs/SoundEvent",
+          "description": "Sound played when a swarm message is dispatched to another session"
+        },
+        "blocked": {
+          "$ref": "#/$defs/SoundEvent",
+          "description": "Sound played when a session becomes blocked awaiting the user (permission or question)"
+        },
+        "tool_error": {
+          "$ref": "#/$defs/SoundEvent",
+          "description": "Sound played when a tool call fails"
+        },
+        "queued": {
+          "$ref": "#/$defs/SoundEvent",
+          "description": "Sound played when a message is queued behind an active turn"
         }
       },
       "additionalProperties": false,

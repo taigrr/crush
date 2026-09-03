@@ -7,8 +7,10 @@ import (
 	"log/slog"
 
 	"github.com/taigrr/crush/internal/agent/tools"
+	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/hooks"
 	"github.com/taigrr/crush/internal/permission"
+	"github.com/taigrr/crush/internal/sound"
 	"github.com/taigrr/fantasy"
 	"github.com/tidwall/sjson"
 )
@@ -18,23 +20,24 @@ import (
 type hookedTool struct {
 	inner  fantasy.AgentTool
 	runner *hooks.Runner
+	cfg    *config.ConfigStore
 }
 
-func newHookedTool(inner fantasy.AgentTool, runner *hooks.Runner) *hookedTool {
-	return &hookedTool{inner: inner, runner: runner}
+func newHookedTool(inner fantasy.AgentTool, runner *hooks.Runner, cfg *config.ConfigStore) *hookedTool {
+	return &hookedTool{inner: inner, runner: runner, cfg: cfg}
 }
 
 // wrapToolsWithHooks returns a tool slice with each entry wrapped in a
 // hookedTool. Returns the original slice unchanged when runner is nil or
 // when isSubAgent is true — sub-agents never fire hooks, the top-level
 // invocation of the sub-agent tool itself is wrapped on the caller's side.
-func wrapToolsWithHooks(tools []fantasy.AgentTool, runner *hooks.Runner, isSubAgent bool) []fantasy.AgentTool {
+func wrapToolsWithHooks(tools []fantasy.AgentTool, runner *hooks.Runner, cfg *config.ConfigStore, isSubAgent bool) []fantasy.AgentTool {
 	if runner == nil || isSubAgent {
 		return tools
 	}
 	out := make([]fantasy.AgentTool, len(tools))
 	for i, tool := range tools {
-		out[i] = newHookedTool(tool, runner)
+		out[i] = newHookedTool(tool, runner, cfg)
 	}
 	return out
 }
@@ -84,6 +87,12 @@ func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.To
 	}
 
 	resp, err := h.inner.Run(ctx, call)
+	if err != nil || resp.IsError {
+		// A genuine tool failure (transport/system error, or a tool
+		// that returned an error response). Distinct from a hook block
+		// above, which is not a tool failure. Best-effort chime.
+		h.playToolError()
+	}
 	if err != nil {
 		return resp, err
 	}
@@ -97,6 +106,25 @@ func (h *hookedTool) Run(ctx context.Context, call fantasy.ToolCall) (fantasy.To
 
 	resp.Metadata = mergeHookMetadata(resp.Metadata, result)
 	return resp, nil
+}
+
+// playToolError plays the tool-error notification sound. Best-effort and
+// asynchronous: a no-op when config is unavailable, sound is disabled
+// (globally or for the tool-error event), or the user has configured a
+// ToolError hook — the hook then owns the notification and the built-in
+// sound defers to it.
+func (h *hookedTool) playToolError() {
+	if h.cfg == nil {
+		return
+	}
+	cfg := h.cfg.Config()
+	if cfg == nil || !cfg.Options.SoundEnabled(sound.ToolError) {
+		return
+	}
+	if len(cfg.Hooks[hooks.EventToolError]) > 0 {
+		return
+	}
+	sound.PlayAsync(sound.ToolError, cfg.Options.SoundPath(sound.ToolError))
 }
 
 // buildHookMetadata creates a HookMetadata from an AggregateResult.

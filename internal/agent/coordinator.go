@@ -996,6 +996,23 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 
 	logFile := filepath.Join(c.cfg.Config().Options.DataDirectory, "logs", "crush.log")
 
+	// Snapshot the swarm wiring once: the same backend handle powers
+	// both the swarm tool and cross-workspace history search.
+	c.swarmMu.Lock()
+	swarmBackend := c.swarmBackend
+	swarmWorkspaceID := c.swarmWorkspaceID
+	swarmConfigFn := c.swarmConfig
+	c.swarmMu.Unlock()
+
+	// Cross-workspace search is offered to main agents only (never
+	// task/reviewer sub-agents) and only when the backend is wired.
+	var historySearcher tools.HistorySearcher
+	if !isSubAgent && swarmBackend != nil {
+		if hs, ok := swarmBackend.(tools.HistorySearcher); ok {
+			historySearcher = hs
+		}
+	}
+
 	// Build hook runner if PreToolUse hooks are configured.
 	var hookRunner *hooks.Runner
 	if preToolHooks := c.cfg.Config().Hooks[hooks.EventPreToolUse]; len(preToolHooks) > 0 {
@@ -1019,7 +1036,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewLsTool(c.permissions, c.workingDir, c.cfg.Config().Tools.Ls),
 		tools.NewSourcegraphTool(nil),
 		tools.NewContext7Tool(nil),
-		tools.NewSearchHistoryTool(c.messages, c.sessions, c.embeddings),
+		tools.NewSearchHistoryTool(c.messages, c.sessions, c.embeddings, historySearcher, swarmWorkspaceID),
 		tools.NewListSessionsTool(c.sessions),
 		tools.NewTodosTool(c.sessions),
 	)
@@ -1039,11 +1056,6 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	// addressable, and the config gate makes swarm entirely absent
 	// when disabled so its guidance never bleeds into the coder
 	// prompt.
-	c.swarmMu.Lock()
-	swarmBackend := c.swarmBackend
-	swarmWorkspaceID := c.swarmWorkspaceID
-	swarmConfigFn := c.swarmConfig
-	c.swarmMu.Unlock()
 	if !isSubAgent && swarmBackend != nil {
 		if swarmConfigFn == nil {
 			swarmConfigFn = swarm.Default
@@ -1142,7 +1154,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	// without hook interception to avoid firing the user's hook N times
 	// per delegated turn. The top-level invocation of the sub-agent tool
 	// itself is still wrapped from the coder's side.
-	filteredTools = wrapToolsWithHooks(filteredTools, hookRunner, isSubAgent)
+	filteredTools = wrapToolsWithHooks(filteredTools, hookRunner, c.cfg, isSubAgent)
 
 	return filteredTools, nil
 }

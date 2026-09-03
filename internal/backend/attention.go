@@ -5,6 +5,7 @@ import (
 
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
+	"github.com/taigrr/crush/internal/sound"
 )
 
 // AttentionEvents returns a subscription to the backend's global,
@@ -75,6 +76,7 @@ func (b *Backend) startAttentionForwarder(ws *Workspace) {
 					break
 				}
 				b.publishAttention(ws, ev.Payload.SessionID, ev.Payload.ToolCallID, proto.AttentionBlockedPermission)
+				b.playSound(ws, sound.Blocked)
 			case ev, ok := <-permNotifs:
 				if !ok {
 					permNotifs = nil
@@ -92,6 +94,7 @@ func (b *Backend) startAttentionForwarder(ws *Workspace) {
 					break
 				}
 				b.publishAttention(ws, ev.Payload.SessionID, ev.Payload.ToolCallID, proto.AttentionBlockedQuestion)
+				b.playSound(ws, sound.Blocked)
 			case ev, ok := <-qNotifs:
 				if !ok {
 					qNotifs = nil

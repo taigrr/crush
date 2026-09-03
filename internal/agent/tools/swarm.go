@@ -59,11 +59,12 @@ type SwarmBackend interface {
 // SwarmLookupResult mirrors backend.SwarmLookupResult so the tool
 // package does not import backend directly (cycle avoidance).
 type SwarmLookupResult struct {
-	WorkspaceID string
-	SessionID   string
-	Color       string
-	Animal      string
-	Sub         bool
+	WorkspaceID   string
+	SessionID     string
+	Color         string
+	Animal        string
+	WorkspaceRoot string
+	Sub           bool
 }
 
 // SwarmParams is the JSON schema exposed to the model.
