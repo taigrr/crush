@@ -1355,7 +1355,13 @@ func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers 
 	// Bedrock Mantle returns OpenAI-style error envelopes with HTTP 200,
 	// which the SDK would otherwise parse as an empty (successful) response.
 	// Wrap the transport so those errors are surfaced with a real status.
+	// Mantle also honors AWS_ENDPOINT_URL_BEDROCK like the native Bedrock
+	// provider does, so a corporate gateway that fronts Bedrock can front
+	// its OpenAI-compatible surface too (at <gateway>/openai/v1).
 	if providerID == string(catwalk.InferenceProviderBedrockMantle) {
+		if gw := mantleGatewayURL(c.cfg.Config(), baseURL); gw != "" {
+			opts[0] = openaicompat.WithBaseURL(gw)
+		}
 		if httpClient == nil {
 			httpClient = &http.Client{}
 		}
@@ -1397,6 +1403,25 @@ func (c *coordinator) buildAzureProvider(baseURL, apiKey string, headers map[str
 	}
 
 	return azure.New(opts...)
+}
+
+// mantleGatewayURL returns the OpenAI-compatible endpoint to use for
+// Bedrock Mantle when AWS_ENDPOINT_URL_BEDROCK is set and the user has not
+// pinned providers.bedrock-mantle.base_url themselves (i.e. baseURL is
+// still the catalog default). Empty means "leave baseURL alone".
+func mantleGatewayURL(cfg *config.Config, baseURL string) string {
+	gw := os.Getenv("AWS_ENDPOINT_URL_BEDROCK")
+	if gw == "" {
+		return ""
+	}
+	if known, err := config.Providers(cfg); err == nil {
+		for _, p := range known {
+			if p.ID == catwalk.InferenceProviderBedrockMantle && p.APIEndpoint != baseURL {
+				return ""
+			}
+		}
+	}
+	return strings.TrimSuffix(gw, "/") + "/openai/v1"
 }
 
 func (c *coordinator) buildBedrockProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
