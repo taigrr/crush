@@ -845,7 +845,14 @@ func (c *Client) ListSessionHistoryFiles(ctx context.Context, id string, session
 
 // CreateSession creates a new session in a workspace as a proto type.
 func (c *Client) CreateSession(ctx context.Context, id string, title string) (*proto.Session, error) {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions", id), nil, jsonBody(proto.Session{Title: title}), http.Header{"Content-Type": []string{"application/json"}})
+	return c.CreateSessionWithModel(ctx, id, title, nil)
+}
+
+// CreateSessionWithModel creates a session stamped with an explicit model.
+// A nil model lets the server apply its default (the configured
+// orchestrator, when any).
+func (c *Client) CreateSessionWithModel(ctx context.Context, id string, title string, model *config.SelectedModel) (*proto.Session, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions", id), nil, jsonBody(proto.Session{Title: title, Model: model}), http.Header{"Content-Type": []string{"application/json"}})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
@@ -1167,6 +1174,22 @@ func (c *Client) SetSessionFavorite(ctx context.Context, id, root, sessionID str
 	defer rsp.Body.Close()
 	if rsp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to set session favorite: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
+// SetSessionModel stamps (non-nil) or clears (nil) a session's own model
+// selection. When id is empty the request is routed to the detached
+// workspace at root.
+func (c *Client) SetSessionModel(ctx context.Context, id, root, sessionID string, model *config.SelectedModel) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/model", workspacePathID(id), sessionID), rootQuery(root),
+		jsonBody(proto.SessionModelRequest{Model: model}), http.Header{"Content-Type": []string{"application/json"}})
+	if err != nil {
+		return fmt.Errorf("failed to set session model: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to set session model: status code %d", rsp.StatusCode)
 	}
 	return nil
 }

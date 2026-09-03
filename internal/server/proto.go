@@ -559,14 +559,14 @@ func (c *controllerV1) handlePostSessionImport(w http.ResponseWriter, r *http.Re
 func (c *controllerV1) handlePostWorkspaceSessions(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var args session.Session
+	var args proto.Session
 	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	sess, err := c.backend.CreateSession(r.Context(), id, args.Title)
+	sess, err := c.backend.CreateSession(r.Context(), id, args.Title, args.Model)
 	if err != nil {
 		c.handleError(w, r, err)
 		return
@@ -774,6 +774,37 @@ func (c *controllerV1) handleSetWorkspaceSessionFavorite(w http.ResponseWriter, 
 		}
 	}
 	if err := c.backend.SetSessionFavorite(r.Context(), id, root, sid, favorite); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleSetWorkspaceSessionModel stamps or clears a session's own model.
+//
+//	@Summary		Set a session's model
+//	@Tags			sessions
+//	@Accept			json
+//	@Param			id		path	string							true	"Workspace ID"
+//	@Param			sid		path	string							true	"Session ID"
+//	@Param			root	query	string							false	"Workspace root (routes to a detached workspace when id is not attached)"
+//	@Param			request	body	proto.SessionModelRequest	true	"Model to stamp; a null model clears the stamp"
+//	@Success		200
+//	@Failure		400	{object}	proto.Error
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/sessions/{sid}/model [post]
+func (c *controllerV1) handleSetWorkspaceSessionModel(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+	root := r.URL.Query().Get("root")
+	var req proto.SessionModelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return
+	}
+	if err := c.backend.SetSessionModel(r.Context(), id, root, sid, req.Model); err != nil {
 		c.handleError(w, r, err)
 		return
 	}

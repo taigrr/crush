@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/taigrr/crush/internal/agent/tools"
+	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
@@ -56,8 +57,8 @@ func (s *swarmShim) Send(ctx context.Context, senderSessionID string, target too
 	return res.Delivery, nil
 }
 
-func (s *swarmShim) CreateSessionInWorkspace(ctx context.Context, workspaceID, title string) (session.Session, error) {
-	return s.b.CreateSwarmSession(ctx, workspaceID, title)
+func (s *swarmShim) CreateSessionInWorkspace(ctx context.Context, workspaceID, title string, model *config.SelectedModel) (session.Session, error) {
+	return s.b.CreateSwarmSession(ctx, workspaceID, title, model)
 }
 
 func (s *swarmShim) ArchiveSessionInWorkspace(ctx context.Context, workspaceID, sessionID string) error {
@@ -79,8 +80,8 @@ func (s *swarmShim) RenameSession(ctx context.Context, target tools.SwarmLookupR
 	}, title)
 }
 
-func (s *swarmShim) CreateSessionInWorkspaceAtPath(ctx context.Context, path, title string) (string, session.Session, error) {
-	return s.b.CreateSwarmSessionAtPath(ctx, path, title)
+func (s *swarmShim) CreateSessionInWorkspaceAtPath(ctx context.Context, path, title string, model *config.SelectedModel) (string, session.Session, error) {
+	return s.b.CreateSwarmSessionAtPath(ctx, path, title, model)
 }
 
 // SearchAllWorkspaces fans a history query out over every known

@@ -28,6 +28,13 @@ type ConfigModelRequest struct {
 	Model     config.SelectedModel     `json:"model"`
 }
 
+// SessionModelRequest stamps a session with its own model selection. A
+// nil Model clears the stamp so the session resolves to the workspace's
+// large model again.
+type SessionModelRequest struct {
+	Model *config.SelectedModel `json:"model"`
+}
+
 // ConfigCompactRequest represents a request to set compact mode.
 type ConfigCompactRequest struct {
 	Scope   config.Scope `json:"scope"`

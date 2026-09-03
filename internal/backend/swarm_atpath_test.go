@@ -57,7 +57,7 @@ func TestCreateSwarmSessionAtPath_ReuseExisting(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), wd, "hello")
+	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), wd, "hello", nil)
 	require.NoError(t, err)
 	require.Equal(t, ws.ID, gotID, "must reuse the already-running workspace")
 	require.NotEmpty(t, sess.ID)
@@ -82,7 +82,7 @@ func TestCreateSwarmSessionAtPath_CreateNew(t *testing.T) {
 	target := t.TempDir()
 	writeSwarmProject(t, target)
 
-	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, "hello")
+	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, "hello", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, gotID, "must bring up a new workspace")
 	require.NotEmpty(t, sess.ID)
@@ -129,7 +129,7 @@ func TestLookupSwarmAddress_ReattachesTornDownWorkspace(t *testing.T) {
 	target := t.TempDir()
 	writeSwarmProject(t, target)
 
-	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, "hello")
+	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, "hello", nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, gotID)
 
@@ -344,4 +344,92 @@ func TestCreateWorkspace_ConcurrentCreateBothRewireSwarm(t *testing.T) {
 	sc, ok := ws.AgentCoordinator.(agent.SwarmConfigurable)
 	require.True(t, ok)
 	require.True(t, sc.SwarmWired(), "the workspace surviving a CreateWorkspace race must end up with swarm wired, regardless of which dedup branch each racing caller took")
+}
+
+// writeOrchestratorProject writes a crush.json that opts into swarm and
+// configures an orchestrator model on a provider the test can resolve
+// offline (no request is ever issued: only creation is exercised).
+func writeOrchestratorProject(t *testing.T, dir string) {
+	t.Helper()
+	const cfg = `{
+  "options": {"swarm": {"enabled": true}},
+  "providers": {
+    "dp-test": {
+      "type": "openai-compat", "base_url": "http://127.0.0.1:0/v1", "api_key": "x",
+      "models": [
+        {"id": "big", "name": "Big", "default_max_tokens": 4096},
+        {"id": "boss", "name": "Boss", "default_max_tokens": 4096},
+        {"id": "tiny", "name": "Tiny", "default_max_tokens": 1024}
+      ]
+    }
+  },
+  "models": {
+    "large": {"provider": "dp-test", "model": "big"},
+    "small": {"provider": "dp-test", "model": "tiny"},
+    "orchestrator": {"provider": "dp-test", "model": "boss"}
+  }
+}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "crush.json"), []byte(cfg), 0o644))
+}
+
+// A human-opened session is stamped with the orchestrator; a swarm
+// worker is not (it resolves to large) unless the caller passes a
+// model; a bad model is rejected before any row is written.
+func TestCreateSession_OrchestratorStampVsSwarmWorker(t *testing.T) {
+	isolateConfigHome(t)
+
+	wd := t.TempDir()
+	writeOrchestratorProject(t, wd)
+
+	srvCfg, err := config.Init(wd, "", false)
+	require.NoError(t, err)
+	b := backend.New(t.Context(), srvCfg, nil)
+	t.Cleanup(b.Shutdown)
+
+	ws, _, err := b.CreateWorkspace(proto.Workspace{
+		ClientID: uuid.New().String(),
+		Path:     wd,
+		DataDir:  filepath.Join(wd, ".crush"),
+	})
+	require.NoError(t, err)
+
+	human, err := b.CreateSession(t.Context(), ws.ID, "hello", nil)
+	require.NoError(t, err)
+	require.NotNil(t, human.Model, "human-opened session must carry the orchestrator stamp")
+	require.Equal(t, "boss", human.Model.Model)
+
+	explicit, err := b.CreateSession(t.Context(), ws.ID, "run -m", &config.SelectedModel{Provider: "dp-test", Model: "tiny"})
+	require.NoError(t, err)
+	require.NotNil(t, explicit.Model)
+	require.Equal(t, "tiny", explicit.Model.Model, "an explicit model wins over the orchestrator default")
+
+	worker, err := b.CreateSwarmSession(t.Context(), ws.ID, "worker", nil)
+	require.NoError(t, err)
+	require.Nil(t, worker.Model, "swarm workers must NOT inherit the orchestrator")
+	require.NotEmpty(t, worker.Color)
+
+	stamped, err := b.CreateSwarmSession(t.Context(), ws.ID, "worker", &config.SelectedModel{Provider: "dp-test", Model: "tiny"})
+	require.NoError(t, err)
+	require.NotNil(t, stamped.Model)
+	require.Equal(t, "tiny", stamped.Model.Model)
+
+	before, err := ws.Sessions.List(t.Context())
+	require.NoError(t, err)
+	_, err = b.CreateSwarmSession(t.Context(), ws.ID, "bad", &config.SelectedModel{Provider: "dp-test", Model: "ghost"})
+	require.ErrorContains(t, err, "ghost")
+	_, err = b.CreateSession(t.Context(), ws.ID, "bad", &config.SelectedModel{Provider: "nope", Model: "big"})
+	require.Error(t, err)
+	after, err := ws.Sessions.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, after, len(before), "a rejected model must not leave an orphan session")
+
+	// SetSessionModel re-stamps and clears through the backend.
+	require.NoError(t, b.SetSessionModel(t.Context(), ws.ID, "", worker.ID, &config.SelectedModel{Provider: "dp-test", Model: "boss"}))
+	got, err := ws.Sessions.Get(t.Context(), worker.ID)
+	require.NoError(t, err)
+	require.Equal(t, "boss", got.Model.Model)
+	require.NoError(t, b.SetSessionModel(t.Context(), ws.ID, "", worker.ID, nil))
+	got, err = ws.Sessions.Get(t.Context(), worker.ID)
+	require.NoError(t, err)
+	require.Nil(t, got.Model)
 }

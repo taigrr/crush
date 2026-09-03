@@ -500,7 +500,15 @@ func (app *App) resolveSession(ctx context.Context, continueSessionID string, us
 		return sess, nil
 
 	default:
-		return app.Sessions.Create(ctx, agent.DefaultSessionName)
+		// A new session opened by a person gets the orchestrator stamp
+		// when one is configured, exactly like the TUI / server path.
+		var model *config.SelectedModel
+		if app.config != nil {
+			if sel, ok := app.config.Config().OrchestratorModel(); ok {
+				model = &sel
+			}
+		}
+		return app.Sessions.CreateWithModel(ctx, agent.DefaultSessionName, model)
 	}
 }
 

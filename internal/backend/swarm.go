@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/agent/notify"
+	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
@@ -453,12 +454,20 @@ func lookupSenderIdentity(ctx context.Context, b *Backend, senderSessionID strin
 // Fails if the workspace does not exist or swarm is disabled. On
 // failure to assign identity, the freshly-created session is
 // archived so callers who retry don't accumulate ghost sessions.
-func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title string) (session.Session, error) {
+//
+// model, when non-nil, is stamped on the worker so it runs that model
+// instead of the workspace large model. Workers are never stamped with
+// the orchestrator by default: they are spawned by a tool, not opened
+// by a person, and the whole point of the stamp is to tell those apart.
+func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title string, model *config.SelectedModel) (session.Session, error) {
 	ws, ok := b.workspaces.Get(workspaceID)
 	if !ok {
 		return session.Session{}, ErrSwarmWorkspaceNotFound
 	}
-	sess, err := ws.Sessions.Create(ctx, title)
+	if err := validateSessionModel(ws, model); err != nil {
+		return session.Session{}, err
+	}
+	sess, err := ws.Sessions.CreateWithModel(ctx, title, model)
 	if err != nil {
 		return session.Session{}, err
 	}
@@ -488,7 +497,7 @@ func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title str
 //
 // Returns the resolved workspace id alongside the identity-filled
 // session. The swarm-enabled gate is enforced via CreateSwarmSession.
-func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title string) (string, session.Session, error) {
+func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title string, model *config.SelectedModel) (string, session.Session, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", session.Session{}, ErrPathRequired
 	}
@@ -503,7 +512,7 @@ func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title stri
 	b.mu.Unlock()
 	if ok {
 		if _, found := b.workspaces.Get(existingID); found {
-			sess, err := b.CreateSwarmSession(ctx, existingID, title)
+			sess, err := b.CreateSwarmSession(ctx, existingID, title, model)
 			if err != nil {
 				return "", session.Session{}, err
 			}
@@ -521,7 +530,7 @@ func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title stri
 	if err != nil {
 		return "", session.Session{}, fmt.Errorf("swarm: failed to bring up workspace: %w", err)
 	}
-	sess, err := b.CreateSwarmSession(ctx, ws.ID, title)
+	sess, err := b.CreateSwarmSession(ctx, ws.ID, title, model)
 	if err != nil {
 		return "", session.Session{}, err
 	}

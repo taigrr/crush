@@ -1085,7 +1085,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 			swarmConfigFn = swarm.Default
 		}
 		allTools = append(allTools, tools.NewSwarmTool(
-			swarmBackend, c.sessions, swarmConfigFn, swarmWorkspaceID,
+			swarmBackend, c.sessions, swarmConfigFn, swarmWorkspaceID, c.resolveModelRef,
 		))
 		allTools = append(allTools, tools.NewWorkspaceLookupTool(swarmBackend))
 		allTools = append(allTools, tools.NewRenameSessionTool(swarmBackend))

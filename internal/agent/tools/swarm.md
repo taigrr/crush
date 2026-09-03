@@ -35,8 +35,12 @@ Special addresses:
     if it is not currently running (created on disk if new, or attached
     if previously detached), then the session is created in it. `path`
     takes precedence over `workspace_id` when both are set.
-  The new session is picked up by any attached client's sidebar; the
-  agent runs immediately.
+  Optionally pass `model` to choose what the new session runs on: a
+  configured role name (`large`, `small`, `orchestrator`, or a
+  user-defined role), `provider/model`, or a bare model id (an id that
+  two providers offer must be qualified). Omitted means the workspace's
+  large model. The new session is picked up by any attached client's
+  sidebar; the agent runs immediately.
 
 The receiving session sees the message as a user turn prefixed with
 `message from <color-animal>:`. The sender's color/animal and workspace
@@ -44,6 +48,9 @@ are also stored as structured metadata on the delivered message so
 the target's UI can render a colored header.
 
 Restrictions:
+
+- `model` only applies with `address = "new"`. Messages to an existing
+  session never change that session's model.
 
 - Sub-agent sessions (task tool children, title/summary sessions) are
   not addressable.

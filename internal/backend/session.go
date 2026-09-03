@@ -2,7 +2,9 @@ package backend
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
@@ -137,14 +139,70 @@ func (b *Backend) attachedByRoot(root string) (*Workspace, bool) {
 	return nil, false
 }
 
-// CreateSession creates a new session in the given workspace.
-func (b *Backend) CreateSession(ctx context.Context, workspaceID, title string) (session.Session, error) {
+// CreateSession creates a new human-opened session in the given
+// workspace. When model is non-nil the session is stamped with it (e.g.
+// `crush run -m`); otherwise it is stamped with the workspace's
+// configured orchestrator model when one is set, so the person talks to
+// the orchestrator while sessions spawned by tools stay on "large". A
+// nil model with no orchestrator configured leaves the stamp empty,
+// which resolves to "large" at run time (the historical behavior).
+func (b *Backend) CreateSession(ctx context.Context, workspaceID, title string, model *config.SelectedModel) (session.Session, error) {
 	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
 		return session.Session{}, err
 	}
+	if model != nil {
+		if err := validateSessionModel(ws, model); err != nil {
+			return session.Session{}, err
+		}
+		return ws.Sessions.CreateWithModel(ctx, title, model)
+	}
+	return ws.Sessions.CreateWithModel(ctx, title, humanSessionModel(ws))
+}
 
-	return ws.Sessions.Create(ctx, title)
+// humanSessionModel returns the stamp a human-opened session gets by
+// default: the configured orchestrator selection, or nil.
+func humanSessionModel(ws *Workspace) *config.SelectedModel {
+	if ws == nil || ws.Cfg == nil {
+		return nil
+	}
+	sel, ok := ws.Cfg.Config().OrchestratorModel()
+	if !ok {
+		return nil
+	}
+	return &sel
+}
+
+// validateSessionModel rejects a stamp that names a provider/model the
+// workspace cannot run, so a bad selection fails at the API boundary
+// instead of on the session's first turn.
+func validateSessionModel(ws *Workspace, model *config.SelectedModel) error {
+	if model == nil {
+		return nil
+	}
+	if model.Provider == "" || model.Model == "" {
+		return fmt.Errorf("session model requires both provider and model")
+	}
+	if ws.Cfg == nil || ws.Cfg.Config().GetModel(model.Provider, model.Model) == nil {
+		return fmt.Errorf("session model %s/%s is not available from any configured provider", model.Provider, model.Model)
+	}
+	return nil
+}
+
+// SetSessionModel stamps (non-nil) or clears (nil) a session's own model
+// selection. The session may live in an attached or a detached
+// workspace (resolved by root via the registry), mirroring
+// SetSessionFavorite. A non-nil model is validated against the
+// workspace's config when that workspace is attached.
+func (b *Backend) SetSessionModel(ctx context.Context, workspaceID, root, sessionID string, model *config.SelectedModel) error {
+	return b.withWorkspaceSession(workspaceID, root, func(ws *Workspace, s session.Service) error {
+		if ws != nil && model != nil {
+			if err := validateSessionModel(ws, model); err != nil {
+				return err
+			}
+		}
+		return s.SetModel(ctx, sessionID, model)
+	})
 }
 
 // GetSession retrieves a session by workspace and session ID.
