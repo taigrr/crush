@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	httpswagger "github.com/swaggo/http-swagger/v2"
 	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/server/swaggerui"
 	_ "github.com/taigrr/crush/internal/swagger"
 )
 
@@ -218,7 +218,7 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("DELETE /v1/workspaces/{id}/worktrees/{wtid}", c.handleDeleteWorkspaceWorktree)
 	mux.HandleFunc("GET /v1/workspaces/{id}/git/branches", c.handleGetWorkspaceGitBranches)
 	mux.HandleFunc("POST /v1/workspaces/{id}/fork", c.handlePostWorkspaceFork)
-	mux.Handle("/v1/docs/", httpswagger.WrapHandler)
+	mux.Handle("/v1/docs/", swaggerui.Handler("/v1/docs/"))
 	s.h = &http.Server{
 		Protocols: &p,
 		Handler:   s.recoverHandler(s.loggingHandler(mux)),
