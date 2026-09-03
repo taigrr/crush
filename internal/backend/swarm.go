@@ -528,6 +528,38 @@ func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title stri
 	return ws.ID, sess, nil
 }
 
+// RenameWorkspaceSession updates the title of a session in the target
+// workspace, which may differ from the caller's. It is used by the
+// cross-workspace rename_session tool via [tools.SwarmBackend]. If the
+// target workspace was idle-torn-down between address resolution and
+// now, it is brought back up from target.WorkspaceRoot (mirroring
+// [Backend.SwarmSend]) so a cross-workspace rename does not spuriously
+// fail on that race.
+func (b *Backend) RenameWorkspaceSession(ctx context.Context, target SwarmLookupResult, title string) error {
+	if target.SessionID == "" || target.WorkspaceID == "" {
+		return ErrSwarmAddressNotFound
+	}
+	if target.Sub {
+		return ErrSwarmTargetIsSubagent
+	}
+	ws, ok := b.workspaces.Get(target.WorkspaceID)
+	if !ok {
+		if target.WorkspaceRoot != "" {
+			reattached, _, err := b.CreateWorkspace(proto.Workspace{
+				Path:     target.WorkspaceRoot,
+				ClientID: uuid.New().String(),
+			})
+			if err == nil && reattached != nil {
+				ws, ok = reattached, true
+			}
+		}
+		if !ok {
+			return ErrSwarmWorkspaceNotFound
+		}
+	}
+	return ws.Sessions.Rename(ctx, target.SessionID, title)
+}
+
 // ArchiveWorkspaceSession archives a session in the given workspace.
 // Used by [tools.SwarmBackend] callers to clean up ghost sessions
 // created by [CreateSwarmSession] when the follow-up Send fails; the

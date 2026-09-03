@@ -68,6 +68,17 @@ func (s *swarmShim) ResolveWorkspaceByPath(ctx context.Context, path string) (st
 	return s.b.ResolveWorkspaceByPath(ctx, path)
 }
 
+func (s *swarmShim) RenameSession(ctx context.Context, target tools.SwarmLookupResult, title string) error {
+	return s.b.RenameWorkspaceSession(ctx, SwarmLookupResult{
+		WorkspaceID:   target.WorkspaceID,
+		SessionID:     target.SessionID,
+		Color:         target.Color,
+		Animal:        target.Animal,
+		WorkspaceRoot: target.WorkspaceRoot,
+		Sub:           target.Sub,
+	}, title)
+}
+
 func (s *swarmShim) CreateSessionInWorkspaceAtPath(ctx context.Context, path, title string) (string, session.Session, error) {
 	return s.b.CreateSwarmSessionAtPath(ctx, path, title)
 }

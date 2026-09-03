@@ -1064,6 +1064,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 			swarmBackend, c.sessions, swarmConfigFn, swarmWorkspaceID,
 		))
 		allTools = append(allTools, tools.NewWorkspaceLookupTool(swarmBackend))
+		allTools = append(allTools, tools.NewRenameSessionTool(swarmBackend))
 	}
 
 	// Editor bridge tools. The bridge is resolved per-turn from the

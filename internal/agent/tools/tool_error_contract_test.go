@@ -408,6 +408,10 @@ func (stubSwarmBackend) CreateSessionInWorkspaceAtPath(ctx context.Context, path
 	return "", session.Session{}, nil
 }
 
+func (stubSwarmBackend) RenameSession(ctx context.Context, target SwarmLookupResult, title string) error {
+	return nil
+}
+
 // stubSessionsForSwarm implements just enough of session.Service for the
 // swarm tool's sender-lookup step to succeed.
 type stubSessionsForSwarm struct {

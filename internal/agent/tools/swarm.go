@@ -54,6 +54,10 @@ type SwarmBackend interface {
 	// the running workspace rooted at that path. found is false (with
 	// no error) when no running workspace matches.
 	ResolveWorkspaceByPath(ctx context.Context, path string) (workspaceID string, found bool, err error)
+	// RenameSession updates the title of the target session (resolved
+	// via LookupAddress) in its own workspace, which may differ from
+	// the caller's. Cross-workspace safe.
+	RenameSession(ctx context.Context, target SwarmLookupResult, title string) error
 }
 
 // SwarmLookupResult mirrors backend.SwarmLookupResult so the tool
