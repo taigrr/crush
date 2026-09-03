@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/taigrr/crush/internal/message"
@@ -38,6 +39,42 @@ func (m *UI) insertCompletionText(text string) bool {
 	m.textarea.MoveToEnd()
 	m.textarea.InsertRune(' ')
 	return true
+}
+
+// argCompletionTrigger marks the completions popup as offering slash command
+// arguments (opened by a space, not by a typed sigil).
+const argCompletionTrigger = 'a'
+
+// maybeOpenArgCompletions opens argument completions when the textarea
+// holds a slash command that offers them and the cursor sits right after a
+// space. It is a no-op otherwise.
+func (m *UI) maybeOpenArgCompletions() {
+	if m.completionsOpen {
+		return
+	}
+	value := m.textarea.Value()
+	if !strings.HasPrefix(value, "/") || !strings.HasSuffix(value, " ") {
+		return
+	}
+	vals := m.slashArgCompletions(value)
+	if len(vals) == 0 {
+		return
+	}
+	m.completionsOpen = true
+	m.completionsTrigger = argCompletionTrigger
+	m.completionsQuery = ""
+	m.completionsStartIndex = len(value)
+	m.completionsPositionStart = m.completionsPosition()
+	m.completions.SetArgs(vals)
+}
+
+// insertArgCompletion replaces the partial argument with text.
+func (m *UI) insertArgCompletion(text string) tea.Cmd {
+	prevHeight := m.textarea.Height()
+	if !m.insertCompletionText(text) {
+		return nil
+	}
+	return m.handleTextareaHeightChange(prevHeight)
 }
 
 // insertFileCompletion inserts the selected file path into the textarea,
