@@ -44,6 +44,7 @@ func buildCrushInfo(cfg *config.ConfigStore, lspManager *lsp.Manager, allSkills 
 	writeConfigStaleness(&b, cfg)
 	writeModels(&b, cfg)
 	writeProviders(&b, cfg)
+	writeModelCatalog(&b, cfg)
 	writeLSP(&b, lspManager, cfg)
 	writeMCP(&b, mcp.GetStates(), cfg)
 	writeSkills(&b, allSkills, activeSkills, skillTracker, cfg)
@@ -102,12 +103,61 @@ func writeModels(b *strings.Builder, cfg *config.ConfigStore) {
 		return
 	}
 	b.WriteString("[model]\n")
-	for _, typ := range []config.SelectedModelType{config.SelectedModelTypeLarge, config.SelectedModelTypeSmall} {
+	order := []config.SelectedModelType{config.SelectedModelTypeOrchestrator, config.SelectedModelTypeLarge, config.SelectedModelTypeSmall}
+	order = append(order, c.ModelRoles()...)
+	for _, typ := range order {
 		m, ok := c.Models[typ]
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(b, "%s = %s (%s)\n", typ, m.Model, m.Provider)
+		line := fmt.Sprintf("%s = %s (%s)", typ, m.Model, m.Provider)
+		if m.ReasoningEffort != "" {
+			line += fmt.Sprintf(" effort=%s", m.ReasoningEffort)
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+}
+
+// writeModelCatalog lists every model the agent may delegate to via the
+// `model` parameter on agent/review/swarm, one per line as
+// provider/model, so an orchestrator can pick a worker model without
+// guessing ids. Disabled providers are skipped.
+func writeModelCatalog(b *strings.Builder, cfg *config.ConfigStore) {
+	c := cfg.Config()
+	type entry struct {
+		ref, name string
+		reason    bool
+	}
+	var entries []entry
+	for id, pc := range c.Providers.Seq2() {
+		if pc.Disable {
+			continue
+		}
+		for _, m := range pc.Models {
+			if m.ID == "" {
+				continue
+			}
+			entries = append(entries, entry{ref: id + "/" + m.ID, name: m.Name, reason: m.CanReason})
+		}
+	}
+	if len(entries) == 0 {
+		return
+	}
+	slices.SortFunc(entries, func(a, b entry) int { return strings.Compare(a.ref, b.ref) })
+	b.WriteString("[model_catalog]\n")
+	b.WriteString("# usable as the `model` param on agent/review/swarm (or by role name from [model])\n")
+	for _, e := range entries {
+		line := e.ref
+		if e.name != "" && e.name != e.ref {
+			line += " = " + e.name
+		}
+		if e.reason {
+			line += " (reasoning)"
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 }

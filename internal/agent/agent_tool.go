@@ -17,6 +17,11 @@ var agentToolDescription string
 
 type AgentParams struct {
 	Prompt string `json:"prompt" description:"The task for the agent to perform"`
+	// Model optionally picks the model this sub-agent runs on for this
+	// call only: a configured role name (large, small, orchestrator, or
+	// a user-defined role), 'provider/model', or a bare model id. Empty
+	// means the workspace's large model.
+	Model string `json:"model,omitempty" description:"Optional model for this sub-agent: a role name (large, small, orchestrator, or a configured role), 'provider/model', or a bare model id. Defaults to the workspace's large model. Use a cheaper model for mechanical search and a stronger one for hard reasoning."`
 }
 
 const (
@@ -55,6 +60,14 @@ func (c *coordinator) agentTool(ctx context.Context) (fantasy.AgentTool, error) 
 				return fantasy.ToolResponse{}, errors.New("agent message id missing from context")
 			}
 
+			// Resolution failures are returned to the model as a tool
+			// error (not a hard error) so it can correct the reference
+			// and retry rather than aborting the whole turn.
+			model, err := c.optionalModelRef(params.Model)
+			if err != nil {
+				return fantasy.NewTextErrorResponse(err.Error()), nil
+			}
+
 			return c.runSubAgent(ctx, subAgentParams{
 				Agent:          agent,
 				SessionID:      sessionID,
@@ -62,6 +75,7 @@ func (c *coordinator) agentTool(ctx context.Context) (fantasy.AgentTool, error) 
 				ToolCallID:     call.ID,
 				Prompt:         params.Prompt,
 				SessionTitle:   "New Agent Session",
+				Model:          model,
 			})
 		},
 	), nil

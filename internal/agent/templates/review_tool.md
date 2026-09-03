@@ -9,3 +9,5 @@ Choosing the command:
 - No git at all: write the relevant files to a temp file (e.g. `{ echo '// file: src/foo.ts'; cat src/foo.ts; } > /tmp/review.txt`) and pass `cat /tmp/review.txt`.
 
 If the command produces no output, the call errors — that usually means you chose the wrong base; widen it and retry. Use this as part of a write -> review -> fix loop when finalizing a non-trivial code change (creating a PR, shipping, finalizing, or when review is explicitly requested). Optionally include the original goal and specific concerns to focus on. After receiving the findings, apply the valid fixes yourself, then repeat the review if the changes were substantial, until the reviewers surface no real defects.
+
+Pass `model` to run both reviewers on a specific model (a configured role name, `provider/model`, or a bare model id). A reviewer from a different vendor than the one that wrote the change tends to catch what the writer's vendor is blind to. Omitted runs the workspace's large model.
