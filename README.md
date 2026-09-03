@@ -267,10 +267,30 @@ rejected with a hint to qualify it. `crush_info` prints the roles and the
 full provider/model catalog the agent may delegate to.
 
 A model choice is a property of a session, not of the process. The model
-picker (`ctrl+m`) has a **Session** tab that changes only the open session,
-plus **Large**, **Small**, and **Orchestrator** tabs that change the defaults
-in config. `crush run -m <model>` applies to that run's session only. The
-sidebar always shows the model the open session actually runs.
+picker (`ctrl+m`) opens on **Orchestrator**, followed by **Large** and
+**Small**; these change the defaults in config. Changing the orchestrator
+also re-stamps the open session when it was following the old one, so the
+switch is immediate. A trailing **This session** tab is a one-off override
+that stamps only the open session. `crush run -m <model>` applies to that
+run's session only. The sidebar always shows the model the open session
+actually runs.
+
+The same is available inline as `/model`:
+
+```
+/model                        show this session's model and every role
+/model fable                  this session only; substring of an id or name
+/model fable xhigh            ...with a reasoning effort
+/model orchestrator fable     set the orchestrator (and re-stamp this session)
+/model large bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+/model orchestrator           show what the orchestrator is set to
+```
+
+Typing a space after `/model` (or after a role) opens completions for roles,
+models, and effort levels. A bare model reference is matched
+case-insensitively against ids and display names across enabled providers;
+ties go to the model already holding a role, then to recents, then to the
+shortest id, and anything still ambiguous is reported with the candidates.
 
 ### LSPs
 

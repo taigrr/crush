@@ -162,7 +162,8 @@ Legend: readme = should document in README · uniq = unique to us
 - `models.orchestrator` default stamp for human-opened sessions; named roles under `models.<name>`
 - `model` param on `agent`/`review`/`swarm new` (role, provider/model, or bare id; ambiguity errors)
 - per-turn resolution in the coordinator, memoized model builds, no agent rebuild per call
-- Session tab + Orchestrator tab in the model picker; sidebar shows the session's effective model
+- Orchestrator tab first in the model picker (re-stamps the open session), This-session tab last; sidebar shows the session's effective model
+- `/model [role] [model [effort]]` slash command with fuzzy model refs and role/model/effort completions
 - `crush run -m` stamps the session instead of rewriting config
 
 ## Notifications — overlaps upstream (terminal-notifier)

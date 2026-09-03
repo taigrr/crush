@@ -659,12 +659,16 @@ Highlights:
 - `crush run -m` stamps the run's session (and re-stamps a continued
   one) instead of rewriting the workspace `large` slot; `--small-model`
   still writes config because titles/summaries have no per-session home.
-- TUI: the model picker gains a **Session** tab (stamps only the open
-  session; picking the current `large` clears the stamp) and an
-  **Orchestrator** tab. The sidebar, reasoning-effort dialog, and
-  thinking toggle all read the session's effective model
-  (`common.EffectiveModel`), so the header never claims `large` while
-  the transcript records something else.
+- TUI: the model picker opens on an **Orchestrator** tab (changing it
+  re-stamps the open session when that session was following the old
+  orchestrator) and gains a trailing **This session** tab (stamps only
+  the open session; picking the current `large` clears the stamp). A
+  `/model [role] [model [effort]]` slash command does the same inline,
+  with fuzzy model resolution (`config.ResolveModelRefLoose`) and
+  argument completions for roles, models, and effort levels. The
+  sidebar, reasoning-effort dialog, and thinking toggle all read the
+  session's effective model (`common.EffectiveModel`), so the header
+  never claims `large` while the transcript records something else.
 - `crush_info` prints `[model]` with orchestrator/large/small/roles and
   a `[model_catalog]` of every `provider/model` the agent may delegate
   to. The coder prompt gets a `<delegation_models>` paragraph.

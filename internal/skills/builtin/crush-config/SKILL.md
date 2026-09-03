@@ -109,6 +109,15 @@ reviewed.
 - Only `model` and `provider` are required.
 - Optional tuning: `reasoning_effort`, `think`, `max_tokens`, `temperature`, `top_p`, `top_k`, `frequency_penalty`, `presence_penalty`, `provider_options`.
 
+### Switching models inline
+
+`/model <model> [effort]` switches the open session only; `/model <role> <model>`
+sets `orchestrator`, `large`, `small`, or a custom role in config (changing
+the orchestrator also re-stamps the open session). `<model>` may be a role
+name, `provider/id`, a bare id, or a case-insensitive substring of an id or
+display name; ties prefer the model already holding a role. `/model` alone
+prints the current session model and all roles.
+
 ## Custom Providers
 
 ```json
