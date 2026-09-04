@@ -464,6 +464,15 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 
 	var stepMessages []fantasy.Message
 	var shouldSummarize bool
+	// foldedAsides remembers every user message folded into this turn at
+	// a step boundary, keyed by the offset in the step input at which it
+	// was inserted. fantasy rebuilds each step's input from the initial
+	// prompt plus the assistant/tool messages it produced, so a message
+	// appended in one PrepareStep would otherwise vanish from the next
+	// step's context and the model would see a steer exactly once. The
+	// step input is append-only, so re-inserting at the recorded offsets
+	// reproduces the original interleaving on every later step.
+	var foldedAsides []foldedAside
 	// Don't send MaxOutputTokens if 0 — some providers (e.g. LM Studio) reject it
 	var maxOutputTokens *int64
 	if call.MaxOutputTokens > 0 {
@@ -516,8 +525,21 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				if createErr != nil {
 					return callContext, prepared, createErr
 				}
-				prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
+				// Folded after everything the model has produced so far, so
+				// it always lands after the tool results of the previous
+				// step — never between a tool_use and its tool_result. A
+				// steer is framed so the model treats it as a live
+				// instruction rather than transcript history.
+				aiMsgs := userMessage.ToAIMessage()
+				if queued.Steer {
+					aiMsgs = wrapSteer(aiMsgs)
+				}
+				foldedAsides = append(foldedAsides, foldedAside{
+					at:       len(options.Messages),
+					messages: aiMsgs,
+				})
 			}
+			prepared.Messages = insertFoldedAsides(options.Messages, foldedAsides)
 
 			prepared.Messages = a.workaroundProviderMediaLimitations(prepared.Messages, largeModel)
 

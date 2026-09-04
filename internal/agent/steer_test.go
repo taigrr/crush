@@ -3,7 +3,10 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,13 +15,14 @@ import (
 	"github.com/taigrr/fantasy"
 )
 
-// toolThenFinishModel emits a single call to the "wait" tool on its first
-// Stream and a plain text finish on every later one. It records the prompt
-// of each Stream call so tests can assert on the messages the model saw at
-// each step boundary.
+// toolThenFinishModel emits a call to the "wait" tool on each of its first
+// toolSteps Streams (default 1) and a plain text finish on every later one.
+// It records the prompt of each Stream call so tests can assert on the
+// messages the model saw at each step boundary.
 type toolThenFinishModel struct {
-	mu      sync.Mutex
-	prompts []fantasy.Prompt
+	toolSteps int
+	mu        sync.Mutex
+	prompts   []fantasy.Prompt
 }
 
 func (m *toolThenFinishModel) Provider() string { return "fake" }
@@ -43,15 +47,17 @@ func (m *toolThenFinishModel) Generate(context.Context, fantasy.Call) (*fantasy.
 
 func (m *toolThenFinishModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
 	n := m.record(call)
+	toolSteps := max(m.toolSteps, 1)
 	return func(yield func(fantasy.StreamPart) bool) {
-		if n == 1 {
-			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputStart, ID: "tc-1", ToolCallName: "wait"}) {
+		if n <= toolSteps {
+			id := fmt.Sprintf("tc-%d", n)
+			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputStart, ID: id, ToolCallName: "wait"}) {
 				return
 			}
-			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputEnd, ID: "tc-1"}) {
+			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputEnd, ID: id}) {
 				return
 			}
-			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: "tc-1", ToolCallName: "wait", ToolCallInput: `{}`}) {
+			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: id, ToolCallName: "wait", ToolCallInput: `{}`}) {
 				return
 			}
 			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonToolCalls})
@@ -85,8 +91,12 @@ type waitToolParams struct{}
 // signals started once it is inside the wait so the test can act while
 // the step is genuinely in flight.
 func newWaitTool(started chan<- struct{}) fantasy.AgentTool {
+	var calls atomic.Int32
 	return fantasy.NewAgentTool("wait", "blocks until soft-interrupted",
 		func(ctx context.Context, _ waitToolParams, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			if calls.Add(1) > 1 {
+				return fantasy.NewTextResponse("fast"), nil
+			}
 			started <- struct{}{}
 			select {
 			case <-tools.SoftInterrupt(ctx):
@@ -99,7 +109,8 @@ func newWaitTool(started chan<- struct{}) fantasy.AgentTool {
 		})
 }
 
-// toolResultText digs the text of a tool result part out of a prompt.
+// toolResultText digs the text of the first tool result part out of a
+// prompt.
 func toolResultText(t *testing.T, p fantasy.Prompt) string {
 	t.Helper()
 	for _, msg := range p {
@@ -175,7 +186,7 @@ func TestRun_SteerSoftInterruptsToolAndFoldsAtNextStep(t *testing.T) {
 	require.Len(t, prompts, 2, "one step for the tool call, one after the fold")
 	require.Equal(t, "interrupted", toolResultText(t, prompts[1]),
 		"the steer must wake the tool via the soft interrupt, not let it time out")
-	require.Contains(t, userTexts(prompts[1]), "steer",
+	require.True(t, containsSteer(prompts[1]),
 		"the steer must be folded into the step right after the interrupted tool")
 
 	// Ordering: the steer must come after the tool result, never between
@@ -188,8 +199,9 @@ func TestRun_SteerSoftInterruptsToolAndFoldsAtNextStep(t *testing.T) {
 			toolIdx = i
 		case fantasy.MessageRoleUser:
 			for _, part := range msg.Content {
-				if tp, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok && tp.Text == "steer" {
+				if tp, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok && strings.HasSuffix(tp.Text, "steer") {
 					steerIdx = i
+					require.True(t, strings.HasPrefix(tp.Text, steerPreamble), "steer text must be framed for the model")
 				}
 			}
 		}
@@ -200,6 +212,88 @@ func TestRun_SteerSoftInterruptsToolAndFoldsAtNextStep(t *testing.T) {
 	require.Equal(t, 0, sa.QueuedPrompts(sess.ID), "the steer must have been consumed by the fold")
 	_, live := sa.softInterrupts.Get(sess.ID)
 	require.False(t, live, "soft-interrupt channel must be dropped once the session goes idle")
+}
+
+func containsSteer(p fantasy.Prompt) bool {
+	for _, txt := range userTexts(p) {
+		if strings.HasSuffix(txt, "steer") {
+			return true
+		}
+	}
+	return false
+}
+
+// steerIndex returns the index of the folded steer message in p, or -1.
+func steerIndex(p fantasy.Prompt) int {
+	for i, msg := range p {
+		if msg.Role != fantasy.MessageRoleUser {
+			continue
+		}
+		for _, part := range msg.Content {
+			if tp, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok && strings.HasSuffix(tp.Text, "steer") {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// TestRun_FoldedSteerPersistsAcrossLaterSteps guards against the model
+// seeing a steer exactly once: fantasy rebuilds every step's input from
+// the initial prompt plus its own assistant/tool output, so a message
+// appended in one PrepareStep must be re-inserted, at the same offset, in
+// every later step of the turn.
+func TestRun_FoldedSteerPersistsAcrossLaterSteps(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	started := make(chan struct{}, 1)
+	model := &toolThenFinishModel{toolSteps: 2}
+	sa := testSessionAgent(env, model, &finishStreamModel{text: "title"}, "system", newWaitTool(started)).(*sessionAgent)
+
+	sess, err := env.sessions.Create(t.Context(), "session")
+	require.NoError(t, err)
+
+	mainDone := make(chan error, 1)
+	go func() {
+		_, runErr := sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, RunID: "run-main", Prompt: "main"})
+		mainDone <- runErr
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool never started")
+	}
+	_, err = sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, Prompt: "steer", Steer: true})
+	require.NoError(t, err)
+	select {
+	case err := <-mainDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("main turn did not finish")
+	}
+
+	prompts := model.Prompts()
+	require.Len(t, prompts, 3, "tool step, tool step with the fold, final step")
+	require.Equal(t, -1, steerIndex(prompts[0]))
+	idx1 := steerIndex(prompts[1])
+	require.NotEqual(t, -1, idx1, "steer folded into step 2")
+	idx2 := steerIndex(prompts[2])
+	require.Equal(t, idx1, idx2, "steer must stay at the same offset in step 3")
+	require.Len(t, prompts[2], len(prompts[1])+2, "step 3 adds exactly the step-2 assistant and tool messages after the steer")
+	require.Equal(t, fantasy.MessageRoleAssistant, prompts[2][idx2+1].Role)
+	require.Equal(t, fantasy.MessageRoleTool, prompts[2][idx2+2].Role)
+	require.Equal(t, 1, countSteers(prompts[2]), "the steer must not be duplicated")
+}
+
+func countSteers(p fantasy.Prompt) int {
+	n := 0
+	for _, txt := range userTexts(p) {
+		if strings.HasSuffix(txt, "steer") {
+			n++
+		}
+	}
+	return n
 }
 
 func TestRun_SoftInterruptAloneWakesToolWithoutMessage(t *testing.T) {
@@ -239,7 +333,7 @@ func TestRun_SoftInterruptAloneWakesToolWithoutMessage(t *testing.T) {
 	prompts := model.Prompts()
 	require.Len(t, prompts, 2)
 	require.Equal(t, "interrupted", toolResultText(t, prompts[1]))
-	require.NotContains(t, userTexts(prompts[1]), "steer")
+	require.False(t, containsSteer(prompts[1]))
 	require.Equal(t, len(userTexts(prompts[0])), len(userTexts(prompts[1])),
 		"a bare soft interrupt must not inject a user message")
 }
