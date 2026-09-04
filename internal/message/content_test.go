@@ -281,3 +281,15 @@ func TestResetStreamedContentEmpty(t *testing.T) {
 	msg.ResetStreamedContent()
 	require.Empty(t, msg.Parts)
 }
+
+func TestIsSwarmMessage(t *testing.T) {
+	t.Parallel()
+	typed := Message{Role: User, Parts: []ContentPart{TextContent{Text: "hello"}}}
+	require.False(t, typed.IsSwarmMessage())
+
+	swarm := Message{Role: User, Parts: []ContentPart{SwarmMessage{
+		Text: "message from aliceblue-tiger: hi", Body: "hi", SenderSessionID: "s1",
+	}}}
+	require.True(t, swarm.IsSwarmMessage())
+	require.Equal(t, "message from aliceblue-tiger: hi", swarm.Content().Text)
+}
