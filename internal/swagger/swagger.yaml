@@ -670,6 +670,17 @@ definitions:
         type: string
       session_id:
         type: string
+      steer:
+        description: |-
+          Steer marks a mid-turn steering message. On a busy session the
+          prompt is queued as usual and the session's soft interrupt is
+          raised so long-running tools that opt in (bash, job_output) wrap
+          up early — returning their work as a background job rather than
+          being cancelled — and the queued prompt is folded into the turn
+          at the next step. Combine with an empty RunID to fold rather than
+          wait for a dedicated turn. On an idle session it is a normal
+          prompt.
+        type: boolean
       swarm_parts:
         description: |-
           SwarmParts, when set, replaces the default TextContent user
@@ -1974,6 +1985,36 @@ paths:
       summary: Clear goal
       tags:
       - agent
+  /workspaces/{id}/agent/sessions/{sid}/interrupt:
+    post:
+      description: Ask the tools running in the session's current step to wrap up
+        early without cancelling them; a running shell command becomes a background
+        job.
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Soft-interrupt agent session
+      tags:
+      - agent
   /workspaces/{id}/agent/sessions/{sid}/prompts/clear:
     post:
       parameters:
@@ -2160,6 +2201,45 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Regenerate session title
+      tags:
+      - agent
+  /workspaces/{id}/agent/sessions/{sid}/tools/{tcid}/background:
+    post:
+      description: Ask a single in-flight tool call (e.g. a bash command) to hand
+        its work back as a background job so the turn can continue. 409 if the call
+        is unknown, finished, or cannot be backgrounded.
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Tool call ID
+        in: path
+        name: tcid
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Background a running tool call
       tags:
       - agent
   /workspaces/{id}/agent/update:

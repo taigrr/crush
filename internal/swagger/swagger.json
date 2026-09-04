@@ -891,6 +891,48 @@
                 }
             }
         },
+        "/workspaces/{id}/agent/sessions/{sid}/interrupt": {
+            "post": {
+                "description": "Ask the tools running in the session's current step to wrap up early without cancelling them; a running shell command becomes a background job.",
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Soft-interrupt agent session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/workspaces/{id}/agent/sessions/{sid}/prompts/clear": {
             "post": {
                 "tags": [
@@ -1163,6 +1205,61 @@
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/agent/sessions/{sid}/tools/{tcid}/background": {
+            "post": {
+                "description": "Ask a single in-flight tool call (e.g. a bash command) to hand its work back as a background job so the turn can continue. 409 if the call is unknown, finished, or cannot be backgrounded.",
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Background a running tool call",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Tool call ID",
+                        "name": "tcid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
                         "schema": {
                             "$ref": "#/definitions/proto.Error"
                         }
@@ -5459,6 +5556,10 @@
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "steer": {
+                    "description": "Steer marks a mid-turn steering message. On a busy session the\nprompt is queued as usual and the session's soft interrupt is\nraised so long-running tools that opt in (bash, job_output) wrap\nup early — returning their work as a background job rather than\nbeing cancelled — and the queued prompt is folded into the turn\nat the next step. Combine with an empty RunID to fold rather than\nwait for a dedicated turn. On an idle session it is a normal\nprompt.",
+                    "type": "boolean"
                 },
                 "swarm_parts": {
                     "description": "SwarmParts, when set, replaces the default TextContent user\nmessage with one or more [SwarmMessage] parts. Used by\n[Backend.SwarmSend] so the receiving session records\nstructured sender metadata (color, animal, workspace) instead\nof a plain text prefix. The Prompt field must still be set to\nthe concatenated user-visible text so downstream code that\ntreats prompts as strings (queue drop notifications, run\nlogs) keeps working.",
