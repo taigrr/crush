@@ -99,6 +99,9 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 - **Milestones**: auto-generated progress markers across a session.
 - **Procedures** injected into the system prompt for reusable workflows.
 - **Parallel adversarial review** agents for a write → review → fix loop.
+- **Swarm**: sessions message each other by `color-animal` address across
+  workspaces, spawn workers pinned to a sibling worktree, and record who
+  spawned whom so the sidebar nests workers under their orchestrator.
 - Ephemeral **sysadmin mode** toggle to bypass the command filter.
 - Bundled **ripgrep** enforcement for fast content search.
 - Message queueing and deferred model/context changes while the agent is
@@ -417,6 +420,33 @@ open against it. When the last stream disconnects, the workspace is torn
 down. There is a short grace window right after `POST /v1/workspaces` so a
 client that has created the workspace but not yet opened its event stream
 does not get reaped before it can attach.
+
+### Swarm
+
+Every session has a `color-animal` address derived from its id (for example
+`aliceblue-tiger`). The `swarm` tool sends a message to any session on the
+backend by address, or creates a new one with `address: "new"`:
+
+```jsonc
+{ "address": "new", "path": "/repo/.worktrees/feat-x", "prompt": "..." }
+```
+
+- `path` brings the workspace for that directory up if needed. Because
+  linked git worktrees collapse to one workspace, the new session's
+  **working directory is pinned to `path`** (override with `working_dir`,
+  which must be inside the same project), so its tools run in that
+  worktree rather than in whichever tree attached first.
+- `model` picks the worker's model (role name, `provider/model`, or id),
+  resolved in the target workspace's config on every turn.
+- The spawned session records the sender as `spawned_by_session_id` /
+  `spawned_by_workspace_id`. This is lineage only: workers stay in the
+  session list and remain addressable. The sidebar nests a worker under its
+  spawner and the session picker shows `by <color-animal>`; the fields are
+  also on `GET /v1/workspaces/{id}/sessions` and `session` SSE events for
+  external UIs.
+- The tool result carries structured metadata (`workspace_id`,
+  `session_id`, `address`, `working_dir`, `delivery`, `created`) in
+  addition to the prose.
 
 ### Ignoring Files
 
