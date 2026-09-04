@@ -16,6 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/attachments"
 	"github.com/taigrr/crush/internal/ui/common"
@@ -96,6 +97,16 @@ func (m *UserMessageItem) RawRender(width int) string {
 		return m.renderHighlighted(content, cappedWidth, height)
 	}
 
+	// A background-job completion notice is persisted as a user message
+	// so it folds into the conversation like a steer, but the user did
+	// not type it: render it as a job entry, not a prompt bubble.
+	if strings.HasPrefix(msgContent, tools.JobFinishedNoticePrefix) {
+		content = renderJobFinishedNotice(m.sty, msgContent, cappedWidth)
+		height = lipgloss.Height(content)
+		m.setCachedRender(content, cappedWidth, height)
+		return m.renderHighlighted(content, cappedWidth, height)
+	}
+
 	// User messages are shown verbatim: no markdown/HTML rendering so
 	// that literal characters like angle brackets are preserved. Strip
 	// any raw ANSI escape sequences the source text may carry (e.g.
@@ -165,6 +176,38 @@ func (m *UserMessageItem) renderSkillInvocation(content string, width int) strin
 	}
 
 	return toolOutputSkillContent(m.sty, skill.Name, skill.Description)
+}
+
+// renderJobFinishedNotice renders the folded "[background job finished]"
+// aside in the same visual language as the job tools: a Job header with
+// the shell id and description, then the command and its captured
+// output. The trailing guidance paragraph aimed at the model is dropped;
+// it carries nothing the user needs.
+func renderJobFinishedNotice(sty *styles.Styles, content string, width int) string {
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	first := strings.TrimSpace(strings.TrimPrefix(lines[0], tools.JobFinishedNoticePrefix))
+
+	var shellID, description string
+	if open := strings.LastIndex(first, "(job "); open >= 0 && strings.HasSuffix(first, ")") {
+		shellID = strings.TrimSpace(first[open+len("(job ") : len(first)-1])
+		description = strings.TrimSpace(first[:open])
+	} else {
+		description = first
+	}
+
+	body := lines[1:]
+	if n := len(body); n > 0 && strings.HasPrefix(body[n-1], "This is an automatic notice") {
+		body = body[:n-1]
+	}
+	bodyText := strings.TrimSpace(strings.Join(body, "\n"))
+
+	header := jobHeader(sty, ToolStatusSuccess, "Finished", shellID, description, width)
+	if bodyText == "" {
+		return header
+	}
+	bodyWidth := width - toolBodyLeftPaddingTotal
+	rendered := sty.Tool.Body.Render(toolOutputPlainContent(sty, bodyText, bodyWidth, false))
+	return joinToolParts(header, rendered)
 }
 
 // Render implements MessageItem.

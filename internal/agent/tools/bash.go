@@ -449,6 +449,11 @@ func movedToBackgroundResponse(shellID string, reason backgroundReason) string {
 // job_output.
 const jobNotificationOutputLimit = 4000
 
+// JobFinishedNoticePrefix opens the user-role aside folded into the
+// conversation when a background job completes. The chat UI keys on it
+// to render the message as a system notice instead of a user bubble.
+const JobFinishedNoticePrefix = "[background job finished]"
+
 // watchBackgroundJob waits for a job that stayed in the background to
 // finish and reports the outcome to the session through the notifier on
 // ctx (if any). It captures the notifier and session up front: the tool
@@ -478,7 +483,7 @@ func watchBackgroundJob(ctx context.Context, bgShell *shell.BackgroundShell) {
 func jobFinishedNotification(shellID, description, command, output string) string {
 	label := cmp.Or(description, DefaultBashDescription(command))
 	var b strings.Builder
-	fmt.Fprintf(&b, "[background job finished] %s (job %s)\n", label, shellID)
+	fmt.Fprintf(&b, "%s %s (job %s)\n", JobFinishedNoticePrefix, label, shellID)
 	fmt.Fprintf(&b, "Command: %s\n", strings.TrimSpace(command))
 	if output == "" {
 		output = BashNoOutput
