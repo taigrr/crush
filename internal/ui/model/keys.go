@@ -82,20 +82,24 @@ type KeyMap struct {
 		Search        key.Binding
 		PrevSection   key.Binding
 		NextSection   key.Binding
+		Pin           key.Binding
 	}
 
 	// Global key maps
-	Quit       key.Binding
-	Help       key.Binding
-	Commands   key.Binding
-	Models     key.Binding
-	Suspend    key.Binding
-	Sessions   key.Binding
-	Search     key.Binding
-	Milestones key.Binding
-	Tab        key.Binding
-	ToggleYolo key.Binding
-	Fullscreen key.Binding
+	Quit     key.Binding
+	Help     key.Binding
+	Commands key.Binding
+	Models   key.Binding
+	Suspend  key.Binding
+	Sessions key.Binding
+	// PinSessions keeps the left session navigator open across session
+	// switches (see UI.leftSidebarPinned).
+	PinSessions key.Binding
+	Search      key.Binding
+	Milestones  key.Binding
+	Tab         key.Binding
+	ToggleYolo  key.Binding
+	Fullscreen  key.Binding
 	// ArchiveSession opens the confirmation modal to archive the current
 	// (active) session from the main window.
 	ArchiveSession key.Binding
@@ -126,6 +130,14 @@ func DefaultKeyMap() KeyMap {
 		Sessions: key.NewBinding(
 			key.WithKeys("ctrl+s"),
 			key.WithHelp("ctrl+s", "sessions"),
+		),
+		// alt+s rather than ctrl+shift+s: without the Kitty keyboard
+		// protocol (which Crush does not enable) terminals send the same
+		// byte for ctrl+s and ctrl+shift+s, so the shifted form could
+		// never be told apart from the plain toggle.
+		PinSessions: key.NewBinding(
+			key.WithKeys("alt+s"),
+			key.WithHelp("alt+s", "pin sessions"),
 		),
 		Search: key.NewBinding(
 			key.WithKeys("ctrl+b"),
@@ -408,6 +420,13 @@ func DefaultKeyMap() KeyMap {
 	km.SessionSidebar.NextSection = key.NewBinding(
 		key.WithKeys("}"),
 		key.WithHelp("}", "next section"),
+	)
+	// Pin/unpin the navigator so it survives session switches. Like the
+	// other single-letter sidebar bindings it is only handled while the
+	// sidebar is focused; alt+s does the same from anywhere.
+	km.SessionSidebar.Pin = key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "pin/unpin"),
 	)
 
 	return km

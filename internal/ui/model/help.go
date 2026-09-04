@@ -135,6 +135,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 				k.SessionSidebar.Favorite,
 				k.SessionSidebar.Inbox,
 				k.SessionSidebar.Search,
+				k.SessionSidebar.Pin,
 			},
 			[]key.Binding{
 				help,
@@ -176,6 +177,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 			commands,
 			k.Models,
 			k.Sessions,
+			k.PinSessions,
 			k.Search,
 			k.Milestones,
 			k.ToggleYolo,

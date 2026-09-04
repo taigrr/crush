@@ -471,11 +471,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// place would show the wrong state (e.g. still "on" after
 		// switching into a workspace that never had yolo enabled).
 		m.setEditorPrompt(msg.yolo)
-		if msg.openPicker {
-			cmds = append(cmds, m.openSessionsDialog())
-		} else {
-			cmds = append(cmds, m.loadSession(msg.sessionID))
-		}
+		cmds = append(cmds, m.loadSession(msg.sessionID))
 	case backfillCountMsg:
 		if msg.err != nil {
 			cmds = append(cmds, util.ReportError(msg.err))

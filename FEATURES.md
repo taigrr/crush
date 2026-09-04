@@ -545,8 +545,12 @@ for slow links and SSH sessions.
 ## Session Navigator & Session UX
 
 - **Left session navigator sidebar** with cross-workspace session listing
-  and runtime workspace switching (sessions capped per workspace with an
-  overflow picker row)
+  and runtime workspace switching (sessions capped per workspace; enter on
+  the "…N more" row expands that workspace in place, "show less" collapses)
+- **Pinnable navigator** (`alt+s`, `p` while focused, or "Pin/Unpin
+  Sessions Sidebar" in the palette): stays open across session switches,
+  `ctrl+s` toggles focus instead of visibility, esc/h just release focus;
+  persisted as `options.tui.sessions_sidebar_pinned`
 - **Read/unread state**, per-session working directory, and a workspace
   registry (migration
   `20260620000000_add_session_working_dir_and_read_state.sql`)

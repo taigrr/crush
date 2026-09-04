@@ -86,15 +86,18 @@ type (
 	ActionSessionImportComplete struct {
 		Results []sessionimport.Result
 	}
-	ActionToggleHelp              struct{}
-	ActionToggleCompactMode       struct{}
-	ActionToggleThinking          struct{}
-	ActionTogglePills             struct{}
-	ActionExternalEditor          struct{}
-	ActionToggleYoloMode          struct{}
-	ActionToggleSysadminMode      struct{}
-	ActionToggleNotifications     struct{}
-	ActionSelectNotificationStyle struct {
+	ActionToggleHelp         struct{}
+	ActionToggleCompactMode  struct{}
+	ActionToggleThinking     struct{}
+	ActionTogglePills        struct{}
+	ActionExternalEditor     struct{}
+	ActionToggleYoloMode     struct{}
+	ActionToggleSysadminMode struct{}
+	// ActionToggleSessionsSidebarPin pins/unpins the left session
+	// navigator so it survives session switches.
+	ActionToggleSessionsSidebarPin struct{}
+	ActionToggleNotifications      struct{}
+	ActionSelectNotificationStyle  struct {
 		Style string
 	}
 	// ActionSelectEmbedding is emitted when an embedding model (or the

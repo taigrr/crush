@@ -292,6 +292,11 @@ type TUIOptions struct {
 	// navigator, persisted so a resize survives restarts. Zero means use
 	// the built-in default.
 	SessionsSidebarWidth int `json:"sessions_sidebar_width,omitempty" jsonschema:"description=Width in columns of the left session navigator,default=30,minimum=20,maximum=80"`
+	// SessionsSidebarPinned keeps the left session navigator open across
+	// session switches instead of collapsing it after each activation.
+	// Toggled from the TUI (alt+s, or "p" while the navigator is focused)
+	// and persisted here so the choice survives restarts.
+	SessionsSidebarPinned bool `json:"sessions_sidebar_pinned,omitempty" jsonschema:"description=Keep the left session navigator open after switching sessions,default=false"`
 }
 
 // Completions defines options for the completions UI.
