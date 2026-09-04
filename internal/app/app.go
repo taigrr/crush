@@ -33,6 +33,7 @@ import (
 	"github.com/taigrr/crush/internal/format"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/historysearch"
+	"github.com/taigrr/crush/internal/journal"
 	"github.com/taigrr/crush/internal/log"
 	"github.com/taigrr/crush/internal/lsp"
 	"github.com/taigrr/crush/internal/message"
@@ -72,6 +73,11 @@ type App struct {
 	Forks       fork.Service
 	Milestones  milestone.Service
 	embeddings  embedding.Service
+
+	// Journal persists the coder agent's prompt queue and swarm reply
+	// obligations so they survive a graceful server swap. Nil in
+	// test-only apps built without a database.
+	Journal *journal.Store
 
 	AgentCoordinator agent.Coordinator
 
@@ -189,6 +195,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		Worktrees:   worktrees,
 		Forks:       forks,
 		Milestones:  milestone.NewService(conn, q),
+		Journal:     journal.New(conn, q, store.Config().Options.DataDirectory),
 		SessionImporter: func(ctx context.Context, imported sessionimport.Session) (sessionimport.Result, error) {
 			result, err := sessionimport.Import(ctx, conn, imported)
 			if err != nil {
@@ -742,6 +749,22 @@ func (app *App) UpdateAgentModel(ctx context.Context) error {
 	return err
 }
 
+// RefreshAgent re-applies configuration (models, system prompt, tools)
+// to the existing coder agent, deferring until idle if it is busy. Falls
+// back to a model update for coordinators without Refresh.
+func (app *App) RefreshAgent(ctx context.Context) error {
+	if app.AgentCoordinator == nil {
+		return fmt.Errorf("agent configuration is missing")
+	}
+	if r, ok := app.AgentCoordinator.(interface {
+		Refresh(context.Context) (bool, error)
+	}); ok {
+		_, err := r.Refresh(ctx)
+		return err
+	}
+	return app.UpdateAgentModel(ctx)
+}
+
 // overrideModelsForNonInteractive parses the model strings and temporarily
 // overrides the model configurations, then rebuilds the agent.
 // Format: "model-name" (searches all providers) or "provider/model-name".
@@ -940,6 +963,7 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		app.runCompletions,
 		app.Skills,
 		app.Worktrees,
+		app.journalForCoordinator(),
 		app.workingDir,
 	)
 	if err != nil {
@@ -947,6 +971,16 @@ func (app *App) InitCoderAgent(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// journalForCoordinator returns the journal as the coordinator's
+// interface, or a nil interface when no store exists, so the
+// coordinator's nil check works (a typed nil pointer would not).
+func (app *App) journalForCoordinator() agent.Journal {
+	if app.Journal == nil {
+		return nil
+	}
+	return app.Journal
 }
 
 // Subscribe sends events to the TUI as tea.Msgs.

@@ -21,6 +21,7 @@ import (
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/csync"
+	"github.com/taigrr/crush/internal/journal"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/milestone"
 	"github.com/taigrr/crush/internal/pubsub"
@@ -185,6 +186,20 @@ type sessionAgent struct {
 	activeRequests *csync.Map[string, context.CancelFunc]
 	goals          *csync.Map[string, *goalState] // active /goal state per session
 
+	// queueJournal, when non-nil, receives a snapshot of a session's
+	// queue after every mutation so the queue survives a server swap.
+	// journalMu serializes snapshot+write pairs: each write reads the
+	// live queue under the lock, so however concurrent mutations
+	// interleave, the last write always reflects the newest state.
+	queueJournal    QueueJournal
+	journalMu       sync.Mutex
+	onQueueDrop     func(SessionAgentCall)
+	onQueueDispatch func(SessionAgentCall)
+	// dispatchPaused, once set, stops a finished turn from handing off
+	// to the next queued prompt. The queue stays in memory (and in the
+	// journal) for the next server to run. Set by a draining server.
+	dispatchPaused atomic.Bool
+
 	// dispatchMu holds a per-session mutex that serializes the
 	// accepted -> (cancel-on-entry | queued | active) transition in
 	// Run against a concurrent Cancel. The lock is held only during
@@ -248,6 +263,59 @@ type SessionAgentOptions struct {
 	// (worktree-aware). Used to tell the model its cwd; when nil the
 	// environment note is omitted.
 	WorkingDir tools.WorkingDirFunc
+	// QueueJournal, when non-nil, persists the per-session prompt queue.
+	// Only the top-level coder agent should carry one; sub-agent
+	// sessions are hidden children that do not survive a restart.
+	QueueJournal QueueJournal
+	// OnQueueDrop, when non-nil, is called for every queued call that is
+	// discarded without running (cancelled, cleared, dead context). The
+	// coordinator uses it to release swarm reply obligations registered
+	// when the call was accepted, which would otherwise outlive the
+	// message they belong to.
+	OnQueueDrop func(SessionAgentCall)
+	// OnQueueDispatch, when non-nil, is called for every queued call as
+	// it leaves the queue to run — as its own turn, or folded into the
+	// active one. The coordinator uses it to mark the swarm reply
+	// obligations the call carries as delivered, so they become
+	// enforceable only once the agent has actually seen the message.
+	OnQueueDispatch func(SessionAgentCall)
+}
+
+// QueueJournal persists a session's queued prompts so a server that
+// drains and exits for an update leaves them for its successor. It is
+// satisfied by *journal.Store. SaveQueue is called with the session's
+// full current queue after every mutation; an empty slice deletes.
+type QueueJournal interface {
+	SaveQueue(ctx context.Context, sessionID string, entries []journal.QueuedPrompt) error
+}
+
+// Drainable is implemented by coordinators (and session agents) that
+// can participate in a graceful server drain. Like SwarmConfigurable it
+// is a side-channel interface so Coordinator test mocks need not know
+// about draining.
+type Drainable interface {
+	// PauseQueueDispatch stops finished turns from handing off to
+	// queued prompts. Already-queued prompts stay in memory and in the
+	// journal for the next server to run.
+	PauseQueueDispatch()
+	// DetachJournals stops writing queue and reply-obligation changes
+	// through to the database. Called right before a drained server
+	// tears its workspaces down so the teardown-time clears do not
+	// erase the persisted state the next server should rehydrate.
+	DetachJournals()
+	// BusySessions lists the sessions with an active or accepted run.
+	BusySessions() []string
+	// DeferPrompt appends a prompt to a session's queue without
+	// dispatching it. Used for swarm messages that arrive while
+	// draining (journaled for the next server) and for the tail of a
+	// replayed queue (run in order once the head's turn ends). runID,
+	// when non-empty, makes the entry run as its own turn instead of
+	// being folded into the active step.
+	DeferPrompt(sessionID, runID, prompt string, attachments []message.Attachment, parts []message.SwarmMessage)
+	// RequeueFront is DeferPrompt at the head of the queue. Used when a
+	// replayed queue head could not be dispatched: it goes back in
+	// front of the tail that was already re-queued behind it.
+	RequeueFront(sessionID, runID, prompt string, attachments []message.Attachment, parts []message.SwarmMessage)
 }
 
 func NewSessionAgent(
@@ -269,6 +337,9 @@ func NewSessionAgent(
 		notify:               opts.Notify,
 		runComplete:          opts.RunComplete,
 		workingDir:           opts.WorkingDir,
+		queueJournal:         opts.QueueJournal,
+		onQueueDrop:          opts.OnQueueDrop,
+		onQueueDispatch:      opts.OnQueueDispatch,
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
 		activeRequests:       csync.NewMap[string, context.CancelFunc](),
 		dispatchMu:           csync.NewMap[string, *sync.Mutex](),

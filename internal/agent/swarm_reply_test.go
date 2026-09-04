@@ -180,3 +180,65 @@ func TestReplyOnBehalf_NoBackendDropsQuietly(t *testing.T) {
 	c := &coordinator{swarmReplies: swarm.NewReplyTracker(), sessions: replySessions{}}
 	c.replyOnBehalf("worker", swarm.ReplyObligation{SenderSessionID: "parent"}, "x")
 }
+
+func TestDropReplyObligations_ReleasesOnlyDroppedSenders(t *testing.T) {
+	t.Parallel()
+	be := &replyBackend{}
+	c := newReplyCoordinator(be)
+	parts := []message.SwarmMessage{
+		{SenderSessionID: "parent", SenderColor: "red", SenderAnimal: "fox", Body: "do it", RequireReply: true},
+	}
+	c.registerReplyObligations("worker", parts)
+	c.registerReplyObligations("worker", []message.SwarmMessage{{SenderSessionID: "aunt", RequireReply: true}})
+
+	// The parent's queued message is discarded before it runs.
+	c.dropReplyObligations(SessionAgentCall{SessionID: "worker", SwarmParts: parts})
+
+	require.Len(t, be.sends, 1)
+	require.Equal(t, []string{"parent"}, be.to)
+	require.Contains(t, be.sends[0].Body, "discarded before it ran")
+	pending := c.swarmReplies.Pending("worker")
+	require.Len(t, pending, 1, "the aunt's live obligation must survive")
+	require.Equal(t, "aunt", pending[0].SenderSessionID)
+
+	// Dropping a call whose obligation is already gone is a no-op.
+	c.dropReplyObligations(SessionAgentCall{SessionID: "worker", SwarmParts: parts})
+	require.Len(t, be.sends, 1)
+}
+
+// TestDeferPrompt_RegistersUndeliveredObligation: a swarm message parked
+// via DeferPrompt (drain-time delivery, or a replayed queue tail) never
+// passes through coordinator.run, so DeferPrompt records the reply its
+// sender demanded — but as undelivered: the agent has not seen the
+// message, so the current turn ending must neither nudge for it nor
+// report it failed. Once the queued call is dispatched the obligation
+// becomes enforceable.
+func TestDeferPrompt_RegistersUndeliveredObligation(t *testing.T) {
+	t.Parallel()
+	be := &replyBackend{}
+	c := newReplyCoordinator(be)
+	c.currentAgent = &mockSessionAgent{}
+	parts := []message.SwarmMessage{
+		{SenderSessionID: "parent", SenderColor: "red", SenderAnimal: "fox", Body: "do it", RequireReply: true},
+	}
+	c.DeferPrompt("worker", "run-1", "message from parent: do it", nil, parts)
+	got := c.swarmReplies.Pending("worker")
+	require.Len(t, got, 1)
+	require.Equal(t, "parent", got[0].SenderSessionID)
+	require.True(t, got[0].Undelivered)
+
+	// The active turn (which never saw the message) ends: no nudge, and
+	// a failure does not blame the undelivered message either.
+	_, ok := c.advanceReplyObligations(t.Context(), "worker", textResult("done"))
+	require.False(t, ok, "no nudge turn for a message the agent has not received")
+	c.failReplyObligations("worker", errors.New("boom"))
+	require.Empty(t, be.sends, "the sender must not be told the work failed")
+	require.Len(t, c.swarmReplies.Pending("worker"), 1, "the obligation survives for when the message runs")
+
+	// The queued call is dispatched: now it is enforced.
+	c.deliverReplyObligations(SessionAgentCall{SessionID: "worker", SwarmParts: parts})
+	require.False(t, c.swarmReplies.Pending("worker")[0].Undelivered)
+	prompt, ok := c.advanceReplyObligations(t.Context(), "worker", textResult("done"))
+	require.True(t, ok)
+	require.Contains(t, prompt, "reply required")
+}

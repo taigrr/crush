@@ -185,7 +185,14 @@ type coordinator struct {
 	// (the project root hosting .crush/). Empty means use cfg.WorkingDir().
 	effectiveWorkingDir string
 
-	readyWg errgroup.Group
+	// readyWg gates runs on the asynchronous system-prompt and tool
+	// build started by buildAgent (and by Refresh). It is a pointer
+	// guarded by readyMu so Refresh can install a fresh group — an
+	// errgroup caches its first error forever, so a one-off MCP or
+	// prompt failure would otherwise poison every future run until the
+	// workspace is torn down.
+	readyMu sync.Mutex
+	readyWg *errgroup.Group
 
 	// parentCostMu serializes the read-modify-write in
 	// updateParentSessionCost. Sub-agents can run concurrently (the
@@ -223,6 +230,82 @@ type coordinator struct {
 	// run, fulfilled by the swarm tool, enforced by the end-of-turn
 	// continuation loop.
 	swarmReplies *swarm.ReplyTracker
+
+	// journal, when non-nil, persists the coder agent's prompt queue
+	// and the reply tracker so both survive a graceful server swap.
+	journal Journal
+}
+
+// Journal is the persistence sink for the coordinator's transient
+// state (queued prompts and swarm reply obligations). *journal.Store
+// satisfies it; nil disables persistence.
+type Journal interface {
+	QueueJournal
+	swarm.ReplyJournal
+}
+
+// PauseQueueDispatch implements [Drainable].
+func (c *coordinator) PauseQueueDispatch() {
+	if d, ok := c.currentAgent.(interface{ PauseQueueDispatch() }); ok {
+		d.PauseQueueDispatch()
+	}
+}
+
+// DetachJournals implements [Drainable].
+func (c *coordinator) DetachJournals() {
+	if d, ok := c.currentAgent.(interface{ DetachQueueJournal() }); ok {
+		d.DetachQueueJournal()
+	}
+	c.swarmReplies.DetachJournal()
+}
+
+// DeferPrompt implements [Drainable].
+func (c *coordinator) DeferPrompt(sessionID, runID, prompt string, attachments []message.Attachment, parts []message.SwarmMessage) {
+	c.deferPrompt(sessionID, runID, prompt, attachments, parts, false)
+}
+
+// RequeueFront implements [Drainable].
+func (c *coordinator) RequeueFront(sessionID, runID, prompt string, attachments []message.Attachment, parts []message.SwarmMessage) {
+	c.deferPrompt(sessionID, runID, prompt, attachments, parts, true)
+}
+
+func (c *coordinator) deferPrompt(sessionID, runID, prompt string, attachments []message.Attachment, parts []message.SwarmMessage, front bool) {
+	// A deferred call runs via the recursive queue hand-off inside
+	// sessionAgent, never through coordinator.run, so the reply
+	// obligations its swarm parts demand are recorded here — as
+	// undelivered, since the agent has not seen the message: enforcing
+	// them at the end of the CURRENT turn would nudge the agent about a
+	// message it never received and then forward a bogus reply. The
+	// OnQueueDispatch hook flips them to delivered when the call runs.
+	c.registerUndeliveredReplyObligations(sessionID, parts)
+	d, ok := c.currentAgent.(interface{ deferCall(SessionAgentCall, bool) })
+	if !ok {
+		return
+	}
+	call := SessionAgentCall{
+		SessionID:   sessionID,
+		RunID:       runID,
+		Prompt:      prompt,
+		Attachments: attachments,
+		SwarmParts:  parts,
+	}
+	// Same model/tuning a live prompt gets; without it the deferred
+	// call would run with no max-tokens and no provider options.
+	if tuning, _, err := c.callTuning(context.Background(), sessionID); err == nil {
+		call = tuning.apply(call)
+		call.Attachments = tuning.filterAttachments(call.Attachments)
+	} else {
+		slog.Warn("Deferring prompt without model tuning", "session_id", sessionID, "error", err)
+	}
+	d.deferCall(call, front)
+}
+
+// BusySessions implements [Drainable].
+func (c *coordinator) BusySessions() []string {
+	if d, ok := c.currentAgent.(interface{ BusySessions() []string }); ok {
+		return d.BusySessions()
+	}
+	return nil
 }
 
 // SetSwarmBackend wires the cross-workspace swarm dispatcher into
@@ -355,6 +438,7 @@ func NewCoordinator(
 	runComplete pubsub.Publisher[notify.RunComplete],
 	skillsMgr *skills.Manager,
 	worktrees worktree.Service,
+	journal Journal,
 	effectiveWorkingDir string,
 ) (Coordinator, error) {
 	// Skills are pre-discovered by the caller (see app.New /
@@ -369,6 +453,11 @@ func NewCoordinator(
 		allSkills, activeSkills = discoverSkills(cfg)
 	}
 	skillTracker := skills.NewTracker(activeSkills)
+
+	replies := swarm.NewReplyTracker()
+	if journal != nil {
+		replies = swarm.NewPersistentReplyTracker(journal)
+	}
 
 	c := &coordinator{
 		cfg:                 cfg,
@@ -391,7 +480,8 @@ func NewCoordinator(
 		activeSkills:        activeSkills,
 		skillTracker:        skillTracker,
 		effectiveWorkingDir: effectiveWorkingDir,
-		swarmReplies:        swarm.NewReplyTracker(),
+		swarmReplies:        replies,
+		journal:             journal,
 	}
 
 	agentCfg, ok := cfg.Config().Agents[config.AgentCoder]
@@ -527,13 +617,74 @@ func (c *coordinator) RunAccepted(ctx context.Context, accept *AcceptedRun, sess
 	return c.run(ctx, accept, sessionID, prompt, attachments...)
 }
 
+// callTuning is the per-turn model selection and provider tuning a
+// SessionAgentCall carries: the session's model (with its resolver),
+// max output tokens, merged provider options, and sampling parameters.
+// Shared by run and DeferPrompt so a call that enters the queue without
+// passing through run (a drain-time swarm delivery, a replayed tail)
+// runs with exactly the tuning a live prompt would have had.
+type callTuning struct {
+	model        Model
+	resolveModel func(context.Context) (*Model, error)
+	maxTokens    int64
+	options      fantasy.ProviderOptions
+	temp, topP   *float64
+	topK         *int64
+	freqPenalty  *float64
+	presPenalty  *float64
+}
+
+func (c *coordinator) callTuning(ctx context.Context, sessionID string) (callTuning, config.ProviderConfig, error) {
+	model, resolveModel := c.sessionModel(ctx, sessionID)
+	maxTokens := model.CatwalkCfg.DefaultMaxTokens
+	if model.ModelCfg.MaxTokens != 0 {
+		maxTokens = model.ModelCfg.MaxTokens
+	}
+	providerCfg, ok := c.cfg.Config().Providers.Get(model.ModelCfg.Provider)
+	if !ok {
+		return callTuning{}, config.ProviderConfig{}, errModelProviderNotConfigured
+	}
+	options, temp, topP, topK, freqPenalty, presPenalty := mergeCallOptions(model, providerCfg)
+	return callTuning{
+		model: model, resolveModel: resolveModel, maxTokens: maxTokens, options: options,
+		temp: temp, topP: topP, topK: topK, freqPenalty: freqPenalty, presPenalty: presPenalty,
+	}, providerCfg, nil
+}
+
+// filterAttachments drops image attachments the model cannot accept.
+func (t callTuning) filterAttachments(attachments []message.Attachment) []message.Attachment {
+	if t.model.CatwalkCfg.SupportsImages || attachments == nil {
+		return attachments
+	}
+	filtered := make([]message.Attachment, 0, len(attachments))
+	for _, att := range attachments {
+		if att.IsText() {
+			filtered = append(filtered, att)
+		}
+	}
+	return filtered
+}
+
+// apply stamps the tuning onto call.
+func (t callTuning) apply(call SessionAgentCall) SessionAgentCall {
+	call.ResolveModel = t.resolveModel
+	call.MaxOutputTokens = t.maxTokens
+	call.ProviderOptions = t.options
+	call.Temperature = t.temp
+	call.TopP = t.topP
+	call.TopK = t.topK
+	call.FrequencyPenalty = t.freqPenalty
+	call.PresencePenalty = t.presPenalty
+	return call
+}
+
 // run is the shared implementation behind Run and RunAccepted. When
 // accept is non-nil it is threaded onto the SessionAgentCall as
 // Accepted so sessionAgent.Run can consume the accept reservation under
 // dispatchMu; when nil (the in-process/local path) no accept tracking
 // applies.
 func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
-	if err := c.readyWg.Wait(); err != nil {
+	if err := c.readiness().Wait(); err != nil {
 		return nil, err
 	}
 
@@ -554,29 +705,11 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	// a re-pointed role takes effect immediately. The resolved selection
 	// is fixed for the turn; the agent rebuilds only the provider client
 	// at Run time via ResolveModel (see sessionModel).
-	model, resolveModel := c.sessionModel(ctx, sessionID)
-	maxTokens := model.CatwalkCfg.DefaultMaxTokens
-	if model.ModelCfg.MaxTokens != 0 {
-		maxTokens = model.ModelCfg.MaxTokens
+	tuning, providerCfg, err := c.callTuning(ctx, sessionID)
+	if err != nil {
+		return nil, err
 	}
-
-	if !model.CatwalkCfg.SupportsImages && attachments != nil {
-		// filter out image attachments
-		filteredAttachments := make([]message.Attachment, 0, len(attachments))
-		for _, att := range attachments {
-			if att.IsText() {
-				filteredAttachments = append(filteredAttachments, att)
-			}
-		}
-		attachments = filteredAttachments
-	}
-
-	providerCfg, ok := c.cfg.Config().Providers.Get(model.ModelCfg.Provider)
-	if !ok {
-		return nil, errModelProviderNotConfigured
-	}
-
-	mergedOptions, temp, topP, topK, freqPenalty, presPenalty := mergeCallOptions(model, providerCfg)
+	attachments = tuning.filterAttachments(attachments)
 
 	if err := c.refreshTokenIfExpired(ctx, providerCfg); err != nil {
 		// NOTE(@andreynering): We don't return here because the event handling to ask the user to reauthenticate
@@ -627,23 +760,16 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 
 	runOnce := func() (*fantasy.AgentResult, error) {
 		run := func() (*fantasy.AgentResult, error) {
-			return c.currentAgent.Run(ctx, SessionAgentCall{
-				SessionID:        sessionID,
-				RunID:            runID,
-				ResolveModel:     resolveModel,
-				Prompt:           currentPrompt,
-				SwarmParts:       currentSwarmParts,
-				Attachments:      currentAttachments,
-				MaxOutputTokens:  maxTokens,
-				ProviderOptions:  mergedOptions,
-				Temperature:      temp,
-				TopP:             topP,
-				TopK:             topK,
-				FrequencyPenalty: freqPenalty,
-				PresencePenalty:  presPenalty,
-				OnComplete:       onComplete,
-				Accepted:         currentAccept,
+			call := tuning.apply(SessionAgentCall{
+				SessionID:   sessionID,
+				RunID:       runID,
+				Prompt:      currentPrompt,
+				SwarmParts:  currentSwarmParts,
+				Attachments: currentAttachments,
+				OnComplete:  onComplete,
+				Accepted:    currentAccept,
 			})
+			return c.currentAgent.Run(ctx, call)
 		}
 		beforeLoaded := c.skillTracker.LoadedNames()
 		var result *fantasy.AgentResult
@@ -976,6 +1102,13 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	}
 
 	largeProviderCfg, _ := c.cfg.Config().Providers.Get(large.ModelCfg.Provider)
+	// Only the top-level coder agent's queue is worth persisting:
+	// sub-agent sessions are hidden children of a tool call that cannot
+	// outlive the process.
+	var queueJournal QueueJournal
+	if !isSubAgent && c.journal != nil {
+		queueJournal = c.journal
+	}
 	result := NewSessionAgent(SessionAgentOptions{
 		LargeModel:           large,
 		SmallModel:           small,
@@ -992,6 +1125,9 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		Notify:               c.notify,
 		RunComplete:          c.runComplete,
 		WorkingDir:           c.workingDir,
+		QueueJournal:         queueJournal,
+		OnQueueDrop:          c.dropReplyObligations,
+		OnQueueDispatch:      c.deliverReplyObligations,
 	})
 
 	// The readiness goroutines below run asynchronously and outlive the
@@ -1004,7 +1140,8 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	// readiness.
 	readyCtx := context.WithoutCancel(ctx)
 
-	c.readyWg.Go(func() error {
+	ready := c.readiness()
+	ready.Go(func() error {
 		systemPrompt, err := prompt.Build(readyCtx, large.Model.Provider(), large.Model.Model(), c.cfg)
 		if err != nil {
 			return err
@@ -1013,7 +1150,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		return nil
 	})
 
-	c.readyWg.Go(func() error {
+	ready.Go(func() error {
 		// Wait for MCP servers to finish registering their tools before
 		// building the initial tool list. This ensures the tool set includes
 		// all MCP tools, not just fast-to-init ones — slow stdio servers
@@ -1848,6 +1985,101 @@ func (c *coordinator) UpdateModels(ctx context.Context) error {
 	}
 	c.currentAgent.SetTools(tools)
 	return nil
+}
+
+// readiness returns the current readiness group, creating it on first
+// use.
+func (c *coordinator) readiness() *errgroup.Group {
+	c.readyMu.Lock()
+	defer c.readyMu.Unlock()
+	if c.readyWg == nil {
+		c.readyWg = &errgroup.Group{}
+	}
+	return c.readyWg
+}
+
+// Refresh re-applies the workspace configuration to the live coder
+// agent without replacing it: models, the system prompt (so edits to
+// CRUSH.md and other context files are picked up), and the tool set,
+// under a fresh readiness group so a previously failed build no longer
+// poisons runs. This is what a connecting client's /agent/init does now
+// that it no longer rebuilds the coordinator (a rebuild would orphan
+// runs already dispatched on the old one). When the agent is busy the
+// refresh is deferred until it goes idle, exactly like
+// UpdateModelsWhenIdle, and deferred=true is returned.
+func (c *coordinator) Refresh(ctx context.Context) (deferred bool, err error) {
+	if c.currentAgent.IsBusy() {
+		go func() {
+			waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+			if waitErr := c.currentAgent.WaitForIdle(waitCtx); waitErr != nil {
+				slog.Warn("Gave up waiting for agent idle before refreshing", "error", waitErr)
+				return
+			}
+			if _, rerr := c.Refresh(context.Background()); rerr != nil {
+				slog.Error("Failed to apply deferred agent refresh", "error", rerr)
+			}
+		}()
+		return true, nil
+	}
+
+	agentCfg, ok := c.cfg.Config().Agents[config.AgentCoder]
+	if !ok {
+		return false, errCoderAgentNotConfigured
+	}
+	c.overrideCache.Reset(map[string]Model{})
+	large, small, err := c.buildAgentModels(ctx, false)
+	if err != nil {
+		return false, err
+	}
+	coderPromptTpl, err := coderPrompt(prompt.WithWorkingDir(cmp.Or(c.effectiveWorkingDir, c.cfg.WorkingDir())))
+	if err != nil {
+		return false, err
+	}
+	c.currentAgent.SetModels(large, small)
+
+	// Install a fresh readiness group before scheduling the rebuild so
+	// a run dispatched from here on waits on THIS build. Goroutines of
+	// a still-running previous build finish on their own group; their
+	// late SetSystemPrompt/SetTools are overwritten by this one.
+	readyCtx := context.WithoutCancel(ctx)
+	ready := &errgroup.Group{}
+	c.readyMu.Lock()
+	c.readyWg = ready
+	c.readyMu.Unlock()
+	agent := c.currentAgent
+	// current reports whether this build is still the newest: a slower
+	// build from an earlier Refresh must not overwrite the prompt or
+	// tools a later one installed.
+	current := func() bool {
+		c.readyMu.Lock()
+		defer c.readyMu.Unlock()
+		return c.readyWg == ready
+	}
+	ready.Go(func() error {
+		systemPrompt, err := coderPromptTpl.Build(readyCtx, large.Model.Provider(), large.Model.Model(), c.cfg)
+		if err != nil {
+			return err
+		}
+		if current() {
+			agent.SetSystemPrompt(systemPrompt)
+		}
+		return nil
+	})
+	ready.Go(func() error {
+		if err := mcp.WaitForInit(readyCtx); err != nil {
+			return err
+		}
+		tools, err := c.buildTools(readyCtx, agentCfg, false)
+		if err != nil {
+			return err
+		}
+		if current() {
+			agent.SetTools(tools)
+		}
+		return nil
+	})
+	return false, nil
 }
 
 // SetGoal implements Coordinator.

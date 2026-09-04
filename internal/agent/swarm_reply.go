@@ -28,18 +28,68 @@ const swarmReplyMaxNudges = 2
 const swarmReplyFallbackTimeout = 30 * time.Second
 
 // registerReplyObligations records, for every incoming swarm part that
-// set require_reply, that sessionID owes its sender a reply.
+// set require_reply, that sessionID owes its sender a reply. Called from
+// run as the message is delivered to the agent, so the obligation is
+// enforceable at once.
 func (c *coordinator) registerReplyObligations(sessionID string, parts []message.SwarmMessage) {
+	c.registerReplyObligationsWith(sessionID, parts, false)
+}
+
+// registerUndeliveredReplyObligations records the obligations of a
+// message that is queued but not yet shown to the agent. They persist
+// (so a restart keeps them) but are not enforced until
+// deliverReplyObligations runs for the same call.
+func (c *coordinator) registerUndeliveredReplyObligations(sessionID string, parts []message.SwarmMessage) {
+	c.registerReplyObligationsWith(sessionID, parts, true)
+}
+
+func (c *coordinator) registerReplyObligationsWith(sessionID string, parts []message.SwarmMessage, undelivered bool) {
 	for _, p := range parts {
 		if !p.RequireReply || p.SenderSessionID == "" {
 			continue
 		}
 		ident := swarm.Identity{Color: p.SenderColor, Animal: p.SenderAnimal}
 		c.swarmReplies.Require(sessionID, swarm.ReplyObligation{
+			SenderSessionID:   p.SenderSessionID,
+			SenderWorkspaceID: p.SenderWorkspaceID,
+			SenderAddress:     swarm.FormatAddress(ident, p.SenderSessionID),
+			Body:              p.Body,
+			Undelivered:       undelivered,
+		})
+	}
+}
+
+// deliverReplyObligations marks the obligations carried by a queued call
+// as delivered when the call leaves the queue to run (OnQueueDispatch).
+func (c *coordinator) deliverReplyObligations(call SessionAgentCall) {
+	for _, p := range call.SwarmParts {
+		if p.RequireReply && p.SenderSessionID != "" {
+			c.swarmReplies.MarkDelivered(call.SessionID, p.SenderSessionID)
+		}
+	}
+}
+
+// dropReplyObligations releases the reply obligations a queued swarm
+// message registered when it was accepted, after that message was
+// discarded without ever running (its queue was cleared or cancelled).
+// Each waiting sender is told so it does not wait on a reply that will
+// never come. Obligations are keyed by sender, so only the senders of
+// the dropped parts are affected; a live obligation from a different
+// message to the same session is left alone.
+func (c *coordinator) dropReplyObligations(call SessionAgentCall) {
+	for _, p := range call.SwarmParts {
+		if !p.RequireReply || p.SenderSessionID == "" {
+			continue
+		}
+		if !c.swarmReplies.Fulfill(call.SessionID, p.SenderSessionID) {
+			continue
+		}
+		ident := swarm.Identity{Color: p.SenderColor, Animal: p.SenderAnimal}
+		c.replyOnBehalf(call.SessionID, swarm.ReplyObligation{
 			SenderSessionID: p.SenderSessionID,
 			SenderAddress:   swarm.FormatAddress(ident, p.SenderSessionID),
 			Body:            p.Body,
-		})
+		}, "[auto-forwarded: your message to this session was discarded before it ran (the session's queue was cancelled or cleared); it will not be answered]")
 	}
 }
 
@@ -49,7 +99,9 @@ func (c *coordinator) registerReplyObligations(sessionID string, parts []message
 // is spent — forwards the agent's final message to each waiting sender
 // itself and lets the turn end (ok=false).
 func (c *coordinator) advanceReplyObligations(ctx context.Context, sessionID string, result *fantasy.AgentResult) (prompt string, ok bool) {
-	if len(c.swarmReplies.Pending(sessionID)) == 0 {
+	// Only delivered obligations count: an undelivered one belongs to
+	// a queued message this turn never saw.
+	if len(c.swarmReplies.Due(sessionID)) == 0 {
 		return "", false
 	}
 	due, exhausted := c.swarmReplies.Nudge(sessionID, swarmReplyMaxNudges)

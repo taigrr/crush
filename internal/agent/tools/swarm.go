@@ -33,8 +33,9 @@ type SwarmBackend interface {
 	// sub-agent.
 	LookupAddress(ctx context.Context, addr string) (SwarmLookupResult, error)
 	// Send delivers a message part to a target session. delivery
-	// reports whether the target was idle ("sent") or busy
-	// ("queued").
+	// reports whether the target was idle ("sent"), busy ("queued"),
+	// or whether the server is draining for an update and journaled
+	// the message for delivery by its replacement ("deferred").
 	Send(ctx context.Context, senderSessionID string, target SwarmLookupResult, part message.SwarmMessage) (delivery string, err error)
 	// CreateSessionInWorkspace creates a new session in an existing
 	// workspace and returns it (with color/animal assigned). Fails
@@ -110,7 +111,8 @@ type SwarmResponseMetadata struct {
 	// WorkingDir is the directory a newly created session runs in;
 	// empty for deliveries to existing sessions.
 	WorkingDir string `json:"working_dir,omitempty"`
-	// Delivery is "sent" (target was idle) or "queued" (target busy).
+	// Delivery is "sent" (target was idle), "queued" (target busy), or
+	// "deferred" (server draining for an update; delivered after it).
 	Delivery string `json:"delivery"`
 	BTW      bool   `json:"btw,omitempty"`
 	// Created is true when this call spawned the target session.
