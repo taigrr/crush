@@ -462,7 +462,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		// If the agent is busy the server queues the live apply until it
 		// finishes (see app.UpdateAgentModel -> UpdateModelsWhenIdle), so
 		// fire the RPC regardless and tell the user when it will take effect.
-		queued := m.isAgentBusy()
+		queued := m.isWorkspaceBusy()
 		cmds = append(cmds, func() tea.Msg {
 			m.com.Workspace.UpdateAgentModel(context.TODO())
 			if queued {

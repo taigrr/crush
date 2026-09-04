@@ -109,9 +109,26 @@ func (m *UI) yoloPromptFunc(info textarea.PromptInfo) string {
 	return t.Editor.PromptYoloDotsBlurred.Render()
 }
 
-// isAgentBusy returns true if the agent coordinator exists and is currently
-// busy processing a request.
+// isAgentBusy reports whether the open session has a run in flight. One
+// workspace hosts many sessions (swarm workers, other clients), so the
+// workspace-wide busy flag would mark an idle session busy whenever a
+// sibling is streaming: "esc cancel" with nothing to cancel, the working
+// placeholder, /continue and New Session refused. Without an open
+// session it falls back to the workspace-wide flag.
 func (m *UI) isAgentBusy() bool {
+	if !m.com.Workspace.AgentIsReady() {
+		return false
+	}
+	if m.hasSession() {
+		return m.com.Workspace.AgentIsSessionBusy(m.session.ID)
+	}
+	return m.com.Workspace.AgentIsBusy()
+}
+
+// isWorkspaceBusy reports whether any session in the workspace has a run
+// in flight. Use it for workspace-scoped side effects (stopping LSPs,
+// deferring a model reload) that must not disturb a sibling session.
+func (m *UI) isWorkspaceBusy() bool {
 	return m.com.Workspace.AgentIsReady() &&
 		m.com.Workspace.AgentIsBusy()
 }
