@@ -2,6 +2,8 @@ package chat
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/xml"
 	"image"
 	_ "image/gif"  // GIF decoding.
@@ -43,6 +45,12 @@ type UserMessageItem struct {
 	message     *message.Message
 	sty         *styles.Styles
 	imageConfig *ImageConfig
+
+	// imageIDs memoizes imageCacheID results so the content hash is
+	// computed once per attachment, not on every render frame. Keyed by
+	// the attachment's index within the message; a user message is
+	// immutable once submitted, so the cache never needs invalidation.
+	imageIDs map[int]string
 }
 
 // NewUserMessageItem creates a new UserMessageItem.
@@ -205,14 +213,15 @@ func (m *UserMessageItem) renderAttachments(width int) string {
 	var parts []string
 
 	if m.imageConfig != nil && m.imageConfig.Encoding == fimage.EncodingKitty {
-		for _, bc := range binaryContents {
+		for i, bc := range binaryContents {
 			if !strings.HasPrefix(bc.MIMEType, "image/") {
 				continue
 			}
 			cols, rows := imageRenderDims(m.imageConfig)
 
-			if fimage.HasTransmitted(bc.Path, cols, rows) {
-				imgRender := m.imageConfig.Encoding.Render(bc.Path, cols, rows)
+			id := m.imageCacheID(i, bc)
+			if fimage.HasTransmitted(id, cols, rows) {
+				imgRender := m.imageConfig.Encoding.Render(id, cols, rows)
 				parts = append(parts, imgRender)
 			}
 		}
@@ -246,14 +255,15 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 	}
 
 	var cmds []tea.Cmd
-	for _, bc := range m.message.BinaryContent() {
+	for i, bc := range m.message.BinaryContent() {
 		if !strings.HasPrefix(bc.MIMEType, "image/") {
 			continue
 		}
 
 		cols, rows := imageRenderDims(m.imageConfig)
 
-		if fimage.HasTransmitted(bc.Path, cols, rows) {
+		id := m.imageCacheID(i, bc)
+		if fimage.HasTransmitted(id, cols, rows) {
 			continue
 		}
 
@@ -273,7 +283,7 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 			Height: m.imageConfig.CellHeight,
 		}
 
-		cmd := m.imageConfig.Encoding.Transmit(bc.Path, img, cs, cols, rows, m.imageConfig.Tmux)
+		cmd := m.imageConfig.Encoding.Transmit(id, img, cs, cols, rows, m.imageConfig.Tmux)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -283,6 +293,34 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 		return nil
 	}
 	return tea.Batch(cmds...)
+}
+
+// imageCacheID identifies an image attachment for the terminal image cache.
+// Pasted images across a session can share a file name ("paste_1.png"), so
+// the name alone would make a later paste render as an earlier one; mix in
+// a hash of the bytes when they are available.
+//
+// The result is memoized per item, keyed by the attachment's index within
+// the message, so the hash is computed once rather than on every render
+// frame. Indexing (rather than path+length) keeps the memo collision-free
+// even for legacy messages that carry two same-named, equal-length
+// attachments with different content.
+func (m *UserMessageItem) imageCacheID(idx int, bc message.BinaryContent) string {
+	if len(bc.Data) == 0 {
+		return bc.Path
+	}
+	if m.imageIDs != nil {
+		if id, ok := m.imageIDs[idx]; ok {
+			return id
+		}
+	}
+	sum := sha256.Sum256(bc.Data)
+	id := bc.Path + "#" + hex.EncodeToString(sum[:8])
+	if m.imageIDs == nil {
+		m.imageIDs = make(map[int]string)
+	}
+	m.imageIDs[idx] = id
+	return id
 }
 
 // loadImageFromFile loads an image from a file path.
