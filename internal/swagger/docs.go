@@ -5492,6 +5492,13 @@ const docTemplate = `{
                 "prompt_tokens": {
                     "type": "integer"
                 },
+                "spawned_by_session_id": {
+                    "description": "SpawnedBySessionID and SpawnedByWorkspaceID are the swarm lineage\nof the session (see [session.Session.SpawnedBySessionID]): the\nsession that created it via ` + "`" + `swarm new` + "`" + ` and that spawner's\nworkspace. Empty for sessions opened by a human or a client.",
+                    "type": "string"
+                },
+                "spawned_by_workspace_id": {
+                    "type": "string"
+                },
                 "summary_message_id": {
                     "type": "string"
                 },
@@ -5506,6 +5513,10 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "integer"
+                },
+                "working_dir": {
+                    "description": "WorkingDir is the directory the session's tools run in (see\n[session.Session.WorkingDir]). Empty until the session's first\nrun stamps it, or when the workspace's worktree system owns the\nper-session directory.",
+                    "type": "string"
                 }
             }
         },
@@ -6031,6 +6042,13 @@ const docTemplate = `{
                 "prompt_tokens": {
                     "type": "integer"
                 },
+                "spawned_by_session_id": {
+                    "description": "SpawnedBySessionID and SpawnedByWorkspaceID are the swarm lineage\nof the session (see [session.Session.SpawnedBySessionID]): the\nsession that created it via ` + "`" + `swarm new` + "`" + ` and that spawner's\nworkspace. Empty for sessions opened by a human or a client.",
+                    "type": "string"
+                },
+                "spawned_by_workspace_id": {
+                    "type": "string"
+                },
                 "summary_message_id": {
                     "type": "string"
                 },
@@ -6045,6 +6063,10 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "integer"
+                },
+                "working_dir": {
+                    "description": "WorkingDir is the directory the session's tools run in (see\n[session.Session.WorkingDir]). Empty until the session's first\nrun stamps it, or when the workspace's worktree system owns the\nper-session directory.",
+                    "type": "string"
                 }
             }
         },
@@ -6067,6 +6089,10 @@ const docTemplate = `{
                 },
                 "is_busy": {
                     "type": "boolean"
+                },
+                "spawned_by_session_id": {
+                    "description": "SpawnedBySessionID is the swarm lineage of the session (see\n[session.Session.SpawnedBySessionID]): the session that created\nit via ` + "`" + `swarm new` + "`" + `. Empty for human/client-opened sessions. The\nsidebar uses it to nest workers under their spawner.",
+                    "type": "string"
                 },
                 "title": {
                     "type": "string"
@@ -6200,6 +6226,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "btw": {
+                    "type": "boolean"
+                },
+                "require_reply": {
                     "type": "boolean"
                 },
                 "sender_animal": {

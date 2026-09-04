@@ -719,6 +719,15 @@ definitions:
         type: string
       prompt_tokens:
         type: integer
+      spawned_by_session_id:
+        description: |-
+          SpawnedBySessionID and SpawnedByWorkspaceID are the swarm lineage
+          of the session (see [session.Session.SpawnedBySessionID]): the
+          session that created it via `swarm new` and that spawner's
+          workspace. Empty for sessions opened by a human or a client.
+        type: string
+      spawned_by_workspace_id:
+        type: string
       summary_message_id:
         type: string
       title:
@@ -729,6 +738,13 @@ definitions:
         type: array
       updated_at:
         type: integer
+      working_dir:
+        description: |-
+          WorkingDir is the directory the session's tools run in (see
+          [session.Session.WorkingDir]). Empty until the session's first
+          run stamps it, or when the workspace's worktree system owns the
+          per-session directory.
+        type: string
     type: object
   proto.Attachment:
     properties:
@@ -1082,6 +1098,15 @@ definitions:
         type: string
       prompt_tokens:
         type: integer
+      spawned_by_session_id:
+        description: |-
+          SpawnedBySessionID and SpawnedByWorkspaceID are the swarm lineage
+          of the session (see [session.Session.SpawnedBySessionID]): the
+          session that created it via `swarm new` and that spawner's
+          workspace. Empty for sessions opened by a human or a client.
+        type: string
+      spawned_by_workspace_id:
+        type: string
       summary_message_id:
         type: string
       title:
@@ -1092,6 +1117,13 @@ definitions:
         type: array
       updated_at:
         type: integer
+      working_dir:
+        description: |-
+          WorkingDir is the directory the session's tools run in (see
+          [session.Session.WorkingDir]). Empty until the session's first
+          run stamps it, or when the workspace's worktree system owns the
+          per-session directory.
+        type: string
     type: object
   proto.SessionOverview:
     properties:
@@ -1114,6 +1146,13 @@ definitions:
         type: string
       is_busy:
         type: boolean
+      spawned_by_session_id:
+        description: |-
+          SpawnedBySessionID is the swarm lineage of the session (see
+          [session.Session.SpawnedBySessionID]): the session that created
+          it via `swarm new`. Empty for human/client-opened sessions. The
+          sidebar uses it to nest workers under their spawner.
+        type: string
       title:
         type: string
       unread:
@@ -1206,6 +1245,8 @@ definitions:
       body:
         type: string
       btw:
+        type: boolean
+      require_reply:
         type: boolean
       sender_animal:
         type: string
