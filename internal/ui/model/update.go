@@ -293,6 +293,22 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// source of truth, read live by the header and sidebar). This
 		// event just wakes the UI so those surfaces re-render with the
 		// new state.
+	case pubsub.Event[workspace.HeldPromptsEvent]:
+		// Prompts parked during a server update have been redelivered
+		// to the replacement server (or failed to be). A failed one is
+		// handed back to the editor so the text is not lost.
+		var cmds []tea.Cmd
+		if msg.Payload.Sent > 0 {
+			cmds = append(cmds, util.ReportInfo(fmt.Sprintf("Server updated; sent %d held message(s).", msg.Payload.Sent)))
+		}
+		for _, f := range msg.Payload.Failed {
+			cmds = append(cmds, m.restoreUnsentPrompt(f.Prompt, f.Attachments,
+				fmt.Errorf("failed to resend a message held during the server update: %w", f.Err)))
+		}
+		if n := msg.Payload.KeptElsewhere; n > 0 {
+			cmds = append(cmds, util.ReportInfo(fmt.Sprintf("%d held message(s) belong to another workspace and will be sent when you switch back.", n)))
+		}
+		return m, tea.Batch(cmds...)
 	case pubsub.Event[skills.Event]:
 		m.skillStates = msg.Payload.States
 	case pubsub.Event[mcp.Event]:
