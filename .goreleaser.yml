@@ -28,10 +28,13 @@ before:
     - mkdir completions
     - rm -rf manpages
     - mkdir manpages
-    - sh -c 'go run . completion bash >./completions/crush.bash'
-    - sh -c 'go run . completion zsh >./completions/crush.zsh'
-    - sh -c 'go run . completion fish >./completions/crush.fish'
-    - sh -c 'go run . man | gzip -c >./manpages/crush.1.gz'
+    # The builds below set CGO_ENABLED=0, but these hooks run with the
+    # host default (cgo on), which pulls in ebitengine/oto's ALSA binding
+    # and fails on runners without libasound2-dev. Mirror the build env.
+    - sh -c 'CGO_ENABLED=0 go run . completion bash >./completions/crush.bash'
+    - sh -c 'CGO_ENABLED=0 go run . completion zsh >./completions/crush.zsh'
+    - sh -c 'CGO_ENABLED=0 go run . completion fish >./completions/crush.fish'
+    - sh -c 'CGO_ENABLED=0 go run . man | gzip -c >./manpages/crush.1.gz'
 
 builds:
   - env:

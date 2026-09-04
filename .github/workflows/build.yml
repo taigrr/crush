@@ -24,7 +24,47 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      # ebitengine/oto (via gopxl/beep) links ALSA under cgo; the race
+      # detector and any cgo-enabled build need the dev headers on Linux.
+      - name: Install ALSA headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
       - run: go mod tidy
       - run: git diff --exit-code
       - run: go build -race ./...
       - run: go test -race -failfast ./...
+
+  # Generated artifacts must be committed in sync with their sources. The
+  # OpenAPI spec drifted for months because nothing enforced it; this job
+  # regenerates the spec and the config JSON schema and fails on any diff.
+  # Run `task swag` / `task schema` locally to fix.
+  generated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # ebitengine/oto (via gopxl/beep) links ALSA under cgo; the race
+      # detector and any cgo-enabled build need the dev headers on Linux.
+      - name: Install ALSA headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
+      - name: Regenerate OpenAPI spec
+        run: go run github.com/swaggo/swag/cmd/swag@v1.16.6 init --generalInfo main.go --dir . --output internal/swagger --packageName swagger --parseDependency --parseInternal --parseDepth 5
+      - name: Check spec is up to date
+        run: |
+          if ! git diff --exit-code -- internal/swagger; then
+            echo "::error::internal/swagger is out of date. Run 'task swag' and commit the result."
+            exit 1
+          fi
+      - name: Regenerate config schema
+        run: go run . schema > schema.json
+      - name: Check schema is up to date
+        run: |
+          if ! git diff --exit-code -- schema.json; then
+            echo "::error::schema.json is out of date. Run 'task schema' and commit the result."
+            exit 1
+          fi
