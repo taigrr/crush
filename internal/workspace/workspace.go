@@ -213,7 +213,15 @@ type Workspace interface {
 
 	// Agent
 	AgentRun(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) error
+	// AgentRunBTW sends a mid-turn steer: the message is folded into the
+	// active turn at the next step and long-running tools are asked to
+	// wrap up early so it lands sooner. On an idle session it is a
+	// normal prompt.
 	AgentRunBTW(ctx context.Context, sessionID, prompt string) error
+	// AgentSoftInterrupt asks the tools running in the session's current
+	// step to wrap up early without cancelling them (a running shell
+	// command becomes a background job) and lets the turn continue.
+	AgentSoftInterrupt(sessionID string)
 	AgentRunShellCommand(ctx context.Context, sessionID, command string) (proto.ShellCommandResponse, error)
 	AgentCancel(sessionID string)
 	// AgentCancelAll cancels every in-flight agent run in the workspace,

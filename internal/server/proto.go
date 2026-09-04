@@ -1137,6 +1137,30 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionCancel(w http.ResponseWrit
 	w.WriteHeader(http.StatusOK)
 }
 
+// handlePostWorkspaceAgentSessionInterrupt raises the session's soft
+// interrupt: long-running tools in the current step wrap up early
+// (e.g. bash hands its command back as a background job) and the turn
+// continues. Nothing is cancelled.
+//
+//	@Summary		Soft-interrupt agent session
+//	@Description	Ask the tools running in the session's current step to wrap up early without cancelling them; a running shell command becomes a background job.
+//	@Tags			agent
+//	@Param			id	path	string	true	"Workspace ID"
+//	@Param			sid	path	string	true	"Session ID"
+//	@Success		200
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/interrupt [post]
+func (c *controllerV1) handlePostWorkspaceAgentSessionInterrupt(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+	if err := c.backend.SoftInterruptSession(id, sid); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // handlePostWorkspaceAgentCancel cancels all running agent sessions in
 // the workspace.
 //

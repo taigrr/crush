@@ -133,6 +133,9 @@ type ClientWorkspace struct {
 	// sendMessageFn is normally client.SendMessage; overridable in
 	// tests to simulate a draining server.
 	sendMessageFn func(ctx context.Context, id, sessionID, runID, prompt string, attachments ...message.Attachment) error
+	// steerMessageFn is normally client.SteerMessage; the steer twin of
+	// sendMessageFn so held steers replay through the same hold path.
+	steerMessageFn func(ctx context.Context, id, sessionID, prompt string) error
 }
 
 // heldPrompt is a prompt the client is holding until the server that
@@ -147,6 +150,9 @@ type heldPrompt struct {
 	runID       string
 	prompt      string
 	attachments []message.Attachment
+	// steer marks a mid-turn steer (see Client.SteerMessage): sent with
+	// no RunID and with the soft interrupt raised on the target's step.
+	steer bool
 }
 
 // ErrServerUpdating is returned by AgentRun/AgentRunBTW when the prompt
@@ -174,6 +180,7 @@ func NewClientWorkspace(c *client.Client, ws proto.Workspace) *ClientWorkspace {
 	w.subscribeGlobalEventsFn = c.SubscribeGlobalEvents
 	w.createWorkspaceFn = c.CreateWorkspace
 	w.sendMessageFn = c.SendMessage
+	w.steerMessageFn = c.SteerMessage
 	return w
 }
 
@@ -428,13 +435,20 @@ func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string
 
 // AgentRunBTW sends a "by the way" aside message that is folded into the
 // current streaming step at the earliest opportunity rather than queued for
-// its own dedicated turn. The empty RunID is intentional: drainQueueForStep
-// folds no-RunID messages into the active step context so the model sees
-// the message at the next step boundary without waiting for the turn to
-// finish.
+// its own dedicated turn. It is sent as a steer: no RunID, so
+// drainQueueForStep folds it into the active step context, plus the
+// session's soft interrupt so long-running tools (bash, job_output) wrap
+// up early and the model sees the message without waiting for them.
 func (w *ClientWorkspace) AgentRunBTW(ctx context.Context, sessionID, prompt string) error {
 	w.agentState.invalidate()
-	return w.sendOrHold(ctx, heldPrompt{path: w.workspacePath(), sessionID: sessionID, prompt: "[btw] " + prompt})
+	return w.sendOrHold(ctx, heldPrompt{path: w.workspacePath(), sessionID: sessionID, prompt: "[btw] " + prompt, steer: true})
+}
+
+// AgentSoftInterrupt raises the session's soft interrupt with no message
+// attached: a running shell command is handed back to the model as a
+// background job and the turn continues.
+func (w *ClientWorkspace) AgentSoftInterrupt(sessionID string) {
+	_ = w.client.SoftInterruptAgentSession(context.Background(), w.workspaceID(), sessionID)
 }
 
 // workspacePath returns the root of the workspace this client is
@@ -463,7 +477,7 @@ func (w *ClientWorkspace) sendOrHold(ctx context.Context, p heldPrompt) error {
 		// of earlier ones.
 		return w.hold(p, false)
 	}
-	err := w.sendMessageFn(ctx, w.workspaceID(), p.sessionID, p.runID, p.prompt, p.attachments...)
+	err := w.send(ctx, w.workspaceID(), p)
 	switch {
 	case err == nil:
 		return nil
@@ -474,6 +488,14 @@ func (w *ClientWorkspace) sendOrHold(ctx context.Context, p heldPrompt) error {
 		return w.hold(p, false)
 	}
 	return err
+}
+
+// send dispatches p to workspace id, as a steer or a normal prompt.
+func (w *ClientWorkspace) send(ctx context.Context, id string, p heldPrompt) error {
+	if p.steer {
+		return w.steerMessageFn(ctx, id, p.sessionID, p.prompt)
+	}
+	return w.sendMessageFn(ctx, id, p.sessionID, p.runID, p.prompt, p.attachments...)
 }
 
 // hold parks p for redelivery after the next reconnect. draining marks
@@ -540,7 +562,7 @@ func (w *ClientWorkspace) flushHeldPrompts(ctx context.Context) (sent int, faile
 			keep = append(keep, p)
 			continue
 		}
-		err := w.sendMessageFn(ctx, wsID, p.sessionID, p.runID, p.prompt, p.attachments...)
+		err := w.send(ctx, wsID, p)
 		switch {
 		case err == nil:
 			sent++

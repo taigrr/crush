@@ -163,6 +163,15 @@ type AgentMessage struct {
 	RunID       string       `json:"run_id,omitempty"`
 	Prompt      string       `json:"prompt"`
 	Attachments []Attachment `json:"attachments,omitempty"`
+	// Steer marks a mid-turn steering message. On a busy session the
+	// prompt is queued as usual and the session's soft interrupt is
+	// raised so long-running tools that opt in (bash, job_output) wrap
+	// up early — returning their work as a background job rather than
+	// being cancelled — and the queued prompt is folded into the turn
+	// at the next step. Combine with an empty RunID to fold rather than
+	// wait for a dedicated turn. On an idle session it is a normal
+	// prompt.
+	Steer bool `json:"steer,omitempty"`
 	// SwarmParts, when set, replaces the default TextContent user
 	// message with one or more [SwarmMessage] parts. Used by
 	// [Backend.SwarmSend] so the receiving session records
