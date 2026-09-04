@@ -1815,3 +1815,43 @@ func countSessionRows(s *SessionsSidebar, wi int) int {
 	}
 	return n
 }
+
+// TestSidebar_WheelScrollsWithoutFocus verifies a mouse wheel over the
+// navigator scrolls its viewport even when the sidebar is not focused,
+// keeps the cursor on a visible row, and that the scroll survives Render.
+func TestSidebar_WheelScrollsWithoutFocus(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{manySessions("/proj/a", 20)})
+	rect := image.Rect(0, 0, 30, 20) // body = 15 rows
+	s.Render(rect.Dx(), rect.Dy(), false)
+	// Expand so there are more rows than fit (header + 20 + toggle = 22).
+	s.MoveBottom()
+	require.True(t, s.ToggleOverflowUnderCursor())
+	s.cursor = 0
+	s.snapCursorToSession(1)
+	s.scroll = 0
+	s.Render(rect.Dx(), rect.Dy(), false)
+	require.Greater(t, len(s.rows), 15)
+
+	m := &UI{keyMap: DefaultKeyMap(), leftSidebar: s, leftSidebarVisible: true, focus: uiFocusEditor}
+	m.layout.leftSidebar = rect
+
+	require.False(t, m.handleLeftSidebarWheel(tea.MouseWheelMsg{X: 100, Y: 5, Button: tea.MouseWheelDown}), "outside the rect")
+	require.True(t, m.handleLeftSidebarWheel(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelDown}))
+	require.Equal(t, MouseScrollThreshold, s.scroll)
+	s.Render(rect.Dx(), rect.Dy(), false)
+	require.Equal(t, MouseScrollThreshold, s.scroll, "render must not undo the wheel scroll")
+	require.GreaterOrEqual(t, s.cursor, s.scroll, "cursor pulled into the viewport")
+	require.Equal(t, uiFocusEditor, m.focus, "wheel does not steal focus")
+
+	// Scrolling past the end clamps; scrolling back up clamps at zero.
+	for range 10 {
+		m.handleLeftSidebarWheel(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelDown})
+	}
+	require.Equal(t, len(s.rows)-15, s.scroll)
+	for range 10 {
+		m.handleLeftSidebarWheel(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelUp})
+	}
+	require.Zero(t, s.scroll)
+}

@@ -1221,12 +1221,33 @@ func (s *SessionsSidebar) FavoriteTargetUnderCursor() (target SessionTarget, fav
 	return SessionTarget{WorkspaceID: ws.WorkspaceID, Root: ws.Root, ID: sess.ID}, sess.Favorite, true
 }
 
-// visibleRows is how many rows fit in the given height.
+// ensureVisible keeps scroll sane relative to the cursor; the lower bound
+// is corrected against the viewport height at render time.
 func (s *SessionsSidebar) ensureVisible() {
-	// scroll is corrected against the viewport height at render time; here
-	// we just keep it sane relative to the cursor.
 	if s.cursor < s.scroll {
 		s.scroll = s.cursor
+	}
+}
+
+// ScrollBy moves the row viewport by delta rows (positive scrolls down)
+// for mouse-wheel scrolling, using the body height recorded by the last
+// Render. Because Render always keeps the cursor on screen, a cursor that
+// would leave the viewport is pulled onto the nearest selectable row
+// inside it, so wheel scrolling is never silently undone.
+func (s *SessionsSidebar) ScrollBy(delta int) {
+	h := s.bodyHeight
+	if h <= 0 || len(s.rows) == 0 {
+		return
+	}
+	maxScroll := max(0, len(s.rows)-h)
+	s.scroll = min(max(0, s.scroll+delta), maxScroll)
+	switch {
+	case s.cursor < s.scroll:
+		s.cursor = s.scroll
+		s.snapCursorToSession(1)
+	case s.cursor >= s.scroll+h:
+		s.cursor = s.scroll + h - 1
+		s.snapCursorToSession(-1)
 	}
 }
 

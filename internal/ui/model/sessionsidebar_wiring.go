@@ -647,6 +647,28 @@ func (m *UI) handleLeftSidebarClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 	return nil, true
 }
 
+// handleLeftSidebarWheel scrolls the session navigator when a mouse-wheel
+// event lands inside its rect and reports whether it consumed the event.
+// It does not require the sidebar to be focused.
+func (m *UI) handleLeftSidebarWheel(msg tea.MouseWheelMsg) bool {
+	if !m.leftSidebarVisible {
+		return false
+	}
+	area := m.layout.leftSidebar
+	if area.Dx() <= 0 || area.Dy() <= 0 || !image.Pt(msg.X, msg.Y).In(area) {
+		return false
+	}
+	switch msg.Button {
+	case tea.MouseWheelUp:
+		m.leftSidebar.ScrollBy(-MouseScrollThreshold)
+	case tea.MouseWheelDown:
+		m.leftSidebar.ScrollBy(MouseScrollThreshold)
+	default:
+		return false
+	}
+	return true
+}
+
 // resizeLeftSidebar widens (delta > 0) or narrows (delta < 0) the session
 // navigator and persists the new width.
 func (m *UI) resizeLeftSidebar(delta int) tea.Cmd {
