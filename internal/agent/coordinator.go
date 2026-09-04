@@ -102,6 +102,11 @@ type Coordinator interface {
 	Cancel(sessionID string)
 	CancelAll()
 	IsSessionBusy(sessionID string) bool
+	// IsSessionBusyOrAccepted also counts a run that has been accepted
+	// (dispatched) but not yet registered as active. Observers listing
+	// sessions should use this so a just-dispatched turn is reported
+	// busy; Run's own queue/idle decision must keep using IsSessionBusy.
+	IsSessionBusyOrAccepted(sessionID string) bool
 	IsBusy() bool
 	QueuedPrompts(sessionID string) int
 	QueuedPromptsList(sessionID string) []string
@@ -211,6 +216,13 @@ type coordinator struct {
 	// this coordinator, so a second concurrent caller doesn't launch
 	// a redundant deferred goroutine or race the first's rebuild.
 	swarmWiring bool
+
+	// swarmReplies tracks reply obligations created by require_reply
+	// swarm messages: a session that received one may not end its turn
+	// until it has messaged the sender back. Registered on delivery in
+	// run, fulfilled by the swarm tool, enforced by the end-of-turn
+	// continuation loop.
+	swarmReplies *swarm.ReplyTracker
 }
 
 // SetSwarmBackend wires the cross-workspace swarm dispatcher into
@@ -379,6 +391,7 @@ func NewCoordinator(
 		activeSkills:        activeSkills,
 		skillTracker:        skillTracker,
 		effectiveWorkingDir: effectiveWorkingDir,
+		swarmReplies:        swarm.NewReplyTracker(),
 	}
 
 	agentCfg, ok := cfg.Config().Agents[config.AgentCoder]
@@ -404,19 +417,21 @@ func NewCoordinator(
 // workingDir resolves the working directory for a turn. If the turn's
 // session has an active (Crush-managed) worktree, tools operate inside
 // that worktree; otherwise they fall back to the cwd of the client that
-// initiated the turn (set via tools.WithWorkingDir), and finally to the
-// workspace defaults. The per-request cwd matters because sibling git
-// worktrees collapse to the same project root and thus share a single
-// workspace and coordinator: without it every client would resolve to
-// whichever client created the workspace first (c.effectiveWorkingDir),
-// so launching Crush from a sibling worktree could run tools in an
-// unrelated worktree. The session ID is read from ctx (set via
-// tools.SessionIDContextKey), so a missing session, a disabled worktree
-// service, or a lookup error all gracefully degrade to the request cwd
-// or workspace root.
+// initiated the turn (set via tools.WithWorkingDir), then to the
+// session's recorded working dir when the turn carries no client cwd,
+// and finally to the workspace defaults. The per-request cwd matters
+// because sibling git worktrees collapse to the same project root and
+// thus share a single workspace and coordinator: without it every client
+// would resolve to whichever client created the workspace first
+// (c.effectiveWorkingDir), so launching Crush from a sibling worktree
+// could run tools in an unrelated worktree. The session ID is read from
+// ctx (set via tools.SessionIDContextKey), so a missing session, a
+// disabled worktree service, or a lookup error all gracefully degrade to
+// the request cwd or workspace root.
 func (c *coordinator) workingDir(ctx context.Context) string {
+	requestCwd := tools.GetWorkingDirFromContext(ctx)
 	root := cmp.Or(
-		tools.GetWorkingDirFromContext(ctx),
+		requestCwd,
 		c.effectiveWorkingDir,
 		c.cfg.WorkingDir(),
 	)
@@ -426,12 +441,22 @@ func (c *coordinator) workingDir(ctx context.Context) string {
 	// working directories. An active (Crush-managed) worktree wins;
 	// otherwise tools run in the live request cwd so that `cd`-following
 	// (launching from, or moving into, a sibling worktree) keeps working.
-	// The recorded session working dir deliberately does NOT participate
-	// here: mixing it in froze the cwd and broke worktree support.
+	// The recorded session working dir only participates when the turn
+	// carries NO client cwd at all: that is the swarm/API-driven case (a
+	// `swarm new` worker pinned to a sibling worktree, or a queued swarm
+	// send to it), where nothing else identifies which tree the session
+	// belongs to. Interactive clients always carry a cwd, so letting the
+	// recorded dir win over a live cwd (which froze the cwd and broke
+	// worktree support) cannot recur.
 	if c.worktrees != nil && c.worktrees.IsEnabled() {
 		if sessionID != "" {
 			if wt, err := c.worktrees.GetActive(ctx, sessionID); err == nil && wt != nil && wt.Path != "" {
 				return wt.Path
+			}
+		}
+		if requestCwd == "" {
+			if dir := c.sessionWorkingDir(ctx, sessionID); dir != "" {
+				return dir
 			}
 		}
 		return root
@@ -440,13 +465,24 @@ func (c *coordinator) workingDir(ctx context.Context) string {
 	// Non-worktree workspace: the recorded session working directory is the
 	// per-session persistence, so a session resumed from a different client
 	// (with a different launch cwd) still runs its tools where it began.
-	if sessionID != "" && c.sessions != nil {
-		if sess, err := c.sessions.Get(ctx, sessionID); err == nil && sess.WorkingDir != "" {
-			return sess.WorkingDir
-		}
+	if dir := c.sessionWorkingDir(ctx, sessionID); dir != "" {
+		return dir
 	}
 
 	return root
+}
+
+// sessionWorkingDir returns the session's recorded working dir, or ""
+// when there is no session, no session service, or nothing recorded.
+func (c *coordinator) sessionWorkingDir(ctx context.Context, sessionID string) string {
+	if sessionID == "" || c.sessions == nil {
+		return ""
+	}
+	sess, err := c.sessions.Get(ctx, sessionID)
+	if err != nil {
+		return ""
+	}
+	return sess.WorkingDir
 }
 
 // stampSessionWorkingDir records the session's working directory the first
@@ -584,6 +620,10 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	// first user message on this dispatch carries them. Subsequent
 	// goal-driven continuations run as ordinary text turns.
 	currentSwarmParts := SwarmPartsFromContext(ctx)
+	// Record any reply the incoming swarm message demands before the
+	// turn starts, so the end-of-turn check below sees it even if the
+	// agent never calls the swarm tool.
+	c.registerReplyObligations(sessionID, currentSwarmParts)
 
 	runOnce := func() (*fantasy.AgentResult, error) {
 		run := func() (*fantasy.AgentResult, error) {
@@ -636,6 +676,10 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	for {
 		result, originalErr = runOnce()
 		if originalErr != nil || ctx.Err() != nil {
+			// A turn that died with an error still owes its spawner an
+			// answer; tell them what went wrong rather than leaving them
+			// waiting on a session that will never reply.
+			c.failReplyObligations(sessionID, originalErr)
 			break
 		}
 		// A nil result means no turn actually executed here: either
@@ -650,6 +694,17 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		// so breaking is correct in both.
 		if result == nil {
 			break
+		}
+		// Reply obligations take precedence over the goal: a worker that
+		// owes its spawner an answer is nudged to send it before the
+		// goal evaluator gets a say, so the parent is never left
+		// waiting on a session that has already gone idle.
+		if contPrompt, ok := c.advanceReplyObligations(ctx, sessionID, result); ok {
+			currentPrompt = contPrompt
+			currentAttachments = nil
+			currentAccept = nil
+			currentSwarmParts = nil
+			continue
 		}
 		cont, contPrompt := c.currentAgent.AdvanceGoal(ctx, sessionID)
 		if !cont {
@@ -1078,7 +1133,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 			swarmConfigFn = swarm.Default
 		}
 		allTools = append(allTools, tools.NewSwarmTool(
-			swarmBackend, c.sessions, swarmConfigFn, swarmWorkspaceID,
+			swarmBackend, c.sessions, swarmConfigFn, swarmWorkspaceID, c.swarmReplies,
 		))
 		allTools = append(allTools, tools.NewWorkspaceLookupTool(swarmBackend))
 		allTools = append(allTools, tools.NewRenameSessionTool(swarmBackend))
@@ -1760,6 +1815,10 @@ func (c *coordinator) IsBusy() bool {
 
 func (c *coordinator) IsSessionBusy(sessionID string) bool {
 	return c.currentAgent.IsSessionBusy(sessionID)
+}
+
+func (c *coordinator) IsSessionBusyOrAccepted(sessionID string) bool {
+	return c.currentAgent.IsSessionBusyOrAccepted(sessionID)
 }
 
 func (c *coordinator) Model() Model {

@@ -44,8 +44,9 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 - **Real git worktrees.** Run parallel branches of work in isolated
   directories with per-session working dirs, plus merge/rebase support and
   post-create hooks (`bun i`, `go mod download`, …).
-- **Conversation forking.** Fork a session from any message, optionally
-  into its own worktree.
+- **Conversation forking.** `/fork` forks the open session at its latest
+  message (or pick an earlier one from the completion list), optionally
+  into its own worktree; `shift+F` on a focused user message does the same.
 
 ### Context Management
 
@@ -99,7 +100,11 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 - **Milestones**: auto-generated progress markers across a session.
 - **Procedures** injected into the system prompt for reusable workflows.
 - **Parallel adversarial review** agents for a write → review → fix loop.
-- Ephemeral **sysadmin mode** toggle to bypass the command filter.
+- **Swarm**: sessions message each other by `color-animal` address across
+  workspaces, spawn workers pinned to a sibling worktree, and record who
+  spawned whom so the sidebar nests workers under their orchestrator.
+- Ephemeral **sysadmin mode** toggle to bypass the command filter, or
+  `permissions.sysadmin: true` to start with it on.
 - Bundled **ripgrep** enforcement for fast content search.
 - Message queueing and deferred model/context changes while the agent is
   busy.
@@ -417,6 +422,39 @@ open against it. When the last stream disconnects, the workspace is torn
 down. There is a short grace window right after `POST /v1/workspaces` so a
 client that has created the workspace but not yet opened its event stream
 does not get reaped before it can attach.
+
+### Swarm
+
+Every session has a `color-animal` address derived from its id (for example
+`aliceblue-tiger`). The `swarm` tool sends a message to any session on the
+backend by address, or creates a new one with `address: "new"`:
+
+```jsonc
+{ "address": "new", "path": "/repo/.worktrees/feat-x", "prompt": "..." }
+```
+
+- `path` brings the workspace for that directory up if needed. Because
+  linked git worktrees collapse to one workspace, the new session's
+  **working directory is pinned to `path`** (override with `working_dir`,
+  which must be inside the same project), so its tools run in that
+  worktree rather than in whichever tree attached first.
+- `model` picks the worker's model (role name, `provider/model`, or id),
+  resolved in the target workspace's config on every turn.
+- `require_reply: true` makes the worker owe you a reply before its turn
+  can end: it is told up front (a `[reply required: ...]` trailer on the
+  delivered message), nudged with a continuation turn if it tries to stop
+  without messaging you back (up to twice), and as a last resort its final
+  message (or the error that killed its turn) is forwarded to you,
+  prefixed `[auto-forwarded: ...]`. Works with any address, not just `new`.
+- The spawned session records the sender as `spawned_by_session_id` /
+  `spawned_by_workspace_id`. This is lineage only: workers stay in the
+  session list and remain addressable. The sidebar nests a worker under its
+  spawner and the session picker shows `by <color-animal>`; the fields are
+  also on `GET /v1/workspaces/{id}/sessions` and `session` SSE events for
+  external UIs.
+- The tool result carries structured metadata (`workspace_id`,
+  `session_id`, `address`, `working_dir`, `delivery`, `created`,
+  `reply_required`, `fulfilled_reply`) in addition to the prose.
 
 ### Ignoring Files
 

@@ -43,6 +43,13 @@ type Attachments struct {
 func (m *Attachments) List() []message.Attachment { return m.list }
 func (m *Attachments) Reset()                     { m.list = nil }
 
+// Set replaces the attachment list wholesale (used to restore a stashed
+// prompt).
+func (m *Attachments) Set(list []message.Attachment) {
+	m.list = list
+	m.deleting = false
+}
+
 // HandleMouseClick handles a click at display column x (relative to the
 // start of the rendered attachment row) within a row rendered at the
 // given width. It removes the attachment chip under the click, if any,

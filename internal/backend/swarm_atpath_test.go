@@ -57,7 +57,7 @@ func TestCreateSwarmSessionAtPath_ReuseExisting(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), wd, "hello", "")
+	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), wd, backend.SwarmSpawnOptions{Title: "hello"})
 	require.NoError(t, err)
 	require.Equal(t, ws.ID, gotID, "must reuse the already-running workspace")
 	require.NotEmpty(t, sess.ID)
@@ -82,7 +82,7 @@ func TestCreateSwarmSessionAtPath_CreateNew(t *testing.T) {
 	target := t.TempDir()
 	writeSwarmProject(t, target)
 
-	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, "hello", "")
+	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, backend.SwarmSpawnOptions{Title: "hello"})
 	require.NoError(t, err)
 	require.NotEmpty(t, gotID, "must bring up a new workspace")
 	require.NotEmpty(t, sess.ID)
@@ -129,7 +129,7 @@ func TestLookupSwarmAddress_ReattachesTornDownWorkspace(t *testing.T) {
 	target := t.TempDir()
 	writeSwarmProject(t, target)
 
-	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, "hello", "")
+	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, backend.SwarmSpawnOptions{Title: "hello"})
 	require.NoError(t, err)
 	require.NotEmpty(t, gotID)
 

@@ -86,13 +86,21 @@ type (
 	ActionSessionImportComplete struct {
 		Results []sessionimport.Result
 	}
-	ActionToggleHelp              struct{}
-	ActionToggleCompactMode       struct{}
-	ActionToggleThinking          struct{}
-	ActionTogglePills             struct{}
-	ActionExternalEditor          struct{}
-	ActionToggleYoloMode          struct{}
-	ActionToggleSysadminMode      struct{}
+	ActionToggleHelp         struct{}
+	ActionToggleCompactMode  struct{}
+	ActionToggleThinking     struct{}
+	ActionTogglePills        struct{}
+	ActionExternalEditor     struct{}
+	ActionToggleYoloMode     struct{}
+	ActionToggleSysadminMode struct{}
+	// ActionToggleSessionsSidebarPin pins/unpins the left session
+	// navigator so it survives session switches.
+	ActionToggleSessionsSidebarPin struct{}
+	// ActionToggleStash stashes/restores the drafted prompt.
+	ActionToggleStash struct{}
+	// ActionForkLatest opens the fork dialog at the open session's most
+	// recent user message.
+	ActionForkLatest              struct{}
 	ActionToggleNotifications     struct{}
 	ActionSelectNotificationStyle struct {
 		Style string

@@ -53,13 +53,13 @@ func TestCreateSwarmSession_ModelRef(t *testing.T) {
 	require.NoError(t, err)
 
 	// Default: no ref -> worker runs large (unchanged behavior).
-	plain, err := b.CreateSwarmSession(t.Context(), ws.ID, "worker", "")
+	plain, err := b.CreateSwarmSession(t.Context(), ws.ID, backend.SwarmSpawnOptions{Title: "worker"})
 	require.NoError(t, err)
 	require.Empty(t, plain.ModelRef)
 	require.NotEmpty(t, plain.Color)
 
 	// A role name is stored verbatim and survives a round trip.
-	scout, err := b.CreateSwarmSession(t.Context(), ws.ID, "worker", "scout")
+	scout, err := b.CreateSwarmSession(t.Context(), ws.ID, backend.SwarmSpawnOptions{Title: "worker", ModelRef: "scout"})
 	require.NoError(t, err)
 	require.Equal(t, "scout", scout.ModelRef)
 	got, err := ws.Sessions.Get(t.Context(), scout.ID)
@@ -67,7 +67,7 @@ func TestCreateSwarmSession_ModelRef(t *testing.T) {
 	require.Equal(t, "scout", got.ModelRef)
 
 	// provider/model form is accepted too.
-	qualified, err := b.CreateSwarmSession(t.Context(), ws.ID, "worker", "dp/tiny")
+	qualified, err := b.CreateSwarmSession(t.Context(), ws.ID, backend.SwarmSpawnOptions{Title: "worker", ModelRef: "dp/tiny"})
 	require.NoError(t, err)
 	require.Equal(t, "dp/tiny", qualified.ModelRef)
 
@@ -75,7 +75,7 @@ func TestCreateSwarmSession_ModelRef(t *testing.T) {
 	// no orphan session, with the typed error the HTTP layer maps to 400.
 	before, err := ws.Sessions.List(t.Context())
 	require.NoError(t, err)
-	_, err = b.CreateSwarmSession(t.Context(), ws.ID, "bad", "ghost")
+	_, err = b.CreateSwarmSession(t.Context(), ws.ID, backend.SwarmSpawnOptions{Title: "bad", ModelRef: "ghost"})
 	require.ErrorIs(t, err, backend.ErrInvalidSessionModel)
 	after, err := ws.Sessions.List(t.Context())
 	require.NoError(t, err)

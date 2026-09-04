@@ -33,6 +33,8 @@ INSERT INTO sessions (
     summary_message_id,
     working_dir,
     model_ref,
+    spawned_by_session_id,
+    spawned_by_workspace_id,
     updated_at,
     created_at
 ) VALUES (
@@ -46,21 +48,25 @@ INSERT INTO sessions (
     null,
     ?,
     ?9,
+    ?10,
+    ?11,
     strftime('%s', 'now'),
     strftime('%s', 'now')
-) RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+) RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, spawned_by_session_id, spawned_by_workspace_id
 `
 
 type CreateSessionParams struct {
-	ID               string         `json:"id"`
-	ParentSessionID  sql.NullString `json:"parent_session_id"`
-	Title            string         `json:"title"`
-	MessageCount     int64          `json:"message_count"`
-	PromptTokens     int64          `json:"prompt_tokens"`
-	CompletionTokens int64          `json:"completion_tokens"`
-	Cost             float64        `json:"cost"`
-	WorkingDir       sql.NullString `json:"working_dir"`
-	ModelRef         sql.NullString `json:"model_ref"`
+	ID                   string         `json:"id"`
+	ParentSessionID      sql.NullString `json:"parent_session_id"`
+	Title                string         `json:"title"`
+	MessageCount         int64          `json:"message_count"`
+	PromptTokens         int64          `json:"prompt_tokens"`
+	CompletionTokens     int64          `json:"completion_tokens"`
+	Cost                 float64        `json:"cost"`
+	WorkingDir           sql.NullString `json:"working_dir"`
+	ModelRef             sql.NullString `json:"model_ref"`
+	SpawnedBySessionID   sql.NullString `json:"spawned_by_session_id"`
+	SpawnedByWorkspaceID sql.NullString `json:"spawned_by_workspace_id"`
 }
 
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
@@ -74,6 +80,8 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		arg.Cost,
 		arg.WorkingDir,
 		arg.ModelRef,
+		arg.SpawnedBySessionID,
+		arg.SpawnedByWorkspaceID,
 	)
 	var i Session
 	err := row.Scan(
@@ -98,6 +106,8 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.Animal,
 		&i.Favorite,
 		&i.ModelRef,
+		&i.SpawnedBySessionID,
+		&i.SpawnedByWorkspaceID,
 	)
 	return i, err
 }
@@ -113,7 +123,7 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 }
 
 const findSessionsByColorAnimal = `-- name: FindSessionsByColorAnimal :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, spawned_by_session_id, spawned_by_workspace_id
 FROM sessions
 WHERE color = ? AND animal = ? AND archived_at IS NULL
 `
@@ -154,6 +164,8 @@ func (q *Queries) FindSessionsByColorAnimal(ctx context.Context, arg FindSession
 			&i.Animal,
 			&i.Favorite,
 			&i.ModelRef,
+			&i.SpawnedBySessionID,
+			&i.SpawnedByWorkspaceID,
 		); err != nil {
 			return nil, err
 		}
@@ -169,7 +181,7 @@ func (q *Queries) FindSessionsByColorAnimal(ctx context.Context, arg FindSession
 }
 
 const getLastSession = `-- name: GetLastSession :one
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, spawned_by_session_id, spawned_by_workspace_id
 FROM sessions
 ORDER BY updated_at DESC
 LIMIT 1
@@ -200,12 +212,14 @@ func (q *Queries) GetLastSession(ctx context.Context) (Session, error) {
 		&i.Animal,
 		&i.Favorite,
 		&i.ModelRef,
+		&i.SpawnedBySessionID,
+		&i.SpawnedByWorkspaceID,
 	)
 	return i, err
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, spawned_by_session_id, spawned_by_workspace_id
 FROM sessions
 WHERE id = ? LIMIT 1
 `
@@ -235,12 +249,14 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Session, error
 		&i.Animal,
 		&i.Favorite,
 		&i.ModelRef,
+		&i.SpawnedBySessionID,
+		&i.SpawnedByWorkspaceID,
 	)
 	return i, err
 }
 
 const listArchivedSessions = `-- name: ListArchivedSessions :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, spawned_by_session_id, spawned_by_workspace_id
 FROM sessions
 WHERE parent_session_id is NULL
   AND archived_at IS NOT NULL
@@ -278,6 +294,8 @@ func (q *Queries) ListArchivedSessions(ctx context.Context) ([]Session, error) {
 			&i.Animal,
 			&i.Favorite,
 			&i.ModelRef,
+			&i.SpawnedBySessionID,
+			&i.SpawnedByWorkspaceID,
 		); err != nil {
 			return nil, err
 		}
@@ -293,7 +311,7 @@ func (q *Queries) ListArchivedSessions(ctx context.Context) ([]Session, error) {
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, spawned_by_session_id, spawned_by_workspace_id
 FROM sessions
 WHERE parent_session_id is NULL
   AND archived_at IS NULL
@@ -331,6 +349,8 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.Animal,
 			&i.Favorite,
 			&i.ModelRef,
+			&i.SpawnedBySessionID,
+			&i.SpawnedByWorkspaceID,
 		); err != nil {
 			return nil, err
 		}
@@ -429,6 +449,27 @@ func (q *Queries) SetSessionFavorite(ctx context.Context, arg SetSessionFavorite
 	return err
 }
 
+const setSessionSpawnedBy = `-- name: SetSessionSpawnedBy :exec
+UPDATE sessions
+SET spawned_by_session_id = ?,
+    spawned_by_workspace_id = ?
+WHERE id = ?
+`
+
+type SetSessionSpawnedByParams struct {
+	SpawnedBySessionID   sql.NullString `json:"spawned_by_session_id"`
+	SpawnedByWorkspaceID sql.NullString `json:"spawned_by_workspace_id"`
+	ID                   string         `json:"id"`
+}
+
+// Records which session (and workspace) created this one via the swarm
+// tool. Lineage is informational: it never affects visibility or
+// addressability the way parent_session_id does.
+func (q *Queries) SetSessionSpawnedBy(ctx context.Context, arg SetSessionSpawnedByParams) error {
+	_, err := q.exec(ctx, q.setSessionSpawnedByStmt, setSessionSpawnedBy, arg.SpawnedBySessionID, arg.SpawnedByWorkspaceID, arg.ID)
+	return err
+}
+
 const setSessionSwarmIdentity = `-- name: SetSessionSwarmIdentity :execrows
 UPDATE sessions
 SET color = ?,
@@ -496,7 +537,7 @@ SET
     cost = ?,
     todos = ?
 WHERE id = ?
-RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, spawned_by_session_id, spawned_by_workspace_id
 `
 
 type UpdateSessionParams struct {
@@ -542,6 +583,8 @@ func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) (S
 		&i.Animal,
 		&i.Favorite,
 		&i.ModelRef,
+		&i.SpawnedBySessionID,
+		&i.SpawnedByWorkspaceID,
 	)
 	return i, err
 }

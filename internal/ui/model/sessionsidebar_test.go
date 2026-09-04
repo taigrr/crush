@@ -1755,3 +1755,103 @@ func TestSidebar_SectionNavigationInbox(t *testing.T) {
 	s.MovePrevSection()
 	require.Equal(t, start, s.cursor, "prev jumps to current section start first")
 }
+
+// TestSidebar_ExpandOverflowInPlace verifies enter on the "…N more" row
+// reveals every session of that workspace, the row becomes "show less",
+// the cursor stays on it, and toggling again collapses back to the cap.
+func TestSidebar_ExpandOverflowInPlace(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		manySessions("/proj/a", 20),
+		manySessions("/proj/b", 20),
+	})
+	s.Render(30, 22, true)
+
+	// Walk to the first overflow row (workspace a).
+	for {
+		if root, ok := s.SelectedOverflowWorkspace(); ok {
+			require.Equal(t, "/proj/a", root)
+			break
+		}
+		before := s.cursor
+		s.MoveDown()
+		require.NotEqual(t, before, s.cursor, "never found an overflow row")
+	}
+	require.Equal(t, 20-s.rows[s.cursor].remaining, countSessionRows(s, 0), "capped before expand")
+
+	require.True(t, s.ToggleOverflowUnderCursor())
+	require.Equal(t, 20, countSessionRows(s, 0), "expanded workspace shows every session")
+	require.Equal(t, sidebarRowOverflow, s.rows[s.cursor].kind, "cursor stays on the toggle row")
+	require.Zero(t, s.rows[s.cursor].remaining, "toggle row is now a collapse row")
+	require.Contains(t, s.Render(30, 22, true), "show less")
+	require.Less(t, countSessionRows(s, 1), 20, "sibling workspace stays capped")
+
+	require.True(t, s.ToggleOverflowUnderCursor())
+	require.Less(t, countSessionRows(s, 0), 20, "collapsed back to the cap")
+	require.Positive(t, s.rows[s.cursor].remaining)
+
+	// A refresh keeps the expansion (keyed by root, not row index).
+	require.True(t, s.ToggleOverflowUnderCursor())
+	s.SetOverviews([]proto.WorkspaceOverview{
+		manySessions("/proj/a", 20),
+		manySessions("/proj/b", 20),
+	})
+	require.Equal(t, 20, countSessionRows(s, 0))
+
+	// Not on an overflow row: no-op.
+	s.cursor = 0
+	s.snapCursorToSession(1)
+	require.False(t, s.ToggleOverflowUnderCursor())
+}
+
+// countSessionRows counts session rows projected for workspace wi.
+func countSessionRows(s *SessionsSidebar, wi int) int {
+	n := 0
+	for _, r := range s.rows {
+		if r.kind == sidebarRowSession && r.wsIdx == wi {
+			n++
+		}
+	}
+	return n
+}
+
+// TestSidebar_WheelScrollsWithoutFocus verifies a mouse wheel over the
+// navigator scrolls its viewport even when the sidebar is not focused,
+// keeps the cursor on a visible row, and that the scroll survives Render.
+func TestSidebar_WheelScrollsWithoutFocus(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{manySessions("/proj/a", 20)})
+	rect := image.Rect(0, 0, 30, 20) // body = 15 rows
+	s.Render(rect.Dx(), rect.Dy(), false)
+	// Expand so there are more rows than fit (header + 20 + toggle = 22).
+	s.MoveBottom()
+	require.True(t, s.ToggleOverflowUnderCursor())
+	s.cursor = 0
+	s.snapCursorToSession(1)
+	s.scroll = 0
+	s.Render(rect.Dx(), rect.Dy(), false)
+	require.Greater(t, len(s.rows), 15)
+
+	m := &UI{keyMap: DefaultKeyMap(), leftSidebar: s, leftSidebarVisible: true, focus: uiFocusEditor}
+	m.layout.leftSidebar = rect
+
+	require.False(t, m.handleLeftSidebarWheel(tea.MouseWheelMsg{X: 100, Y: 5, Button: tea.MouseWheelDown}), "outside the rect")
+	require.True(t, m.handleLeftSidebarWheel(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelDown}))
+	require.Equal(t, MouseScrollThreshold, s.scroll)
+	s.Render(rect.Dx(), rect.Dy(), false)
+	require.Equal(t, MouseScrollThreshold, s.scroll, "render must not undo the wheel scroll")
+	require.GreaterOrEqual(t, s.cursor, s.scroll, "cursor pulled into the viewport")
+	require.Equal(t, uiFocusEditor, m.focus, "wheel does not steal focus")
+
+	// Scrolling past the end clamps; scrolling back up clamps at zero.
+	for range 10 {
+		m.handleLeftSidebarWheel(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelDown})
+	}
+	require.Equal(t, len(s.rows)-15, s.scroll)
+	for range 10 {
+		m.handleLeftSidebarWheel(tea.MouseWheelMsg{X: 5, Y: 5, Button: tea.MouseWheelUp})
+	}
+	require.Zero(t, s.scroll)
+}

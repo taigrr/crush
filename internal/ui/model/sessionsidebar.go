@@ -24,8 +24,9 @@ const (
 	sidebarRowWorkspace sidebarRowKind = iota
 	sidebarRowSession
 	// sidebarRowOverflow is the "…N more" row shown when a workspace has
-	// more sessions than its per-workspace display cap. Selecting it opens
-	// the full session picker for that workspace.
+	// more sessions than its per-workspace display cap. Selecting it
+	// expands the workspace in place; once expanded the same row reads
+	// "show less" (remaining == 0) and collapses it again.
 	sidebarRowOverflow
 	// sidebarRowSection is a non-selectable status-section header used only
 	// in inbox mode (e.g. "Running", "Unread", "Read"). Like workspace
@@ -45,9 +46,14 @@ type sidebarRow struct {
 	// session index within that workspace (only for session rows).
 	sessIdx int
 	// remaining is the count of hidden sessions (only for overflow rows).
+	// Zero on the collapse row of an expanded workspace.
 	remaining int
 	// label is the header text for section rows (inbox mode only).
 	label string
+	// depth is the nesting level of a session row: 0 for a top-level
+	// session, 1 for a swarm-spawned session rendered directly under its
+	// spawner (see nestSpawned).
+	depth int
 }
 
 // sidebarViewMode selects how the sidebar projects its sessions.
@@ -107,6 +113,12 @@ type SessionsSidebar struct {
 	// the screen.
 	bodyHeight int
 
+	// expanded holds the roots of workspaces the user expanded past their
+	// cap (enter on the "…N more" row). Keyed by root so it survives
+	// overview refreshes and re-sorts; cleared per workspace by the "show
+	// less" row. Ignored in inbox mode, which never caps.
+	expanded map[string]bool
+
 	// activeSessionID is the session currently open in the main pane, shown
 	// with a marker.
 	activeSessionID string
@@ -154,6 +166,11 @@ type SessionsSidebar struct {
 // indicators.
 func (s *SessionsSidebar) SetPendingSessions(ids map[string]bool) {
 	s.pendingSessions = ids
+	// Pending outranks busy in both projections, so reproject the rows
+	// (keeping the cursor) rather than waiting for the next refresh.
+	prevID := s.selectedSessionID()
+	s.rebuildRows()
+	s.restoreCursor(prevID)
 }
 
 // HasPending reports whether the given session has an unresolved
@@ -488,8 +505,17 @@ func (s *SessionsSidebar) rebuildInboxRows() {
 			return
 		}
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowSection, label: label})
-		for _, r := range refs {
-			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: r.wi, sessIdx: r.si})
+		// Nest spawned workers under their spawner when both landed in
+		// this section; a worker whose spawner is elsewhere stays flat.
+		ids := make([]string, len(refs))
+		spawners := make([]string, len(refs))
+		for i, r := range refs {
+			sess := s.overviews[r.wi].Sessions[r.si]
+			ids[i], spawners[i] = sess.ID, sess.SpawnedBySessionID
+		}
+		for _, n := range nestSpawned(ids, spawners) {
+			r := refs[n.idx]
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: r.wi, sessIdx: r.si, depth: n.depth})
 		}
 	}
 	emit("Blocked", blocked)
@@ -542,18 +568,59 @@ func (s *SessionsSidebar) rebuildGroupedRows() {
 		}
 		emittedGroups++
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowWorkspace, wsIdx: wi})
-		shown := min(len(idxs), caps[wi])
-		for _, si := range idxs[:shown] {
-			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: si})
+		// An expanded workspace ignores its cap; it still gets the toggle
+		// row (as "show less") so it can be collapsed again.
+		limit := caps[wi]
+		expanded := s.expanded[s.overviews[wi].Root] && limit < len(idxs)
+		if expanded {
+			limit = len(idxs)
 		}
-		if remaining := len(idxs) - shown; remaining > 0 {
+		// Nest spawned workers under their spawner, bubble the most
+		// urgent subtree to the top, and apply the cap without hiding
+		// pending/busy sessions (see groupedRows).
+		shown := s.groupedRows(wi, idxs, limit)
+		for _, n := range shown {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: idxs[n.idx], depth: n.depth})
+		}
+		if remaining := len(idxs) - len(shown); remaining > 0 || expanded {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowOverflow, wsIdx: wi, remaining: remaining})
 		}
 	}
 }
 
+// ToggleOverflowUnderCursor expands or collapses the workspace whose
+// "…N more" / "show less" row is under the cursor and reports whether the
+// cursor was on such a row. After the rebuild the cursor rests on that
+// workspace's toggle row again, so enter twice is a no-op round trip.
+func (s *SessionsSidebar) ToggleOverflowUnderCursor() bool {
+	if s.cursor < 0 || s.cursor >= len(s.rows) || s.rows[s.cursor].kind != sidebarRowOverflow {
+		return false
+	}
+	wi := s.rows[s.cursor].wsIdx
+	root := s.overviews[wi].Root
+	if s.expanded == nil {
+		s.expanded = map[string]bool{}
+	}
+	if s.expanded[root] {
+		delete(s.expanded, root)
+	} else {
+		s.expanded[root] = true
+	}
+	s.rebuildRows()
+	for i, r := range s.rows {
+		if r.kind == sidebarRowOverflow && r.wsIdx == wi {
+			s.cursor = i
+			break
+		}
+	}
+	s.ensureVisible()
+	return true
+}
+
 // computeCaps returns the per-workspace session display cap. Sessions are
 // pre-sorted (busy, unread, recent) so a cap keeps the most relevant ones.
+// The cap is a soft budget: groupedRows always shows pending/busy sessions
+// (and the spawners they nest under) even when they exceed it.
 //
 // Rules:
 //   - If every workspace's header + all its sessions fit in the body, show
@@ -1154,12 +1221,33 @@ func (s *SessionsSidebar) FavoriteTargetUnderCursor() (target SessionTarget, fav
 	return SessionTarget{WorkspaceID: ws.WorkspaceID, Root: ws.Root, ID: sess.ID}, sess.Favorite, true
 }
 
-// visibleRows is how many rows fit in the given height.
+// ensureVisible keeps scroll sane relative to the cursor; the lower bound
+// is corrected against the viewport height at render time.
 func (s *SessionsSidebar) ensureVisible() {
-	// scroll is corrected against the viewport height at render time; here
-	// we just keep it sane relative to the cursor.
 	if s.cursor < s.scroll {
 		s.scroll = s.cursor
+	}
+}
+
+// ScrollBy moves the row viewport by delta rows (positive scrolls down)
+// for mouse-wheel scrolling, using the body height recorded by the last
+// Render. Because Render always keeps the cursor on screen, a cursor that
+// would leave the viewport is pulled onto the nearest selectable row
+// inside it, so wheel scrolling is never silently undone.
+func (s *SessionsSidebar) ScrollBy(delta int) {
+	h := s.bodyHeight
+	if h <= 0 || len(s.rows) == 0 {
+		return
+	}
+	maxScroll := max(0, len(s.rows)-h)
+	s.scroll = min(max(0, s.scroll+delta), maxScroll)
+	switch {
+	case s.cursor < s.scroll:
+		s.cursor = s.scroll
+		s.snapCursorToSession(1)
+	case s.cursor >= s.scroll+h:
+		s.cursor = s.scroll + h - 1
+		s.snapCursorToSession(-1)
 	}
 }
 
@@ -1349,7 +1437,7 @@ func (s *SessionsSidebar) renderRows(width int, focused bool) []string {
 			if s.mode == sidebarModeInbox {
 				tag = filepath.Base(ws.Root)
 			}
-			out = append(out, s.renderSessionRow(t, sess, width, selected, focused, s.selected[sess.ID], tag))
+			out = append(out, s.renderSessionRow(t, sess, width, selected, focused, s.selected[sess.ID], tag, r.depth))
 		case sidebarRowOverflow:
 			out = append(out, s.renderOverflowRow(t, r.remaining, width, selected, focused))
 		}
@@ -1357,15 +1445,19 @@ func (s *SessionsSidebar) renderRows(width int, focused bool) []string {
 	return out
 }
 
-// renderOverflowRow renders the "…N more" row that opens the workspace's
-// full session picker when selected. It aligns under the session titles
-// (a 5-cell prefix: bar + space + active + marker + space).
+// renderOverflowRow renders the "…N more" row that expands the workspace
+// in place when selected, or "show less" for an expanded one. It aligns
+// under the session titles (a 5-cell prefix: bar + space + active + marker
+// + space).
 func (s *SessionsSidebar) renderOverflowRow(t *styles.Styles, remaining, width int, selected, focused bool) string {
 	bar := " "
 	if selected {
 		bar = styles.BorderThick
 	}
-	label := fmt.Sprintf("… %d more", remaining)
+	label := "… show less"
+	if remaining > 0 {
+		label = fmt.Sprintf("… %d more", remaining)
+	}
 	prefix := bar + "    " // bar + 4 spaces = 5-cell prefix
 	avail := max(1, width-ansi.StringWidth(prefix))
 	label = ansi.Truncate(label, avail, "…")
@@ -1383,7 +1475,7 @@ func (s *SessionsSidebar) renderWorkspaceRow(t *styles.Styles, ws proto.Workspac
 	return common.Section(t, name, width)
 }
 
-func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, focused, marked bool, tag string) string {
+func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, focused, marked bool, tag string, depth int) string {
 	// Status glyph: pending-prompt dot (red), busy dot (yellow), unread
 	// dot (green), or blank. Pending outranks busy because a session
 	// blocked on a permission/question prompt is almost always ALSO busy
@@ -1437,9 +1529,14 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		squareCell = square
 	}
 
-	// Build the fixed-width prefix: bar + space + active + marker + square + space.
-	// Each glyph is a single cell.
-	prefixRaw := bar + " " + active + marker + squareCell + " "
+	// Build the fixed-width prefix: bar + space + active + marker + indent + square + space.
+	// Each glyph is a single cell. A nested (swarm-spawned) row is pushed
+	// right by a tree elbow so it reads as belonging to the row above.
+	indent := ""
+	if depth > 0 {
+		indent = strings.Repeat(" ", (depth-1)*2) + styles.TreeElbowIcon + " "
+	}
+	prefixRaw := bar + " " + active + marker + indent + squareCell + " "
 	prefixWidth := ansi.StringWidth(prefixRaw)
 
 	// Inbox mode appends a dim workspace tag suffix (basename of the
@@ -1468,11 +1565,20 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		return t.Dialog.SelectedItem.UnsetPadding().Width(width).Render(line)
 	}
 
+	// A running row must read as running when scanning a long list, so
+	// the title takes the status color too: pending (error) outranks busy
+	// (busy), matching the dot. Unread and idle keep the plain name style.
 	titleStyle := t.Resource.Name
+	switch {
+	case pending:
+		titleStyle = titleStyle.Foreground(t.Resource.ErrorIcon.GetForeground())
+	case sess.IsBusy:
+		titleStyle = titleStyle.Foreground(t.Resource.BusyIcon.GetForeground())
+	}
 	if marked {
 		titleStyle = titleStyle.Bold(true)
 	}
-	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + squareCell + " "
+	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + t.Resource.AdditionalText.Render(indent) + squareCell + " "
 	styledFav := ""
 	if favRaw != "" {
 		styledFav = t.Resource.Name.Render(favRaw)

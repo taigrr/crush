@@ -127,6 +127,10 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	if cfg.Permissions != nil && cfg.Permissions.AllowedTools != nil {
 		allowedTools = cfg.Permissions.AllowedTools
 	}
+	permissions := permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools)
+	if cfg.Permissions != nil && cfg.Permissions.Sysadmin {
+		permissions.SetSysadminMode(true)
+	}
 
 	// store.WorkingDir() is the project root (hosting .crush/).
 	// workingDir (the parameter) is the effective cwd for tools — for
@@ -178,7 +182,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		Sessions:    sessions,
 		Messages:    messages,
 		History:     files,
-		Permissions: permission.NewPermissionService(store.WorkingDir(), skipPermissionsRequests, allowedTools),
+		Permissions: permissions,
 		Questions:   question.NewQuestionService(),
 		FileTracker: filetracker.NewService(q),
 		Checkpoints: checkpoints,

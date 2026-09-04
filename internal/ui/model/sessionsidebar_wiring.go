@@ -16,6 +16,9 @@ import (
 
 const sessionsSidebarWidthKey = "options.tui.sessions_sidebar_width"
 
+// sessionsSidebarPinnedKey is the config path the pin toggle persists to.
+const sessionsSidebarPinnedKey = "options.tui.sessions_sidebar_pinned"
+
 // Left session navigator width bounds. The default matches the right info
 // sidebar for visual parity.
 const (
@@ -53,7 +56,21 @@ func (m *UI) loadWorkspaceOverviews() tea.Cmd {
 
 // toggleLeftSidebar shows/hides the left session navigator. Showing it also
 // focuses it and refreshes its data; hiding it returns focus to the editor.
+// When the navigator is pinned and already open, ctrl+s moves focus between
+// the navigator and the editor instead of collapsing it.
 func (m *UI) toggleLeftSidebar() tea.Cmd {
+	if m.leftSidebarVisible && m.leftSidebarPinned {
+		if m.focus == uiFocusLeftSidebar {
+			m.setFocusAfterSidebarClose()
+			return m.cancelPreview()
+		}
+		m.focus = uiFocusLeftSidebar
+		m.leftSidebar.SetCurrentRoot(m.com.Workspace.BaseDir())
+		if m.session != nil {
+			m.leftSidebar.SetActiveSession(m.session.ID)
+		}
+		return m.loadWorkspaceOverviews()
+	}
 	if m.leftSidebarVisible {
 		m.leftSidebarVisible = false
 		m.leftSidebar.ExitSearch()
@@ -73,6 +90,48 @@ func (m *UI) toggleLeftSidebar() tea.Cmd {
 	}
 	m.updateLayoutAndSize()
 	return m.loadWorkspaceOverviews()
+}
+
+// toggleLeftSidebarPin flips the navigator's pinned state and persists it
+// to the global config. Pinning a hidden navigator opens it without
+// stealing focus from the editor; unpinning leaves it open until the next
+// session switch or ctrl+s collapses it.
+func (m *UI) toggleLeftSidebarPin() tea.Cmd {
+	m.leftSidebarPinned = !m.leftSidebarPinned
+	var cmds []tea.Cmd
+	if m.leftSidebarPinned && !m.leftSidebarVisible {
+		m.leftSidebarVisible = true
+		m.leftSidebar.SetCurrentRoot(m.com.Workspace.BaseDir())
+		if m.session != nil {
+			m.leftSidebar.SetActiveSession(m.session.ID)
+		}
+		m.updateLayoutAndSize()
+		cmds = append(cmds, m.loadWorkspaceOverviews())
+	}
+	status := "unpinned"
+	if m.leftSidebarPinned {
+		status = "pinned"
+	}
+	cmds = append(cmds, util.ReportInfo("Sessions sidebar "+status))
+	pinned := m.leftSidebarPinned
+	cmds = append(cmds, func() tea.Msg {
+		if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, sessionsSidebarPinnedKey, pinned); err != nil {
+			return util.InfoMsg{Type: util.InfoTypeError, Msg: err.Error()}
+		}
+		return nil
+	})
+	return tea.Batch(cmds...)
+}
+
+// collapseLeftSidebarAfterActivate is what a session activation does to
+// the navigator: hide it, unless it is pinned, in which case it stays open
+// and only focus returns to the editor.
+func (m *UI) collapseLeftSidebarAfterActivate() {
+	if !m.leftSidebarPinned {
+		m.leftSidebarVisible = false
+	}
+	m.setFocusAfterSidebarClose()
+	m.updateLayoutAndSize()
 }
 
 // setFocusAfterSidebarClose restores a sensible focus when the sidebar
@@ -147,6 +206,8 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		// collides with the editor's "/" add-file binding.
 		m.leftSidebar.EnterSearch()
 		return m.scheduleSidebarPreview(), true
+	case key.Matches(msg, m.keyMap.SessionSidebar.Pin):
+		return m.toggleLeftSidebarPin(), true
 	}
 	switch msg.String() {
 	case "enter", "l":
@@ -158,12 +219,15 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case "esc", "h":
 		// Esc first exits visual selection / clears a pending multi-
 		// selection; only when there is nothing selected does it close
-		// the sidebar. "h" always closes.
+		// the sidebar. "h" always closes. A pinned sidebar is never
+		// closed here: both keys just hand focus back to the editor.
 		if msg.String() == "esc" && (m.leftSidebar.VisualMode() || m.leftSidebar.SelectionCount() > 0) {
 			m.leftSidebar.ClearSelection()
 			return nil, true
 		}
-		m.leftSidebarVisible = false
+		if !m.leftSidebarPinned {
+			m.leftSidebarVisible = false
+		}
 		m.setFocusAfterSidebarClose()
 		m.updateLayoutAndSize()
 		// Closing without committing discards any live preview and
@@ -478,18 +542,11 @@ func (m *UI) archiveCurrentSession() tea.Cmd {
 // otherwise the client re-targets that workspace first (leaving the old one
 // running on the server) and then loads the session.
 func (m *UI) activateLeftSidebarSelection() tea.Cmd {
-	// Overflow row ("…N more"): open the full session picker for that
-	// workspace instead of switching to a specific session.
-	if root, ok := m.leftSidebar.SelectedOverflowWorkspace(); ok {
-		m.leftSidebarVisible = false
-		m.setFocusAfterSidebarClose()
-		m.updateLayoutAndSize()
-		if m.isCurrentWorkspace(root) {
-			return m.openSessionsDialog()
-		}
-		// Attach/switch this client to the workspace first, then open its
-		// picker.
-		return m.switchWorkspaceThenPickSession(root)
+	// Overflow row ("…N more" / "show less"): expand or collapse that
+	// workspace in place. The sidebar stays open and focused so the user
+	// can keep navigating the now-visible sessions.
+	if m.leftSidebar.ToggleOverflowUnderCursor() {
+		return nil
 	}
 
 	root, sessionID, ok := m.leftSidebar.Selected()
@@ -497,10 +554,9 @@ func (m *UI) activateLeftSidebarSelection() tea.Cmd {
 		return nil
 	}
 
-	// Collapse the sidebar and return focus to the editor after switching.
-	m.leftSidebarVisible = false
-	m.setFocusAfterSidebarClose()
-	m.updateLayoutAndSize()
+	// Collapse the sidebar (unless pinned) and return focus to the editor
+	// after switching.
+	m.collapseLeftSidebarAfterActivate()
 
 	// Compare against THIS client's current workspace, not the server-side
 	// "attached" flag: the server can host several workspaces (background
@@ -521,17 +577,6 @@ func (m *UI) isCurrentWorkspace(root string) bool {
 	return root != "" && root == m.com.Workspace.BaseDir()
 }
 
-// switchWorkspaceThenPickSession re-targets the client at root and then
-// opens the session picker for the now-attached workspace.
-func (m *UI) switchWorkspaceThenPickSession(root string) tea.Cmd {
-	return func() tea.Msg {
-		if err := m.com.Workspace.SwitchWorkspace(context.Background(), root); err != nil {
-			return util.InfoMsg{Type: util.InfoTypeError, Msg: err.Error()}
-		}
-		return workspaceSwitchedMsg{openPicker: true, yolo: m.com.Workspace.PermissionSkipRequests()}
-	}
-}
-
 // switchWorkspaceAndLoad re-targets the client at the workspace rooted at
 // root, then loads the session. The attach happens off the Update goroutine.
 func (m *UI) switchWorkspaceAndLoad(root, sessionID string) tea.Cmd {
@@ -544,16 +589,13 @@ func (m *UI) switchWorkspaceAndLoad(root, sessionID string) tea.Cmd {
 }
 
 // workspaceSwitchedMsg is emitted after a successful cross-workspace switch
-// so the main loop can act on the Update goroutine: load a specific
-// session, or open the session picker for the newly attached workspace.
-// yolo is the newly-attached workspace's own permission skip-requests
+// so the main loop can load the session on the Update goroutine. yolo is the newly-attached workspace's own permission skip-requests
 // flag, fetched here (off the Update goroutine, alongside the switch
 // itself) so the Update handler can refresh the cached indicator without
 // an extra blocking round trip of its own.
 type workspaceSwitchedMsg struct {
-	sessionID  string
-	openPicker bool
-	yolo       bool
+	sessionID string
+	yolo      bool
 }
 
 // drawLeftSidebar renders the left session navigator into area.
@@ -603,6 +645,28 @@ func (m *UI) handleLeftSidebarClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 	// Header/overflow/fixed-matter click: consumed (cursor may have moved),
 	// but nothing to open.
 	return nil, true
+}
+
+// handleLeftSidebarWheel scrolls the session navigator when a mouse-wheel
+// event lands inside its rect and reports whether it consumed the event.
+// It does not require the sidebar to be focused.
+func (m *UI) handleLeftSidebarWheel(msg tea.MouseWheelMsg) bool {
+	if !m.leftSidebarVisible {
+		return false
+	}
+	area := m.layout.leftSidebar
+	if area.Dx() <= 0 || area.Dy() <= 0 || !image.Pt(msg.X, msg.Y).In(area) {
+		return false
+	}
+	switch msg.Button {
+	case tea.MouseWheelUp:
+		m.leftSidebar.ScrollBy(-MouseScrollThreshold)
+	case tea.MouseWheelDown:
+		m.leftSidebar.ScrollBy(MouseScrollThreshold)
+	default:
+		return false
+	}
+	return true
 }
 
 // resizeLeftSidebar widens (delta > 0) or narrows (delta < 0) the session
