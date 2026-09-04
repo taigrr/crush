@@ -62,6 +62,19 @@ type SessionAgentCall struct {
 	// ambiguous when concurrent turns share the same session.
 	RunID  string
 	Prompt string
+	// ResolveModel, when non-nil, returns the model this turn runs on
+	// instead of the agent's large model. The coordinator sets it for
+	// sub-agent runs from the tool's per-call `model` parameter or the
+	// configured `worker` role. It is a resolver rather than a built Model
+	// so the provider is rebuilt at Run time — after any OAuth/API-key
+	// refresh (which resets the coordinator's override cache), on each
+	// unauthorized retry, and when a queued turn is dispatched — instead
+	// of reusing a client built with expired credentials. The SELECTION it
+	// resolves is fixed at accept time so it always matches the tuning
+	// (max tokens, provider options) on this call. Nil means the agent's
+	// own model. A resolution error fails the turn rather than silently
+	// substituting another model.
+	ResolveModel func(context.Context) (*Model, error)
 	// SwarmParts, when non-empty, replaces the default single
 	// TextContent user-message part with these SwarmMessage parts
 	// (see message.SwarmMessage). Used by Backend.SwarmSend so the
@@ -126,7 +139,10 @@ type SessionAgent interface {
 	QueuedPrompts(sessionID string) int
 	QueuedPromptsList(sessionID string) []string
 	ClearQueue(sessionID string)
-	Summarize(context.Context, string, fantasy.ProviderOptions) error
+	// Summarize compacts the session's history. model, when non-nil, is
+	// the model the turn ran on (a per-call override); nil runs the
+	// agent's large model.
+	Summarize(context.Context, string, *Model, fantasy.ProviderOptions) error
 	RegenerateTitle(ctx context.Context, sessionID string) error
 	Model() Model
 
@@ -296,6 +312,23 @@ func (a *sessionAgent) SetSystemPrompt(systemPrompt string) {
 
 func (a *sessionAgent) Model() Model {
 	return a.largeModel.Get()
+}
+
+// turnModel returns the model a call runs on: its explicit override, or
+// the agent's own large model. Resolved per call, never at construction,
+// because the override is rebuilt through the coordinator's cache after a
+// credential refresh.
+func (a *sessionAgent) turnModel(ctx context.Context, call SessionAgentCall) (Model, error) {
+	if call.ResolveModel != nil {
+		m, err := call.ResolveModel(ctx)
+		if err != nil {
+			return Model{}, err
+		}
+		if m != nil && m.Model != nil {
+			return *m, nil
+		}
+	}
+	return a.largeModel.Get(), nil
 }
 
 // convertToToolResult converts a fantasy tool result to a message tool result.

@@ -26,6 +26,7 @@ import (
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/embedding"
 	"github.com/taigrr/crush/internal/filetracker"
 	"github.com/taigrr/crush/internal/history"
@@ -159,6 +160,14 @@ type coordinator struct {
 
 	currentAgent SessionAgent
 	agents       map[string]SessionAgent
+
+	// overrideCache memoizes models built for per-call `model` overrides
+	// (the agent/review tools) within one UpdateModels cycle. It is
+	// cleared on every UpdateModels, which runs before each top-level
+	// turn and after any credential refresh, so a stale provider is
+	// never served. Within a turn, N sub-agent calls naming the same
+	// model share one provider/LanguageModel. Keyed by overrideCacheKey.
+	overrideCache *csync.Map[string, Model]
 
 	// Skills discovery results (session-start snapshot).
 	allSkills    []*skills.Skill // Pre-filter: all discovered after dedup.
@@ -365,6 +374,7 @@ func NewCoordinator(
 		notify:              notify,
 		runComplete:         runComplete,
 		agents:              make(map[string]SessionAgent),
+		overrideCache:       csync.NewMap[string, Model](),
 		allSkills:           allSkills,
 		activeSkills:        activeSkills,
 		skillTracker:        skillTracker,
@@ -1160,6 +1170,120 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	return filteredTools, nil
 }
 
+// resolveModelRef adapts the config resolver for tools: it reads the
+// live config on every call so a reload that adds a role or provider is
+// honored without rebuilding tools.
+func (c *coordinator) resolveModelRef(ref string) (config.SelectedModel, error) {
+	return c.cfg.Config().ResolveModelRef(ref)
+}
+
+// optionalModelRef resolves an optional tool `model` parameter. Empty
+// means "no override" (nil, nil).
+func (c *coordinator) optionalModelRef(ref string) (*config.SelectedModel, error) {
+	if strings.TrimSpace(ref) == "" {
+		return nil, nil
+	}
+	sel, err := c.resolveModelRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	return &sel, nil
+}
+
+// delegationModel returns the selection a sub-agent runs on: the explicit
+// per-call override when given, else (when useWorker) the configured
+// `worker` role when it resolves, else nil (the agent's own model).
+func (c *coordinator) delegationModel(override *config.SelectedModel, useWorker bool) *config.SelectedModel {
+	if override != nil {
+		return override
+	}
+	if !useWorker {
+		return nil
+	}
+	if sel, ok := c.cfg.Config().WorkerModel(); ok {
+		return &sel
+	}
+	return nil
+}
+
+// overrideCacheKey identifies a built override [Model]. It covers every
+// input that changes how the provider or language model is constructed:
+// provider, model id, the sub-agent client variant, and whether the
+// selection requests anthropic interleaved-thinking (which buildProvider
+// bakes into a request header from either Think or ProviderOptions).
+// Per-call tuning (effort, temperature) is overlaid on the cached value.
+func (c *coordinator) overrideCacheKey(sel config.SelectedModel, isSubAgent bool) string {
+	return fmt.Sprintf("%s\x00%s\x00%t\x00%t", sel.Provider, sel.Model, c.isAnthropicThinking(sel), isSubAgent)
+}
+
+// buildModel constructs a runnable [Model] for an explicit selection made
+// by a tool's `model` parameter or the `worker` role. The selection's
+// provider must be enabled and must list the model. The catalog default
+// max tokens are backfilled when unset, exactly as applyModelOverrides
+// does for large/small at load time, so a role behaves like the same
+// selection would in the large slot. The workspace large/small models do
+// NOT go through here (see buildAgentModels).
+func (c *coordinator) buildModel(ctx context.Context, sel config.SelectedModel, isSubAgent bool) (Model, error) {
+	if sel.Provider == "" || sel.Model == "" {
+		return Model{}, fmt.Errorf("model selection requires both provider and model")
+	}
+	cfg := c.cfg.Config()
+	providerCfg, ok := cfg.Providers.Get(sel.Provider)
+	if !ok || providerCfg.Disable {
+		return Model{}, fmt.Errorf("%w: %q", errModelProviderNotConfigured, sel.Provider)
+	}
+	catwalkModel := cfg.GetModel(sel.Provider, sel.Model)
+	if catwalkModel == nil {
+		return Model{}, fmt.Errorf("provider %q has no model %q", sel.Provider, sel.Model)
+	}
+
+	key := c.overrideCacheKey(sel, isSubAgent)
+	built, cached := c.overrideCache.Get(key)
+	if !cached {
+		provider, err := c.buildProvider(providerCfg, sel, isSubAgent)
+		if err != nil {
+			return Model{}, err
+		}
+		modelID := sel.Model
+		if sel.Provider == openrouter.Name && isExactoSupported(modelID) {
+			modelID += ":exacto"
+		}
+		lm, err := provider.LanguageModel(ctx, modelID)
+		if err != nil {
+			return Model{}, err
+		}
+		built = Model{
+			Model:      lm,
+			CatwalkCfg: *catwalkModel,
+			FlatRate:   providerCfg.FlatRate,
+		}
+		c.overrideCache.Set(key, built)
+	}
+
+	built.ModelCfg = sel
+	if built.ModelCfg.MaxTokens == 0 {
+		built.ModelCfg.MaxTokens = catwalkModel.DefaultMaxTokens
+	}
+	return built, nil
+}
+
+// overrideResolver returns a SessionAgentCall.ResolveModel that rebuilds
+// sel through the override cache on every call. The selection is fixed, so
+// the model a turn runs on — and the tuning derived from it — cannot
+// drift; only the provider client is refreshed after a credential refresh
+// or unauthorized retry resets the cache. A build failure is an error for
+// the turn: silently running the large model with the override's tuning
+// would misattribute and mis-size the request.
+func (c *coordinator) overrideResolver(sel config.SelectedModel, isSubAgent bool) func(context.Context) (*Model, error) {
+	return func(ctx context.Context) (*Model, error) {
+		m, err := c.buildModel(ctx, sel, isSubAgent)
+		if err != nil {
+			return nil, fmt.Errorf("resolve model %s/%s: %w", sel.Provider, sel.Model, err)
+		}
+		return &m, nil
+	}
+}
+
 // TODO: when we support multiple agents we need to change this so that we pass in the agent specific model config
 func (c *coordinator) buildAgentModels(ctx context.Context, isSubAgent bool) (Model, Model, error) {
 	largeModelCfg, ok := c.cfg.Config().Models[config.SelectedModelTypeLarge]
@@ -1606,6 +1730,10 @@ func (c *coordinator) Model() Model {
 }
 
 func (c *coordinator) UpdateModels(ctx context.Context) error {
+	// Drop memoized per-call override models so they are rebuilt against
+	// the freshly loaded config, exactly like large/small.
+	c.overrideCache.Reset(map[string]Model{})
+
 	// build the models again so we make sure we get the latest config
 	large, small, err := c.buildAgentModels(ctx, false)
 	if err != nil {
@@ -1686,7 +1814,7 @@ func (c *coordinator) Summarize(ctx context.Context, sessionID string) error {
 	}
 
 	summarize := func() error {
-		return c.currentAgent.Summarize(ctx, sessionID, getProviderOptions(c.currentAgent.Model(), providerCfg))
+		return c.currentAgent.Summarize(ctx, sessionID, nil, getProviderOptions(c.currentAgent.Model(), providerCfg))
 	}
 
 	return c.runWithUnauthorizedRetry(ctx, providerCfg, summarize)
@@ -1780,12 +1908,37 @@ type subAgentParams struct {
 	// SessionSetup is an optional callback invoked after session creation
 	// but before agent execution, for custom session configuration.
 	SessionSetup func(sessionID string)
+	// Model, when non-nil, is the per-call model override for this
+	// sub-agent run (the tool's `model` parameter).
+	Model *config.SelectedModel
+	// UseWorkerDefault makes a nil Model fall back to the configured
+	// `worker` role before the agent's own large model. Set by the agent
+	// and review tools (delegated work); other runSubAgent callers such as
+	// agentic_fetch keep the model they were built with.
+	UseWorkerDefault bool
 }
 
 // runSubAgent runs a sub-agent and handles session management and cost accumulation.
 // It creates a sub-session, runs the agent with the given prompt, and propagates
 // the cost to the parent session.
 func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (fantasy.ToolResponse, error) {
+	// Resolve the model BEFORE creating the child session so a bad
+	// selection never leaves an empty orphan session behind. Resolution
+	// failures are tool errors (not hard errors) so the calling model can
+	// correct the reference and retry.
+	model := params.Agent.Model()
+	var resolveModel func(context.Context) (*Model, error)
+	if sel := c.delegationModel(params.Model, params.UseWorkerDefault); sel != nil {
+		built, err := c.buildModel(ctx, *sel, true)
+		if err != nil {
+			return fantasy.NewTextErrorResponse(fmt.Sprintf(
+				"cannot run sub-agent on model %s/%s: %s", sel.Provider, sel.Model, err,
+			)), nil
+		}
+		model = built
+		resolveModel = c.overrideResolver(*sel, true)
+	}
+
 	// Create sub-session
 	agentToolSessionID := c.sessions.CreateAgentToolSessionID(params.AgentMessageID, params.ToolCallID)
 	session, err := c.sessions.CreateTaskSession(ctx, agentToolSessionID, params.SessionID, params.SessionTitle)
@@ -1798,8 +1951,6 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 		params.SessionSetup(session.ID)
 	}
 
-	// Get model configuration
-	model := params.Agent.Model()
 	maxTokens := model.CatwalkCfg.DefaultMaxTokens
 	if model.ModelCfg.MaxTokens != 0 {
 		maxTokens = model.ModelCfg.MaxTokens
@@ -1814,6 +1965,7 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	run := func() (*fantasy.AgentResult, error) {
 		return params.Agent.Run(ctx, SessionAgentCall{
 			SessionID:        session.ID,
+			ResolveModel:     resolveModel,
 			Prompt:           params.Prompt,
 			MaxOutputTokens:  maxTokens,
 			ProviderOptions:  getProviderOptions(model, providerCfg),

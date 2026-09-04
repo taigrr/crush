@@ -813,6 +813,32 @@ func configureSelectedModels(store *ConfigStore, knownProviders []catwalk.Provid
 
 	c.Models[SelectedModelTypeLarge] = large
 	c.Models[SelectedModelTypeSmall] = small
+
+	// The worker slot and user-defined roles are optional and have
+	// no default. Unlike large/small we never substitute a fallback for
+	// an unresolvable selection: we drop it with a warning, so a typo
+	// degrades to "that role is unavailable" rather than silently
+	// running an arbitrary model under a name the user chose on purpose.
+	for typ, sel := range c.Models {
+		if typ == SelectedModelTypeLarge || typ == SelectedModelTypeSmall {
+			continue
+		}
+		if sel.Model == "" || sel.Provider == "" {
+			slog.Warn("Model role is incomplete; ignoring", "role", typ)
+			delete(c.Models, typ)
+			continue
+		}
+		model := c.EnabledModel(sel.Provider, sel.Model)
+		if model == nil {
+			slog.Warn("Model role points at a model no configured provider offers; ignoring",
+				"role", typ, "provider", sel.Provider, "model", sel.Model)
+			delete(c.Models, typ)
+			continue
+		}
+		resolved := sel
+		applyModelOverrides(&resolved, sel, model)
+		c.Models[typ] = resolved
+	}
 	return nil
 }
 

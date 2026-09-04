@@ -56,7 +56,7 @@
             "$ref": "#/$defs/SelectedModel"
           },
           "type": "object",
-          "description": "Model configurations for different model types"
+          "description": "Model configurations by role. Built-in roles: large (the model you talk to), small (titles/summaries), worker (optional default for delegated work via the agent/review tools). Any other key defines a named role usable as the model parameter on those tools"
         },
         "providers": {
           "additionalProperties": {
