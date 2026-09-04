@@ -837,7 +837,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
 			return a.dispatchNextQueued(ctx, call, currentAssistant, nil, err, &skipRunComplete)
 		}
-		return nil, err
+		// A provider/transport failure (e.g. the stream dying mid
+		// tool-call) must not strand prompts queued behind it either:
+		// the session goes idle, so nothing would ever drain them. Hand
+		// off the same way; a persistent failure surfaces on each queued
+		// turn in its own error finish.
+		a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
+		return a.dispatchNextQueued(ctx, call, currentAssistant, nil, err, &skipRunComplete)
 	}
 
 	if shouldSummarize {
