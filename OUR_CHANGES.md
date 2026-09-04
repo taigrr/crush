@@ -204,6 +204,7 @@ Legend: readme = should document in README · uniq = unique to us
 - `46944776` don't apply stale session files across switch
 - `9f5e48d2` cancellation bug fix
 - `6431cb37`/`0d74ea7e` client cancel doesn't 500 others
+- glob tool is cancellable and bounded: fastwalk fallback honors ctx, stops following symlinks (rg `-L` dropped to match), and a 30s budget returns partial results instead of hanging the turn when `**` is rooted at a broad dir like `$HOME`
 
 ## Perf / refactor / hygiene — mostly internal
 - `27569d1f` remove hot-path slog from SSE delivery

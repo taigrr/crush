@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/taigrr/crush/internal/filepathext"
 	"github.com/taigrr/crush/internal/fsext"
@@ -19,6 +21,11 @@ import (
 )
 
 const GlobToolName = "glob"
+
+// globTimeout bounds a single glob walk. A `**` pattern rooted at a broad
+// directory (e.g. $HOME with iCloud/Library underneath) can otherwise run
+// for many minutes and stall the whole agent turn.
+const globTimeout = 30 * time.Second
 
 //go:embed glob.md.tpl
 var globDescriptionTmpl []byte
@@ -60,7 +67,8 @@ func NewGlobTool(workingDir WorkingDirFunc) fantasy.AgentTool {
 			searchPath := cmp.Or(params.Path, workingDir(ctx))
 
 			files, truncated, err := globFiles(ctx, params.Pattern, searchPath, 100)
-			if err != nil {
+			timedOut := errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil
+			if err != nil && !timedOut {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("error finding files: %v", err)), nil
 			}
 
@@ -70,9 +78,12 @@ func NewGlobTool(workingDir WorkingDirFunc) fantasy.AgentTool {
 			} else {
 				normalizeFilePaths(files)
 				output = strings.Join(files, "\n")
-				if truncated {
+				if truncated && !timedOut {
 					output += "\n\n(Results are truncated. Consider using a more specific path or pattern.)"
 				}
+			}
+			if timedOut {
+				output += fmt.Sprintf("\n\n(Search of %s timed out after %s; results are partial. Use a more specific path or pattern.)", searchPath, globTimeout)
 			}
 
 			return fantasy.WithResponseMetadata(
@@ -87,6 +98,9 @@ func NewGlobTool(workingDir WorkingDirFunc) fantasy.AgentTool {
 }
 
 func globFiles(ctx context.Context, pattern, searchPath string, limit int) ([]string, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, globTimeout)
+	defer cancel()
+
 	cmdRg := getRgCmd(ctx, pattern)
 	if cmdRg != nil {
 		cmdRg.Dir = searchPath
@@ -94,10 +108,13 @@ func globFiles(ctx context.Context, pattern, searchPath string, limit int) ([]st
 		if err == nil {
 			return matches, len(matches) >= limit && limit > 0, nil
 		}
+		if ctx.Err() != nil {
+			return nil, true, ctx.Err()
+		}
 		slog.Warn("Ripgrep execution failed, falling back to doublestar", "error", err)
 	}
 
-	return fsext.GlobGitignoreAware(pattern, searchPath, limit)
+	return fsext.GlobGitignoreAwareContext(ctx, pattern, searchPath, limit)
 }
 
 func runRipgrep(cmd *exec.Cmd, searchRoot string, limit int) ([]string, error) {
