@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -206,4 +207,66 @@ func TestConnect_ServerPathFailsWhenDataDirLocked(t *testing.T) {
 	_, err = Connect(context.Background(), dataDir, WithDataDirLock(true))
 	require.Error(t, err, "server-path Connect must refuse to open a locked data dir")
 	require.ErrorIs(t, err, ErrDataDirLocked)
+}
+
+// TestConnect_LocalDailySpawnedByVersionCollision is the daily-binary
+// upgrade path: local/daily applied spawned_by columns as version
+// 20260904000000. The port reused that id for model_ref and moved
+// lineage to 20260904010000. Connect must not fail on the duplicate
+// column, and must still add model_ref.
+func TestConnect_LocalDailySpawnedByVersionCollision(t *testing.T) {
+	t.Cleanup(ResetPool)
+
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(dataDir, "crush.db")
+
+	seed, err := sql.Open("sqlite", dbPath)
+	require.NoError(t, err)
+	_, err = seed.Exec(`
+		CREATE TABLE sessions (
+			id TEXT PRIMARY KEY,
+			spawned_by_session_id TEXT,
+			spawned_by_workspace_id TEXT
+		);
+		CREATE TABLE goose_db_version (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			version_id INTEGER NOT NULL,
+			is_applied INTEGER NOT NULL,
+			tstamp TIMESTAMP DEFAULT (datetime('now'))
+		);
+		INSERT INTO goose_db_version (version_id, is_applied) VALUES
+			(0, 1),
+			(20250424200609, 1),
+			(20250515105448, 1),
+			(20250624000000, 1),
+			(20250627000000, 1),
+			(20250810000000, 1),
+			(20250812000000, 1),
+			(20260127000000, 1),
+			(20260511112917, 1),
+			(20260511114224, 1),
+			(20260512141646, 1),
+			(20260604000000, 1),
+			(20260612120000, 1),
+			(20260615000000, 1),
+			(20260620000000, 1),
+			(20260806000000, 1),
+			(20260821000000, 1),
+			(20260904000000, 1);
+	`)
+	require.NoError(t, err)
+	require.NoError(t, seed.Close())
+
+	conn, err := Connect(context.Background(), dataDir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = Release(dataDir) })
+
+	hasColumn := func(name string) bool {
+		var n int
+		err := conn.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name = ?`, name).Scan(&n)
+		require.NoError(t, err)
+		return n == 1
+	}
+	require.True(t, hasColumn("spawned_by_session_id"), "existing lineage columns must survive")
+	require.True(t, hasColumn("model_ref"), "model_ref must be added for DBs that skipped 20260904000000_add_session_model_ref")
 }
