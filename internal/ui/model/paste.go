@@ -163,8 +163,10 @@ func (m *UI) handleFilePathPaste(path string) tea.Cmd {
 // pasteImageFromClipboard reads image data from the system clipboard and
 // creates an attachment. If no image data is found, it falls back to
 // interpreting clipboard text as a file path. idx is the paste index
-// reserved on the Update goroutine by the caller (see pasteIdx); it is
-// only consumed when clipboard image data is actually attached.
+// reserved on the Update goroutine by the caller (see pasteIdx). It is
+// reserved eagerly, so a keypress that finds no image (or falls back to a
+// file path) burns the index and leaves a gap in the paste_N sequence;
+// that is harmless since names must only be unique, not contiguous.
 func (m *UI) pasteImageFromClipboard(idx int) tea.Msg {
 	imageData, err := readClipboard(clipboardFormatImage)
 	if err == nil && len(imageData) > 0 {

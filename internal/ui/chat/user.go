@@ -10,6 +10,7 @@ import (
 	_ "image/jpeg" // JPEG decoding.
 	_ "image/png"  // PNG decoding.
 	"os"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -45,6 +46,12 @@ type UserMessageItem struct {
 	message     *message.Message
 	sty         *styles.Styles
 	imageConfig *ImageConfig
+
+	// imageIDs memoizes imageCacheID results so the content hash is
+	// computed once per attachment, not on every render frame. Keyed by
+	// path + byte length; a user message is immutable once submitted, so
+	// the cache never needs invalidation.
+	imageIDs map[string]string
 }
 
 // NewUserMessageItem creates a new UserMessageItem.
@@ -213,8 +220,9 @@ func (m *UserMessageItem) renderAttachments(width int) string {
 			}
 			cols, rows := imageRenderDims(m.imageConfig)
 
-			if fimage.HasTransmitted(imageCacheID(bc), cols, rows) {
-				imgRender := m.imageConfig.Encoding.Render(imageCacheID(bc), cols, rows)
+			id := m.imageCacheID(bc)
+			if fimage.HasTransmitted(id, cols, rows) {
+				imgRender := m.imageConfig.Encoding.Render(id, cols, rows)
 				parts = append(parts, imgRender)
 			}
 		}
@@ -255,7 +263,8 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 
 		cols, rows := imageRenderDims(m.imageConfig)
 
-		if fimage.HasTransmitted(imageCacheID(bc), cols, rows) {
+		id := m.imageCacheID(bc)
+		if fimage.HasTransmitted(id, cols, rows) {
 			continue
 		}
 
@@ -275,7 +284,7 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 			Height: m.imageConfig.CellHeight,
 		}
 
-		cmd := m.imageConfig.Encoding.Transmit(imageCacheID(bc), img, cs, cols, rows, m.imageConfig.Tmux)
+		cmd := m.imageConfig.Encoding.Transmit(id, img, cs, cols, rows, m.imageConfig.Tmux)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -291,12 +300,26 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 // Pasted images across a session can share a file name ("paste_1.png"), so
 // the name alone would make a later paste render as an earlier one; mix in
 // a hash of the bytes when they are available.
-func imageCacheID(bc message.BinaryContent) string {
+//
+// The result is memoized per item (keyed by path + byte length) so the
+// hash is computed once rather than on every render frame.
+func (m *UserMessageItem) imageCacheID(bc message.BinaryContent) string {
 	if len(bc.Data) == 0 {
 		return bc.Path
 	}
+	key := bc.Path + "#" + strconv.Itoa(len(bc.Data))
+	if m.imageIDs != nil {
+		if id, ok := m.imageIDs[key]; ok {
+			return id
+		}
+	}
 	sum := sha256.Sum256(bc.Data)
-	return bc.Path + "#" + hex.EncodeToString(sum[:8])
+	id := bc.Path + "#" + hex.EncodeToString(sum[:8])
+	if m.imageIDs == nil {
+		m.imageIDs = make(map[string]string)
+	}
+	m.imageIDs[key] = id
+	return id
 }
 
 // loadImageFromFile loads an image from a file path.
