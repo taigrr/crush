@@ -43,6 +43,10 @@ var (
 	ErrInvalidClientID         = errors.New("invalid client_id")
 	ErrClientNotAttached       = errors.New("client not attached")
 	ErrWorkspaceClosing        = errors.New("workspace closing")
+	// ErrToolCallNotBackgroundable is returned by BackgroundToolCall when
+	// the named tool call is unknown, already finished, does not support
+	// moving to the background, or belongs to another session.
+	ErrToolCallNotBackgroundable = errors.New("tool call cannot be moved to the background")
 )
 
 // DefaultCreateGrace is the window in which a client must open an SSE

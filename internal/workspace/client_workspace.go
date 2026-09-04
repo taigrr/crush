@@ -451,6 +451,12 @@ func (w *ClientWorkspace) AgentSoftInterrupt(sessionID string) {
 	_ = w.client.SoftInterruptAgentSession(context.Background(), w.workspaceID(), sessionID)
 }
 
+// AgentBackgroundTool moves a single in-flight tool call to the
+// background; see Client.BackgroundAgentToolCall.
+func (w *ClientWorkspace) AgentBackgroundTool(ctx context.Context, sessionID, toolCallID string) error {
+	return w.client.BackgroundAgentToolCall(ctx, w.workspaceID(), sessionID, toolCallID)
+}
+
 // workspacePath returns the root of the workspace this client is
 // currently attached to.
 func (w *ClientWorkspace) workspacePath() string {
