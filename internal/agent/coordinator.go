@@ -263,6 +263,17 @@ func (c *coordinator) DetachJournals() {
 	c.swarmReplies.DetachJournal()
 }
 
+// swarmPartsSteer reports whether any swarm part was sent in btw mode,
+// which is what Backend.SwarmSend maps to a steer on the live path.
+func swarmPartsSteer(parts []message.SwarmMessage) bool {
+	for _, p := range parts {
+		if p.BTW {
+			return true
+		}
+	}
+	return false
+}
+
 // DeferPrompt implements [Drainable].
 func (c *coordinator) DeferPrompt(sessionID, runID, prompt string, attachments []message.Attachment, parts []message.SwarmMessage) {
 	c.deferPrompt(sessionID, runID, prompt, attachments, parts, false)
@@ -292,6 +303,10 @@ func (c *coordinator) deferPrompt(sessionID, runID, prompt string, attachments [
 		Prompt:      prompt,
 		Attachments: attachments,
 		SwarmParts:  parts,
+		// A btw aside is a steer wherever it enters the queue: it still
+		// waits for its own turn here (it carries a RunID), but it wakes
+		// the target's running tools so that turn ends sooner.
+		Steer: swarmPartsSteer(parts),
 	}
 	// Same model/tuning a live prompt gets; without it the deferred
 	// call would run with no max-tokens and no provider options.

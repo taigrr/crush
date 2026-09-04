@@ -805,6 +805,13 @@ func (a *sessionAgent) deferCall(call SessionAgentCall, front bool) {
 	} else {
 		a.enqueueCall(call)
 	}
+	// A deferred steer still hurries the active turn along (its tools
+	// hand their work to the background) even though the message itself
+	// waits for its own turn; on an idle session there is nothing to
+	// wake and this is a no-op.
+	if call.Steer && a.IsSessionBusy(call.SessionID) {
+		a.softInterruptLocked(call.SessionID)
+	}
 	mu.Unlock()
 	accept.Close()
 	a.journalQueue(call.SessionID)
