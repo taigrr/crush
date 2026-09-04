@@ -201,7 +201,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			// the slash command as typed ("/model" alone shows the current
 			// model) instead of inserting the first suggestion.
 			if m.completionsOpen && m.completionsTrigger == argCompletionTrigger &&
-				m.completionsQuery == "" && key.Matches(msg, m.keyMap.Editor.SendMessage) {
+				m.completionsQuery == "" && !m.completions.Navigated() &&
+				key.Matches(msg, m.keyMap.Editor.SendMessage) {
 				m.closeCompletions()
 			}
 			if m.completionsOpen {

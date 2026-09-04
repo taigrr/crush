@@ -205,7 +205,7 @@ func (e *ErrAmbiguousModelRef) Error() string {
 //     model), so the reference can be typed the way a person thinks of it.
 //
 // Ties between equally good matches are broken in favour of models that
-// currently hold a role (large/small/orchestrator/...), then models in
+// currently hold a role (large/small/worker/...), then models in
 // the recent list, then the shortest id. A tie that survives all three is
 // reported as *ErrAmbiguousModelRef with the candidates.
 func (c *Config) ResolveModelRefLoose(ref string) (SelectedModel, error) {
@@ -326,6 +326,9 @@ func (c *Config) fuzzyModel(ref string) (SelectedModel, error) {
 	// tie would otherwise "resolve" to whatever model already holds a role.
 	// Report the candidates so the user can pick.
 	if best <= 1 {
+		if len(top) == 1 {
+			return SelectedModel{}, fmt.Errorf("no confident match for %q; did you mean %s/%s?", ref, top[0].sel.Provider, top[0].sel.Model)
+		}
 		matches := make([]ModelMatch, 0, len(top))
 		for _, cd := range top {
 			matches = append(matches, ModelMatch{Selection: cd.sel, Name: cd.name})

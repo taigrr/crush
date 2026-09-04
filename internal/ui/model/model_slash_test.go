@@ -131,3 +131,54 @@ func TestValidRoleName(t *testing.T) {
 		require.False(t, validRoleName(bad), bad)
 	}
 }
+
+func TestParseModelSlash(t *testing.T) {
+	ui := newModelSlashUI(t)
+	cfg := ui.com.Config()
+
+	t.Run("bare model sets large", func(t *testing.T) {
+		a, err := ui.parseModelSlash(cfg, "haiku")
+		require.NoError(t, err)
+		require.Equal(t, config.SelectedModelTypeLarge, a.role)
+		require.Equal(t, "us.anthropic.claude-haiku-4-5", a.sel.Model)
+	})
+
+	t.Run("model with effort", func(t *testing.T) {
+		a, err := ui.parseModelSlash(cfg, "fable xhigh")
+		require.NoError(t, err)
+		require.Equal(t, "xhigh", a.sel.ReasoningEffort)
+	})
+
+	t.Run("existing role alone shows it", func(t *testing.T) {
+		a, err := ui.parseModelSlash(cfg, "worker")
+		require.NoError(t, err)
+		require.True(t, a.show)
+		require.Equal(t, config.SelectedModelTypeWorker, a.role)
+	})
+
+	t.Run("existing role with model sets it", func(t *testing.T) {
+		a, err := ui.parseModelSlash(cfg, "Scout fable high")
+		require.NoError(t, err)
+		require.False(t, a.show)
+		require.Equal(t, config.SelectedModelType("scout"), a.role, "configured spelling is kept")
+		require.Equal(t, "us.anthropic.claude-fable-5-1", a.sel.Model)
+		require.Equal(t, "high", a.sel.ReasoningEffort)
+	})
+
+	t.Run("new custom role is created", func(t *testing.T) {
+		a, err := ui.parseModelSlash(cfg, "reviewer fable")
+		require.NoError(t, err)
+		require.Equal(t, config.SelectedModelType("reviewer"), a.role)
+		require.Equal(t, "us.anthropic.claude-fable-5-1", a.sel.Model)
+	})
+
+	t.Run("new role with an invalid name is rejected", func(t *testing.T) {
+		_, err := ui.parseModelSlash(cfg, "re.viewer fable")
+		require.Error(t, err)
+	})
+
+	t.Run("unknown model errors rather than creating a role", func(t *testing.T) {
+		_, err := ui.parseModelSlash(cfg, "reviewer nope")
+		require.Error(t, err)
+	})
+}

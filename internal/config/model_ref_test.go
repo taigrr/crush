@@ -209,9 +209,17 @@ func TestResolveModelRefLoose(t *testing.T) {
 	})
 
 	t.Run("substring falls back to shortest id when nothing holds a role", func(t *testing.T) {
-		sel, err := c.ResolveModelRefLoose("fable-5-1")
+		c2 := looseRefConfig()
+		c2.Models = nil
+		sel, err := c2.ResolveModelRefLoose("fable-5-1")
 		require.NoError(t, err)
 		require.Equal(t, "us.anthropic.claude-fable-5-1", sel.Model, "us. is shorter than global.")
+	})
+
+	t.Run("a single weak subsequence hit is not acted on", func(t *testing.T) {
+		_, err := c.ResolveModelRefLoose("hku")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "did you mean")
 	})
 
 	t.Run("display name and case-insensitive", func(t *testing.T) {

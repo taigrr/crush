@@ -38,27 +38,62 @@ func (m *UI) handleModelSlash(args string) tea.Cmd {
 		return util.ReportInfo(m.describeModels())
 	}
 
-	fields := strings.Fields(args)
-	if role, isRole := m.roleToken(fields[0]); isRole {
-		if len(fields) == 1 {
-			sel, ok := cfg.Models[role]
-			if !ok {
-				return util.ReportInfo(fmt.Sprintf("%s is not set", role))
-			}
-			return util.ReportInfo(fmt.Sprintf("%s = %s", role, describeSelection(sel)))
-		}
-		sel, err := cfg.ResolveModelRefLoose(strings.Join(fields[1:], " "))
-		if err != nil {
-			return util.ReportError(err)
-		}
-		return m.applyRoleFromSlash(role, sel)
-	}
-
-	sel, err := cfg.ResolveModelRefLoose(args)
+	action, err := m.parseModelSlash(cfg, args)
 	if err != nil {
 		return util.ReportError(err)
 	}
-	return m.applyRoleFromSlash(config.SelectedModelTypeLarge, sel)
+	if action.show {
+		sel, ok := cfg.Models[action.role]
+		if !ok {
+			return util.ReportInfo(fmt.Sprintf("%s is not set", action.role))
+		}
+		return util.ReportInfo(fmt.Sprintf("%s = %s", action.role, describeSelection(sel)))
+	}
+	return m.applyRoleFromSlash(action.role, action.sel)
+}
+
+// modelSlashAction is the parsed form of a /model argument string: either
+// show a role, or set role = sel.
+type modelSlashAction struct {
+	role config.SelectedModelType
+	sel  config.SelectedModel
+	show bool
+}
+
+// parseModelSlash turns the argument string into an action:
+//
+//	<role>                    show role
+//	<role> <model> [effort]   set role (existing role, builtin or custom)
+//	<model> [effort]          set large
+//	<new-role> <model> [effort]
+//	                          create a custom role, only when the whole
+//	                          string does not itself resolve as a model
+//	                          (so a multi-word model reference is never
+//	                          mistaken for a role) and the first word is a
+//	                          valid role name.
+func (m *UI) parseModelSlash(cfg *config.Config, args string) (modelSlashAction, error) {
+	fields := strings.Fields(args)
+	if role, isRole := m.roleToken(fields[0]); isRole {
+		if len(fields) == 1 {
+			return modelSlashAction{role: role, show: true}, nil
+		}
+		sel, err := cfg.ResolveModelRefLoose(strings.Join(fields[1:], " "))
+		if err != nil {
+			return modelSlashAction{}, err
+		}
+		return modelSlashAction{role: role, sel: sel}, nil
+	}
+
+	sel, err := cfg.ResolveModelRefLoose(args)
+	if err == nil {
+		return modelSlashAction{role: config.SelectedModelTypeLarge, sel: sel}, nil
+	}
+	if len(fields) >= 2 && validRoleName(fields[0]) {
+		if roleSel, rerr := cfg.ResolveModelRefLoose(strings.Join(fields[1:], " ")); rerr == nil {
+			return modelSlashAction{role: config.SelectedModelType(fields[0]), sel: roleSel}, nil
+		}
+	}
+	return modelSlashAction{}, err
 }
 
 // applyRoleFromSlash writes role = sel to config through the model picker's
@@ -66,6 +101,17 @@ func (m *UI) handleModelSlash(args string) tea.Cmd {
 func (m *UI) applyRoleFromSlash(role config.SelectedModelType, sel config.SelectedModel) tea.Cmd {
 	if !validRoleName(string(role)) {
 		return util.ReportError(fmt.Errorf("invalid role name %q: use letters, digits, '-' or '_'", role))
+	}
+	// Match what the model picker writes: a bare or fuzzy reference
+	// resolves to provider/model only, and an empty effort would leave
+	// reasoning off while the UI shows the default level as active.
+	if cw := m.com.Config().GetModel(sel.Provider, sel.Model); cw != nil {
+		if sel.ReasoningEffort == "" {
+			sel.ReasoningEffort = cw.DefaultReasoningEffort
+		}
+		if sel.MaxTokens == 0 {
+			sel.MaxTokens = cw.DefaultMaxTokens
+		}
 	}
 	return m.handleSelectModel(dialog.ActionSelectModel{
 		Provider:  m.catwalkProvider(sel.Provider),
@@ -135,9 +181,15 @@ func describeSelection(sel config.SelectedModel) string {
 func (m *UI) describeModels() string {
 	cfg := m.com.Config()
 	var b strings.Builder
-	if sess := m.sidebarSession(); sess != nil && sess.ModelRef != "" {
-		fmt.Fprintf(&b, "this session: %s (spawned with model %q)\n", describeSelection(m.effectiveModel().ModelCfg), sess.ModelRef)
-	} else if large, ok := cfg.Models[config.SelectedModelTypeLarge]; ok {
+	large, hasLarge := cfg.Models[config.SelectedModelTypeLarge]
+	switch {
+	case m.session != nil && m.session.ModelRef != "":
+		if eff := m.effectiveModel(); eff != nil && eff.ModelCfg.Model != large.Model {
+			fmt.Fprintf(&b, "this session: %s (spawned with model %q)\n", describeSelection(eff.ModelCfg), m.session.ModelRef)
+		} else {
+			fmt.Fprintf(&b, "this session: large (spawned with model %q, which no longer resolves)\n", m.session.ModelRef)
+		}
+	case hasLarge:
 		fmt.Fprintf(&b, "this session: %s (large)\n", describeSelection(large))
 	}
 	roles := make([]string, 0, len(cfg.Models))
@@ -241,13 +293,22 @@ func roleDescription(r config.SelectedModelType) string {
 // holding a role are listed first.
 func (m *UI) modelCompletions() []completions.ArgCompletionValue {
 	cfg := m.com.Config()
+	if cfg == nil || cfg.Providers == nil {
+		return nil
+	}
+	roleNames := make([]string, 0, len(cfg.Models))
+	for r := range cfg.Models {
+		roleNames = append(roleNames, string(r))
+	}
+	sort.Slice(roleNames, func(i, j int) bool { return roleOrder(roleNames[i]) < roleOrder(roleNames[j]) })
 	inRole := map[string]string{}
-	for r, sel := range cfg.Models {
+	for _, r := range roleNames {
+		sel := cfg.Models[config.SelectedModelType(r)]
 		key := sel.Provider + "/" + sel.Model
 		if inRole[key] != "" {
 			inRole[key] += ","
 		}
-		inRole[key] += string(r)
+		inRole[key] += r
 	}
 	type row struct {
 		text, desc string

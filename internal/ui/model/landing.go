@@ -149,7 +149,9 @@ func (m *UI) effectiveModel() *workspace.AgentModel {
 	large := m.selectedLargeModel()
 	sess := m.sidebarSession()
 	cfg := m.com.Config()
-	if sess == nil || sess.ModelRef == "" || cfg == nil {
+	// A previewed session may belong to another workspace whose roles this
+	// config knows nothing about; only resolve the committed session's ref.
+	if sess == nil || sess != m.session || sess.ModelRef == "" || cfg == nil {
 		return large
 	}
 	sel, err := cfg.ResolveModelRef(sess.ModelRef)

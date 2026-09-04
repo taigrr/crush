@@ -53,6 +53,10 @@ type Completions struct {
 	// State
 	open  bool
 	query string
+	// navigated is set once the user moves the selection with the arrow
+	// keys while the popup is open, so callers can tell an explicit pick
+	// from an untouched suggestion list.
+	navigated bool
 
 	// Key bindings
 	keyMap KeyMap
@@ -241,6 +245,7 @@ func (c *Completions) SetArgs(args []ArgCompletionValue) {
 // setItems replaces the list contents and opens the popup, resetting the
 // query, selection, and size. It is shared by SetItems and SetCommands.
 func (c *Completions) setItems(items []list.FilterableItem) {
+	c.navigated = false
 	c.open = true
 	c.query = ""
 	c.allItems = items
@@ -265,6 +270,7 @@ func (c *Completions) Close() {
 
 // Filter filters the completions with the given query.
 func (c *Completions) Filter(query string) {
+	c.navigated = false
 	if !c.open {
 		return
 	}
@@ -347,6 +353,12 @@ func (c *Completions) updateSize() {
 	c.list.ScrollToSelected()
 }
 
+// Navigated reports whether the user has moved the selection with the
+// arrow keys since the popup opened or was last filtered.
+func (c *Completions) Navigated() bool {
+	return c.navigated
+}
+
 // HasItems returns whether there are visible items.
 func (c *Completions) HasItems() bool {
 	return len(c.filtered) > 0
@@ -361,10 +373,12 @@ func (c *Completions) Update(msg tea.KeyPressMsg) (tea.Msg, bool) {
 	switch {
 	case key.Matches(msg, c.keyMap.Up):
 		c.selectPrev()
+		c.navigated = true
 		return nil, true
 
 	case key.Matches(msg, c.keyMap.Down):
 		c.selectNext()
+		c.navigated = true
 		return nil, true
 
 	case key.Matches(msg, c.keyMap.UpInsert):
