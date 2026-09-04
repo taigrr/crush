@@ -99,6 +99,9 @@ type Service interface {
 	// first published; republishing lets its prompt surface on switch
 	// (switch-to-grant) instead of staying invisibly blocked.
 	RepublishPending(sessionID string)
+	// PendingSessions lists the sessions that currently have a request
+	// blocked waiting for a client to answer it.
+	PendingSessions() []string
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[PermissionNotification]
 }
 
@@ -235,6 +238,19 @@ func (s *permissionService) RepublishPending(sessionID string) {
 			s.Publish(pubsub.CreatedEvent, p.req)
 		}
 	}
+}
+
+// PendingSessions lists the sessions with a still-pending request.
+func (s *permissionService) PendingSessions() []string {
+	seen := make(map[string]struct{})
+	for _, p := range s.pendingRequests.Seq2() {
+		seen[p.req.SessionID] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	return out
 }
 
 func (s *permissionService) GrantPersistent(permission PermissionRequest) bool {

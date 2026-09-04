@@ -37,6 +37,17 @@ type Session struct {
 	// [session.Session.ModelRef]); empty when it runs the workspace's
 	// large model.
 	ModelRef string `json:"model_ref,omitempty"`
+	// WorkingDir is the directory the session's tools run in (see
+	// [session.Session.WorkingDir]). Empty until the session's first
+	// run stamps it, or when the workspace's worktree system owns the
+	// per-session directory.
+	WorkingDir string `json:"working_dir,omitempty"`
+	// SpawnedBySessionID and SpawnedByWorkspaceID are the swarm lineage
+	// of the session (see [session.Session.SpawnedBySessionID]): the
+	// session that created it via `swarm new` and that spawner's
+	// workspace. Empty for sessions opened by a human or a client.
+	SpawnedBySessionID   string `json:"spawned_by_session_id,omitempty"`
+	SpawnedByWorkspaceID string `json:"spawned_by_workspace_id,omitempty"`
 }
 
 // Todo represents a single todo entry on a session in the proto layer.

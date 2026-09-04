@@ -40,6 +40,9 @@ func (b *Backend) SendMessage(workspaceID string, msg proto.AgentMessage) error 
 	if ws.AgentCoordinator == nil {
 		return ErrAgentNotInitialized
 	}
+	if b.Draining() {
+		return ErrDraining
+	}
 
 	if err := agent.ValidateCall(agent.SessionAgentCall{
 		SessionID:   msg.SessionID,
@@ -57,7 +60,16 @@ func (b *Backend) SendMessage(workspaceID string, msg proto.AgentMessage) error 
 		accept.Close()
 		return ErrWorkspaceClosing
 	}
+	// Re-check under runMu so a Drain that landed between the check
+	// above and here cannot let a run slip in after the drain waiter
+	// observed zero active runs.
+	if b.Draining() {
+		ws.runMu.Unlock()
+		accept.Close()
+		return ErrDraining
+	}
 	ws.runWG.Add(1)
+	ws.liveRuns++
 	ws.runMu.Unlock()
 
 	go b.runAgent(ws, msg, accept)
@@ -96,7 +108,13 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 	// detach paths deliberately kept the workspace alive. teardownIfIdle
 	// is a cheap no-op when clients remain or another run is still busy.
 	defer b.teardownIfIdle(ws)
+	defer b.signalDrain()
 	defer ws.runWG.Done()
+	defer func() {
+		ws.runMu.Lock()
+		ws.liveRuns--
+		ws.runMu.Unlock()
+	}()
 	defer accept.Close()
 
 	// Publish cross-workspace busy/idle transitions on the global
@@ -109,6 +127,9 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 	ctx := ws.ctx
 	if msg.RunID != "" {
 		ctx = agent.WithRunID(ctx, msg.RunID)
+	}
+	if msg.Steer {
+		ctx = agent.WithSteer(ctx)
 	}
 	ctx = agent.WithRunCompleteMarker(ctx)
 
@@ -142,6 +163,7 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 				SenderAnimal:      p.SenderAnimal,
 				SenderWorkspaceID: p.SenderWorkspaceID,
 				BTW:               p.BTW,
+				RequireReply:      p.RequireReply,
 			}
 		}
 		ctx = agent.WithSwarmParts(ctx, parts)
@@ -218,21 +240,39 @@ func (b *Backend) GetAgentInfo(workspaceID string) (proto.AgentInfo, error) {
 	return agentInfo, nil
 }
 
-// InitAgent initializes the coder agent for the workspace.
+// InitAgent initializes the coder agent for the workspace. Every client
+// calls this on connect, and the onboarding flow calls it after the
+// first model is chosen. When the workspace already has a coordinator
+// this must NOT rebuild it: the existing one may be mid-turn (or have
+// just replayed a journaled queue), and swapping the pointer would leave
+// those runs on an orphan the busy/drain/teardown paths can no longer
+// see. Instead the live coordinator is refreshed in place — models,
+// system prompt (context files), tools, and a fresh readiness group —
+// deferred until idle if it is busy. Calls are serialized per workspace
+// so concurrent inits cannot build two coordinators.
 func (b *Backend) InitAgent(ctx context.Context, workspaceID string) error {
 	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
 		return err
+	}
+	ws.initMu.Lock()
+	defer ws.initMu.Unlock()
+	if ws.AgentCoordinator != nil {
+		return ws.RefreshAgent(ctx)
 	}
 
 	if err := ws.InitCoderAgent(ctx); err != nil {
 		return err
 	}
 
-	// InitCoderAgent rebuilds the coordinator from scratch, discarding
-	// the swarm shim that CreateWorkspace wired in. Re-wire it so the
-	// swarm tool survives a re-init.
-	return b.wireSwarmBackend(ctx, ws)
+	// A fresh coordinator needs the swarm shim wired in, and any
+	// journaled queue replayed onto it (CreateWorkspace skipped that
+	// when the workspace came up unconfigured).
+	if err := b.wireSwarmBackend(ctx, ws); err != nil {
+		return err
+	}
+	b.rehydrateQueue(ws)
+	return nil
 }
 
 // wireSwarmBackend injects the cross-workspace swarm dispatcher into
@@ -296,6 +336,42 @@ func (b *Backend) CancelSession(workspaceID, sessionID string) error {
 
 	if ws.AgentCoordinator != nil {
 		ws.AgentCoordinator.Cancel(sessionID)
+	}
+	return nil
+}
+
+// SoftInterruptSession asks the tools running in the session's current
+// step to wrap up early without cancelling anything: a long-running bash
+// command is handed back to the model as a background job it can poll
+// with job_output, and the turn continues. This is the "background the
+// running command" affordance; a steer (proto.AgentMessage.Steer) does
+// the same and additionally queues a message. It is a no-op when the
+// session is idle or nothing in the step listens for the interrupt.
+func (b *Backend) SoftInterruptSession(workspaceID, sessionID string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+
+	if ws.AgentCoordinator != nil {
+		ws.AgentCoordinator.SoftInterrupt(sessionID)
+	}
+	return nil
+}
+
+// BackgroundToolCall asks one specific in-flight tool call to move its
+// work to the background: the tool returns a normal result naming the
+// background job and the turn continues. Unlike SoftInterruptSession it
+// targets a single call rather than every opted-in tool in the step. It
+// returns ErrToolCallNotBackgroundable when the call is unknown, already
+// finished, does not support backgrounding, or belongs to another
+// session.
+func (b *Backend) BackgroundToolCall(workspaceID, sessionID, toolCallID string) error {
+	if _, err := b.GetWorkspace(workspaceID); err != nil {
+		return err
+	}
+	if !tools.RequestBackground(sessionID, toolCallID) {
+		return ErrToolCallNotBackgroundable
 	}
 	return nil
 }

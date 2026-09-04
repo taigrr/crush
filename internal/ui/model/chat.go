@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/clipperhouse/displaywidth"
 	"github.com/clipperhouse/uax29/v2/words"
+	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/anim"
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/common"
@@ -635,6 +636,27 @@ func (m *Chat) RemoveMessage(id string) {
 
 	// Clean up any paused animations for this message
 	delete(m.pausedAnimations, id)
+}
+
+// RunningToolCall returns the most recent tool call with the given tool
+// name that is currently executing (input fully streamed, no result yet,
+// not canceled). It scans from the bottom because the in-flight call is
+// always at the tail of the transcript, and stops at the last user
+// message since nothing above it can still be running. This keeps the
+// lookup cheap even though it runs on every help render.
+func (m *Chat) RunningToolCall(toolName string) (message.ToolCall, bool) {
+	for i := m.list.Len() - 1; i >= 0; i-- {
+		switch item := m.list.ItemAt(i).(type) {
+		case *chat.UserMessageItem:
+			return message.ToolCall{}, false
+		case chat.ToolMessageItem:
+			tc := item.ToolCall()
+			if tc.Name == toolName && item.IsRunning() {
+				return tc, true
+			}
+		}
+	}
+	return message.ToolCall{}, false
 }
 
 // MessageItem returns the message item with the given ID, or nil if not found.

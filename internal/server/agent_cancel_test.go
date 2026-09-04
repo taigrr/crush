@@ -67,15 +67,17 @@ func (s *runCoordinator) RunAccepted(ctx context.Context, accept *agent.Accepted
 func (s *runCoordinator) BeginAccepted(sessionID string) *agent.AcceptedRun {
 	return nil
 }
-func (s *runCoordinator) Cancel(string) {}
-func (s *runCoordinator) CancelAll()    {}
-func (s *runCoordinator) IsBusy() bool  { return false }
+func (s *runCoordinator) Cancel(string)                  {}
+func (s *runCoordinator) CancelAll()                     {}
+func (s *runCoordinator) SoftInterrupt(sessionID string) {}
+func (s *runCoordinator) IsBusy() bool                   { return false }
 func (s *runCoordinator) IsSessionBusy(string) bool {
 	return false
 }
-func (s *runCoordinator) QueuedPrompts(string) int          { return 0 }
-func (s *runCoordinator) QueuedPromptsList(string) []string { return nil }
-func (s *runCoordinator) ClearQueue(string)                 {}
+func (s *runCoordinator) IsSessionBusyOrAccepted(string) bool { return false }
+func (s *runCoordinator) QueuedPrompts(string) int            { return 0 }
+func (s *runCoordinator) QueuedPromptsList(string) []string   { return nil }
+func (s *runCoordinator) ClearQueue(string)                   {}
 func (s *runCoordinator) Summarize(context.Context, string) error {
 	return nil
 }

@@ -5,6 +5,7 @@ package backend
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -42,6 +43,10 @@ var (
 	ErrInvalidClientID         = errors.New("invalid client_id")
 	ErrClientNotAttached       = errors.New("client not attached")
 	ErrWorkspaceClosing        = errors.New("workspace closing")
+	// ErrToolCallNotBackgroundable is returned by BackgroundToolCall when
+	// the named tool call is unknown, already finished, does not support
+	// moving to the background, or belongs to another session.
+	ErrToolCallNotBackgroundable = errors.New("tool call cannot be moved to the background")
 )
 
 // DefaultCreateGrace is the window in which a client must open an SSE
@@ -110,6 +115,15 @@ type Backend struct {
 	// yolo is a deliberately explicit, dangerous mode, so it is not
 	// silently persisted across restarts.
 	yoloByRoot map[string]bool
+
+	// drain is non-nil once Drain has been called. Guarded by mu. See
+	// drain.go.
+	drain *drainState
+
+	// startedAt is when this backend was created; connectWorkspaceDB
+	// uses it to decide whether a locked data directory may still be a
+	// predecessor releasing it.
+	startedAt time.Time
 }
 
 // clientState tracks one client's claim on a workspace.
@@ -185,6 +199,17 @@ type Workspace struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// isolated mirrors proto.Workspace.Isolated: a private workspace
+	// (e.g. `crush run`) that shares its data directory — and so its
+	// journal tables — with the path-deduplicated workspace for the
+	// same project. It must never replay that journal.
+	isolated bool
+
+	// initMu serializes InitAgent so two concurrent /agent/init calls
+	// on an unconfigured workspace cannot both build a coordinator (and
+	// both replay the journal).
+	initMu sync.Mutex
+
 	// runMu guards closing and gates dispatch of new agent runs.
 	// closing is set by Shutdown so no new runs are accepted once
 	// teardown has begun. runWG tracks dispatched agent goroutines
@@ -192,6 +217,12 @@ type Workspace struct {
 	runMu   sync.Mutex
 	closing bool
 	runWG   sync.WaitGroup
+	// liveRuns counts runAgent goroutines between dispatch and return.
+	// Unlike the coordinator's busy predicates it has no gaps: a goal
+	// or require_reply continuation passes through a window where the
+	// session is neither active, accepted, nor queued, and a drain must
+	// not mistake that instant for idle. Guarded by runMu.
+	liveRuns int
 
 	// clientsMu guards clients. It is held only briefly (no IO).
 	clientsMu sync.Mutex
@@ -209,6 +240,10 @@ type Workspace struct {
 	// It defaults to consulting the agent coordinator; tests may
 	// override it to simulate a busy workspace without a full [app.App].
 	busyFn func() bool
+	// busySessionsFn lists the sessions with an in-flight run. It
+	// defaults to consulting the agent coordinator; tests may override
+	// it alongside busyFn.
+	busySessionsFn func() []string
 
 	// attnCancel stops the attention forwarder goroutine and attnWG
 	// waits for it to drain. See startAttentionForwarder.
@@ -308,6 +343,7 @@ func New(ctx context.Context, cfg *config.ConfigStore, shutdownFn ShutdownFunc) 
 		registry:       registry.New(),
 		attention:      pubsub.NewBroker[proto.AttentionEvent](),
 		yoloByRoot:     make(map[string]bool),
+		startedAt:      time.Now(),
 	}
 }
 
@@ -431,6 +467,18 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		slog.Warn("Failed to wire swarm backend into workspace", "root", key, "error", err)
 	}
 
+	// A workspace brought up mid-drain (a swarm path re-attach, or an
+	// old TUI connecting) must not hand finished turns off to queued
+	// prompts either; rehydrateQueue itself is a no-op while draining.
+	if b.Draining() {
+		ws.pauseQueueDispatch()
+	}
+
+	// Replay any prompts a previous server left journaled for this
+	// workspace (see drain.go). Runs after swarm wiring so a replayed
+	// swarm message can reply to its sender.
+	b.rehydrateQueue(ws)
+
 	// Record this workspace in the global registry so a future Crush
 	// instance (or the server on startup) can enumerate and jump to it
 	// without it being attached. Best-effort; a registry write failure
@@ -495,7 +543,7 @@ func (b *Backend) buildWorkspace(args proto.Workspace, key, effectiveCwd string)
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	conn, err := db.Connect(b.ctx, cfg.Config().Options.DataDirectory, db.WithDataDirLock(true))
+	conn, err := b.connectWorkspaceDB(b.ctx, cfg.Config().Options.DataDirectory)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -525,11 +573,55 @@ func (b *Backend) buildWorkspace(args proto.Workspace, key, effectiveCwd string)
 		Cfg:          cfg,
 		Env:          args.Env,
 		Skills:       skillsMgr,
+		isolated:     args.Isolated,
 		resolvedPath: key,
 		ctx:          wsCtx,
 		cancel:       wsCancel,
 		clients:      make(map[string]*clientState),
 	}, nil
+}
+
+// dataDirLockWait bounds how long connectWorkspaceDB retries a data
+// directory still locked by a previous server. Package variable so tests
+// can shorten it.
+var dataDirLockWait = 15 * time.Second
+
+// takeoverWindow is how long after startup a server treats a locked data
+// directory as "the predecessor is still releasing it" and waits, rather
+// than failing at once as a genuine conflict with another process.
+var takeoverWindow = 2 * time.Minute
+
+// connectWorkspaceDB opens the workspace database under the data-dir
+// lock. During a graceful update the previous server can still hold that
+// lock for a moment after its socket disappears (it releases workspaces
+// as it exits), so within the first takeoverWindow of this server's life
+// ErrDataDirLocked is retried for up to dataDirLockWait (bounded by ctx)
+// with a log line rather than failing the client's first connect. After
+// that window, or for any other error, a locked directory is a genuine
+// conflict with another crush process and fails immediately as before.
+func (b *Backend) connectWorkspaceDB(ctx context.Context, dataDir string) (*sql.DB, error) {
+	deadline := time.Now().Add(dataDirLockWait)
+	mayWait := time.Since(b.startedAt) < takeoverWindow
+	logged := false
+	for {
+		conn, err := db.Connect(ctx, dataDir, db.WithDataDirLock(true))
+		if err == nil {
+			return conn, nil
+		}
+		if !errors.Is(err, db.ErrDataDirLocked) || !mayWait || time.Now().After(deadline) {
+			return nil, err
+		}
+		if !logged {
+			slog.Info("Data directory still locked by a previous crush process; waiting for it to release before opening the database",
+				"data_dir", dataDir, "timeout", dataDirLockWait)
+			logged = true
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 // adoptExistingWorkspace handles a CreateWorkspace dedup hit: the
@@ -828,8 +920,14 @@ func (b *Backend) teardown(ws *Workspace) {
 	}
 	b.workspaces.Del(ws.ID)
 	remaining := b.workspaces.Len()
+	draining := b.drain != nil
 	b.mu.Unlock()
 
+	if draining {
+		// A workspace going idle mid-drain must leave its journaled
+		// queue for the next server, not clear it on teardown.
+		ws.handOffJournal()
+	}
 	ws.invokeShutdown()
 
 	if remaining == 0 && b.shutdownFn != nil {
@@ -1033,6 +1131,8 @@ func (b *Backend) VersionInfo() proto.VersionInfo {
 		BuildID:   version.BuildID,
 		GoVersion: runtime.Version(),
 		Platform:  fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+
+		ProtocolVersion: proto.ProtocolVersion,
 	}
 }
 
@@ -1074,6 +1174,9 @@ func (b *Backend) Shutdown() {
 // path does not race the explicit teardown.
 func (b *Backend) ShutdownWorkspaces() {
 	b.mu.Lock()
+	// Only a drain that ran to completion has handed its journals off;
+	// a shutdown that interrupts a drain is a forced stop like any other.
+	handedOff := b.drain != nil && b.drain.done
 	wss := make([]*Workspace, 0, b.workspaces.Len())
 	for id, ws := range b.workspaces.Seq2() {
 		wss = append(wss, ws)
@@ -1090,8 +1193,49 @@ func (b *Backend) ShutdownWorkspaces() {
 	// Workspace.Shutdown: mark closing, cancel the run context,
 	// CancelAll in-flight coordinator runs, wait for run goroutines,
 	// then App cleanup.
+	//
+	// On a forced shutdown (anything but a completed drain) the
+	// journaled queue is dropped outright, matching the documented
+	// `--reset` contract and the historical behavior of losing
+	// in-memory queues: CancelAll's own clear only reaches sessions
+	// that are busy, so an idle session with a stuck queue would
+	// otherwise replay it on the next server. Reply obligations are
+	// dropped too: the cancelled turns tell their senders the work was
+	// cancelled (failReplyObligations), so anything persisted is a
+	// leftover no turn owns. Both clears must run BEFORE teardown —
+	// App.Shutdown releases the pooled database connection the journal
+	// store writes through.
 	for _, ws := range wss {
+		if !handedOff {
+			ws.discardJournal()
+			ws.discardReplies()
+		}
 		ws.invokeShutdown()
+	}
+}
+
+// discardJournal drops the workspace's journaled queue. Used by forced
+// shutdowns, where queued prompts are documented to be lost.
+func (w *Workspace) discardJournal() {
+	if w.App == nil || w.Journal == nil {
+		return
+	}
+	if err := w.Journal.ClearQueues(context.Background()); err != nil {
+		slog.Warn("Failed to discard journaled queue on forced shutdown", "workspace", w.ID, "error", err)
+	}
+}
+
+// discardReplies drops the workspace's persisted reply obligations on a
+// forced shutdown. The in-memory tracker is left alone: the turns being
+// cancelled still consult it to tell their senders, and it dies with
+// the process; DetachJournals stops those clears from being written
+// back after this point.
+func (w *Workspace) discardReplies() {
+	if w.App == nil || w.Journal == nil {
+		return
+	}
+	if err := w.Journal.ClearReplies(context.Background()); err != nil {
+		slog.Warn("Failed to discard journaled reply obligations on forced shutdown", "workspace", w.ID, "error", err)
 	}
 }
 

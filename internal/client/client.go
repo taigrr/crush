@@ -91,6 +91,43 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
+// HealthInfo retrieves the server's health snapshot, including whether it
+// is draining for an update and how many runs are still active.
+func (c *Client) HealthInfo(ctx context.Context) (*proto.Health, error) {
+	rsp, err := c.get(ctx, "/health", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server health check failed: %s", rsp.Status)
+	}
+	var h proto.Health
+	if err := json.NewDecoder(rsp.Body).Decode(&h); err != nil {
+		return nil, err
+	}
+	return &h, nil
+}
+
+// DrainServer asks the server to stop accepting new runs, finish the
+// in-flight ones, and exit on its own once none remain. Idempotent; the
+// returned snapshot reports how many runs it is still waiting on.
+func (c *Client) DrainServer(ctx context.Context) (*proto.Health, error) {
+	rsp, err := c.post(ctx, "/drain", nil, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server drain failed: %s", rsp.Status)
+	}
+	var h proto.Health
+	if err := json.NewDecoder(rsp.Body).Decode(&h); err != nil {
+		return nil, err
+	}
+	return &h, nil
+}
+
 // VersionInfo retrieves the server's version information.
 func (c *Client) VersionInfo(ctx context.Context) (*proto.VersionInfo, error) {
 	var vi proto.VersionInfo

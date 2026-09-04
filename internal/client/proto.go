@@ -683,25 +683,51 @@ func (c *Client) UpdateAgent(ctx context.Context, id string) error {
 // to distinguish its own turn's terminal event from any concurrent
 // turn on the same session (e.g. interactive TUI usage).
 func (c *Client) SendMessage(ctx context.Context, id string, sessionID, runID, prompt string, attachments ...message.Attachment) error {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent", id), nil, jsonBody(proto.AgentMessage{
+	return c.sendAgentMessage(ctx, id, proto.AgentMessage{
 		SessionID:   sessionID,
-		ClientID:    c.clientID,
 		RunID:       runID,
 		Prompt:      prompt,
 		Attachments: proto.AttachmentsFromMessage(attachments),
-	}), http.Header{"Content-Type": []string{"application/json"}})
+	})
+}
+
+// SteerMessage sends a mid-turn steering message: it is queued behind the
+// session's active turn with no RunID (so it folds into that turn at the
+// next step rather than waiting for its own) and raises the session's
+// soft interrupt so long-running tools wrap up early. On an idle session
+// it behaves like SendMessage with an empty RunID.
+func (c *Client) SteerMessage(ctx context.Context, id string, sessionID, prompt string) error {
+	return c.sendAgentMessage(ctx, id, proto.AgentMessage{
+		SessionID: sessionID,
+		Prompt:    prompt,
+		Steer:     true,
+	})
+}
+
+func (c *Client) sendAgentMessage(ctx context.Context, id string, msg proto.AgentMessage) error {
+	msg.ClientID = c.clientID
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent", id), nil, jsonBody(msg), http.Header{"Content-Type": []string{"application/json"}})
 	if err != nil {
 		return fmt.Errorf("failed to send message to agent: %w", err)
 	}
 	defer rsp.Body.Close()
 	if rsp.StatusCode != http.StatusOK && rsp.StatusCode != http.StatusAccepted {
-		if msg := decodeErrorMessage(rsp.Body); msg != "" {
-			return fmt.Errorf("failed to send message to agent: status code %d: %s", rsp.StatusCode, msg)
+		e := decodeError(rsp.Body)
+		if rsp.StatusCode == http.StatusServiceUnavailable && e.Code == proto.ErrorCodeDraining {
+			return ErrServerDraining
+		}
+		if e.Message != "" {
+			return fmt.Errorf("failed to send message to agent: status code %d: %s", rsp.StatusCode, e.Message)
 		}
 		return fmt.Errorf("failed to send message to agent: status code %d", rsp.StatusCode)
 	}
 	return nil
 }
+
+// ErrServerDraining is returned by SendMessage when the server refused
+// the prompt because it is draining for an update. The prompt was not
+// accepted; callers should hold it and retry once a server is back.
+var ErrServerDraining = errors.New("server is updating; prompt not accepted")
 
 // RunShellCommand runs a shell command in the workspace without triggering the agent.
 func (c *Client) RunShellCommand(ctx context.Context, id, sessionID, command string) (proto.ShellCommandResponse, error) {
@@ -729,11 +755,17 @@ func (c *Client) RunShellCommand(ctx context.Context, id, sessionID, command str
 // with a non-empty message, letting callers fall back to a
 // status-only error.
 func decodeErrorMessage(body io.Reader) string {
+	return decodeError(body).Message
+}
+
+// decodeError decodes a proto.Error body, returning the zero value when
+// the body is not one.
+func decodeError(body io.Reader) proto.Error {
 	var e proto.Error
 	if err := json.NewDecoder(body).Decode(&e); err != nil {
-		return ""
+		return proto.Error{}
 	}
-	return e.Message
+	return e
 }
 
 // GetAgentSessionInfo retrieves the agent session info for a workspace.
@@ -1245,6 +1277,46 @@ func (c *Client) CancelAgentSession(ctx context.Context, id string, sessionID st
 	defer rsp.Body.Close()
 	if rsp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to cancel agent session: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
+// SoftInterruptAgentSession asks the tools running in the session's
+// current step to wrap up early without cancelling them: a running
+// shell command is handed back to the model as a background job and the
+// turn continues. No-op on an idle session.
+func (c *Client) SoftInterruptAgentSession(ctx context.Context, id string, sessionID string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/interrupt", id, sessionID), nil, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to soft-interrupt agent session: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		if msg := decodeErrorMessage(rsp.Body); msg != "" {
+			return fmt.Errorf("failed to soft-interrupt agent session: %s", msg)
+		}
+		return fmt.Errorf("failed to soft-interrupt agent session: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
+// BackgroundAgentToolCall asks one in-flight tool call to move its work to
+// the background so the turn can continue; the tool returns a result
+// naming the background job. Fails when the call is unknown, already
+// finished, or cannot be backgrounded.
+func (c *Client) BackgroundAgentToolCall(ctx context.Context, id, sessionID, toolCallID string) error {
+	// Tool-call IDs come from the provider and are not guaranteed to be
+	// path-safe.
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/tools/%s/background", id, sessionID, url.PathEscape(toolCallID)), nil, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to background tool call: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		if msg := decodeErrorMessage(rsp.Body); msg != "" {
+			return fmt.Errorf("failed to background tool call: %s", msg)
+		}
+		return fmt.Errorf("failed to background tool call: status code %d", rsp.StatusCode)
 	}
 	return nil
 }

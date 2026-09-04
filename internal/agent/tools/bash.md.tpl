@@ -10,7 +10,7 @@ Common shell builtins and core utils available on Windows.
 1. Directory Verification: If creating directories/files, use LS tool to verify parent exists or use mkdir -p
 2. Security Check: Sysadmin-locked commands ({{ .SysadminCommands }}) are blocked unless Sysadmin Mode is enabled. If a command is blocked, do NOT retry or attempt workarounds — explain to the user that the command requires Sysadmin Mode and tell them they can toggle it from the command palette ("Enable Sysadmin Mode"). Safe read-only commands execute without prompts
 3. Command Execution: Execute with proper quoting, capture output
-4. Auto-Background: Commands exceeding 1 minute (default, configurable via `auto_background_after`) automatically move to background and return shell ID
+4. Auto-Background: Commands exceeding 1 minute (default, configurable via `auto_background_after`) automatically move to background and return shell ID. A running command is also moved to background early (never killed) when the user sends a message mid-turn or backgrounds it from the UI; the result says which, and the job keeps running under the returned shell ID
 5. Output Processing: Truncate if exceeds {{ .MaxOutputLength }} characters
 6. Return Result: Include errors, metadata with <cwd></cwd> tags
 </execution_steps>

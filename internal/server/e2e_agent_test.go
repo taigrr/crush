@@ -204,6 +204,8 @@ func (c *scriptedCoordinator) Cancel(sessionID string) {
 	}
 }
 
+func (c *scriptedCoordinator) SoftInterrupt(sessionID string) {}
+
 func (c *scriptedCoordinator) CancelAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -214,6 +216,7 @@ func (c *scriptedCoordinator) CancelAll() {
 
 func (c *scriptedCoordinator) IsBusy() bool                                       { return false }
 func (c *scriptedCoordinator) IsSessionBusy(string) bool                          { return false }
+func (c *scriptedCoordinator) IsSessionBusyOrAccepted(string) bool                { return false }
 func (c *scriptedCoordinator) QueuedPrompts(string) int                           { return 0 }
 func (c *scriptedCoordinator) QueuedPromptsList(string) []string                  { return nil }
 func (c *scriptedCoordinator) ClearQueue(string)                                  {}

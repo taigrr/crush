@@ -1,17 +1,29 @@
 package model
 
-import "charm.land/bubbles/v2/key"
+import (
+	"charm.land/bubbles/v2/key"
+	"github.com/taigrr/crush/internal/ui/chat"
+)
 
 type KeyMap struct {
 	Editor struct {
 		AddFile     key.Binding
 		SendMessage key.Binding
+		// Steer sends the prompt as a mid-turn aside while the agent is
+		// busy: it is folded into the active turn at the next step
+		// boundary instead of waiting in the queue for its own turn.
+		// When the agent is idle it behaves like SendMessage.
+		Steer       key.Binding
 		OpenEditor  key.Binding
 		Newline     key.Binding
 		AddImage    key.Binding
 		PasteImage  key.Binding
 		MentionFile key.Binding
 		Commands    key.Binding
+		// Stash parks the drafted prompt (text and attachments) so a
+		// different message can be sent first; pressing it again with an
+		// empty editor restores the draft, with a non-empty editor swaps.
+		Stash key.Binding
 
 		// Attachments key maps
 		AttachmentDeleteMode key.Binding
@@ -24,9 +36,14 @@ type KeyMap struct {
 	}
 
 	Chat struct {
-		NewSession          key.Binding
-		AddAttachment       key.Binding
-		Cancel              key.Binding
+		NewSession    key.Binding
+		AddAttachment key.Binding
+		Cancel        key.Binding
+		// BackgroundTool moves the running bash command to the
+		// background so the tool returns a job id and the turn continues.
+		// Only active while such a command is in flight; otherwise the
+		// key falls through to the focused component.
+		BackgroundTool      key.Binding
 		Tab                 key.Binding
 		Details             key.Binding
 		TogglePills         key.Binding
@@ -82,20 +99,24 @@ type KeyMap struct {
 		Search        key.Binding
 		PrevSection   key.Binding
 		NextSection   key.Binding
+		Pin           key.Binding
 	}
 
 	// Global key maps
-	Quit       key.Binding
-	Help       key.Binding
-	Commands   key.Binding
-	Models     key.Binding
-	Suspend    key.Binding
-	Sessions   key.Binding
-	Search     key.Binding
-	Milestones key.Binding
-	Tab        key.Binding
-	ToggleYolo key.Binding
-	Fullscreen key.Binding
+	Quit     key.Binding
+	Help     key.Binding
+	Commands key.Binding
+	Models   key.Binding
+	Suspend  key.Binding
+	Sessions key.Binding
+	// PinSessions keeps the left session navigator open across session
+	// switches (see UI.leftSidebarPinned).
+	PinSessions key.Binding
+	Search      key.Binding
+	Milestones  key.Binding
+	Tab         key.Binding
+	ToggleYolo  key.Binding
+	Fullscreen  key.Binding
 	// ArchiveSession opens the confirmation modal to archive the current
 	// (active) session from the main window.
 	ArchiveSession key.Binding
@@ -127,6 +148,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+s"),
 			key.WithHelp("ctrl+s", "sessions"),
 		),
+		// Bubble Tea enables Kitty key disambiguation, so terminals that
+		// speak it (Ghostty, kitty, WezTerm, ...) deliver ctrl+shift+s
+		// distinctly; alt+s is the fallback for those that collapse it
+		// onto ctrl+s.
+		PinSessions: key.NewBinding(
+			key.WithKeys("alt+s", "ctrl+shift+s"),
+			key.WithHelp("alt+s", "pin sessions"),
+		),
 		Search: key.NewBinding(
 			key.WithKeys("ctrl+b"),
 			key.WithHelp("ctrl+b", "search"),
@@ -153,6 +182,10 @@ func DefaultKeyMap() KeyMap {
 		),
 	}
 
+	km.Editor.Stash = key.NewBinding(
+		key.WithKeys("ctrl+shift+z", "alt+z"),
+		key.WithHelp("alt+z", "stash prompt"),
+	)
 	km.Editor.AddFile = key.NewBinding(
 		key.WithKeys("/"),
 		key.WithHelp("/", "add file"),
@@ -160,6 +193,10 @@ func DefaultKeyMap() KeyMap {
 	km.Editor.SendMessage = key.NewBinding(
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "send"),
+	)
+	km.Editor.Steer = key.NewBinding(
+		key.WithKeys("alt+enter"),
+		key.WithHelp("alt+enter", "steer (send mid-turn)"),
 	)
 	km.Editor.OpenEditor = key.NewBinding(
 		key.WithKeys("ctrl+o"),
@@ -218,6 +255,10 @@ func DefaultKeyMap() KeyMap {
 	km.Chat.Cancel = key.NewBinding(
 		key.WithKeys("esc", "alt+esc"),
 		key.WithHelp("esc", "cancel"),
+	)
+	km.Chat.BackgroundTool = key.NewBinding(
+		key.WithKeys(chat.BackgroundToolKey),
+		key.WithHelp(chat.BackgroundToolKey, "background command"),
 	)
 	km.Chat.Tab = key.NewBinding(
 		key.WithKeys("tab"),
@@ -408,6 +449,13 @@ func DefaultKeyMap() KeyMap {
 	km.SessionSidebar.NextSection = key.NewBinding(
 		key.WithKeys("}"),
 		key.WithHelp("}", "next section"),
+	)
+	// Pin/unpin the navigator so it survives session switches. Like the
+	// other single-letter sidebar bindings it is only handled while the
+	// sidebar is focused; alt+s does the same from anywhere.
+	km.SessionSidebar.Pin = key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "pin/unpin"),
 	)
 
 	return km

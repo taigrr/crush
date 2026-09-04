@@ -2247,3 +2247,51 @@ func TestLoadFromConfigPaths_SessionsSidebarWidth(t *testing.T) {
 			"a project config should outrank the global one")
 	})
 }
+
+func TestLookupConfigs_ScopedIncludes(t *testing.T) {
+	globalDir := t.TempDir()
+	t.Setenv("CRUSH_GLOBAL_CONFIG", globalDir)
+	t.Setenv("CRUSH_GLOBAL_DATA", globalDir)
+
+	code := t.TempDir()
+	work := filepath.Join(code, "work")
+	personal := filepath.Join(code, "personal")
+	require.NoError(t, os.MkdirAll(filepath.Join(work, "repo", "sub"), 0o755))
+	require.NoError(t, os.MkdirAll(personal, 0o755))
+
+	workCfg := filepath.Join(globalDir, "work.json")
+	require.NoError(t, os.WriteFile(workCfg, []byte(`{"options":{"tui":{"sessions_sidebar_width":42}}}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "crush.json"), []byte(
+		`{"includes":[{"dir":"`+work+`","path":"work.json"},{"dir":"`+personal+`","path":"missing.json"}]}`,
+	), 0o644))
+
+	t.Run("include applies inside dir and descendants", func(t *testing.T) {
+		got := lookupConfigs(filepath.Join(work, "repo", "sub"))
+		require.Contains(t, got, workCfg)
+		require.NotContains(t, got, filepath.Join(globalDir, "missing.json"))
+	})
+
+	t.Run("include applies at dir itself", func(t *testing.T) {
+		require.Contains(t, lookupConfigs(work), workCfg)
+	})
+
+	t.Run("include does not apply outside dir", func(t *testing.T) {
+		require.NotContains(t, lookupConfigs(personal), workCfg)
+		require.NotContains(t, lookupConfigs(filepath.Join(code, "workish")), workCfg)
+	})
+
+	t.Run("include is merged with higher priority than global", func(t *testing.T) {
+		cfg, _, err := loadFromConfigPaths(lookupConfigs(work))
+		require.NoError(t, err)
+		require.Equal(t, 42, cfg.Options.TUI.SessionsSidebarWidth)
+	})
+
+	t.Run("includes in an included file are ignored", func(t *testing.T) {
+		nested := filepath.Join(globalDir, "nested.json")
+		require.NoError(t, os.WriteFile(nested, []byte(`{}`), 0o644))
+		require.NoError(t, os.WriteFile(workCfg, []byte(
+			`{"includes":[{"dir":"`+work+`","path":"nested.json"}]}`,
+		), 0o644))
+		require.NotContains(t, lookupConfigs(work), nested)
+	})
+}

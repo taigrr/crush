@@ -545,8 +545,12 @@ for slow links and SSH sessions.
 ## Session Navigator & Session UX
 
 - **Left session navigator sidebar** with cross-workspace session listing
-  and runtime workspace switching (sessions capped per workspace with an
-  overflow picker row)
+  and runtime workspace switching (sessions capped per workspace; enter on
+  the "…N more" row expands that workspace in place, "show less" collapses)
+- **Pinnable navigator** (`alt+s`, `p` while focused, or "Pin/Unpin
+  Sessions Sidebar" in the palette): stays open across session switches,
+  `ctrl+s` toggles focus instead of visibility, esc/h just release focus;
+  persisted as `options.tui.sessions_sidebar_pinned`
 - **Read/unread state**, per-session working directory, and a workspace
   registry (migration
   `20260620000000_add_session_working_dir_and_read_state.sql`)
@@ -554,6 +558,11 @@ for slow links and SSH sessions.
 - Animated session **title reveal** with blinking cursor; auto re-title
   after 10 user messages
 - Ctrl+F toggles fullscreen chat; image picker moved to Ctrl+I
+- **Prompt stash** (`alt+z` / `ctrl+shift+z`, or "Stash/Restore Prompt" in
+  the palette): park the drafted prompt and its attachments, send something
+  else, press again to restore; with both a draft and a stash it swaps
+- Todo/queue pills are hidden while the chat is previewing another session
+  from the navigator (they describe the committed session)
 
 ---
 
@@ -603,7 +612,14 @@ Highlights:
 - New `swarm` tool exposed to main agents only. Params: `address`
   (color-animal / with-shorthash / raw UUID / `"new"`), `prompt`,
   optional `mode` (`queue` default, `btw` prefixes `[btw]`),
-  `workspace_id` (for `new`), `title` (for `new`).
+  `workspace_id` / `path` / `title` / `model` / `working_dir` (for
+  `new`), and `require_reply`.
+- `require_reply` registers a reply obligation on the target
+  (`swarm.ReplyTracker`, coordinator-owned, in-memory). The coordinator's
+  end-of-turn loop nudges the target with a continuation turn while it
+  still owes a reply (max 2), then forwards its final message to the
+  sender on its behalf; a failed or canceled turn forwards the error.
+  Any swarm send from the target to the sender fulfills the obligation.
 - Cross-workspace address resolution via `Backend.LookupSwarmAddress`;
   per-workspace DB errors are collected but never mask a real match.
 - Delivered as a `SwarmMessage` content part with structured sender

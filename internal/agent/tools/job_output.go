@@ -45,8 +45,14 @@ func NewJobOutputTool() fantasy.AgentTool {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("background shell not found: %s", params.ShellID)), nil
 			}
 
+			var interrupted backgroundReason
+			waitCut := false
 			if params.Wait {
-				bgShell.WaitContext(ctx)
+				// Block until the job finishes, but let a steer (step-wide
+				// soft interrupt) or a per-call background request end the
+				// wait early: the job keeps running and the model gets the
+				// output so far with a "running" status.
+				interrupted, waitCut = waitForJob(ctx, bgShell, call.ID)
 			}
 
 			stdout, stderr, done, err := bgShell.GetOutput()
@@ -86,7 +92,39 @@ func NewJobOutputTool() fantasy.AgentTool {
 			}
 
 			result := fmt.Sprintf("Status: %s\n\n%s", status, output)
+			if waitCut && !done {
+				result = waitEndedEarlyNote(interrupted) + "\n\n" + result
+			}
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(result), metadata), nil
 		},
 	)
+}
+
+// waitForJob blocks until bgShell finishes, the step is soft-interrupted,
+// this call is asked to background, or ctx ends. It reports whether the
+// wait was cut short and why. The backgroundable registration is released
+// on every exit path.
+func waitForJob(ctx context.Context, bgShell *shell.BackgroundShell, callID string) (reason backgroundReason, cut bool) {
+	bgRequested, releaseBg := RegisterBackgroundable(ctx, callID)
+	defer releaseBg()
+	select {
+	case <-bgShell.Done():
+	case <-SoftInterrupt(ctx):
+		return backgroundReasonSteer, true
+	case <-bgRequested:
+		return backgroundReasonUser, true
+	case <-ctx.Done():
+	}
+	return backgroundReasonTimeout, false
+}
+
+// waitEndedEarlyNote explains why a job_output wait returned before the
+// job finished; the job itself keeps running.
+func waitEndedEarlyNote(reason backgroundReason) string {
+	switch reason {
+	case backgroundReasonUser:
+		return "Stopped waiting at the user's request; the job is still running in the background."
+	default:
+		return "Stopped waiting because a user message is waiting for you; the job is still running in the background. Read and act on the user's message first."
+	}
 }

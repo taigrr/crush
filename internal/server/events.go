@@ -205,19 +205,25 @@ func sessionToProto(s session.Session) proto.Session {
 		Color:            s.Color,
 		Animal:           s.Animal,
 		ModelRef:         s.ModelRef,
+		WorkingDir:       s.WorkingDir,
+
+		SpawnedBySessionID:   s.SpawnedBySessionID,
+		SpawnedByWorkspaceID: s.SpawnedByWorkspaceID,
 	}
 }
 
 // isSessionBusy reports whether the given workspace has an in-flight
-// agent run for sessionID. It tolerates a nil workspace (treating it as
-// "not busy") so REST handlers can pass GetWorkspace's result through
-// unconditionally — the workspace lookup error is already surfaced by
-// the prior ListSessions/GetSession call when relevant.
+// agent run for sessionID, including one accepted at dispatch but not
+// yet active (see Coordinator.IsSessionBusyOrAccepted). It tolerates a
+// nil workspace (treating it as "not busy") so REST handlers can pass
+// GetWorkspace's result through unconditionally — the workspace lookup
+// error is already surfaced by the prior ListSessions/GetSession call
+// when relevant.
 func isSessionBusy(ws *backend.Workspace, sessionID string) bool {
 	if ws == nil || ws.App == nil || ws.AgentCoordinator == nil {
 		return false
 	}
-	return ws.AgentCoordinator.IsSessionBusy(sessionID)
+	return ws.AgentCoordinator.IsSessionBusyOrAccepted(sessionID)
 }
 
 // attachedClients returns the number of clients currently viewing
@@ -282,6 +288,7 @@ func messageToProto(m message.Message) proto.Message {
 				SenderAnimal:      v.SenderAnimal,
 				SenderWorkspaceID: v.SenderWorkspaceID,
 				BTW:               v.BTW,
+				RequireReply:      v.RequireReply,
 			})
 		case message.ReasoningContent:
 			msg.Parts = append(msg.Parts, proto.ReasoningContent{

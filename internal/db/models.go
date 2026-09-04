@@ -88,6 +88,18 @@ type Session struct {
 	Animal               sql.NullString `json:"animal"`
 	Favorite             int64          `json:"favorite"`
 	ModelRef             sql.NullString `json:"model_ref"`
+	SpawnedBySessionID   sql.NullString `json:"spawned_by_session_id"`
+	SpawnedByWorkspaceID sql.NullString `json:"spawned_by_workspace_id"`
+}
+
+type SessionQueue struct {
+	SessionID   string         `json:"session_id"`
+	Seq         int64          `json:"seq"`
+	RunID       sql.NullString `json:"run_id"`
+	Prompt      string         `json:"prompt"`
+	Attachments string         `json:"attachments"`
+	SwarmParts  sql.NullString `json:"swarm_parts"`
+	CreatedAt   int64          `json:"created_at"`
 }
 
 type Snapshot struct {
@@ -98,6 +110,17 @@ type Snapshot struct {
 	GitCommitHash    string         `json:"git_commit_hash"`
 	Description      sql.NullString `json:"description"`
 	CreatedAt        int64          `json:"created_at"`
+}
+
+type SwarmReplyObligation struct {
+	ObligatedSessionID string `json:"obligated_session_id"`
+	OwedToSessionID    string `json:"owed_to_session_id"`
+	OwedToWorkspaceID  string `json:"owed_to_workspace_id"`
+	OwedToAddress      string `json:"owed_to_address"`
+	Body               string `json:"body"`
+	Nudges             int64  `json:"nudges"`
+	Undelivered        int64  `json:"undelivered"`
+	CreatedAt          int64  `json:"created_at"`
 }
 
 type SyncMetadatum struct {

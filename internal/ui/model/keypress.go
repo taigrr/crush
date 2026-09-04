@@ -35,6 +35,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				cmds = append(cmds, cmd)
 			}
 			return true
+		case key.Matches(msg, m.keyMap.PinSessions):
+			if cmd := m.toggleLeftSidebarPin(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return true
 		case key.Matches(msg, m.keyMap.Search):
 			if cmd := m.openSearchPaletteDialog(); cmd != nil {
 				cmds = append(cmds, cmd)
@@ -53,8 +58,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				return true
 			}
 			// Fullscreen chat: hide both the left navigator and the right
-			// info sidebar. Leaving fullscreen restores the right sidebar;
-			// the left navigator stays closed (reopen with ctrl+s).
+			// info sidebar. Leaving fullscreen restores the right sidebar
+			// and, when pinned, the left navigator; an unpinned navigator
+			// stays closed (reopen with ctrl+s).
 			m.chatFullscreen = !m.chatFullscreen
 			if m.chatFullscreen && m.leftSidebarVisible {
 				m.leftSidebarVisible = false
@@ -64,6 +70,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if cmd := m.cancelPreview(); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
+			} else if !m.chatFullscreen && m.leftSidebarPinned && !m.leftSidebarVisible {
+				m.leftSidebarVisible = true
+				cmds = append(cmds, m.loadWorkspaceOverviews())
 			}
 			m.updateLayoutAndSize()
 			return true
@@ -187,6 +196,16 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 
+	// Background the running bash command. Only consumed while one is
+	// actually in flight; otherwise the key keeps its usual meaning in
+	// the focused component (word-backward in the editor).
+	if key.Matches(msg, m.keyMap.Chat.BackgroundTool) {
+		if cmd := m.backgroundRunningBash(); cmd != nil {
+			cmds = append(cmds, cmd)
+			return tea.Batch(cmds...)
+		}
+	}
+
 	switch m.state {
 	case uiOnboarding:
 		return tea.Batch(cmds...)
@@ -263,7 +282,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					return m.pasteImageFromClipboard(idx)
 				})
 
-			case key.Matches(msg, m.keyMap.Editor.SendMessage):
+			case key.Matches(msg, m.keyMap.Editor.SendMessage), key.Matches(msg, m.keyMap.Editor.Steer):
+				steer := key.Matches(msg, m.keyMap.Editor.Steer)
 				prevHeight := m.textarea.Height()
 				value := m.textarea.Value()
 				if before, ok := strings.CutSuffix(value, "\\"); ok {
@@ -312,6 +332,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				m.randomizePlaceholders()
 				m.historyReset()
 
+				if steer {
+					return m.steerOrSend(value, attachments...)
+				}
 				return m.sendMessage(value, attachments...)
 			case key.Matches(msg, m.keyMap.Chat.NewSession):
 				if !m.hasSession() {
@@ -331,6 +354,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					m.chat.Focus()
 					m.chat.SetSelected(m.chat.Len() - 1)
 				}
+			case key.Matches(msg, m.keyMap.Editor.Stash):
+				cmds = append(cmds, m.toggleStash())
 			case key.Matches(msg, m.keyMap.Editor.OpenEditor):
 				if m.isAgentBusy() {
 					cmds = append(cmds, util.ReportWarn("Agent is working, please wait..."))
