@@ -266,8 +266,8 @@ type SwarmSendResult struct {
 	SessionID   string
 	// Delivery is "sent" if the target session was idle when the
 	// message arrived, "queued" if it was already busy running a turn.
-	// Best-effort — computed from a snapshot of IsSessionBusy before
-	// dispatch.
+	// Best-effort — computed from a snapshot of IsSessionBusyOrAccepted
+	// (active or just-dispatched) before dispatch.
 	Delivery string
 }
 
@@ -332,7 +332,7 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 	}
 
 	delivery := "sent"
-	if ws.AgentCoordinator != nil && ws.AgentCoordinator.IsSessionBusy(target.SessionID) {
+	if ws.AgentCoordinator != nil && ws.AgentCoordinator.IsSessionBusyOrAccepted(target.SessionID) {
 		delivery = "queued"
 	}
 
