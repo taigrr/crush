@@ -427,6 +427,16 @@ func (c *Config) applyProviderSpecificConfig(store *ConfigStore, env env.Env, re
 		if prepared.APIKey == "" {
 			return skipMissing("Skipping Bedrock Mantle provider due to missing AWS_BEARER_TOKEN_BEDROCK")
 		}
+		// A corporate gateway fronting Bedrock (AWS_ENDPOINT_URL_BEDROCK,
+		// the same variable the native Bedrock provider consumes) can also
+		// front Mantle's OpenAI-compatible surface. Route to it unless the
+		// user pinned providers.bedrock-mantle.base_url, in which case the
+		// explicit pin wins. The raw user config.BaseURL is the true pin
+		// signal; prepared.BaseURL is always the catalog default here.
+		userPinnedMantle := configExists && config.BaseURL != ""
+		if gw := mantleGatewayURL(env.Get("AWS_ENDPOINT_URL_BEDROCK"), userPinnedMantle); gw != "" {
+			prepared.BaseURL = gw
+		}
 	case catwalk.InferenceProvider("hyper"):
 		if apiKey := env.Get("HYPER_API_KEY"); apiKey != "" {
 			prepared.APIKey = apiKey
@@ -445,6 +455,27 @@ func (c *Config) applyProviderSpecificConfig(store *ConfigStore, env env.Env, re
 		}
 	}
 	return false
+}
+
+// mantleGatewayURL returns the OpenAI-compatible endpoint Bedrock Mantle
+// should use when a corporate gateway fronts Bedrock, or "" to leave the
+// configured base URL alone. gw is the value of AWS_ENDPOINT_URL_BEDROCK;
+// it is ignored (returns "") when blank or when the user pinned
+// providers.bedrock-mantle.base_url themselves.
+//
+// The gateway value is treated as an origin and Mantle's OpenAI-compatible
+// path is appended only when not already present, so both
+// https://gw.example and https://gw.example/openai/v1 resolve identically.
+func mantleGatewayURL(gw string, userPinned bool) string {
+	gw = strings.TrimSpace(gw)
+	if gw == "" || userPinned {
+		return ""
+	}
+	gw = strings.TrimRight(gw, "/")
+	if strings.HasSuffix(gw, "/openai/v1") {
+		return gw
+	}
+	return gw + "/openai/v1"
 }
 
 func (c *Config) setDefaults(workingDir, dataDir string) {
