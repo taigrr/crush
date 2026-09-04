@@ -130,12 +130,12 @@ type ClientWorkspace struct {
 	// in tests to simulate a server swap that hands out a fresh
 	// workspace id for the same path.
 	createWorkspaceFn func(ctx context.Context, ws proto.Workspace) (*proto.Workspace, error)
-	// sendMessageFn is normally client.SendMessage; overridable in
-	// tests to simulate a draining server.
-	sendMessageFn func(ctx context.Context, id, sessionID, runID, prompt string, attachments ...message.Attachment) error
-	// steerMessageFn is normally client.SteerMessage; the steer twin of
-	// sendMessageFn so held steers replay through the same hold path.
-	steerMessageFn func(ctx context.Context, id, sessionID, prompt string) error
+	// sendMessageFn dispatches a prompt (or steer) to the server; the
+	// default routes to client.SendMessage or client.SteerMessage by
+	// p.steer. Overridable in tests to simulate a draining server; it is
+	// the single hook every send and held-prompt replay goes through, so
+	// a fake catches steers too.
+	sendMessageFn func(ctx context.Context, id string, p heldPrompt) error
 }
 
 // heldPrompt is a prompt the client is holding until the server that
@@ -179,8 +179,12 @@ func NewClientWorkspace(c *client.Client, ws proto.Workspace) *ClientWorkspace {
 	w.subscribeEventsFn = c.SubscribeEvents
 	w.subscribeGlobalEventsFn = c.SubscribeGlobalEvents
 	w.createWorkspaceFn = c.CreateWorkspace
-	w.sendMessageFn = c.SendMessage
-	w.steerMessageFn = c.SteerMessage
+	w.sendMessageFn = func(ctx context.Context, id string, p heldPrompt) error {
+		if p.steer {
+			return c.SteerMessage(ctx, id, p.sessionID, p.prompt)
+		}
+		return c.SendMessage(ctx, id, p.sessionID, p.runID, p.prompt, p.attachments...)
+	}
 	return w
 }
 
@@ -491,7 +495,7 @@ func (w *ClientWorkspace) sendOrHold(ctx context.Context, p heldPrompt) error {
 		// of earlier ones.
 		return w.hold(p, false)
 	}
-	err := w.send(ctx, w.workspaceID(), p)
+	err := w.sendMessageFn(ctx, w.workspaceID(), p)
 	switch {
 	case err == nil:
 		return nil
@@ -502,14 +506,6 @@ func (w *ClientWorkspace) sendOrHold(ctx context.Context, p heldPrompt) error {
 		return w.hold(p, false)
 	}
 	return err
-}
-
-// send dispatches p to workspace id, as a steer or a normal prompt.
-func (w *ClientWorkspace) send(ctx context.Context, id string, p heldPrompt) error {
-	if p.steer {
-		return w.steerMessageFn(ctx, id, p.sessionID, p.prompt)
-	}
-	return w.sendMessageFn(ctx, id, p.sessionID, p.runID, p.prompt, p.attachments...)
 }
 
 // hold parks p for redelivery after the next reconnect. draining marks
@@ -576,7 +572,7 @@ func (w *ClientWorkspace) flushHeldPrompts(ctx context.Context) (sent int, faile
 			keep = append(keep, p)
 			continue
 		}
-		err := w.send(ctx, wsID, p)
+		err := w.sendMessageFn(ctx, wsID, p)
 		switch {
 		case err == nil:
 			sent++
