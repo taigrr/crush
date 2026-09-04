@@ -10,8 +10,12 @@
 -- stay visible and addressable; the lineage is informational so UIs can
 -- nest or link them under their spawner. NULL means "opened by a human
 -- or by a client, not by another session".
-ALTER TABLE sessions ADD COLUMN spawned_by_session_id TEXT;
-ALTER TABLE sessions ADD COLUMN spawned_by_workspace_id TEXT;
+-- No-op. local/daily already added these columns as version
+-- 20260904000000; the port reused that id for model_ref, so a real
+-- ALTER here fails with "duplicate column name" on existing DBs.
+-- connect.go ensureSessionsColumns adds the columns on databases
+-- that still lack them (fresh installs).
+SELECT 1;
 
 -- +goose StatementEnd
 
