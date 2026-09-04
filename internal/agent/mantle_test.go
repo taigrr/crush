@@ -153,26 +153,3 @@ func TestMantleErrorStatus(t *testing.T) {
 		})
 	}
 }
-
-func TestMantleGatewayURL(t *testing.T) {
-	tests := []struct {
-		name    string
-		env     string
-		userPin bool
-		want    string
-	}{
-		{name: "unset", env: "", userPin: false, want: ""},
-		{name: "blank", env: "   ", userPin: false, want: ""},
-		{name: "user pinned wins", env: "https://gw.example", userPin: true, want: ""},
-		{name: "bare origin appends path", env: "https://gw.example", userPin: false, want: "https://gw.example/openai/v1"},
-		{name: "trailing slash trimmed", env: "https://gw.example/", userPin: false, want: "https://gw.example/openai/v1"},
-		{name: "already has openai path, no double append", env: "https://gw.example/openai/v1", userPin: false, want: "https://gw.example/openai/v1"},
-		{name: "already has openai path with trailing slash", env: "https://gw.example/openai/v1/", userPin: false, want: "https://gw.example/openai/v1"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("AWS_ENDPOINT_URL_BEDROCK", tt.env)
-			require.Equal(t, tt.want, mantleGatewayURL(tt.userPin))
-		})
-	}
-}

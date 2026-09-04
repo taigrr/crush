@@ -1399,31 +1399,6 @@ func (c *coordinator) buildAzureProvider(baseURL, apiKey string, headers map[str
 	return azure.New(opts...)
 }
 
-// mantleGatewayURL returns the OpenAI-compatible endpoint Bedrock Mantle
-// should use when AWS_ENDPOINT_URL_BEDROCK points at a corporate gateway
-// that fronts Bedrock. It returns "" ("leave the configured base URL
-// alone") when the env var is unset/blank or when the user pinned
-// providers.bedrock-mantle.base_url themselves — an explicit pin always
-// wins.
-//
-// The env var is treated as a gateway origin and Mantle's OpenAI-compatible
-// path is appended, but only when it is not already present, so setting the
-// var to either https://gw.example or https://gw.example/openai/v1 yields
-// the same endpoint. Note this is the same variable the native Bedrock
-// provider consumes as-is (its SigV4 root surface); the gateway is expected
-// to route both the native and /openai/v1 surfaces.
-func mantleGatewayURL(userPinned bool) string {
-	gw := strings.TrimSpace(os.Getenv("AWS_ENDPOINT_URL_BEDROCK"))
-	if gw == "" || userPinned {
-		return ""
-	}
-	gw = strings.TrimSuffix(gw, "/")
-	if strings.HasSuffix(gw, "/openai/v1") {
-		return gw
-	}
-	return gw + "/openai/v1"
-}
-
 func (c *coordinator) buildBedrockProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
 	var opts []bedrock.Option
 	if c.cfg.Config().Options.Debug {
@@ -1545,16 +1520,6 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 		switch providerCfg.ID {
 		case hyper.Name:
 			baseURL = hyper.BaseURL() + "/v1"
-		case string(catwalk.InferenceProviderBedrockMantle):
-			// A corporate gateway fronting Bedrock (AWS_ENDPOINT_URL_BEDROCK)
-			// can also front Mantle's OpenAI-compatible surface. Route to it
-			// unless the user pinned providers.bedrock-mantle.base_url, in
-			// which case their explicit choice wins. providerCfg.BaseURL is
-			// the raw, pre-resolution config value, so a non-empty value is
-			// the true "user pinned it" signal.
-			if gw := mantleGatewayURL(providerCfg.BaseURL != ""); gw != "" {
-				baseURL = gw
-			}
 		case string(catwalk.InferenceProviderZAI):
 			if providerCfg.ExtraBody == nil {
 				providerCfg.ExtraBody = map[string]any{}
