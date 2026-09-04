@@ -647,5 +647,5 @@ modernc.org/token v1.1.0 h1:Xl7Ap9dKaEs5kLoOQeQmPWevfnk/DM5qcLcYlA8ys6Y=
 modernc.org/token v1.1.0/go.mod h1:UGzOrNV1mAFSEB63lOFHIpNRUVMvYTc6yu1SMY/XTDM=
 mvdan.cc/sh/moreinterp v0.0.0-20260510185049-f5c6e2779117 h1:JPDzzhmf2Vx9xIXjyyy/TArCIdWb6Bnec7xHirHSXFg=
 mvdan.cc/sh/moreinterp v0.0.0-20260510185049-f5c6e2779117/go.mod h1:SR7UOjTQQhhrUu6d6lNtjAmdqmlMqr0lR/UWTxY8wJM=
-mvdan.cc/sh/v3 v3.14.0 h1:wsPjcfrSXLJomdxwhVZqZ5j5Cue68l549Aj/DCqzbpc=
-mvdan.cc/sh/v3 v3.14.0/go.mod h1:syYCoFET8w9tvevxiXUtY8/ICrU+l26jHmhJDra3Vwo=
+mvdan.cc/sh/v3 v3.14.1-0.20260903180852-b94799068be2 h1:cwH1gtiZXfbdgGSIMDNsXfr66U5AORkN+aMDBX/rZlw=
+mvdan.cc/sh/v3 v3.14.1-0.20260903180852-b94799068be2/go.mod h1:syYCoFET8w9tvevxiXUtY8/ICrU+l26jHmhJDra3Vwo=

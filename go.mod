@@ -81,7 +81,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.58.0
 	mvdan.cc/sh/moreinterp v0.0.0-20260510185049-f5c6e2779117
-	mvdan.cc/sh/v3 v3.14.0 // pinned: v3.13.1 fails to build on windows (undefined access_*_OK)
+	mvdan.cc/sh/v3 v3.14.1-0.20260903180852-b94799068be2 // pinned past v3.14.0: fixes 32-bit freebsd/netbsd build (int32 Atimespec); v3.13.1 fails on windows
 )
 
 require (
