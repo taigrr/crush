@@ -444,6 +444,14 @@ func (w *ClientWorkspace) AgentRunBTW(ctx context.Context, sessionID, prompt str
 	return w.sendOrHold(ctx, heldPrompt{path: w.workspacePath(), sessionID: sessionID, prompt: "[btw] " + prompt, steer: true})
 }
 
+// AgentRunAside folds a message into the active turn at the next step
+// boundary. The empty RunID makes drainQueueForStep fold it rather than
+// give it a turn of its own; unlike AgentRunBTW it does not raise the
+// soft interrupt, so running tools finish at their own pace.
+func (w *ClientWorkspace) AgentRunAside(ctx context.Context, sessionID, prompt string) error {
+	return w.client.SendMessage(ctx, w.workspaceID(), sessionID, "", "[btw] "+prompt)
+}
+
 // AgentSoftInterrupt raises the session's soft interrupt with no message
 // attached: a running shell command is handed back to the model as a
 // background job and the turn continues.
