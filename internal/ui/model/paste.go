@@ -52,12 +52,17 @@ func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
 	}
 
 	if hasPasteExceededThreshold(msg) {
+		// Reserve the paste index here, on the Update goroutine, not
+		// inside the command closure: pasteIdx mutates m.pasteCount and
+		// reads m.attachments, so it must not run on the command
+		// goroutine.
+		idx := m.pasteIdx()
 		return func() tea.Msg {
 			content := []byte(msg.Content)
 			if int64(len(content)) > common.MaxAttachmentSize {
 				return util.ReportWarn("Paste is too big (>5mb)")
 			}
-			name := fmt.Sprintf("paste_%d.txt", m.pasteIdx())
+			name := fmt.Sprintf("paste_%d.txt", idx)
 			mimeBufferSize := min(512, len(content))
 			mimeType := http.DetectContentType(content[:mimeBufferSize])
 			return message.Attachment{
@@ -157,8 +162,10 @@ func (m *UI) handleFilePathPaste(path string) tea.Cmd {
 
 // pasteImageFromClipboard reads image data from the system clipboard and
 // creates an attachment. If no image data is found, it falls back to
-// interpreting clipboard text as a file path.
-func (m *UI) pasteImageFromClipboard() tea.Msg {
+// interpreting clipboard text as a file path. idx is the paste index
+// reserved on the Update goroutine by the caller (see pasteIdx); it is
+// only consumed when clipboard image data is actually attached.
+func (m *UI) pasteImageFromClipboard(idx int) tea.Msg {
 	imageData, err := readClipboard(clipboardFormatImage)
 	if err == nil && len(imageData) > 0 {
 		if int64(len(imageData)) > common.MaxImageAttachmentSize {
@@ -167,7 +174,7 @@ func (m *UI) pasteImageFromClipboard() tea.Msg {
 				Msg:  "Image too large to attach",
 			}
 		}
-		name := fmt.Sprintf("paste_%d.png", m.pasteIdx())
+		name := fmt.Sprintf("paste_%d.png", idx)
 		return message.Attachment{
 			FilePath: name,
 			FileName: name,
@@ -231,11 +238,15 @@ func (m *UI) pasteImageFromClipboard() tea.Msg {
 
 var pasteRE = regexp.MustCompile(`^paste_(\d+)\.(txt|png)$`)
 
-// pasteIdx returns the next paste attachment index for this session. It
-// counts every paste attached so far in the session, not only the ones
-// still pending in the tray, so names never repeat across messages: the
-// inline image renderer caches by file name, and a second "paste_1.png"
-// would be drawn (and could be sent) as the first.
+// pasteIdx returns the next paste attachment index for this session and
+// advances the counter. It counts every paste attached so far in the
+// session, not only the ones still pending in the tray, so names never
+// repeat across messages: the inline image renderer caches by file name,
+// and a second "paste_1.png" would be drawn (and could be sent) as the
+// first.
+//
+// It mutates m.pasteCount and reads m.attachments, so it must be called
+// on the Update goroutine, never from inside a command closure.
 func (m *UI) pasteIdx() int {
 	result := m.pasteCount
 	for _, at := range m.attachments.List() {

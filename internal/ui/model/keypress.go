@@ -239,7 +239,12 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if !m.currentModelSupportsImages() {
 					break
 				}
-				cmds = append(cmds, m.pasteImageFromClipboard)
+				// Reserve the paste index on the Update goroutine;
+				// pasteImageFromClipboard runs as a command off-loop.
+				idx := m.pasteIdx()
+				cmds = append(cmds, func() tea.Msg {
+					return m.pasteImageFromClipboard(idx)
+				})
 
 			case key.Matches(msg, m.keyMap.Editor.SendMessage):
 				prevHeight := m.textarea.Height()
