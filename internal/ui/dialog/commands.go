@@ -493,6 +493,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	// antipattern.
 	if os.Getenv("EDITOR") != "" {
 		commands = append(commands, NewCommandItem(c.com.Styles, "open_external_editor", "Open External Editor", "ctrl+o", ActionExternalEditor{}))
+		commands = append(commands, NewCommandItem(c.com.Styles, "stash_prompt", "Stash/Restore Prompt", "alt+z", ActionToggleStash{}))
 	}
 
 	// Add Docker MCP command if available and not already enabled.

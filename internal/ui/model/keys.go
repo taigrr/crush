@@ -12,6 +12,10 @@ type KeyMap struct {
 		PasteImage  key.Binding
 		MentionFile key.Binding
 		Commands    key.Binding
+		// Stash parks the drafted prompt (text and attachments) so a
+		// different message can be sent first; pressing it again with an
+		// empty editor restores the draft, with a non-empty editor swaps.
+		Stash key.Binding
 
 		// Attachments key maps
 		AttachmentDeleteMode key.Binding
@@ -131,12 +135,12 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+s"),
 			key.WithHelp("ctrl+s", "sessions"),
 		),
-		// alt+s rather than ctrl+shift+s: without the Kitty keyboard
-		// protocol (which Crush does not enable) terminals send the same
-		// byte for ctrl+s and ctrl+shift+s, so the shifted form could
-		// never be told apart from the plain toggle.
+		// Bubble Tea enables Kitty key disambiguation, so terminals that
+		// speak it (Ghostty, kitty, WezTerm, ...) deliver ctrl+shift+s
+		// distinctly; alt+s is the fallback for those that collapse it
+		// onto ctrl+s.
 		PinSessions: key.NewBinding(
-			key.WithKeys("alt+s"),
+			key.WithKeys("alt+s", "ctrl+shift+s"),
 			key.WithHelp("alt+s", "pin sessions"),
 		),
 		Search: key.NewBinding(
@@ -165,6 +169,10 @@ func DefaultKeyMap() KeyMap {
 		),
 	}
 
+	km.Editor.Stash = key.NewBinding(
+		key.WithKeys("ctrl+shift+z", "alt+z"),
+		key.WithHelp("alt+z", "stash prompt"),
+	)
 	km.Editor.AddFile = key.NewBinding(
 		key.WithKeys("/"),
 		key.WithHelp("/", "add file"),

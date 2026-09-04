@@ -96,8 +96,10 @@ type (
 	// ActionToggleSessionsSidebarPin pins/unpins the left session
 	// navigator so it survives session switches.
 	ActionToggleSessionsSidebarPin struct{}
-	ActionToggleNotifications      struct{}
-	ActionSelectNotificationStyle  struct {
+	// ActionToggleStash stashes/restores the drafted prompt.
+	ActionToggleStash             struct{}
+	ActionToggleNotifications     struct{}
+	ActionSelectNotificationStyle struct {
 		Style string
 	}
 	// ActionSelectEmbedding is emitted when an embedding model (or the

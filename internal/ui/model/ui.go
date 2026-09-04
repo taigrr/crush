@@ -275,6 +275,8 @@ type UI struct {
 	// uiFocusLeftSidebar.
 	leftSidebar        *SessionsSidebar
 	leftSidebarVisible bool
+	// stash holds a parked prompt draft (see toggleStash); nil when empty.
+	stash *promptStash
 	// leftSidebarPinned keeps the navigator open across session switches:
 	// activating a session, esc, and h return focus to the editor instead
 	// of collapsing it, and ctrl+s toggles focus rather than visibility.

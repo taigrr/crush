@@ -163,6 +163,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		}
 		cmds = append(cmds, util.ReportInfo("Sysadmin mode "+status))
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionToggleStash:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		cmds = append(cmds, m.toggleStash())
 	case dialog.ActionToggleSessionsSidebarPin:
 		m.dialog.CloseDialog(dialog.CommandsID)
 		if cmd := m.toggleLeftSidebarPin(); cmd != nil {
