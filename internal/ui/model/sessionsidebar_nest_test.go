@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"image/color"
 	"strings"
 	"testing"
@@ -180,6 +181,118 @@ func TestSidebar_BusyNestedWorkerBubblesSubtree(t *testing.T) {
 	s.SetActiveSession("unread")
 	ids, _ = sidebarSessionOrder(s)
 	require.Equal(t, []string{"unread", "orch", "worker", "recent"}, ids)
+}
+
+// The per-workspace cap must never push a busy session (or the spawner
+// it nests under) into the "… N more" overflow row, even when the busy
+// rows alone exceed the cap.
+func TestSidebar_BusyRowsNeverOverflow(t *testing.T) {
+	t.Parallel()
+
+	build := func(busy int) proto.WorkspaceOverview {
+		ws := proto.WorkspaceOverview{Root: "/proj/a", Attached: true}
+		for i := range 20 {
+			ws.Sessions = append(ws.Sessions, proto.SessionOverview{
+				ID:        fmt.Sprintf("idle-%02d", i),
+				Title:     "Idle",
+				UpdatedAt: int64(1000 - i),
+			})
+		}
+		ws.Sessions = append(ws.Sessions, proto.SessionOverview{ID: "orch", Title: "Orchestrator", UpdatedAt: 1})
+		for i := range busy {
+			ws.Sessions = append(ws.Sessions, proto.SessionOverview{
+				ID:                 fmt.Sprintf("busy-%02d", i),
+				Title:              "Busy",
+				UpdatedAt:          int64(i),
+				IsBusy:             true,
+				SpawnedBySessionID: "orch",
+			})
+		}
+		return ws
+	}
+	shownIDs := func(s *SessionsSidebar) map[string]bool {
+		ids, _ := sidebarSessionOrder(s)
+		out := map[string]bool{}
+		for _, id := range ids {
+			out[id] = true
+		}
+		return out
+	}
+	overflowRemaining := func(s *SessionsSidebar) int {
+		for _, r := range s.rows {
+			if r.kind == sidebarRowOverflow {
+				return r.remaining
+			}
+		}
+		return 0
+	}
+
+	t.Run("busy under cap fills remaining slots", func(t *testing.T) {
+		t.Parallel()
+		s := newTestSidebar(t)
+		s.SetOverviews([]proto.WorkspaceOverview{build(2)})
+		// Tight body: cap is the floor of minSessionsPerWorkspace (5).
+		s.Render(30, 9, true)
+		ids, depths := sidebarSessionOrder(s)
+		require.Len(t, ids, minSessionsPerWorkspace)
+		require.Equal(t, []string{"orch", "busy-01", "busy-00", "idle-00", "idle-01"}, ids)
+		require.Equal(t, []int{0, 1, 1, 0, 0}, depths)
+		require.Equal(t, 23-minSessionsPerWorkspace, overflowRemaining(s))
+		require.Equal(t, SessionCounts{Working: 2, Total: 23}, s.SessionCounts())
+	})
+
+	t.Run("busy over cap are all shown", func(t *testing.T) {
+		t.Parallel()
+		s := newTestSidebar(t)
+		s.SetOverviews([]proto.WorkspaceOverview{build(7)})
+		s.Render(30, 9, true)
+		shown := shownIDs(s)
+		require.True(t, shown["orch"], "spawner needed to nest busy workers must be shown")
+		for i := range 7 {
+			require.True(t, shown[fmt.Sprintf("busy-%02d", i)], "busy worker %d must not be in overflow", i)
+		}
+		ids, _ := sidebarSessionOrder(s)
+		require.Len(t, ids, 8, "soft cap: all must-show rows, no idle filler")
+		require.Equal(t, 28-8, overflowRemaining(s))
+		require.Equal(t, SessionCounts{Working: 7, Total: 28}, s.SessionCounts())
+	})
+
+	t.Run("busy workers under separate idle spawners past the cap", func(t *testing.T) {
+		t.Parallel()
+		ws := proto.WorkspaceOverview{Root: "/proj/a", Attached: true}
+		for i := range 20 {
+			ws.Sessions = append(ws.Sessions, proto.SessionOverview{
+				ID:        fmt.Sprintf("idle-%02d", i),
+				Title:     "Idle",
+				UpdatedAt: int64(1000 - i),
+			})
+		}
+		// Both spawners and both workers are the oldest sessions, so by
+		// recency alone all four would sit past the cap of 5.
+		ws.Sessions = append(ws.Sessions,
+			proto.SessionOverview{ID: "orch-a", Title: "Orch A", UpdatedAt: 4},
+			proto.SessionOverview{ID: "orch-b", Title: "Orch B", UpdatedAt: 3},
+			proto.SessionOverview{ID: "busy-a", Title: "Busy A", UpdatedAt: 2, IsBusy: true, SpawnedBySessionID: "orch-a"},
+			proto.SessionOverview{ID: "busy-b", Title: "Busy B", UpdatedAt: 1, IsBusy: true, SpawnedBySessionID: "orch-b"},
+		)
+		s := newTestSidebar(t)
+		s.SetOverviews([]proto.WorkspaceOverview{ws})
+		s.Render(30, 9, true)
+		ids, depths := sidebarSessionOrder(s)
+		require.Equal(t, []string{"orch-a", "busy-a", "orch-b", "busy-b", "idle-00"}, ids)
+		require.Equal(t, []int{0, 1, 0, 1, 0}, depths)
+		require.Equal(t, 24-5, overflowRemaining(s))
+		require.Equal(t, SessionCounts{Working: 2, Total: 24}, s.SessionCounts())
+
+		// The expanded workspace lists everything and keeps the same order
+		// at the top; the toggle row becomes "show less".
+		s.MoveBottom()
+		require.True(t, s.ToggleOverflowUnderCursor())
+		ids, _ = sidebarSessionOrder(s)
+		require.Len(t, ids, 24)
+		require.Equal(t, []string{"orch-a", "busy-a", "orch-b", "busy-b"}, ids[:4])
+		require.Zero(t, overflowRemaining(s))
+	})
 }
 
 // A busy row's title is tinted with the busy color and a pending row's with
