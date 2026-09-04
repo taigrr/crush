@@ -63,6 +63,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteAllEmbeddingsStmt, err = db.PrepareContext(ctx, deleteAllEmbeddings); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteAllEmbeddings: %w", err)
 	}
+	if q.deleteAllSessionQueuesStmt, err = db.PrepareContext(ctx, deleteAllSessionQueues); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAllSessionQueues: %w", err)
+	}
+	if q.deleteAllSwarmReplyObligationsStmt, err = db.PrepareContext(ctx, deleteAllSwarmReplyObligations); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAllSwarmReplyObligations: %w", err)
+	}
 	if q.deleteEmbeddingsBySessionStmt, err = db.PrepareContext(ctx, deleteEmbeddingsBySession); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteEmbeddingsBySession: %w", err)
 	}
@@ -90,6 +96,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteSessionMessagesStmt, err = db.PrepareContext(ctx, deleteSessionMessages); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteSessionMessages: %w", err)
 	}
+	if q.deleteSessionQueueStmt, err = db.PrepareContext(ctx, deleteSessionQueue); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteSessionQueue: %w", err)
+	}
 	if q.deleteSessionSnapshotsStmt, err = db.PrepareContext(ctx, deleteSessionSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteSessionSnapshots: %w", err)
 	}
@@ -98,6 +107,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deleteSnapshotStmt, err = db.PrepareContext(ctx, deleteSnapshot); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteSnapshot: %w", err)
+	}
+	if q.deleteSwarmReplyObligationsStmt, err = db.PrepareContext(ctx, deleteSwarmReplyObligations); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteSwarmReplyObligations: %w", err)
 	}
 	if q.deleteWorktreeStmt, err = db.PrepareContext(ctx, deleteWorktree); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteWorktree: %w", err)
@@ -171,6 +183,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.hasEmbeddingStmt, err = db.PrepareContext(ctx, hasEmbedding); err != nil {
 		return nil, fmt.Errorf("error preparing query HasEmbedding: %w", err)
 	}
+	if q.insertSessionQueueEntryStmt, err = db.PrepareContext(ctx, insertSessionQueueEntry); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertSessionQueueEntry: %w", err)
+	}
+	if q.insertSwarmReplyObligationStmt, err = db.PrepareContext(ctx, insertSwarmReplyObligation); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertSwarmReplyObligation: %w", err)
+	}
 	if q.listAllMessagesStmt, err = db.PrepareContext(ctx, listAllMessages); err != nil {
 		return nil, fmt.Errorf("error preparing query ListAllMessages: %w", err)
 	}
@@ -210,6 +228,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listNewFilesStmt, err = db.PrepareContext(ctx, listNewFiles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListNewFiles: %w", err)
 	}
+	if q.listSessionQueueStmt, err = db.PrepareContext(ctx, listSessionQueue); err != nil {
+		return nil, fmt.Errorf("error preparing query ListSessionQueue: %w", err)
+	}
 	if q.listSessionReadFilesStmt, err = db.PrepareContext(ctx, listSessionReadFiles); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSessionReadFiles: %w", err)
 	}
@@ -224,6 +245,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listSourceIDsForSignatureStmt, err = db.PrepareContext(ctx, listSourceIDsForSignature); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSourceIDsForSignature: %w", err)
+	}
+	if q.listSwarmReplyObligationsStmt, err = db.PrepareContext(ctx, listSwarmReplyObligations); err != nil {
+		return nil, fmt.Errorf("error preparing query ListSwarmReplyObligations: %w", err)
 	}
 	if q.listUserMessagesBySessionStmt, err = db.PrepareContext(ctx, listUserMessagesBySession); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUserMessagesBySession: %w", err)
@@ -349,6 +373,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deleteAllEmbeddingsStmt: %w", cerr)
 		}
 	}
+	if q.deleteAllSessionQueuesStmt != nil {
+		if cerr := q.deleteAllSessionQueuesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAllSessionQueuesStmt: %w", cerr)
+		}
+	}
+	if q.deleteAllSwarmReplyObligationsStmt != nil {
+		if cerr := q.deleteAllSwarmReplyObligationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAllSwarmReplyObligationsStmt: %w", cerr)
+		}
+	}
 	if q.deleteEmbeddingsBySessionStmt != nil {
 		if cerr := q.deleteEmbeddingsBySessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteEmbeddingsBySessionStmt: %w", cerr)
@@ -394,6 +428,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deleteSessionMessagesStmt: %w", cerr)
 		}
 	}
+	if q.deleteSessionQueueStmt != nil {
+		if cerr := q.deleteSessionQueueStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteSessionQueueStmt: %w", cerr)
+		}
+	}
 	if q.deleteSessionSnapshotsStmt != nil {
 		if cerr := q.deleteSessionSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteSessionSnapshotsStmt: %w", cerr)
@@ -407,6 +446,11 @@ func (q *Queries) Close() error {
 	if q.deleteSnapshotStmt != nil {
 		if cerr := q.deleteSnapshotStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteSnapshotStmt: %w", cerr)
+		}
+	}
+	if q.deleteSwarmReplyObligationsStmt != nil {
+		if cerr := q.deleteSwarmReplyObligationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteSwarmReplyObligationsStmt: %w", cerr)
 		}
 	}
 	if q.deleteWorktreeStmt != nil {
@@ -529,6 +573,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing hasEmbeddingStmt: %w", cerr)
 		}
 	}
+	if q.insertSessionQueueEntryStmt != nil {
+		if cerr := q.insertSessionQueueEntryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertSessionQueueEntryStmt: %w", cerr)
+		}
+	}
+	if q.insertSwarmReplyObligationStmt != nil {
+		if cerr := q.insertSwarmReplyObligationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertSwarmReplyObligationStmt: %w", cerr)
+		}
+	}
 	if q.listAllMessagesStmt != nil {
 		if cerr := q.listAllMessagesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listAllMessagesStmt: %w", cerr)
@@ -594,6 +648,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listNewFilesStmt: %w", cerr)
 		}
 	}
+	if q.listSessionQueueStmt != nil {
+		if cerr := q.listSessionQueueStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listSessionQueueStmt: %w", cerr)
+		}
+	}
 	if q.listSessionReadFilesStmt != nil {
 		if cerr := q.listSessionReadFilesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listSessionReadFilesStmt: %w", cerr)
@@ -617,6 +676,11 @@ func (q *Queries) Close() error {
 	if q.listSourceIDsForSignatureStmt != nil {
 		if cerr := q.listSourceIDsForSignatureStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listSourceIDsForSignatureStmt: %w", cerr)
+		}
+	}
+	if q.listSwarmReplyObligationsStmt != nil {
+		if cerr := q.listSwarmReplyObligationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listSwarmReplyObligationsStmt: %w", cerr)
 		}
 	}
 	if q.listUserMessagesBySessionStmt != nil {
@@ -761,6 +825,8 @@ type Queries struct {
 	createWorktreeStmt                      *sql.Stmt
 	deactivateSessionWorktreesStmt          *sql.Stmt
 	deleteAllEmbeddingsStmt                 *sql.Stmt
+	deleteAllSessionQueuesStmt              *sql.Stmt
+	deleteAllSwarmReplyObligationsStmt      *sql.Stmt
 	deleteEmbeddingsBySessionStmt           *sql.Stmt
 	deleteEmbeddingsBySourceStmt            *sql.Stmt
 	deleteEmbeddingsExceptSignatureStmt     *sql.Stmt
@@ -770,9 +836,11 @@ type Queries struct {
 	deleteSessionStmt                       *sql.Stmt
 	deleteSessionFilesStmt                  *sql.Stmt
 	deleteSessionMessagesStmt               *sql.Stmt
+	deleteSessionQueueStmt                  *sql.Stmt
 	deleteSessionSnapshotsStmt              *sql.Stmt
 	deleteSessionWorktreesStmt              *sql.Stmt
 	deleteSnapshotStmt                      *sql.Stmt
+	deleteSwarmReplyObligationsStmt         *sql.Stmt
 	deleteWorktreeStmt                      *sql.Stmt
 	findSessionsByColorAnimalStmt           *sql.Stmt
 	getActiveWorktreeStmt                   *sql.Stmt
@@ -797,6 +865,8 @@ type Queries struct {
 	getWorktreeStmt                         *sql.Stmt
 	getWorktreeByNameStmt                   *sql.Stmt
 	hasEmbeddingStmt                        *sql.Stmt
+	insertSessionQueueEntryStmt             *sql.Stmt
+	insertSwarmReplyObligationStmt          *sql.Stmt
 	listAllMessagesStmt                     *sql.Stmt
 	listAllSnapshotsStmt                    *sql.Stmt
 	listAllUserMessagesStmt                 *sql.Stmt
@@ -810,11 +880,13 @@ type Queries struct {
 	listMessagesBySessionStmt               *sql.Stmt
 	listMilestonesBySessionStmt             *sql.Stmt
 	listNewFilesStmt                        *sql.Stmt
+	listSessionQueueStmt                    *sql.Stmt
 	listSessionReadFilesStmt                *sql.Stmt
 	listSessionsStmt                        *sql.Stmt
 	listSessionsMissingSwarmIdentityStmt    *sql.Stmt
 	listSnapshotsStmt                       *sql.Stmt
 	listSourceIDsForSignatureStmt           *sql.Stmt
+	listSwarmReplyObligationsStmt           *sql.Stmt
 	listUserMessagesBySessionStmt           *sql.Stmt
 	listWorktreesStmt                       *sql.Stmt
 	markSessionFinishedStmt                 *sql.Stmt
@@ -852,6 +924,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createWorktreeStmt:                      q.createWorktreeStmt,
 		deactivateSessionWorktreesStmt:          q.deactivateSessionWorktreesStmt,
 		deleteAllEmbeddingsStmt:                 q.deleteAllEmbeddingsStmt,
+		deleteAllSessionQueuesStmt:              q.deleteAllSessionQueuesStmt,
+		deleteAllSwarmReplyObligationsStmt:      q.deleteAllSwarmReplyObligationsStmt,
 		deleteEmbeddingsBySessionStmt:           q.deleteEmbeddingsBySessionStmt,
 		deleteEmbeddingsBySourceStmt:            q.deleteEmbeddingsBySourceStmt,
 		deleteEmbeddingsExceptSignatureStmt:     q.deleteEmbeddingsExceptSignatureStmt,
@@ -861,9 +935,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteSessionStmt:                       q.deleteSessionStmt,
 		deleteSessionFilesStmt:                  q.deleteSessionFilesStmt,
 		deleteSessionMessagesStmt:               q.deleteSessionMessagesStmt,
+		deleteSessionQueueStmt:                  q.deleteSessionQueueStmt,
 		deleteSessionSnapshotsStmt:              q.deleteSessionSnapshotsStmt,
 		deleteSessionWorktreesStmt:              q.deleteSessionWorktreesStmt,
 		deleteSnapshotStmt:                      q.deleteSnapshotStmt,
+		deleteSwarmReplyObligationsStmt:         q.deleteSwarmReplyObligationsStmt,
 		deleteWorktreeStmt:                      q.deleteWorktreeStmt,
 		findSessionsByColorAnimalStmt:           q.findSessionsByColorAnimalStmt,
 		getActiveWorktreeStmt:                   q.getActiveWorktreeStmt,
@@ -888,6 +964,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getWorktreeStmt:                         q.getWorktreeStmt,
 		getWorktreeByNameStmt:                   q.getWorktreeByNameStmt,
 		hasEmbeddingStmt:                        q.hasEmbeddingStmt,
+		insertSessionQueueEntryStmt:             q.insertSessionQueueEntryStmt,
+		insertSwarmReplyObligationStmt:          q.insertSwarmReplyObligationStmt,
 		listAllMessagesStmt:                     q.listAllMessagesStmt,
 		listAllSnapshotsStmt:                    q.listAllSnapshotsStmt,
 		listAllUserMessagesStmt:                 q.listAllUserMessagesStmt,
@@ -901,11 +979,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listMessagesBySessionStmt:               q.listMessagesBySessionStmt,
 		listMilestonesBySessionStmt:             q.listMilestonesBySessionStmt,
 		listNewFilesStmt:                        q.listNewFilesStmt,
+		listSessionQueueStmt:                    q.listSessionQueueStmt,
 		listSessionReadFilesStmt:                q.listSessionReadFilesStmt,
 		listSessionsStmt:                        q.listSessionsStmt,
 		listSessionsMissingSwarmIdentityStmt:    q.listSessionsMissingSwarmIdentityStmt,
 		listSnapshotsStmt:                       q.listSnapshotsStmt,
 		listSourceIDsForSignatureStmt:           q.listSourceIDsForSignatureStmt,
+		listSwarmReplyObligationsStmt:           q.listSwarmReplyObligationsStmt,
 		listUserMessagesBySessionStmt:           q.listUserMessagesBySessionStmt,
 		listWorktreesStmt:                       q.listWorktreesStmt,
 		markSessionFinishedStmt:                 q.markSessionFinishedStmt,
