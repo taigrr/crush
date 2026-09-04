@@ -29,6 +29,23 @@ const (
 	BackgroundHintDelay = 2 * time.Second
 )
 
+// backgroundJobAction maps the bash tool's BackgroundReason onto the job
+// header's action label so the user can see why a command ended up as a
+// job: started that way, timed out, hurried along by a steer, or moved
+// by them with alt+b.
+func backgroundJobAction(reason string) string {
+	switch reason {
+	case "user":
+		return "Backgrounded"
+	case "steer":
+		return "Backgrounded: steer"
+	case "timeout":
+		return "Backgrounded: timeout"
+	default:
+		return "Start"
+	}
+}
+
 // bashBackgroundHint returns the "alt+b to background" affordance for a
 // bash call that has been running long enough to be worth backgrounding,
 // or an empty string otherwise.
@@ -92,7 +109,7 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	if meta.Background {
 		description := cmp.Or(meta.Description, params.Command)
 		content := "Command: " + params.Command + "\n" + opts.Result.Content
-		return renderJobTool(sty, opts, cappedWidth, "Start", meta.ShellID, description, content)
+		return renderJobTool(sty, opts, cappedWidth, backgroundJobAction(meta.BackgroundReason), meta.ShellID, description, content)
 	}
 
 	// Regular bash command.
