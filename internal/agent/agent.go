@@ -63,6 +63,16 @@ type SessionAgentCall struct {
 	// ambiguous when concurrent turns share the same session.
 	RunID  string
 	Prompt string
+	// Steer marks a mid-turn steering message. It only has an effect when
+	// the session is busy and the call is enqueued: in addition to the
+	// usual fold-at-next-step behavior of a call without a RunID, the
+	// agent raises the session's soft interrupt so tools that opt in
+	// (see tools.SoftInterrupt) wrap up the current step early and the
+	// steer is delivered sooner. It never cancels a tool or a turn. A
+	// steer should carry an empty RunID so it folds rather than waiting
+	// for its own turn; callers that set a RunID get the queued-turn
+	// behavior plus the early wrap-up.
+	Steer bool
 	// ResolveModel, when non-nil, returns the model this turn runs on
 	// instead of the agent's large model. The coordinator sets it for
 	// sub-agent runs from the tool's per-call `model` parameter or the
@@ -134,6 +144,12 @@ type SessionAgent interface {
 	SetSystemPrompt(systemPrompt string)
 	Cancel(sessionID string)
 	CancelAll()
+	// SoftInterrupt asks the tools running in the session's current step
+	// to wrap up early without cancelling them (see tools.SoftInterrupt).
+	// The model then sees their (complete) results and continues the
+	// turn. It is a no-op for an idle session and idempotent within a
+	// step; the next step re-arms it.
+	SoftInterrupt(sessionID string)
 	IsSessionBusy(sessionID string) bool
 	IsSessionBusyOrAccepted(sessionID string) bool
 	IsBusy() bool
@@ -185,6 +201,15 @@ type sessionAgent struct {
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, context.CancelFunc]
 	goals          *csync.Map[string, *goalState] // active /goal state per session
+	// softInterrupts holds, per busy session, the channel handed to the
+	// current step's tools via tools.WithSoftInterrupt. It is re-armed
+	// (replaced with a fresh open channel) at every PrepareStep under the
+	// session's dispatch mutex, atomically with the queue drain, and
+	// closed by SoftInterrupt / a Steer enqueue under the same mutex.
+	// That ordering guarantees a steer is either folded into the step
+	// being prepared or interrupts the step that was just armed — never
+	// lost between the two.
+	softInterrupts *csync.Map[string, chan struct{}]
 
 	// queueJournal, when non-nil, receives a snapshot of a session's
 	// queue after every mutation so the queue survives a server swap.
@@ -346,6 +371,7 @@ func NewSessionAgent(
 		acceptedRuns:         csync.NewMap[string, int](),
 		cancelMark:           csync.NewMap[string, uint64](),
 		goals:                csync.NewMap[string, *goalState](),
+		softInterrupts:       csync.NewMap[string, chan struct{}](),
 		idleCh:               make(chan struct{}),
 	}
 }

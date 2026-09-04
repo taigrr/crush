@@ -232,9 +232,18 @@ func (a *sessionAgent) enqueueCall(call SessionAgentCall) {
 // RunID-bearing prompt an explicit lifecycle instead of being silently
 // absorbed into another turn. fold is processed by the caller without the
 // lock held.
-func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceled []SessionAgentCall) {
+//
+// The session's soft interrupt is re-armed under the same lock and the
+// fresh channel is returned in softInterrupt for the caller to hand to
+// this step's tools. Doing both under one lock acquisition is what makes
+// a concurrent Steer safe: it either enqueues before the drain (and is
+// folded here, closing only the previous step's channel, which nobody
+// observes anymore) or after it (closing the channel returned here, so
+// the tools of this step wrap up early and the next drain folds it).
+func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceled []SessionAgentCall, softInterrupt <-chan struct{}) {
 	dispatchLock := a.sessionMu(sessionID)
 	dispatchLock.Lock()
+	softInterrupt = a.armSoftInterruptLocked(sessionID)
 	queuedCalls, _ := a.messageQueue.Get(sessionID)
 	var keep []SessionAgentCall
 	for _, queued := range queuedCalls {
@@ -263,7 +272,40 @@ func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceled []Ses
 		a.journalQueue(sessionID)
 	}
 	a.notifyDispatched(fold...)
-	return fold, canceled
+	return fold, canceled, softInterrupt
+}
+
+// armSoftInterruptLocked replaces the session's soft-interrupt channel
+// with a fresh open one and returns it. Callers must hold the session's
+// dispatch mutex. A previous channel that was never closed is simply
+// dropped: an interrupt is scoped to the step it was raised in, so a
+// later step must not inherit it.
+func (a *sessionAgent) armSoftInterruptLocked(sessionID string) <-chan struct{} {
+	ch := make(chan struct{})
+	a.softInterrupts.Set(sessionID, ch)
+	return ch
+}
+
+// softInterruptLocked closes the session's current soft-interrupt
+// channel, if any, waking every tool selecting on it. Callers must hold
+// the session's dispatch mutex. The closed channel is removed so a second
+// call within the same step is a no-op rather than a double close; the
+// next PrepareStep arms a new one.
+func (a *sessionAgent) softInterruptLocked(sessionID string) {
+	ch, ok := a.softInterrupts.Take(sessionID)
+	if !ok || ch == nil {
+		return
+	}
+	slog.Debug("Soft interrupt raised", "session_id", sessionID)
+	close(ch)
+}
+
+// SoftInterrupt implements SessionAgent.
+func (a *sessionAgent) SoftInterrupt(sessionID string) {
+	mu := a.sessionMu(sessionID)
+	mu.Lock()
+	defer mu.Unlock()
+	a.softInterruptLocked(sessionID)
 }
 
 // publishCanceledQueueDrops emits a terminal cancelled RunComplete for
@@ -597,6 +639,10 @@ func (a *sessionAgent) IsSessionBusyOrAccepted(sessionID string) bool {
 // through here so the idle wakeup is never missed.
 func (a *sessionAgent) clearActiveRequest(sessionID string) {
 	a.activeRequests.Del(sessionID)
+	// The step that owned the current soft-interrupt channel is over;
+	// drop it so a SoftInterrupt on the now-idle session is a no-op and
+	// the next turn starts from a clean slate.
+	a.softInterrupts.Del(sessionID)
 	a.signalIdle()
 }
 

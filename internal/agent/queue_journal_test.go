@@ -285,7 +285,7 @@ func TestDeferCall_WithRunIDIsNotFoldedIntoActiveTurn(t *testing.T) {
 	sa.deferCall(SessionAgentCall{SessionID: "s", RunID: "run-deferred", Prompt: "deferred"}, false)
 	sa.deferCall(SessionAgentCall{SessionID: "s", Prompt: "aside"}, false)
 
-	fold, canceled := sa.drainQueueForStep("s")
+	fold, canceled, _ := sa.drainQueueForStep("s")
 	require.Empty(t, canceled)
 	require.Len(t, fold, 1, "only the id-less aside folds")
 	require.Equal(t, "aside", fold[0].Prompt)

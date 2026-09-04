@@ -101,6 +101,10 @@ type Coordinator interface {
 	BeginAccepted(sessionID string) *AcceptedRun
 	Cancel(sessionID string)
 	CancelAll()
+	// SoftInterrupt asks the tools running in the session's current step
+	// to wrap up early without cancelling them; see
+	// SessionAgent.SoftInterrupt.
+	SoftInterrupt(sessionID string)
 	IsSessionBusy(sessionID string) bool
 	// IsSessionBusyOrAccepted also counts a run that has been accepted
 	// (dispatched) but not yet registered as active. Observers listing
@@ -741,6 +745,10 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	// the coalesce closure publishes the final outcome under that
 	// same correlator.
 	runID := RunIDFromContext(ctx)
+	// A steer (set via agent.WithSteer at the HTTP boundary) only
+	// matters for the first Run on this dispatch; goal-driven
+	// continuations are ordinary turns.
+	steer := SteerFromContext(ctx)
 	// currentPrompt/Attachments/Accept change across goal continuations:
 	// the first turn uses the caller's prompt and accept reservation;
 	// each goal-driven continuation injects a fresh directive with no
@@ -763,6 +771,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 			call := tuning.apply(SessionAgentCall{
 				SessionID:   sessionID,
 				RunID:       runID,
+				Steer:       steer,
 				Prompt:      currentPrompt,
 				SwarmParts:  currentSwarmParts,
 				Attachments: currentAttachments,
@@ -830,6 +839,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 			currentAttachments = nil
 			currentAccept = nil
 			currentSwarmParts = nil
+			steer = false
 			continue
 		}
 		cont, contPrompt := c.currentAgent.AdvanceGoal(ctx, sessionID)
@@ -840,6 +850,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		currentAttachments = nil
 		currentAccept = nil
 		currentSwarmParts = nil
+		steer = false
 	}
 
 	if hasLatest && c.runComplete != nil {
@@ -1940,6 +1951,10 @@ func (c *coordinator) Cancel(sessionID string) {
 
 func (c *coordinator) CancelAll() {
 	c.currentAgent.CancelAll()
+}
+
+func (c *coordinator) SoftInterrupt(sessionID string) {
+	c.currentAgent.SoftInterrupt(sessionID)
 }
 
 func (c *coordinator) ClearQueue(sessionID string) {

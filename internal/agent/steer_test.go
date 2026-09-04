@@ -1,0 +1,265 @@
+package agent
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/agent/tools"
+	"github.com/taigrr/fantasy"
+)
+
+// toolThenFinishModel emits a single call to the "wait" tool on its first
+// Stream and a plain text finish on every later one. It records the prompt
+// of each Stream call so tests can assert on the messages the model saw at
+// each step boundary.
+type toolThenFinishModel struct {
+	mu      sync.Mutex
+	prompts []fantasy.Prompt
+}
+
+func (m *toolThenFinishModel) Provider() string { return "fake" }
+func (m *toolThenFinishModel) Model() string    { return "fake-model" }
+
+func (m *toolThenFinishModel) record(call fantasy.Call) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.prompts = append(m.prompts, call.Prompt)
+	return len(m.prompts)
+}
+
+func (m *toolThenFinishModel) Prompts() []fantasy.Prompt {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]fantasy.Prompt(nil), m.prompts...)
+}
+
+func (m *toolThenFinishModel) Generate(context.Context, fantasy.Call) (*fantasy.Response, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *toolThenFinishModel) Stream(ctx context.Context, call fantasy.Call) (fantasy.StreamResponse, error) {
+	n := m.record(call)
+	return func(yield func(fantasy.StreamPart) bool) {
+		if n == 1 {
+			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputStart, ID: "tc-1", ToolCallName: "wait"}) {
+				return
+			}
+			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolInputEnd, ID: "tc-1"}) {
+				return
+			}
+			if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: "tc-1", ToolCallName: "wait", ToolCallInput: `{}`}) {
+				return
+			}
+			yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonToolCalls})
+			return
+		}
+		if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextStart, ID: "t"}) {
+			return
+		}
+		if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: "t", Delta: "done"}) {
+			return
+		}
+		if !yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextEnd, ID: "t"}) {
+			return
+		}
+		yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeFinish, FinishReason: fantasy.FinishReasonStop})
+	}, nil
+}
+
+func (m *toolThenFinishModel) GenerateObject(context.Context, fantasy.ObjectCall) (*fantasy.ObjectResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *toolThenFinishModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.ObjectStreamResponse, error) {
+	return nil, errors.New("not implemented")
+}
+
+type waitToolParams struct{}
+
+// newWaitTool returns a tool that blocks until it is soft-interrupted (or
+// a generous safety timeout elapses) and reports which one happened. It
+// signals started once it is inside the wait so the test can act while
+// the step is genuinely in flight.
+func newWaitTool(started chan<- struct{}) fantasy.AgentTool {
+	return fantasy.NewAgentTool("wait", "blocks until soft-interrupted",
+		func(ctx context.Context, _ waitToolParams, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			started <- struct{}{}
+			select {
+			case <-tools.SoftInterrupt(ctx):
+				return fantasy.NewTextResponse("interrupted"), nil
+			case <-time.After(5 * time.Second):
+				return fantasy.NewTextResponse("timeout"), nil
+			case <-ctx.Done():
+				return fantasy.ToolResponse{}, ctx.Err()
+			}
+		})
+}
+
+// toolResultText digs the text of a tool result part out of a prompt.
+func toolResultText(t *testing.T, p fantasy.Prompt) string {
+	t.Helper()
+	for _, msg := range p {
+		if msg.Role != fantasy.MessageRoleTool {
+			continue
+		}
+		for _, part := range msg.Content {
+			tr, ok := fantasy.AsMessagePart[fantasy.ToolResultPart](part)
+			if !ok {
+				continue
+			}
+			if txt, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](tr.Output); ok {
+				return txt.Text
+			}
+		}
+	}
+	t.Fatal("no tool result in prompt")
+	return ""
+}
+
+func userTexts(p fantasy.Prompt) []string {
+	var out []string
+	for _, msg := range p {
+		if msg.Role != fantasy.MessageRoleUser {
+			continue
+		}
+		for _, part := range msg.Content {
+			if tp, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok {
+				out = append(out, tp.Text)
+			}
+		}
+	}
+	return out
+}
+
+func TestRun_SteerSoftInterruptsToolAndFoldsAtNextStep(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	started := make(chan struct{}, 1)
+	model := &toolThenFinishModel{}
+	sa := testSessionAgent(env, model, &finishStreamModel{text: "title"}, "system", newWaitTool(started)).(*sessionAgent)
+
+	sess, err := env.sessions.Create(t.Context(), "session")
+	require.NoError(t, err)
+
+	mainDone := make(chan error, 1)
+	go func() {
+		_, runErr := sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, RunID: "run-main", Prompt: "main"})
+		mainDone <- runErr
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool never started")
+	}
+
+	// The session is busy inside a tool: a steer must queue (no turn of
+	// its own) and wake the tool early.
+	res, err := sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, Prompt: "steer", Steer: true})
+	require.NoError(t, err)
+	require.Nil(t, res, "a steer on a busy session must be queued, not run as its own turn")
+
+	select {
+	case err := <-mainDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("main turn did not finish")
+	}
+
+	prompts := model.Prompts()
+	require.Len(t, prompts, 2, "one step for the tool call, one after the fold")
+	require.Equal(t, "interrupted", toolResultText(t, prompts[1]),
+		"the steer must wake the tool via the soft interrupt, not let it time out")
+	require.Contains(t, userTexts(prompts[1]), "steer",
+		"the steer must be folded into the step right after the interrupted tool")
+
+	// Ordering: the steer must come after the tool result, never between
+	// the tool_use and its tool_result.
+	step2 := prompts[1]
+	toolIdx, steerIdx := -1, -1
+	for i, msg := range step2 {
+		switch msg.Role {
+		case fantasy.MessageRoleTool:
+			toolIdx = i
+		case fantasy.MessageRoleUser:
+			for _, part := range msg.Content {
+				if tp, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok && tp.Text == "steer" {
+					steerIdx = i
+				}
+			}
+		}
+	}
+	require.Greater(t, steerIdx, toolIdx, "steer must follow the tool result")
+	require.Equal(t, fantasy.MessageRoleAssistant, step2[toolIdx-1].Role, "tool result must directly follow its tool_use")
+
+	require.Equal(t, 0, sa.QueuedPrompts(sess.ID), "the steer must have been consumed by the fold")
+	_, live := sa.softInterrupts.Get(sess.ID)
+	require.False(t, live, "soft-interrupt channel must be dropped once the session goes idle")
+}
+
+func TestRun_SoftInterruptAloneWakesToolWithoutMessage(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	started := make(chan struct{}, 1)
+	model := &toolThenFinishModel{}
+	sa := testSessionAgent(env, model, &finishStreamModel{text: "title"}, "system", newWaitTool(started)).(*sessionAgent)
+
+	sess, err := env.sessions.Create(t.Context(), "session")
+	require.NoError(t, err)
+
+	mainDone := make(chan error, 1)
+	go func() {
+		_, runErr := sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, RunID: "run-main", Prompt: "main"})
+		mainDone <- runErr
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool never started")
+	}
+
+	sa.SoftInterrupt(sess.ID)
+	// Idempotent within a step: a second call must not double-close.
+	sa.SoftInterrupt(sess.ID)
+
+	select {
+	case err := <-mainDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("main turn did not finish")
+	}
+
+	prompts := model.Prompts()
+	require.Len(t, prompts, 2)
+	require.Equal(t, "interrupted", toolResultText(t, prompts[1]))
+	require.NotContains(t, userTexts(prompts[1]), "steer")
+	require.Equal(t, len(userTexts(prompts[0])), len(userTexts(prompts[1])),
+		"a bare soft interrupt must not inject a user message")
+}
+
+func TestSoftInterrupt_IdleSessionIsNoop(t *testing.T) {
+	t.Parallel()
+	env := testEnv(t)
+	sa := testSessionAgent(env, &finishStreamModel{text: "x"}, &finishStreamModel{text: "title"}, "system").(*sessionAgent)
+	require.NotPanics(t, func() { sa.SoftInterrupt("nobody-home") })
+	_, ok := sa.softInterrupts.Get("nobody-home")
+	require.False(t, ok)
+}
+
+func TestRun_SteerOnIdleSessionRunsNormally(t *testing.T) {
+	t.Parallel()
+	env := testEnv(t)
+	sa := testSessionAgent(env, &finishStreamModel{text: "ok"}, &finishStreamModel{text: "title"}, "system")
+	sess, err := env.sessions.Create(t.Context(), "session")
+	require.NoError(t, err)
+	res, err := sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, Prompt: "hello", Steer: true})
+	require.NoError(t, err)
+	require.NotNil(t, res, "a steer on an idle session is just a normal turn")
+}

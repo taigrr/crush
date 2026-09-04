@@ -32,6 +32,7 @@ func (c *recordingCoordinator) Cancel(sessionID string) {
 }
 
 func (c *recordingCoordinator) CancelAll()                                    { c.cancelAllHits.Add(1) }
+func (c *recordingCoordinator) SoftInterrupt(sessionID string)                {}
 func (c *recordingCoordinator) IsBusy() bool                                  { return false }
 func (c *recordingCoordinator) IsSessionBusy(string) bool                     { return false }
 func (c *recordingCoordinator) IsSessionBusyOrAccepted(string) bool           { return false }
