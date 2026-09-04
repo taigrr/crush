@@ -14,6 +14,7 @@ import (
 	"github.com/rivo/uniseg"
 	"github.com/sahilm/fuzzy"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/swarm"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/styles"
@@ -55,6 +56,10 @@ type SessionItem struct {
 	// marked reports whether this session is in the popup's multi-select
 	// set; when true the row renders a ✓ prefix instead of the swarm square.
 	marked bool
+	// spawnerLabel is the "by color-animal" note shown in the info column
+	// when the session was spawned by another session (swarm lineage) that
+	// is present in the picker. Empty otherwise.
+	spawnerLabel string
 }
 
 // Finished implements list.Item. Session items are render-stable
@@ -111,6 +116,9 @@ func (s *SessionItem) Cursor() *tea.Cursor {
 // Render returns the string representation of the session item.
 func (s *SessionItem) Render(width int) string {
 	info := humanize.Time(time.Unix(s.UpdatedAt, 0))
+	if s.spawnerLabel != "" {
+		info = s.spawnerLabel + " · " + info
+	}
 	styles := ListItemStyles{
 		ItemBlurred:     s.t.Dialog.NormalItem,
 		ItemFocused:     s.t.Dialog.SelectedItem,
@@ -309,11 +317,12 @@ func (s *SeparatorItem) Render(width int) string {
 }
 
 // sessionItems takes a slice of [session.Session]s and convert them to a slice
-// of [ListItem]s.
-func sessionItems(t *styles.Styles, mode sessionsMode, sessions ...session.Session) []list.FilterableItem {
+// of [ListItem]s. spawners maps a session id to the swarm address label of
+// the session that spawned it (see [spawnerLabels]); nil disables the note.
+func sessionItems(t *styles.Styles, mode sessionsMode, spawners map[string]string, sessions ...session.Session) []list.FilterableItem {
 	items := make([]list.FilterableItem, len(sessions))
 	for i, s := range sessions {
-		item := &SessionItem{Versioned: list.NewVersioned(), Session: s, t: t, sessionsMode: mode}
+		item := &SessionItem{Versioned: list.NewVersioned(), Session: s, t: t, sessionsMode: mode, spawnerLabel: spawners[s.ID]}
 		if mode == sessionsModeUpdating {
 			item.updateTitleInput = textinput.New()
 			item.updateTitleInput.SetVirtualCursor(false)
@@ -326,6 +335,32 @@ func sessionItems(t *styles.Styles, mode sessionsMode, sessions ...session.Sessi
 		items[i] = item
 	}
 	return items
+}
+
+// spawnerLabels resolves swarm lineage into display notes: for every
+// session whose SpawnedBySessionID names another session in the given
+// lists, the result maps the spawned session's id to "by <color-animal>"
+// of its spawner. Sessions whose spawner is unknown here (another
+// workspace, deleted) get no note rather than a bare id.
+func spawnerLabels(lists ...[]session.Session) map[string]string {
+	byID := make(map[string]session.Session)
+	for _, l := range lists {
+		for _, s := range l {
+			byID[s.ID] = s
+		}
+	}
+	out := make(map[string]string)
+	for id, s := range byID {
+		if s.SpawnedBySessionID == "" || s.SpawnedBySessionID == id {
+			continue
+		}
+		spawner, ok := byID[s.SpawnedBySessionID]
+		if !ok || spawner.Color == "" || spawner.Animal == "" {
+			continue
+		}
+		out[id] = "by " + swarm.Identity{Color: spawner.Color, Animal: spawner.Animal}.String()
+	}
+	return out
 }
 
 func matchedRanges(in []int) [][2]int {
