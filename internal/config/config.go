@@ -306,6 +306,11 @@ func (c Completions) Limits() (depth, items int) {
 
 type Permissions struct {
 	AllowedTools []string `json:"allowed_tools,omitempty" jsonschema:"description=List of tools that don't require permission prompts,example=bash,example=view"`
+	// Sysadmin starts every workspace with sysadmin mode on, so the bash
+	// tool's sysadmin command filter is a no-op from the first turn. The
+	// palette toggle still works and overrides this for the running
+	// process.
+	Sysadmin bool `json:"sysadmin,omitempty" jsonschema:"description=Start with sysadmin mode enabled (bash sysadmin command filter off). Defaults to false."`
 }
 
 type TrailerStyle string

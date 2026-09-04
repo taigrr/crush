@@ -660,6 +660,10 @@
           },
           "type": "array",
           "description": "List of tools that don't require permission prompts"
+        },
+        "sysadmin": {
+          "type": "boolean",
+          "description": "Start with sysadmin mode enabled (bash sysadmin command filter off). Defaults to false."
         }
       },
       "additionalProperties": false,
