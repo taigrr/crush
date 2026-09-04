@@ -97,7 +97,10 @@ type (
 	// navigator so it survives session switches.
 	ActionToggleSessionsSidebarPin struct{}
 	// ActionToggleStash stashes/restores the drafted prompt.
-	ActionToggleStash             struct{}
+	ActionToggleStash struct{}
+	// ActionForkLatest opens the fork dialog at the open session's most
+	// recent user message.
+	ActionForkLatest              struct{}
 	ActionToggleNotifications     struct{}
 	ActionSelectNotificationStyle struct {
 		Style string

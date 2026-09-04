@@ -431,6 +431,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	commands := []*CommandItem{
 		NewCommandItem(c.com.Styles, "new_session", "New Session", "ctrl+n", ActionNewSession{}),
 		NewCommandItem(c.com.Styles, "switch_session", "Sessions", "ctrl+s", ActionOpenDialog{SessionsID}),
+		NewCommandItem(c.com.Styles, "fork_session", "Fork Conversation", "/fork", ActionForkLatest{}),
 		NewCommandItem(c.com.Styles, "pin_sessions_sidebar", "Pin/Unpin Sessions Sidebar", "alt+s", ActionToggleSessionsSidebarPin{}),
 		NewCommandItem(c.com.Styles, "import_sessions", "Import Sessions", "", ActionOpenDialog{SessionImportID}),
 		NewCommandItem(c.com.Styles, "switch_model", "Switch Model", "ctrl+m", ActionOpenDialog{ModelsID}),
