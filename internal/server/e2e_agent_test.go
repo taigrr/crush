@@ -204,6 +204,8 @@ func (c *scriptedCoordinator) Cancel(sessionID string) {
 	}
 }
 
+func (c *scriptedCoordinator) SoftInterrupt(sessionID string) {}
+
 func (c *scriptedCoordinator) CancelAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()

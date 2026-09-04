@@ -173,8 +173,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		if a.IsSessionBusy(call.SessionID) {
 			// Busy: an earlier prompt is active. Queue this call and
 			// release the accept reservation. A Cancel arriving after
-			// this point sees the active entry and clears the queue.
+			// this point sees the active entry and clears the queue. A
+			// steer additionally wakes the active step's tools so the
+			// queued message is folded in sooner; the same lock held
+			// here orders it against the drain in PrepareStep.
 			a.enqueueCall(call)
+			if call.Steer {
+				a.softInterruptLocked(call.SessionID)
+			}
 			call.Accepted.Close()
 			mu.Unlock()
 			a.journalQueue(call.SessionID)
@@ -199,8 +205,16 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		// the queue drains nobody is left to consume the buffered
 		// terminal event. The recursive Run will fall back to the
 		// default broker publish, which is what existing subscribers
-		// expect for queued turns.
+		// expect for queued turns. The enqueue and the steer's soft
+		// interrupt share one lock acquisition so the drain in
+		// PrepareStep observes them atomically.
+		mu := a.sessionMu(call.SessionID)
+		mu.Lock()
 		a.enqueueCall(call)
+		if call.Steer {
+			a.softInterruptLocked(call.SessionID)
+		}
+		mu.Unlock()
 		a.journalQueue(call.SessionID)
 		return nil, nil
 	}
@@ -491,8 +505,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// does not hang. Uncanceled prompts without a RunID are folded
 			// into this turn; uncanceled prompts with a RunID are left
 			// queued so each runs as its own turn (with its own
-			// RunComplete) via the recursive run path below.
-			fold, canceled := a.drainQueueForStep(call.SessionID)
+			// RunComplete) via the recursive run path below. The same
+			// drain re-arms the session's soft interrupt for this step so
+			// a steer that lands after it can cut the step short (see
+			// drainQueueForStep).
+			fold, canceled, softInterrupt := a.drainQueueForStep(call.SessionID)
 			a.publishCanceledQueueDrops(canceled)
 			for _, queued := range fold {
 				userMessage, createErr := a.createUserMessage(callContext, queued)
@@ -541,6 +558,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			callContext = context.WithValue(callContext, tools.MessageIDContextKey, assistantMsg.ID)
 			callContext = context.WithValue(callContext, tools.SupportsImagesContextKey, largeModel.CatwalkCfg.SupportsImages)
 			callContext = context.WithValue(callContext, tools.ModelNameContextKey, largeModel.CatwalkCfg.Name)
+			callContext = tools.WithSoftInterrupt(callContext, softInterrupt)
 			currentAssistant = &assistantMsg
 			return callContext, prepared, err
 		},
