@@ -299,17 +299,27 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("error starting shell: %s", err)), nil
 			}
 
-			// Wait for either completion, auto-background threshold, or context cancellation
+			// Wait for either completion, auto-background threshold, a
+			// background request, or context cancellation. Two things can
+			// move the command to the background early without killing
+			// it: a step-wide soft interrupt (a steer is waiting and the
+			// model should see it now) and a per-call background request
+			// (the user backgrounded this command from the UI). Both
+			// return the same job-id response the auto-background path
+			// does, with a note saying why it happened early.
 			ticker := time.NewTicker(100 * time.Millisecond)
 			defer ticker.Stop()
 
 			autoBackgroundAfter := cmp.Or(params.AutoBackgroundAfter, DefaultAutoBackgroundAfter)
 			autoBackgroundThreshold := time.Duration(autoBackgroundAfter) * time.Second
 			timeout := time.After(autoBackgroundThreshold)
+			bgRequested, releaseBg := RegisterBackgroundable(ctx, call.ID)
+			defer releaseBg()
 
 			var stdout, stderr string
 			var done bool
 			var execErr error
+			var reason backgroundReason
 
 		waitLoop:
 			for {
@@ -320,6 +330,15 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 						break waitLoop
 					}
 				case <-timeout:
+					reason = backgroundReasonTimeout
+					stdout, stderr, done, execErr = bgShell.GetOutput()
+					break waitLoop
+				case <-SoftInterrupt(ctx):
+					reason = backgroundReasonSteer
+					stdout, stderr, done, execErr = bgShell.GetOutput()
+					break waitLoop
+				case <-bgRequested:
+					reason = backgroundReasonUser
 					stdout, stderr, done, execErr = bgShell.GetOutput()
 					break waitLoop
 				case <-ctx.Done():
@@ -368,10 +387,40 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				Background:       true,
 				ShellID:          bgShell.ID,
 			}
-			response := fmt.Sprintf("Command is taking longer than expected and has been moved to background.\n\nBackground shell ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
-			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
+			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(movedToBackgroundResponse(bgShell.ID, reason)), metadata), nil
 		},
 	)
+}
+
+// backgroundReason says why a foreground command was handed back to the
+// model as a background job.
+type backgroundReason int
+
+const (
+	// backgroundReasonTimeout: the auto_background_after threshold passed.
+	backgroundReasonTimeout backgroundReason = iota
+	// backgroundReasonSteer: a step-wide soft interrupt fired because a
+	// user message is waiting to be folded into the turn.
+	backgroundReasonSteer
+	// backgroundReasonUser: the user backgrounded this specific command.
+	backgroundReasonUser
+)
+
+// movedToBackgroundResponse is the single tool result used whenever a
+// foreground command keeps running as a background job, whichever path
+// got it there. Only the first line differs so the model learns the same
+// job-id / job_output / job_kill contract in every case.
+func movedToBackgroundResponse(shellID string, reason backgroundReason) string {
+	var lead string
+	switch reason {
+	case backgroundReasonSteer:
+		lead = "Command is still running and has been moved to background early because a user message is waiting for you. Read and act on the user's message first."
+	case backgroundReasonUser:
+		lead = "Command is still running and has been moved to background by the user. Continue with other work; check on it with job_output when you need its result."
+	default:
+		lead = "Command is taking longer than expected and has been moved to background."
+	}
+	return fmt.Sprintf("%s\n\nBackground shell ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", lead, shellID)
 }
 
 // DefaultBashDescription synthesizes a short label for a shell command

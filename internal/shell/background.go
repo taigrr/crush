@@ -258,6 +258,12 @@ func (bs *BackgroundShell) Wait() {
 	<-bs.done
 }
 
+// Done returns a channel that is closed when the background shell
+// completes, so callers can select on completion alongside other events.
+func (bs *BackgroundShell) Done() <-chan struct{} {
+	return bs.done
+}
+
 func (bs *BackgroundShell) WaitContext(ctx context.Context) bool {
 	select {
 	case <-bs.done:
