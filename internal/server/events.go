@@ -205,6 +205,10 @@ func sessionToProto(s session.Session) proto.Session {
 		Color:            s.Color,
 		Animal:           s.Animal,
 		ModelRef:         s.ModelRef,
+		WorkingDir:       s.WorkingDir,
+
+		SpawnedBySessionID:   s.SpawnedBySessionID,
+		SpawnedByWorkspaceID: s.SpawnedByWorkspaceID,
 	}
 }
 
