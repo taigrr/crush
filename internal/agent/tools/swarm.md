@@ -41,15 +41,33 @@ Special addresses:
   workspace's config on every turn. Omitted, the new session runs its
   workspace's large model (the default). `model` is rejected for
   existing addresses.
-  The new session is picked up by any attached client's sidebar; the
-  agent runs immediately.
+  Optionally pass `working_dir` (absolute) to pin the directory the new
+  session's tools run in; it must be inside the target workspace's
+  project (a subdirectory or a linked git worktree of it). When `path`
+  is given, `working_dir` defaults to `path`, so a worker spawned into
+  a sibling worktree of an already-running workspace runs there rather
+  than in the tree that attached first.
+  The new session records the sender as its spawner
+  (`spawned_by_session_id`), which UIs use to nest it under this
+  session; it stays a normal, addressable top-level session. The new
+  session is picked up by any attached client's sidebar; the agent
+  runs immediately.
 
 The receiving session sees the message as a user turn prefixed with
 `message from <color-animal>:`. The sender's color/animal and workspace
 are also stored as structured metadata on the delivered message so
 the target's UI can render a colored header.
 
+Every successful call also returns structured metadata
+(`workspace_id`, `session_id`, `color`, `animal`, `address`,
+`working_dir`, `delivery`, `btw`, `created`) alongside the prose
+result, so callers never need to parse the text to find the target.
+
 Restrictions:
+
+- `model` and `working_dir` only apply with `address = "new"`. Messages
+  to an existing session never change that session's model or working
+  directory.
 
 - Sub-agent sessions (task tool children, title/summary sessions) are
   not addressable.

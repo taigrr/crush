@@ -484,12 +484,20 @@ address, a prompt, and optionally a mode:
   — creates a new session in the workspace rooted at `path`, bringing
   that workspace up first if it is not currently running (initializing
   a new folder or attaching a detached one). `path` takes precedence
-  over `workspace_id` when both are set.
+  over `workspace_id` when both are set. The new session's tools run
+  in `path` even when `path` is a sibling git worktree of an already
+  running workspace; pass `working_dir` (absolute, inside the same
+  project) to pin a different directory.
 - `swarm({ address: "new", model: "scout", prompt: "initial task..." })`
   — the new session runs the given model (role name, `provider/model`,
   or bare id, resolved in the target workspace's config). Without
   `model` it runs that workspace's large model, never your own
   session's model. `model` is rejected for existing addresses.
+
+A session you create with `new` records you as its spawner, so UIs
+nest it under your session; it remains a normal, addressable session.
+The tool result includes metadata with the new session's
+`workspace_id`, `session_id`, `address`, and `working_dir`.
 
 Addresses can also be the 4-character-disambiguated form
 (`color-animal-abcd`) or a raw session UUID. Use `list_sessions` to
