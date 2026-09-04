@@ -49,6 +49,11 @@ func (w *cwdWorkspace) AgentRunBTW(_ context.Context, _ string, prompt string) e
 	return nil
 }
 
+func (w *cwdWorkspace) AgentRunAside(_ context.Context, _ string, prompt string) error {
+	w.btwCalls = append(w.btwCalls, prompt)
+	return nil
+}
+
 func (w *cwdWorkspace) AgentRun(context.Context, string, string, ...message.Attachment) error {
 	return nil
 }

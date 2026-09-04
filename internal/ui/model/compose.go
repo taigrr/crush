@@ -193,11 +193,12 @@ func (m *UI) handleCwd(args string) tea.Cmd {
 		},
 		func() tea.Msg {
 			// Inform the model only when it is mid-turn; the aside folds
-			// into the active step. When idle, the next turn's system
-			// prompt carries the new cwd (see run.go environment block),
-			// so no wasteful turn is triggered here.
+			// into the active step without hurrying it (a cwd change is
+			// not worth backgrounding a running command). When idle, the
+			// next turn's system prompt carries the new cwd (see run.go
+			// environment block), so no wasteful turn is triggered here.
 			if busy {
-				_ = m.com.Workspace.AgentRunBTW(context.Background(), sessionID,
+				_ = m.com.Workspace.AgentRunAside(context.Background(), sessionID,
 					"The working directory is now "+target+". Treat relative paths as relative to it; do not cd into it.")
 			}
 			return nil

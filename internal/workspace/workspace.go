@@ -218,6 +218,11 @@ type Workspace interface {
 	// wrap up early so it lands sooner. On an idle session it is a
 	// normal prompt.
 	AgentRunBTW(ctx context.Context, sessionID, prompt string) error
+	// AgentRunAside folds a message into the active turn at the next
+	// step boundary without hurrying the current step along. Use it for
+	// low-urgency notices (e.g. "the working directory changed") that
+	// should not cut a running command short.
+	AgentRunAside(ctx context.Context, sessionID, prompt string) error
 	// AgentSoftInterrupt asks the tools running in the session's current
 	// step to wrap up early without cancelling them (a running shell
 	// command becomes a background job) and lets the turn continue.
