@@ -32,6 +32,9 @@ type Workspace struct {
 // Error represents an error response.
 type Error struct {
 	Message string `json:"message"`
+	// Code, when set, identifies the condition machine-readably. See
+	// the ErrorCode* constants.
+	Code string `json:"code,omitempty"`
 }
 
 // RunComplete is the authoritative end-of-run signal for a session,
