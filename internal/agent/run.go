@@ -581,6 +581,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			callContext = context.WithValue(callContext, tools.SupportsImagesContextKey, largeModel.CatwalkCfg.SupportsImages)
 			callContext = context.WithValue(callContext, tools.ModelNameContextKey, largeModel.CatwalkCfg.Name)
 			callContext = tools.WithSoftInterrupt(callContext, softInterrupt)
+			callContext = tools.WithJobNotifier(callContext, a.notifyJobDone)
 			currentAssistant = &assistantMsg
 			return callContext, prepared, err
 		},

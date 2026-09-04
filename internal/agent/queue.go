@@ -267,12 +267,35 @@ func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceled []Ses
 	} else {
 		a.messageQueue.Set(sessionID, keep)
 	}
+	// System notices are folded after the user's prompts and are never
+	// subject to cancel filtering: nobody asked for them to run, so there
+	// is nothing for a cancel to cover. They were never journaled or
+	// dispatched from the queue, so only the user prompts are reported.
+	asides, _ := a.pendingAsides.Take(sessionID)
 	dispatchLock.Unlock()
 	if len(keep) != len(queuedCalls) {
 		a.journalQueue(sessionID)
 	}
 	a.notifyDispatched(fold...)
+	fold = append(fold, asides...)
 	return fold, canceled, softInterrupt
+}
+
+// notifyJobDone is the tools.JobNotifyFunc handed to tools: it parks a
+// system notice for sessionID to be folded into the conversation at the
+// next step boundary (or the start of the next turn when idle). It takes
+// the dispatch lock so it is ordered against drainQueueForStep and a
+// notice can never slip between the drain and the step it was meant for
+// without being picked up by the following one.
+func (a *sessionAgent) notifyJobDone(sessionID, text string) {
+	if sessionID == "" || text == "" {
+		return
+	}
+	mu := a.sessionMu(sessionID)
+	mu.Lock()
+	defer mu.Unlock()
+	existing, _ := a.pendingAsides.Get(sessionID)
+	a.pendingAsides.Set(sessionID, append(existing, SessionAgentCall{SessionID: sessionID, Prompt: text}))
 }
 
 // armSoftInterruptLocked replaces the session's soft-interrupt channel

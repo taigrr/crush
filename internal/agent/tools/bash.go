@@ -284,6 +284,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 					Background:       true,
 					ShellID:          bgShell.ID,
 				}
+				watchBackgroundJob(ctx, bgShell)
 				response := fmt.Sprintf("Background shell started with ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
 				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
 			}
@@ -387,6 +388,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				Background:       true,
 				ShellID:          bgShell.ID,
 			}
+			watchBackgroundJob(ctx, bgShell)
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(movedToBackgroundResponse(bgShell.ID, reason)), metadata), nil
 		},
 	)
@@ -416,11 +418,58 @@ func movedToBackgroundResponse(shellID string, reason backgroundReason) string {
 	case backgroundReasonSteer:
 		lead = "Command is still running and has been moved to background early because a user message is waiting for you. Read and act on the user's message first."
 	case backgroundReasonUser:
-		lead = "Command is still running and has been moved to background by the user. Continue with other work; check on it with job_output when you need its result."
+		lead = "Command is still running and has been moved to background by the user. Continue with other work; you will be notified when it finishes, so do not poll for it."
 	default:
-		lead = "Command is taking longer than expected and has been moved to background."
+		lead = "Command is taking longer than expected and has been moved to background. You will be notified when it finishes."
 	}
 	return fmt.Sprintf("%s\n\nBackground shell ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", lead, shellID)
+}
+
+// jobNotificationOutputLimit caps how much of a finished job's output is
+// folded into the conversation; the model can fetch the rest with
+// job_output.
+const jobNotificationOutputLimit = 4000
+
+// watchBackgroundJob waits for a job that stayed in the background to
+// finish and reports the outcome to the session through the notifier on
+// ctx (if any). It captures the notifier and session up front: the tool
+// call's context is long gone by the time the job ends. A job that was
+// killed (job_kill, shutdown) produces no notification — whoever killed
+// it already knows.
+func watchBackgroundJob(ctx context.Context, bgShell *shell.BackgroundShell) {
+	notify := JobNotifier(ctx)
+	if notify == nil {
+		return
+	}
+	sessionID := GetSessionFromContext(ctx)
+	go func() {
+		bgShell.Wait()
+		stdout, stderr, _, execErr := bgShell.GetOutput()
+		if shell.IsInterrupt(execErr) {
+			return
+		}
+		notify(sessionID, jobFinishedNotification(bgShell.ID, bgShell.Description, bgShell.Command, formatOutput(stdout, stderr, execErr)))
+	}()
+}
+
+// jobFinishedNotification renders the aside folded into the conversation
+// when a background job completes. It is persisted verbatim as a user
+// message, so it is phrased to read as a system notice rather than
+// something the user typed.
+func jobFinishedNotification(shellID, description, command, output string) string {
+	label := cmp.Or(description, DefaultBashDescription(command))
+	var b strings.Builder
+	fmt.Fprintf(&b, "[background job finished] %s (job %s)\n", label, shellID)
+	fmt.Fprintf(&b, "Command: %s\n", strings.TrimSpace(command))
+	if output == "" {
+		output = BashNoOutput
+	}
+	if len(output) > jobNotificationOutputLimit {
+		output = "…" + output[len(output)-jobNotificationOutputLimit:]
+	}
+	fmt.Fprintf(&b, "\n%s\n", output)
+	b.WriteString("\nThis is an automatic notice that a command you moved to the background has completed. Use the result if it matters for what you are doing, otherwise carry on; the full output stays available via job_output for a while.")
+	return b.String()
 }
 
 // DefaultBashDescription synthesizes a short label for a shell command

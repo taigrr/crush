@@ -357,3 +357,64 @@ func TestRun_SteerOnIdleSessionRunsNormally(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, res, "a steer on an idle session is just a normal turn")
 }
+
+// TestRun_JobNoticeFoldsAtNextStepAndNeverStartsATurn covers the aside
+// path used for background-job completions: a notice raised while the
+// session is busy is folded into the next step; one raised while idle
+// waits for the next user turn instead of starting one, and is not
+// counted as a queued prompt.
+func TestRun_JobNoticeFoldsAtNextStepAndNeverStartsATurn(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	started := make(chan struct{}, 1)
+	model := &toolThenFinishModel{}
+	sa := testSessionAgent(env, model, &finishStreamModel{text: "title"}, "system", newWaitTool(started)).(*sessionAgent)
+
+	sess, err := env.sessions.Create(t.Context(), "session")
+	require.NoError(t, err)
+
+	mainDone := make(chan error, 1)
+	go func() {
+		_, runErr := sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, RunID: "run-main", Prompt: "main"})
+		mainDone <- runErr
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool never started")
+	}
+
+	// Busy: the notice is parked, does not count as a prompt, and does
+	// not wake the tool.
+	sa.notifyJobDone(sess.ID, "[background job finished] busy-notice")
+	require.Equal(t, 0, sa.QueuedPrompts(sess.ID), "a system notice is not a user prompt")
+	sa.SoftInterrupt(sess.ID)
+	select {
+	case err := <-mainDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("main turn did not finish")
+	}
+	prompts := model.Prompts()
+	require.Len(t, prompts, 2)
+	require.Contains(t, userTexts(prompts[1]), "[background job finished] busy-notice")
+	_, pending := sa.pendingAsides.Get(sess.ID)
+	require.False(t, pending)
+
+	// Idle: the notice waits; no turn starts.
+	sa.notifyJobDone(sess.ID, "[background job finished] idle-notice")
+	time.Sleep(200 * time.Millisecond)
+	require.False(t, sa.IsSessionBusy(sess.ID), "a notice on an idle session must not start a turn")
+	require.Len(t, model.Prompts(), 2)
+	require.Equal(t, 0, sa.QueuedPrompts(sess.ID))
+
+	// The next user turn picks it up in its first step.
+	_, err = sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, RunID: "run-2", Prompt: "next"})
+	require.NoError(t, err)
+	prompts = model.Prompts()
+	require.Len(t, prompts, 3)
+	require.Contains(t, userTexts(prompts[2]), "[background job finished] idle-notice")
+	_, pending = sa.pendingAsides.Get(sess.ID)
+	require.False(t, pending)
+}

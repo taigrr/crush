@@ -210,6 +210,13 @@ type sessionAgent struct {
 	// being prepared or interrupts the step that was just armed — never
 	// lost between the two.
 	softInterrupts *csync.Map[string, chan struct{}]
+	// pendingAsides holds system-originated notices (a background job
+	// finished) waiting to be folded into a session's conversation. They
+	// are drained alongside the message queue at every PrepareStep but,
+	// unlike queued prompts, never start a turn on their own: a notice
+	// for an idle session waits for the next user-initiated turn. They
+	// are not user prompts, so they are not counted by QueuedPrompts.
+	pendingAsides *csync.Map[string, []SessionAgentCall]
 
 	// queueJournal, when non-nil, receives a snapshot of a session's
 	// queue after every mutation so the queue survives a server swap.
@@ -372,6 +379,7 @@ func NewSessionAgent(
 		cancelMark:           csync.NewMap[string, uint64](),
 		goals:                csync.NewMap[string, *goalState](),
 		softInterrupts:       csync.NewMap[string, chan struct{}](),
+		pendingAsides:        csync.NewMap[string, []SessionAgentCall](),
 		idleCh:               make(chan struct{}),
 	}
 }
