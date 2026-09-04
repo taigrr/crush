@@ -164,7 +164,11 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, model *M
 	a.clearActiveRequest(sessionID)
 	cancel()
 
-	// Process any messages that were queued while summarizing.
+	// Process any messages that were queued while summarizing. A
+	// draining server leaves them for its successor.
+	if a.dispatchPaused.Load() {
+		return nil
+	}
 	next, ok := a.popQueuedCall(sessionID)
 	if !ok {
 		return nil
