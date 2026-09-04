@@ -575,8 +575,9 @@ func (s *SessionsSidebar) rebuildGroupedRows() {
 		if expanded {
 			limit = len(idxs)
 		}
-		// Nest spawned workers under their spawner and bubble the most
-		// urgent subtree to the top (see groupedRows).
+		// Nest spawned workers under their spawner, bubble the most
+		// urgent subtree to the top, and apply the cap without hiding
+		// pending/busy sessions (see groupedRows).
 		shown := s.groupedRows(wi, idxs, limit)
 		for _, n := range shown {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: idxs[n.idx], depth: n.depth})
@@ -618,6 +619,8 @@ func (s *SessionsSidebar) ToggleOverflowUnderCursor() bool {
 
 // computeCaps returns the per-workspace session display cap. Sessions are
 // pre-sorted (busy, unread, recent) so a cap keeps the most relevant ones.
+// The cap is a soft budget: groupedRows always shows pending/busy sessions
+// (and the spawners they nest under) even when they exceed it.
 //
 // Rules:
 //   - If every workspace's header + all its sessions fit in the body, show

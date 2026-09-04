@@ -45,7 +45,13 @@ func (s *SessionsSidebar) sessionTier(sess proto.SessionOverview) int {
 // (pending > busy > unread > idle), then by the newest UpdatedAt in the
 // subtree. Within a subtree the spawner stays first and children keep
 // their sorted order. This keeps a busy worker at the top of its group
-// even when its spawner is idle. The first limit rows are returned.
+// even when its spawner is idle.
+//
+// The display cap is a soft budget: every pending or busy row, plus the
+// spawner rows needed to show it nested, is always kept; the remaining
+// slots are filled in layout order. If the must-show rows alone exceed the
+// cap they are all shown anyway, so live work never hides behind the
+// "… N more" overflow row.
 func (s *SessionsSidebar) groupedRows(wi int, idxs []int, limit int) []nestedRef {
 	sessions := s.overviews[wi].Sessions
 	ids := make([]string, len(idxs))
@@ -89,7 +95,43 @@ func (s *SessionsSidebar) groupedRows(wi int, idxs []int, limit int) []nestedRef
 	for _, t := range trees {
 		ordered = append(ordered, t.refs...)
 	}
-	return ordered[:min(limit, len(ordered))]
+	if limit >= len(ordered) {
+		return ordered
+	}
+
+	// Mark pending/busy rows and their ancestor chain as must-show. The
+	// nested order is a depth-first walk, so the ancestors of a row are
+	// the most recent rows at each shallower depth.
+	must := make([]bool, len(ordered))
+	mustCount := 0
+	var chain []int
+	for k, r := range ordered {
+		if r.depth < len(chain) {
+			chain = chain[:r.depth]
+		}
+		chain = append(chain, k)
+		if s.sessionTier(sessions[idxs[r.idx]]) < tierBusy {
+			continue
+		}
+		for _, a := range chain {
+			if !must[a] {
+				must[a] = true
+				mustCount++
+			}
+		}
+	}
+	slots := max(0, limit-mustCount)
+	shown := make([]nestedRef, 0, mustCount+slots)
+	for k, r := range ordered {
+		switch {
+		case must[k]:
+			shown = append(shown, r)
+		case slots > 0:
+			slots--
+			shown = append(shown, r)
+		}
+	}
+	return shown
 }
 
 // nestSpawned reorders an already-sorted list of sessions so that every
