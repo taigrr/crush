@@ -288,6 +288,7 @@ func messageToProto(m message.Message) proto.Message {
 				SenderAnimal:      v.SenderAnimal,
 				SenderWorkspaceID: v.SenderWorkspaceID,
 				BTW:               v.BTW,
+				RequireReply:      v.RequireReply,
 			})
 		case message.ReasoningContent:
 			msg.Parts = append(msg.Parts, proto.ReasoningContent{

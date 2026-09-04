@@ -438,6 +438,12 @@ backend by address, or creates a new one with `address: "new"`:
   worktree rather than in whichever tree attached first.
 - `model` picks the worker's model (role name, `provider/model`, or id),
   resolved in the target workspace's config on every turn.
+- `require_reply: true` makes the worker owe you a reply before its turn
+  can end: it is told up front (a `[reply required: ...]` trailer on the
+  delivered message), nudged with a continuation turn if it tries to stop
+  without messaging you back (up to twice), and as a last resort its final
+  message (or the error that killed its turn) is forwarded to you,
+  prefixed `[auto-forwarded: ...]`. Works with any address, not just `new`.
 - The spawned session records the sender as `spawned_by_session_id` /
   `spawned_by_workspace_id`. This is lineage only: workers stay in the
   session list and remain addressable. The sidebar nests a worker under its
@@ -445,8 +451,8 @@ backend by address, or creates a new one with `address: "new"`:
   also on `GET /v1/workspaces/{id}/sessions` and `session` SSE events for
   external UIs.
 - The tool result carries structured metadata (`workspace_id`,
-  `session_id`, `address`, `working_dir`, `delivery`, `created`) in
-  addition to the prose.
+  `session_id`, `address`, `working_dir`, `delivery`, `created`,
+  `reply_required`, `fulfilled_reply`) in addition to the prose.
 
 ### Ignoring Files
 

@@ -53,6 +53,23 @@ Special addresses:
   session is picked up by any attached client's sidebar; the agent
   runs immediately.
 
+Guaranteed replies:
+
+- `require_reply: true` (any address, including `new`) makes the target
+  owe this session a reply. The delivered text gains a
+  `[reply required: ...]` trailer naming your address, so the target
+  knows up front. When the target tries to end its turn without having
+  sent you a swarm message, it is given a continuation turn reminding
+  it to reply (up to two nudges). If it still does not, its final
+  assistant message is forwarded to you automatically, prefixed
+  `[auto-forwarded: ...]`; if its turn fails or is canceled, you are
+  told that instead. Either way you will hear back. Use this when
+  spawning workers whose outcome you need to act on.
+- Any swarm message from the target to you satisfies the obligation
+  (mode does not matter). The result metadata reports
+  `fulfilled_reply: true` when a send you make settles a reply you
+  owed.
+
 The receiving session sees the message as a user turn prefixed with
 `message from <color-animal>:`. The sender's color/animal and workspace
 are also stored as structured metadata on the delivered message so
@@ -60,8 +77,9 @@ the target's UI can render a colored header.
 
 Every successful call also returns structured metadata
 (`workspace_id`, `session_id`, `color`, `animal`, `address`,
-`working_dir`, `delivery`, `btw`, `created`) alongside the prose
-result, so callers never need to parse the text to find the target.
+`working_dir`, `delivery`, `btw`, `created`, `reply_required`,
+`fulfilled_reply`) alongside the prose result, so callers never need
+to parse the text to find the target.
 
 Restrictions:
 

@@ -61,7 +61,7 @@ func TestSwarmNew_ModelParamPassedToWorker(t *testing.T) {
 	sess := stubSessionsForSwarm{sess: session.Session{ID: "sender", Color: "aliceblue", Animal: "tiger"}}
 	cfg := func() swarm.Config { return swarm.Config{} }
 
-	resp, err := runSwarm(swarmNewCtx(), be, sess, cfg, "ws", SwarmParams{Address: "new", Prompt: "hello", Model: " scout "})
+	resp, err := runSwarm(swarmNewCtx(), be, sess, cfg, "ws", nil, SwarmParams{Address: "new", Prompt: "hello", Model: " scout "})
 	require.NoError(t, err)
 	require.False(t, resp.IsError, resp.Content)
 	require.Equal(t, "scout", be.gotModelRef, "reference is passed through trimmed, resolved by the target workspace")
@@ -76,7 +76,7 @@ func TestSwarmNew_NoModelKeepsDefault(t *testing.T) {
 	sess := stubSessionsForSwarm{sess: session.Session{ID: "sender", Color: "aliceblue", Animal: "tiger"}}
 	cfg := func() swarm.Config { return swarm.Config{} }
 
-	resp, err := runSwarm(swarmNewCtx(), be, sess, cfg, "ws", SwarmParams{Address: "new", Prompt: "hello"})
+	resp, err := runSwarm(swarmNewCtx(), be, sess, cfg, "ws", nil, SwarmParams{Address: "new", Prompt: "hello"})
 	require.NoError(t, err)
 	require.False(t, resp.IsError, resp.Content)
 	require.Empty(t, be.gotModelRef)
@@ -91,7 +91,7 @@ func TestSwarmNew_BadModelIsToolError(t *testing.T) {
 	sess := stubSessionsForSwarm{sess: session.Session{ID: "sender", Color: "aliceblue", Animal: "tiger"}}
 	cfg := func() swarm.Config { return swarm.Config{} }
 
-	resp, err := runSwarm(swarmNewCtx(), be, sess, cfg, "ws", SwarmParams{Address: "new", Prompt: "hello", Model: "nope"})
+	resp, err := runSwarm(swarmNewCtx(), be, sess, cfg, "ws", nil, SwarmParams{Address: "new", Prompt: "hello", Model: "nope"})
 	require.NoError(t, err)
 	require.True(t, resp.IsError)
 	require.Contains(t, resp.Content, "nope")
@@ -105,7 +105,7 @@ func TestSwarmSend_ModelRejectedForExistingSession(t *testing.T) {
 	sess := stubSessionsForSwarm{sess: session.Session{ID: "sender", Color: "aliceblue", Animal: "tiger"}}
 	cfg := func() swarm.Config { return swarm.Config{} }
 
-	resp, err := runSwarm(swarmNewCtx(), be, sess, cfg, "ws", SwarmParams{Address: "plum-flamingo", Prompt: "hello", Model: "scout"})
+	resp, err := runSwarm(swarmNewCtx(), be, sess, cfg, "ws", nil, SwarmParams{Address: "plum-flamingo", Prompt: "hello", Model: "scout"})
 	require.NoError(t, err)
 	require.True(t, resp.IsError)
 	require.Contains(t, resp.Content, "only applies with address='new'")

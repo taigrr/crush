@@ -142,6 +142,7 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 				SenderAnimal:      p.SenderAnimal,
 				SenderWorkspaceID: p.SenderWorkspaceID,
 				BTW:               p.BTW,
+				RequireReply:      p.RequireReply,
 			}
 		}
 		ctx = agent.WithSwarmParts(ctx, parts)

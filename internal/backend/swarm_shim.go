@@ -49,6 +49,7 @@ func (s *swarmShim) Send(ctx context.Context, senderSessionID string, target too
 		SenderAnimal:      part.SenderAnimal,
 		SenderWorkspaceID: part.SenderWorkspaceID,
 		BTW:               part.BTW,
+		RequireReply:      part.RequireReply,
 	})
 	if err != nil {
 		return "", err

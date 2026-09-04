@@ -115,6 +115,13 @@ type SwarmResponseMetadata struct {
 	BTW      bool   `json:"btw,omitempty"`
 	// Created is true when this call spawned the target session.
 	Created bool `json:"created,omitempty"`
+	// ReplyRequired is true when the target must reply to the sender
+	// before its turn can end.
+	ReplyRequired bool `json:"reply_required,omitempty"`
+	// FulfilledReply is true when this send satisfied a reply the
+	// sender owed the target (the target had messaged the sender with
+	// require_reply).
+	FulfilledReply bool `json:"fulfilled_reply,omitempty"`
 }
 
 // SwarmParams is the JSON schema exposed to the model.
@@ -151,18 +158,27 @@ type SwarmParams struct {
 	// target workspace's project (a subdirectory or a sibling git
 	// worktree). Defaults to Path when Path is given.
 	WorkingDir string `json:"working_dir,omitempty" description:"With address='new': absolute directory the new session's tools run in. Must be inside the target workspace's project (a subdirectory or a linked git worktree of it). Defaults to path when path is given."`
+	// RequireReply makes the target owe this session a swarm reply
+	// before its turn can end. The target is reminded up front and
+	// nudged at end of turn; if it still does not reply, the system
+	// replies on its behalf with its final message.
+	RequireReply bool `json:"require_reply,omitempty" description:"When true, the target session must reply to you (via the swarm tool) before it can end its turn. Use this when you need to be told the outcome, e.g. when spawning a worker with address='new'. The target is nudged if it forgets; as a last resort its final message is forwarded to you automatically."`
 }
 
 // NewSwarmTool builds the fantasy tool wrapper. sessions is the
 // current workspace's session service, used to look up the sender's
 // identity (so the tool can stamp "message from <color-animal>:" onto
 // the outgoing message and refuse self-addressed sends).
-func NewSwarmTool(be SwarmBackend, sessions session.Service, swarmCfg func() swarm.Config, senderWorkspaceID string) fantasy.AgentTool {
+//
+// replies is the coordinator's reply-obligation registry; a send to an
+// existing session fulfills any reply the sender owed that session.
+// Nil disables tracking.
+func NewSwarmTool(be SwarmBackend, sessions session.Service, swarmCfg func() swarm.Config, senderWorkspaceID string, replies *swarm.ReplyTracker) fantasy.AgentTool {
 	return fantasy.NewParallelAgentTool(
 		SwarmToolName,
 		swarmToolDescription,
 		func(ctx context.Context, params SwarmParams, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			return runSwarm(ctx, be, sessions, swarmCfg, senderWorkspaceID, params)
+			return runSwarm(ctx, be, sessions, swarmCfg, senderWorkspaceID, replies, params)
 		},
 	)
 }
@@ -173,6 +189,7 @@ func runSwarm(
 	sessions session.Service,
 	swarmCfg func() swarm.Config,
 	senderWorkspaceID string,
+	replies *swarm.ReplyTracker,
 	params SwarmParams,
 ) (fantasy.ToolResponse, error) {
 	if strings.TrimSpace(params.Prompt) == "" {
@@ -183,32 +200,22 @@ func runSwarm(
 		return fantasy.NewTextErrorResponse("swarm: address is required"), nil
 	}
 
-	// Resolve the sender's identity so we can attach it to the
-	// outgoing message. Falls back to computing from cfg when the
-	// session row is missing color/animal (legacy or race with
-	// backfill).
 	senderID := GetSessionFromContext(ctx)
 	if senderID == "" {
 		return fantasy.NewTextErrorResponse("swarm: sender session id missing from context"), nil
 	}
-	senderSess, err := sessions.Get(ctx, senderID)
+	sender, err := resolveSwarmSender(ctx, sessions, swarmCfg, senderWorkspaceID, senderID)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if isContextErr(err) {
 			return fantasy.ToolResponse{}, err
 		}
-		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: failed to load sender session: %s", err)), nil
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: %s", err)), nil
 	}
-	senderIdent := swarm.Identity{Color: senderSess.Color, Animal: senderSess.Animal}
-	if senderIdent.Color == "" || senderIdent.Animal == "" {
-		cfg := swarmCfg()
-		senderIdent = swarm.Assign(senderSess.ID, cfg)
-	}
-	senderAddress := swarm.FormatAddress(senderIdent, senderSess.ID)
 
 	// Fast-fail self-address before doing any cross-workspace lookup.
 	// Compare against every canonical form the sender could plausibly
 	// have typed.
-	if isSelfAddress(address, senderID, senderIdent) {
+	if isSelfAddress(address, senderID, sender.ident) {
 		return fantasy.NewTextErrorResponse("swarm: cannot address your own session"), nil
 	}
 
@@ -216,13 +223,7 @@ func runSwarm(
 	if !ok {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: unknown mode %q (want 'queue' or 'btw')", params.Mode)), nil
 	}
-
-	sender := swarmSender{
-		id:          senderID,
-		workspaceID: senderWorkspaceID,
-		ident:       senderIdent,
-		address:     senderAddress,
-	}
+	sender.replies = replies
 
 	// "new" path: create a fresh session in the given workspace and
 	// treat the prompt as its initial user message.
@@ -235,7 +236,7 @@ func runSwarm(
 	if strings.TrimSpace(params.WorkingDir) != "" {
 		return fantasy.NewTextErrorResponse("swarm: 'working_dir' only applies with address='new'; an existing session keeps its own working directory"), nil
 	}
-	return runSwarmDeliver(ctx, be, sender, address, params.Prompt, btw)
+	return runSwarmDeliver(ctx, be, sender, address, params.Prompt, btw, params.RequireReply)
 }
 
 // swarmSender bundles the resolved, trusted identity of the session
@@ -247,8 +248,71 @@ type swarmSender struct {
 	workspaceID string
 	ident       swarm.Identity
 	// address is the sender's own formatted "color-animal[-hash]"
-	// address, used only for the "from <sender>" response text.
+	// address, used for the "from <sender>" response text and the
+	// reply-required trailer that tells the target where to reply.
 	address string
+	// replies, when non-nil, is consulted so a send to an existing
+	// session fulfills any reply the sender owed it.
+	replies *swarm.ReplyTracker
+}
+
+// resolveSwarmSender loads the trusted identity of senderID from the
+// session service. It falls back to computing the color/animal from
+// cfg when the session row is missing them (legacy or race with
+// backfill).
+func resolveSwarmSender(ctx context.Context, sessions session.Service, swarmCfg func() swarm.Config, workspaceID, senderID string) (swarmSender, error) {
+	senderSess, err := sessions.Get(ctx, senderID)
+	if err != nil {
+		if isContextErr(err) {
+			return swarmSender{}, err
+		}
+		return swarmSender{}, fmt.Errorf("failed to load sender session: %w", err)
+	}
+	ident := swarm.Identity{Color: senderSess.Color, Animal: senderSess.Animal}
+	if ident.Color == "" || ident.Animal == "" {
+		ident = swarm.Assign(senderSess.ID, swarmCfg())
+	}
+	return swarmSender{
+		id:          senderID,
+		workspaceID: workspaceID,
+		ident:       ident,
+		address:     swarm.FormatAddress(ident, senderSess.ID),
+	}, nil
+}
+
+// SwarmReplyOnBehalf delivers text from senderSessionID to
+// targetSessionID as an ordinary swarm message, stamped with the
+// sender's trusted identity. The coordinator uses it to honor a
+// require_reply obligation the agent itself failed to satisfy, so the
+// waiting session still hears back. It never sets require_reply on the
+// outgoing message (that would ping-pong) and never fulfills tracked
+// obligations itself; the caller owns that bookkeeping.
+func SwarmReplyOnBehalf(
+	ctx context.Context,
+	be SwarmBackend,
+	sessions session.Service,
+	swarmCfg func() swarm.Config,
+	senderWorkspaceID, senderSessionID, targetSessionID, text string,
+) error {
+	if be == nil || sessions == nil {
+		return errors.New("swarm backend unavailable")
+	}
+	if swarmCfg == nil {
+		swarmCfg = swarm.Default
+	}
+	sender, err := resolveSwarmSender(ctx, sessions, swarmCfg, senderWorkspaceID, senderSessionID)
+	if err != nil {
+		return err
+	}
+	target, err := be.LookupAddress(ctx, targetSessionID)
+	if err != nil {
+		return err
+	}
+	if target.SessionID == sender.id {
+		return errors.New("cannot reply to own session")
+	}
+	_, err = be.Send(ctx, sender.id, target, buildSwarmPart(sender, text, false, false))
+	return err
 }
 
 // parseSwarmMode normalizes the mode param, returning whether the
@@ -278,8 +342,8 @@ func isContextErr(err error) bool {
 // should format as a tool-error response (after any compensating
 // cleanup). On success both errors are nil and delivery is "sent" or
 // "queued".
-func sendSwarmPart(ctx context.Context, be SwarmBackend, sender swarmSender, prompt string, btw bool, target SwarmLookupResult) (delivery string, hardErr, softErr error) {
-	part := buildSwarmPart(sender.id, sender.workspaceID, sender.ident, prompt, btw)
+func sendSwarmPart(ctx context.Context, be SwarmBackend, sender swarmSender, prompt string, btw, requireReply bool, target SwarmLookupResult) (delivery string, hardErr, softErr error) {
+	part := buildSwarmPart(sender, prompt, btw, requireReply)
 	delivery, err := be.Send(ctx, sender.id, target, part)
 	if err != nil {
 		if isContextErr(err) {
@@ -351,7 +415,7 @@ func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, param
 		Color:       newSess.Color,
 		Animal:      newSess.Animal,
 	}
-	delivery, hardErr, softErr := sendSwarmPart(ctx, be, sender, params.Prompt, btw, target)
+	delivery, hardErr, softErr := sendSwarmPart(ctx, be, sender, params.Prompt, btw, params.RequireReply, target)
 	if hardErr != nil {
 		return fantasy.ToolResponse{}, hardErr
 	}
@@ -372,24 +436,34 @@ func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, param
 	}
 	targetAddress := swarm.FormatAddress(swarm.Identity{Color: newSess.Color, Animal: newSess.Animal}, newSess.ID)
 	return fantasy.WithResponseMetadata(fantasy.NewTextResponse(fmt.Sprintf(
-		"Created and %s to %s (workspace=%s, session=%s).%s%s",
-		delivery, targetAddress, workspaceID, newSess.ID, modelNote, dirNote,
+		"Created and %s to %s (workspace=%s, session=%s).%s%s%s",
+		delivery, targetAddress, workspaceID, newSess.ID, modelNote, dirNote, replyRequiredNote(params.RequireReply),
 	)), SwarmResponseMetadata{
-		WorkspaceID: workspaceID,
-		SessionID:   newSess.ID,
-		Color:       newSess.Color,
-		Animal:      newSess.Animal,
-		Address:     targetAddress,
-		WorkingDir:  newSess.WorkingDir,
-		Delivery:    delivery,
-		BTW:         btw,
-		Created:     true,
+		WorkspaceID:   workspaceID,
+		SessionID:     newSess.ID,
+		Color:         newSess.Color,
+		Animal:        newSess.Animal,
+		Address:       targetAddress,
+		WorkingDir:    newSess.WorkingDir,
+		Delivery:      delivery,
+		BTW:           btw,
+		Created:       true,
+		ReplyRequired: params.RequireReply,
 	}), nil
+}
+
+// replyRequiredNote is the response-text suffix confirming the target
+// owes the sender a reply.
+func replyRequiredNote(requireReply bool) string {
+	if !requireReply {
+		return ""
+	}
+	return " Reply required: the target must message you back before its turn can end."
 }
 
 // runSwarmDeliver resolves an existing address and delivers the
 // prompt to it.
-func runSwarmDeliver(ctx context.Context, be SwarmBackend, sender swarmSender, address, prompt string, btw bool) (fantasy.ToolResponse, error) {
+func runSwarmDeliver(ctx context.Context, be SwarmBackend, sender swarmSender, address, prompt string, btw, requireReply bool) (fantasy.ToolResponse, error) {
 	target, err := be.LookupAddress(ctx, address)
 	if err != nil {
 		if isContextErr(err) {
@@ -409,46 +483,73 @@ func runSwarmDeliver(ctx context.Context, be SwarmBackend, sender swarmSender, a
 		)), nil
 	}
 
-	delivery, hardErr, softErr := sendSwarmPart(ctx, be, sender, prompt, btw, target)
+	delivery, hardErr, softErr := sendSwarmPart(ctx, be, sender, prompt, btw, requireReply, target)
 	if hardErr != nil {
 		return fantasy.ToolResponse{}, hardErr
 	}
 	if softErr != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: %s", softErr)), nil
 	}
+	// Any message to a session we owed a reply to counts as that
+	// reply, whatever mode it used.
+	fulfilled := sender.replies.Fulfill(sender.id, target.SessionID)
+	fulfilledNote := ""
+	if fulfilled {
+		fulfilledNote = " This satisfies the reply you owed them."
+	}
 	targetAddress := swarm.FormatAddress(swarm.Identity{Color: target.Color, Animal: target.Animal}, target.SessionID)
 	return fantasy.WithResponseMetadata(fantasy.NewTextResponse(fmt.Sprintf(
-		"%s: %s (from %s to %s)",
-		delivery, prompt, sender.address, targetAddress,
+		"%s: %s (from %s to %s)%s%s",
+		delivery, prompt, sender.address, targetAddress, replyRequiredNote(requireReply), fulfilledNote,
 	)), SwarmResponseMetadata{
-		WorkspaceID: target.WorkspaceID,
-		SessionID:   target.SessionID,
-		Color:       target.Color,
-		Animal:      target.Animal,
-		Address:     targetAddress,
-		Delivery:    delivery,
-		BTW:         btw,
+		WorkspaceID:    target.WorkspaceID,
+		SessionID:      target.SessionID,
+		Color:          target.Color,
+		Animal:         target.Animal,
+		Address:        targetAddress,
+		Delivery:       delivery,
+		BTW:            btw,
+		ReplyRequired:  requireReply,
+		FulfilledReply: fulfilled,
 	}), nil
 }
 
 // buildSwarmPart constructs the proto.SwarmMessage that will be stored
 // on the receiving session's transcript. The Text field is the exact
 // prefixed body the LLM will read; Body preserves the original prompt
-// for programmatic consumers.
-func buildSwarmPart(senderSessionID, senderWorkspaceID string, sender swarm.Identity, prompt string, btw bool) message.SwarmMessage {
-	prefix := fmt.Sprintf("message from %s: ", sender.String())
+// for programmatic consumers. When requireReply is set the text also
+// carries a trailer telling the target where to reply, so the model
+// knows about the obligation before it starts rather than only when
+// nudged at end of turn.
+func buildSwarmPart(sender swarmSender, prompt string, btw, requireReply bool) message.SwarmMessage {
+	prefix := fmt.Sprintf("message from %s: ", sender.ident.String())
 	if btw {
 		prefix = "[btw] " + prefix
 	}
-	return message.SwarmMessage{
-		Text:              prefix + prompt,
-		Body:              prompt,
-		SenderSessionID:   senderSessionID,
-		SenderColor:       sender.Color,
-		SenderAnimal:      sender.Animal,
-		SenderWorkspaceID: senderWorkspaceID,
-		BTW:               btw,
+	text := prefix + prompt
+	if requireReply {
+		text += "\n\n" + ReplyRequiredTrailer(sender.address)
 	}
+	return message.SwarmMessage{
+		Text:              text,
+		Body:              prompt,
+		SenderSessionID:   sender.id,
+		SenderColor:       sender.ident.Color,
+		SenderAnimal:      sender.ident.Animal,
+		SenderWorkspaceID: sender.workspaceID,
+		BTW:               btw,
+		RequireReply:      requireReply,
+	}
+}
+
+// ReplyRequiredTrailer is the instruction appended to a require_reply
+// message so the receiving agent knows, up front, that it must send
+// its result to senderAddress before its turn can end.
+func ReplyRequiredTrailer(senderAddress string) string {
+	return fmt.Sprintf(
+		"[reply required: when you have finished, send your result to %s with the swarm tool (address=%q). Your turn cannot end until you do.]",
+		senderAddress, senderAddress,
+	)
 }
 
 // isSelfAddress reports whether the given address plausibly refers
