@@ -56,8 +56,8 @@ func (s *swarmShim) Send(ctx context.Context, senderSessionID string, target too
 	return res.Delivery, nil
 }
 
-func (s *swarmShim) CreateSessionInWorkspace(ctx context.Context, workspaceID, title string) (session.Session, error) {
-	return s.b.CreateSwarmSession(ctx, workspaceID, title)
+func (s *swarmShim) CreateSessionInWorkspace(ctx context.Context, workspaceID, title, modelRef string) (session.Session, error) {
+	return s.b.CreateSwarmSession(ctx, workspaceID, title, modelRef)
 }
 
 func (s *swarmShim) ArchiveSessionInWorkspace(ctx context.Context, workspaceID, sessionID string) error {
@@ -79,8 +79,8 @@ func (s *swarmShim) RenameSession(ctx context.Context, target tools.SwarmLookupR
 	}, title)
 }
 
-func (s *swarmShim) CreateSessionInWorkspaceAtPath(ctx context.Context, path, title string) (string, session.Session, error) {
-	return s.b.CreateSwarmSessionAtPath(ctx, path, title)
+func (s *swarmShim) CreateSessionInWorkspaceAtPath(ctx context.Context, path, title, modelRef string) (string, session.Session, error) {
+	return s.b.CreateSwarmSessionAtPath(ctx, path, title, modelRef)
 }
 
 // SearchAllWorkspaces fans a history query out over every known

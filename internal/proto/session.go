@@ -33,6 +33,10 @@ type Session struct {
 	// address label / no color square in that case.
 	Color  string `json:"color,omitempty"`
 	Animal string `json:"animal,omitempty"`
+	// ModelRef is the model reference the session was spawned with (see
+	// [session.Session.ModelRef]); empty when it runs the workspace's
+	// large model.
+	ModelRef string `json:"model_ref,omitempty"`
 }
 
 // Todo represents a single todo entry on a session in the proto layer.

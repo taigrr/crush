@@ -167,3 +167,102 @@ func TestConfigureSelectedModels_RolesValidatedAndBackfilled(t *testing.T) {
 	require.False(t, ok, "unresolvable role must be dropped, not defaulted")
 	require.Equal(t, []SelectedModelType{"scout"}, c.ModelRoles())
 }
+
+func looseRefConfig() *Config {
+	providers := csync.NewMap[string, ProviderConfig]()
+	providers.Set("bedrock", ProviderConfig{
+		ID:   "bedrock",
+		Type: "bedrock",
+		Models: []catwalk.Model{
+			{ID: "us.anthropic.claude-fable-5", Name: "Claude Fable 5", ReasoningLevels: []string{"low", "medium", "high"}},
+			{ID: "us.anthropic.claude-fable-5-1", Name: "Claude Fable 5.1", ReasoningLevels: []string{"low", "medium", "high", "xhigh"}},
+			{ID: "global.anthropic.claude-fable-5-1", Name: "Claude Fable 5.1 (global)", ReasoningLevels: []string{"low", "medium", "high", "xhigh"}},
+			{ID: "us.anthropic.claude-haiku-4-5-20251001-v1:0", Name: "Claude Haiku 4.5"},
+		},
+	})
+	providers.Set("off", ProviderConfig{ID: "off", Type: "anthropic", Disable: true, Models: []catwalk.Model{{ID: "fable-off"}}})
+	return &Config{
+		Providers: providers,
+		Models: map[SelectedModelType]SelectedModel{
+			SelectedModelTypeLarge: {Provider: "bedrock", Model: "us.anthropic.claude-fable-5-1"},
+			SelectedModelTypeSmall: {Provider: "bedrock", Model: "us.anthropic.claude-haiku-4-5-20251001-v1:0"},
+		},
+	}
+}
+
+func TestResolveModelRefLoose(t *testing.T) {
+	c := looseRefConfig()
+
+	t.Run("exact grammar still wins", func(t *testing.T) {
+		sel, err := c.ResolveModelRefLoose("large")
+		require.NoError(t, err)
+		require.Equal(t, "us.anthropic.claude-fable-5-1", sel.Model)
+		sel, err = c.ResolveModelRefLoose("bedrock/us.anthropic.claude-fable-5")
+		require.NoError(t, err)
+		require.Equal(t, "us.anthropic.claude-fable-5", sel.Model)
+	})
+
+	t.Run("substring prefers the model holding a role", func(t *testing.T) {
+		sel, err := c.ResolveModelRefLoose("fable")
+		require.NoError(t, err)
+		require.Equal(t, "us.anthropic.claude-fable-5-1", sel.Model)
+	})
+
+	t.Run("substring falls back to shortest id when nothing holds a role", func(t *testing.T) {
+		sel, err := c.ResolveModelRefLoose("fable-5-1")
+		require.NoError(t, err)
+		require.Equal(t, "us.anthropic.claude-fable-5-1", sel.Model, "us. is shorter than global.")
+	})
+
+	t.Run("display name and case-insensitive", func(t *testing.T) {
+		sel, err := c.ResolveModelRefLoose("HAIKU")
+		require.NoError(t, err)
+		require.Equal(t, "us.anthropic.claude-haiku-4-5-20251001-v1:0", sel.Model)
+	})
+
+	t.Run("multi-word name match", func(t *testing.T) {
+		sel, err := c.ResolveModelRefLoose("fable 5.1")
+		require.NoError(t, err)
+		require.Equal(t, "us.anthropic.claude-fable-5-1", sel.Model)
+	})
+
+	t.Run("trailing effort applies", func(t *testing.T) {
+		sel, err := c.ResolveModelRefLoose("fable xhigh")
+		require.NoError(t, err)
+		require.Equal(t, "us.anthropic.claude-fable-5-1", sel.Model)
+		require.Equal(t, "xhigh", sel.ReasoningEffort)
+	})
+
+	t.Run("effort on a role", func(t *testing.T) {
+		sel, err := c.ResolveModelRefLoose("large high")
+		require.NoError(t, err)
+		require.Equal(t, "high", sel.ReasoningEffort)
+	})
+
+	t.Run("unsupported effort errors", func(t *testing.T) {
+		_, err := c.ResolveModelRefLoose("haiku high")
+		require.ErrorContains(t, err, "does not support reasoning effort")
+	})
+
+	t.Run("disabled providers are invisible", func(t *testing.T) {
+		_, err := c.ResolveModelRefLoose("fable-off")
+		require.Error(t, err)
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		_, err := c.ResolveModelRefLoose("zzzz-nope")
+		require.ErrorContains(t, err, "unknown model")
+	})
+
+	t.Run("true tie is ambiguous", func(t *testing.T) {
+		c2 := looseRefConfig()
+		c2.Models = nil
+		p, _ := c2.Providers.Get("bedrock")
+		p.Models = append(p.Models, catwalk.Model{ID: "eu.anthropic.claude-fable-5-1", Name: "Fable EU"})
+		c2.Providers.Set("bedrock", p)
+		_, err := c2.ResolveModelRefLoose("fable-5-1")
+		var amb *ErrAmbiguousModelRef
+		require.ErrorAs(t, err, &amb)
+		require.Len(t, amb.Matches, 3)
+	})
+}

@@ -121,8 +121,8 @@ func writeModels(b *strings.Builder, cfg *config.ConfigStore) {
 }
 
 // writeModelCatalog lists every model the agent may delegate to via the
-// `model` parameter on agent/review, one per line as provider/model, so
-// the model can pick a delegate without
+// `model` parameter on agent/review/swarm, one per line as provider/model,
+// so the model can pick a delegate without
 // guessing ids. Disabled providers are skipped.
 func writeModelCatalog(b *strings.Builder, cfg *config.ConfigStore) {
 	c := cfg.Config()
@@ -158,7 +158,7 @@ func writeModelCatalog(b *strings.Builder, cfg *config.ConfigStore) {
 	}
 	slices.SortFunc(entries, func(a, b entry) int { return strings.Compare(a.ref, b.ref) })
 	b.WriteString("[model_catalog]\n")
-	b.WriteString("# models on providers referenced by a role; usable as the `model` param on agent/review (or by role name from [model])\n")
+	b.WriteString("# models on providers referenced by a role; usable as the `model` param on agent/review/swarm (or by role name from [model])\n")
 	const maxCatalogLines = 40
 	for i, e := range entries {
 		if i == maxCatalogLines {

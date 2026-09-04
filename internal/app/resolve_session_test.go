@@ -28,6 +28,10 @@ func (m *mockSessionService) Create(_ context.Context, title string) (session.Se
 	return s, nil
 }
 
+func (m *mockSessionService) CreateWithModelRef(ctx context.Context, title, _ string) (session.Session, error) {
+	return m.Create(ctx, title)
+}
+
 func (m *mockSessionService) CreateTitleSession(context.Context, string) (session.Session, error) {
 	return session.Session{}, nil
 }

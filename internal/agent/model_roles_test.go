@@ -231,3 +231,53 @@ func TestOptionalModelRef(t *testing.T) {
 	_, err = c.optionalModelRef("nope")
 	require.Error(t, err)
 }
+
+// sessionModel resolves a session's ModelRef against live config on every
+// turn; sessions without one (every session a person opens) run large.
+func TestSessionModel(t *testing.T) {
+	t.Run("no ref runs large with nil resolver", func(t *testing.T) {
+		env := testEnv(t)
+		c := roleCoordinator(t, env)
+		sess, err := env.sessions.Create(t.Context(), "human")
+		require.NoError(t, err)
+		m, resolve := c.sessionModel(t.Context(), sess.ID)
+		assert.Nil(t, resolve)
+		assert.Equal(t, "gpt-5.6-luna(low)", m.ModelCfg.Model)
+	})
+
+	t.Run("role ref resolves and follows config", func(t *testing.T) {
+		env := testEnv(t)
+		c := roleCoordinator(t, env)
+		sess, err := env.sessions.CreateWithModelRef(t.Context(), "worker", "scout")
+		require.NoError(t, err)
+		m, resolve := c.sessionModel(t.Context(), sess.ID)
+		require.NotNil(t, resolve)
+		assert.Equal(t, "claude-haiku-4-5-20251001", m.ModelCfg.Model)
+		assert.Equal(t, int64(8000), m.ModelCfg.MaxTokens)
+
+		// Re-point the role in config: the same session now runs the new
+		// model on its next turn, with no change to the row.
+		c.cfg.Config().Models["scout"] = config.SelectedModel{Provider: "dp-claude", Model: "claude-fable-5-1", ReasoningEffort: "high"}
+		m, _ = c.sessionModel(t.Context(), sess.ID)
+		assert.Equal(t, "claude-fable-5-1", m.ModelCfg.Model)
+		assert.Equal(t, "high", m.ModelCfg.ReasoningEffort, "role tuning follows along")
+	})
+
+	t.Run("unresolvable ref falls back to large", func(t *testing.T) {
+		env := testEnv(t)
+		c := roleCoordinator(t, env)
+		sess, err := env.sessions.CreateWithModelRef(t.Context(), "worker", "gone")
+		require.NoError(t, err)
+		m, resolve := c.sessionModel(t.Context(), sess.ID)
+		assert.Nil(t, resolve)
+		assert.Equal(t, "gpt-5.6-luna(low)", m.ModelCfg.Model)
+	})
+
+	t.Run("missing session runs large", func(t *testing.T) {
+		env := testEnv(t)
+		c := roleCoordinator(t, env)
+		m, resolve := c.sessionModel(t.Context(), "does-not-exist")
+		assert.Nil(t, resolve)
+		assert.Equal(t, "gpt-5.6-luna(low)", m.ModelCfg.Model)
+	})
+}

@@ -512,7 +512,13 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		return nil, fmt.Errorf("failed to update models: %w", err)
 	}
 
-	model := c.currentAgent.Model()
+	// The turn's model: the workspace large model, unless this session
+	// was spawned with a model reference (swarm `new` with `model`), in
+	// which case the reference is resolved against the current config so
+	// a re-pointed role takes effect immediately. The resolved selection
+	// is fixed for the turn; the agent rebuilds only the provider client
+	// at Run time via ResolveModel (see sessionModel).
+	model, resolveModel := c.sessionModel(ctx, sessionID)
 	maxTokens := model.CatwalkCfg.DefaultMaxTokens
 	if model.ModelCfg.MaxTokens != 0 {
 		maxTokens = model.ModelCfg.MaxTokens
@@ -584,6 +590,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 			return c.currentAgent.Run(ctx, SessionAgentCall{
 				SessionID:        sessionID,
 				RunID:            runID,
+				ResolveModel:     resolveModel,
 				Prompt:           currentPrompt,
 				SwarmParts:       currentSwarmParts,
 				Attachments:      currentAttachments,
@@ -1282,6 +1289,36 @@ func (c *coordinator) overrideResolver(sel config.SelectedModel, isSubAgent bool
 		}
 		return &m, nil
 	}
+}
+
+// sessionModel resolves the model a top-level turn on sessionID runs on.
+// Sessions without a ModelRef (every session a person opens, and every
+// swarm worker spawned without `model`) run the agent's large model with a
+// nil resolver, exactly as before. A session with a ModelRef resolves it
+// through config.ResolveModelRef and buildModel; if the reference no
+// longer resolves (a role was removed, a provider disabled) the session
+// falls back to large with a warning rather than becoming unusable, since
+// nothing re-points an existing session's reference.
+func (c *coordinator) sessionModel(ctx context.Context, sessionID string) (Model, func(context.Context) (*Model, error)) {
+	large := c.currentAgent.Model()
+	if c.sessions == nil || sessionID == "" {
+		return large, nil
+	}
+	sess, err := c.sessions.Get(ctx, sessionID)
+	if err != nil || sess.ModelRef == "" {
+		return large, nil
+	}
+	sel, err := c.resolveModelRef(sess.ModelRef)
+	if err == nil {
+		var m Model
+		m, err = c.buildModel(ctx, sel, false)
+		if err == nil {
+			return m, c.overrideResolver(sel, false)
+		}
+	}
+	slog.Warn("Session model reference is unavailable; using large model",
+		"session_id", sessionID, "model_ref", sess.ModelRef, "error", err)
+	return large, nil
 }
 
 // TODO: when we support multiple agents we need to change this so that we pass in the agent specific model config

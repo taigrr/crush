@@ -35,6 +35,12 @@ Special addresses:
     if it is not currently running (created on disk if new, or attached
     if previously detached), then the session is created in it. `path`
     takes precedence over `workspace_id` when both are set.
+  Optionally pass `model` to choose what the new session runs on: a
+  configured role name (`large`, `small`, `worker`, or a user-defined
+  role), `provider/model`, or a bare model id, resolved in the TARGET
+  workspace's config on every turn. Omitted, the new session runs its
+  workspace's large model (the default). `model` is rejected for
+  existing addresses.
   The new session is picked up by any attached client's sidebar; the
   agent runs immediately.
 

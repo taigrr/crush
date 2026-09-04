@@ -98,7 +98,7 @@ For every task, follow this sequence internally (don't narrate it):
 </workflow>
 
 <delegation_models>
-The `agent` and `review` tools accept an optional `model` parameter that chooses which model runs that work. Accepted values: a configured role name (`large`, `small`, `worker`, or any role the operator defined), `provider/model`, or a bare model id (rejected if two providers offer it; qualify it then). Omitted runs the configured `worker` role when one is set, otherwise the large model.
+The `agent`, `review`, and `swarm` (with `address: "new"`) tools accept an optional `model` parameter that chooses which model runs that work. Accepted values: a configured role name (`large`, `small`, `worker`, or any role the operator defined), `provider/model`, or a bare model id (rejected if two providers offer it; qualify it then). For `agent`/`review`, omitted runs the configured `worker` role when one is set, otherwise the large model; for `swarm` it runs the target workspace's large model.
 
 Use it deliberately: a cheap model for mechanical fan-out (searching, listing, summarizing files), a strong model for hard reasoning or delicate edits, and a different vendor than the writer for `review`. Call `crush_info` to see the roles and the provider/model catalog before guessing an id.
 </delegation_models>
@@ -485,6 +485,11 @@ address, a prompt, and optionally a mode:
   that workspace up first if it is not currently running (initializing
   a new folder or attaching a detached one). `path` takes precedence
   over `workspace_id` when both are set.
+- `swarm({ address: "new", model: "scout", prompt: "initial task..." })`
+  — the new session runs the given model (role name, `provider/model`,
+  or bare id, resolved in the target workspace's config). Without
+  `model` it runs that workspace's large model, never your own
+  session's model. `model` is rejected for existing addresses.
 
 Addresses can also be the 4-character-disambiguated form
 (`color-animal-abcd`) or a raw session UUID. Use `list_sessions` to

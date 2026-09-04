@@ -453,12 +453,26 @@ func lookupSenderIdentity(ctx context.Context, b *Backend, senderSessionID strin
 // Fails if the workspace does not exist or swarm is disabled. On
 // failure to assign identity, the freshly-created session is
 // archived so callers who retry don't accumulate ghost sessions.
-func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title string) (session.Session, error) {
+func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title, modelRef string) (session.Session, error) {
 	ws, ok := b.workspaces.Get(workspaceID)
 	if !ok {
 		return session.Session{}, ErrSwarmWorkspaceNotFound
 	}
-	sess, err := ws.Sessions.Create(ctx, title)
+	// Validate the model reference against the TARGET workspace's config
+	// (that is where it will be resolved on every turn) before creating
+	// anything, so a bad reference never leaves an orphan session. An
+	// empty ref means the worker runs the workspace's large model, the
+	// historical default.
+	modelRef = strings.TrimSpace(modelRef)
+	if modelRef != "" {
+		if ws.Cfg == nil {
+			return session.Session{}, fmt.Errorf("%w: workspace has no config", ErrInvalidSessionModel)
+		}
+		if _, err := ws.Cfg.Config().ResolveModelRef(modelRef); err != nil {
+			return session.Session{}, fmt.Errorf("%w: %v", ErrInvalidSessionModel, err)
+		}
+	}
+	sess, err := ws.Sessions.CreateWithModelRef(ctx, title, modelRef)
 	if err != nil {
 		return session.Session{}, err
 	}
@@ -488,7 +502,7 @@ func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title str
 //
 // Returns the resolved workspace id alongside the identity-filled
 // session. The swarm-enabled gate is enforced via CreateSwarmSession.
-func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title string) (string, session.Session, error) {
+func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title, modelRef string) (string, session.Session, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", session.Session{}, ErrPathRequired
 	}
@@ -503,7 +517,7 @@ func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title stri
 	b.mu.Unlock()
 	if ok {
 		if _, found := b.workspaces.Get(existingID); found {
-			sess, err := b.CreateSwarmSession(ctx, existingID, title)
+			sess, err := b.CreateSwarmSession(ctx, existingID, title, modelRef)
 			if err != nil {
 				return "", session.Session{}, err
 			}
@@ -521,7 +535,7 @@ func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title stri
 	if err != nil {
 		return "", session.Session{}, fmt.Errorf("swarm: failed to bring up workspace: %w", err)
 	}
-	sess, err := b.CreateSwarmSession(ctx, ws.ID, title)
+	sess, err := b.CreateSwarmSession(ctx, ws.ID, title, modelRef)
 	if err != nil {
 		return "", session.Session{}, err
 	}

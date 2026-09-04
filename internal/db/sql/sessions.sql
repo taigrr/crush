@@ -9,6 +9,7 @@ INSERT INTO sessions (
     cost,
     summary_message_id,
     working_dir,
+    model_ref,
     updated_at,
     created_at
 ) VALUES (
@@ -21,6 +22,7 @@ INSERT INTO sessions (
     ?,
     null,
     ?,
+    sqlc.narg('model_ref'),
     strftime('%s', 'now'),
     strftime('%s', 'now')
 ) RETURNING *;
@@ -134,6 +136,6 @@ FROM sessions
 WHERE color IS NULL OR animal IS NULL OR color = '' OR animal = '';
 
 -- name: FindSessionsByColorAnimal :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite
+SELECT *
 FROM sessions
 WHERE color = ? AND animal = ? AND archived_at IS NULL;

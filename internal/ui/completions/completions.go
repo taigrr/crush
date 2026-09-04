@@ -217,6 +217,27 @@ func (c *Completions) SetCommands(cmds []CommandCompletionValue) {
 	c.setItems(items)
 }
 
+// SetArgs sets slash command argument completions and rebuilds the list.
+// Like SetCommands the items are in-memory so the popup opens synchronously.
+func (c *Completions) SetArgs(args []ArgCompletionValue) {
+	items := make([]list.FilterableItem, 0, len(args))
+	for _, arg := range args {
+		display := arg.Text
+		if arg.Description != "" {
+			display += "  " + arg.Description
+		}
+		items = append(items, NewDisplayCompletionItem(
+			arg.Text,
+			display,
+			arg,
+			c.normalStyle,
+			c.focusedStyle,
+			c.matchStyle,
+		))
+	}
+	c.setItems(items)
+}
+
 // setItems replaces the list contents and opens the popup, resetting the
 // query, selection, and size. It is shared by SetItems and SetCommands.
 func (c *Completions) setItems(items []list.FilterableItem) {
@@ -423,6 +444,11 @@ func (c *Completions) selectCurrent(keepOpen bool) tea.Msg {
 		}
 	case CommandCompletionValue:
 		return SelectionMsg[CommandCompletionValue]{
+			Value:    item,
+			KeepOpen: keepOpen,
+		}
+	case ArgCompletionValue:
+		return SelectionMsg[ArgCompletionValue]{
 			Value:    item,
 			KeepOpen: keepOpen,
 		}

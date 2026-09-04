@@ -1,9 +1,12 @@
 package config
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/sahilm/fuzzy"
 )
 
 // ResolveModelRef maps a model reference, as typed by a person or emitted
@@ -161,4 +164,232 @@ func (c *Config) providersOfferingID(id string) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// ReasoningEffortLevels is the vocabulary a trailing token in a typed model
+// reference may use to request a reasoning effort (e.g. "/model fable high").
+// A token is only honored when the resolved model lists it in its
+// reasoning_levels; otherwise the whole string is treated as a model
+// reference so a model whose id ends in one of these words still resolves.
+var ReasoningEffortLevels = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+// ModelMatch is one candidate produced by ResolveModelRefLoose when a
+// reference is ambiguous, so callers can list the options.
+type ModelMatch struct {
+	Selection SelectedModel
+	Name      string
+}
+
+// ErrAmbiguousModelRef is returned by ResolveModelRefLoose when several
+// distinct models match a reference equally well.
+type ErrAmbiguousModelRef struct {
+	Ref     string
+	Matches []ModelMatch
+}
+
+func (e *ErrAmbiguousModelRef) Error() string {
+	ids := make([]string, 0, len(e.Matches))
+	for _, m := range e.Matches {
+		ids = append(ids, m.Selection.Provider+"/"+m.Selection.Model)
+	}
+	return fmt.Sprintf("ambiguous model %q: matches %s", e.Ref, strings.Join(ids, ", "))
+}
+
+// ResolveModelRefLoose resolves a model reference typed by a person. It
+// accepts everything ResolveModelRef does, plus:
+//
+//   - an optional trailing reasoning-effort token ("fable high"), applied
+//     when the resolved model supports that level;
+//   - case-insensitive substring and fuzzy matching against model ids and
+//     display names across every enabled provider ("fable" -> the fable
+//     model), so the reference can be typed the way a person thinks of it.
+//
+// Ties between equally good matches are broken in favour of models that
+// currently hold a role (large/small/orchestrator/...), then models in
+// the recent list, then the shortest id. A tie that survives all three is
+// reported as *ErrAmbiguousModelRef with the candidates.
+func (c *Config) ResolveModelRefLoose(ref string) (SelectedModel, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return SelectedModel{}, fmt.Errorf("model reference is empty")
+	}
+	if c.Providers == nil {
+		return SelectedModel{}, fmt.Errorf("unknown model %q: no providers are configured", ref)
+	}
+
+	// Exact grammar first: roles, provider/model, bare id.
+	if sel, err := c.ResolveModelRef(ref); err == nil {
+		return sel, nil
+	}
+
+	// Peel an effort suffix and retry exact.
+	modelRef, effort := splitEffortSuffix(ref)
+	if effort != "" {
+		if sel, err := c.ResolveModelRef(modelRef); err == nil {
+			return c.applyEffort(sel, effort, ref)
+		}
+	}
+
+	// Fuzzy. When an effort suffix is present, try the peeled reference
+	// first so "luna low" applies the effort rather than matching an id
+	// that happens to contain the word; fall back to the full string only
+	// if the peeled form does not resolve (or the effort is unsupported).
+	if effort != "" {
+		if sel, ferr := c.fuzzyModel(modelRef); ferr == nil {
+			// The peeled form named a real model: report an unsupported
+			// effort as such rather than letting the full string wander
+			// off to some other id that happens to contain the word.
+			return c.applyEffort(sel, effort, ref)
+		}
+	}
+	return c.fuzzyModel(ref)
+}
+
+func splitEffortSuffix(ref string) (modelRef, effort string) {
+	fields := strings.Fields(ref)
+	if len(fields) < 2 {
+		return ref, ""
+	}
+	last := strings.ToLower(fields[len(fields)-1])
+	if !slices.Contains(ReasoningEffortLevels, last) {
+		return ref, ""
+	}
+	return strings.Join(fields[:len(fields)-1], " "), last
+}
+
+func (c *Config) applyEffort(sel SelectedModel, effort, ref string) (SelectedModel, error) {
+	m := c.GetModel(sel.Provider, sel.Model)
+	if m == nil || !slices.Contains(m.ReasoningLevels, effort) {
+		levels := "none"
+		if m != nil && len(m.ReasoningLevels) > 0 {
+			levels = strings.Join(m.ReasoningLevels, ", ")
+		}
+		return SelectedModel{}, fmt.Errorf("%q: %s does not support reasoning effort %q (levels: %s)", ref, sel.Model, effort, levels)
+	}
+	sel.ReasoningEffort = effort
+	return sel, nil
+}
+
+// fuzzyModel scores ref against every enabled provider's model ids and
+// names. Matching is case-insensitive; a substring hit outranks a
+// scattered fuzzy hit, and among substring hits a shorter id wins after the
+// role/recent tie-breakers.
+func (c *Config) fuzzyModel(ref string) (SelectedModel, error) {
+	q := strings.ToLower(strings.Join(strings.Fields(ref), " "))
+	compact := strings.ReplaceAll(q, " ", "")
+
+	type cand struct {
+		sel   SelectedModel
+		name  string
+		score int
+	}
+	var cands []cand
+	for providerID, p := range c.Providers.Seq2() {
+		if p.Disable {
+			continue
+		}
+		for _, m := range p.Models {
+			id := strings.ToLower(m.ID)
+			name := strings.ToLower(m.Name)
+			score := 0
+			switch {
+			case id == compact || name == q:
+				score = 4
+			case strings.Contains(id, compact) || strings.Contains(name, q):
+				score = 3
+			case containsAllFields(id, name, q):
+				score = 2
+			case len(fuzzy.Find(compact, []string{id})) > 0 || len(fuzzy.Find(compact, []string{name})) > 0:
+				score = 1
+			default:
+				continue
+			}
+			cands = append(cands, cand{sel: SelectedModel{Provider: providerID, Model: m.ID}, name: m.Name, score: score})
+		}
+	}
+	if len(cands) == 0 {
+		return SelectedModel{}, fmt.Errorf("unknown model %q: no enabled provider has a model matching it", ref)
+	}
+
+	best := 0
+	for _, cd := range cands {
+		best = max(best, cd.score)
+	}
+	var top []cand
+	for _, cd := range cands {
+		if cd.score == best {
+			top = append(top, cd)
+		}
+	}
+	// A subsequence-only (score 1) hit is too weak to act on silently,
+	// unique or not: a typo like "gtp" is a subsequence of many ids, and a
+	// tie would otherwise "resolve" to whatever model already holds a role.
+	// Report the candidates so the user can pick.
+	if best <= 1 {
+		matches := make([]ModelMatch, 0, len(top))
+		for _, cd := range top {
+			matches = append(matches, ModelMatch{Selection: cd.sel, Name: cd.name})
+		}
+		return SelectedModel{}, &ErrAmbiguousModelRef{Ref: ref, Matches: matches}
+	}
+	if len(top) == 1 {
+		return top[0].sel, nil
+	}
+
+	// Tie-breakers: role holders, then recents, then shortest id.
+	inRole := func(s SelectedModel) bool {
+		for _, r := range c.Models {
+			if r.Provider == s.Provider && r.Model == s.Model {
+				return true
+			}
+		}
+		return false
+	}
+	inRecent := func(s SelectedModel) bool {
+		for _, list := range c.RecentModels {
+			for _, r := range list {
+				if r.Provider == s.Provider && r.Model == s.Model {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	for _, pick := range []func(SelectedModel) bool{inRole, inRecent} {
+		var kept []cand
+		for _, cd := range top {
+			if pick(cd.sel) {
+				kept = append(kept, cd)
+			}
+		}
+		if len(kept) == 1 {
+			return kept[0].sel, nil
+		}
+		if len(kept) > 1 {
+			top = kept
+		}
+	}
+	slices.SortStableFunc(top, func(a, b cand) int {
+		return cmp.Or(cmp.Compare(len(a.sel.Model), len(b.sel.Model)), strings.Compare(a.sel.Provider, b.sel.Provider))
+	})
+	if len(top[0].sel.Model) < len(top[1].sel.Model) {
+		return top[0].sel, nil
+	}
+	matches := make([]ModelMatch, 0, len(top))
+	for _, cd := range top {
+		matches = append(matches, ModelMatch{Selection: cd.sel, Name: cd.name})
+	}
+	return SelectedModel{}, &ErrAmbiguousModelRef{Ref: ref, Matches: matches}
+}
+
+// containsAllFields reports whether every whitespace-separated field of q
+// appears in id or name ("fable 5.1" against "claude-fable-5-1" fails on
+// "5.1", but "fable 5-1" passes).
+func containsAllFields(id, name, q string) bool {
+	for _, f := range strings.Fields(q) {
+		if !strings.Contains(id, f) && !strings.Contains(name, f) {
+			return false
+		}
+	}
+	return true
 }

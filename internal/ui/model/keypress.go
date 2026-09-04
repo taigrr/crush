@@ -196,7 +196,14 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 	case uiChat, uiLanding:
 		switch m.focus {
 		case uiFocusEditor:
-			// Handle completions if open.
+			// Handle completions if open. An argument popup with nothing
+			// typed yet is a suggestion, not a selection: Enter there runs
+			// the slash command as typed ("/model" alone shows the current
+			// model) instead of inserting the first suggestion.
+			if m.completionsOpen && m.completionsTrigger == argCompletionTrigger &&
+				m.completionsQuery == "" && key.Matches(msg, m.keyMap.Editor.SendMessage) {
+				m.closeCompletions()
+			}
 			if m.completionsOpen {
 				if msg, ok := m.completions.Update(msg); ok {
 					switch msg := msg.(type) {
@@ -214,6 +221,15 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 						cmds = append(cmds, m.insertCommandCompletion(msg.Value.Name))
 						if !msg.KeepOpen {
 							m.closeCompletions()
+							m.maybeOpenArgCompletions()
+						}
+					case completions.SelectionMsg[completions.ArgCompletionValue]:
+						cmds = append(cmds, m.insertArgCompletion(msg.Value.Text))
+						if !msg.KeepOpen {
+							m.closeCompletions()
+							if msg.Value.Continue {
+								m.maybeOpenArgCompletions()
+							}
 						}
 					case completions.ClosedMsg:
 						m.completionsOpen = false
@@ -391,7 +407,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				// After updating textarea, check if we need to filter
 				// completions. Skip filtering on the initial @ keystroke since
 				// items are loading async.
-				if m.completionsOpen && msg.String() != "@" {
+				if !m.completionsOpen && msg.String() == "space" {
+					m.maybeOpenArgCompletions()
+				} else if m.completionsOpen && msg.String() != "@" {
 					newValue := m.textarea.Value()
 					newIdx := len(newValue)
 
@@ -399,8 +417,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					if newIdx <= m.completionsStartIndex {
 						m.closeCompletions()
 					} else if msg.String() == "space" {
-						// Close on space.
+						// Close on space; a slash command with argument
+						// completion reopens the popup for its next argument.
 						m.closeCompletions()
+						m.maybeOpenArgCompletions()
 					} else {
 						// Extract current word and filter against the trigger.
 						word := m.textareaWord()
@@ -410,6 +430,15 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 								m.completionsQuery = word
 								m.completions.Filter(m.completionsQuery)
 							} else {
+								m.closeCompletions()
+							}
+						case argCompletionTrigger:
+							m.completionsQuery = word
+							m.completions.Filter(m.completionsQuery)
+							// An argument the list cannot complete is still a
+							// valid argument (a fuzzy model ref, a path), so
+							// give the keys back to the editor.
+							if !m.completions.HasItems() {
 								m.closeCompletions()
 							}
 						default:

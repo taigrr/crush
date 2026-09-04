@@ -84,6 +84,16 @@ type Session struct {
 	// below sessions blocked on a permission prompt) so an orchestrator
 	// session controlling swarm workers is easy to return to.
 	Favorite bool
+
+	// ModelRef is the model reference this session was spawned with, when
+	// any: a configured role name ("scout"), "provider/model", or a bare
+	// model id, exactly as accepted by config.Config.ResolveModelRef. It
+	// is resolved against the workspace config on every turn, so a role
+	// re-pointed in config takes effect immediately and the role's tuning
+	// follows along. Empty means "run the workspace's large model", which
+	// is how every session behaved before. Set only by swarm `new` with a
+	// `model` argument; sessions a person opens are never given one.
+	ModelRef string
 }
 
 // Unread reports whether the session finished a run more recently than it
@@ -95,6 +105,9 @@ func (s Session) Unread() bool {
 type Service interface {
 	pubsub.Subscriber[Session]
 	Create(ctx context.Context, title string) (Session, error)
+	// CreateWithModelRef creates a top-level session that runs modelRef
+	// (see Session.ModelRef). An empty ref behaves exactly like Create.
+	CreateWithModelRef(ctx context.Context, title, modelRef string) (Session, error)
 	CreateTitleSession(ctx context.Context, parentSessionID string) (Session, error)
 	CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error)
 	Get(ctx context.Context, id string) (Session, error)
@@ -152,9 +165,14 @@ type service struct {
 }
 
 func (s *service) Create(ctx context.Context, title string) (Session, error) {
+	return s.CreateWithModelRef(ctx, title, "")
+}
+
+func (s *service) CreateWithModelRef(ctx context.Context, title, modelRef string) (Session, error) {
 	dbSession, err := s.q.CreateSession(ctx, db.CreateSessionParams{
-		ID:    uuid.New().String(),
-		Title: title,
+		ID:       uuid.New().String(),
+		Title:    title,
+		ModelRef: sql.NullString{String: modelRef, Valid: modelRef != ""},
 	})
 	if err != nil {
 		return Session{}, err
@@ -522,6 +540,7 @@ func (s *service) fromDBItem(item db.Session) Session {
 		Color:            item.Color.String,
 		Animal:           item.Animal.String,
 		Favorite:         item.Favorite != 0,
+		ModelRef:         item.ModelRef.String,
 	}
 }
 
