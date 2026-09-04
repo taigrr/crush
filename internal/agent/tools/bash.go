@@ -20,7 +20,7 @@ import (
 )
 
 type BashParams struct {
-	Description         string `json:"description" description:"A brief description of what the command does, try to keep it under 30 characters or so"`
+	Description         string `json:"description,omitempty" description:"A brief description of what the command does, try to keep it under 30 characters or so"`
 	Command             string `json:"command" description:"The command to execute"`
 	WorkingDir          string `json:"working_dir,omitempty" description:"The working directory to execute the command in (defaults to current directory)"`
 	RunInBackground     bool   `json:"run_in_background,omitempty" description:"Set to true (boolean) to run this command in the background. Use job_output to read the output later."`
@@ -201,6 +201,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 			if params.Command == "" {
 				return fantasy.NewTextErrorResponse("missing command"), nil
 			}
+			params.Description = cmp.Or(params.Description, DefaultBashDescription(params.Command))
 
 			// Determine working directory
 			execWorkingDir := cmp.Or(params.WorkingDir, workingDir(ctx))
@@ -371,6 +372,24 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
 		},
 	)
+}
+
+// DefaultBashDescription synthesizes a short label for a shell command
+// when the model omitted the optional description parameter. It is the
+// first non-empty line of the command, capped so it fits a tool header.
+func DefaultBashDescription(command string) string {
+	const maxRunes = 60
+	for line := range strings.SplitSeq(command, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if r := []rune(line); len(r) > maxRunes {
+			return string(r[:maxRunes]) + "…"
+		}
+		return line
+	}
+	return "shell command"
 }
 
 // formatOutput formats the output of a completed command with error handling
