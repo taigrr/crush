@@ -100,7 +100,11 @@ func (b *Backend) ListWorkspaceOverviews(ctx context.Context) ([]proto.Workspace
 }
 
 // attachedSessionOverviews lists a live workspace's top-level sessions with
-// live busy state and computed unread state.
+// live busy state and computed unread state. Busy includes accepted-but-
+// not-yet-active runs: clients refresh overviews on the AttentionBusy event
+// runAgent publishes at dispatch, which precedes the run registering as
+// active, so a strict active-only check would report a just-started turn as
+// idle and leave the navigator stale for the whole turn.
 func (b *Backend) attachedSessionOverviews(ctx context.Context, ws *Workspace) []proto.SessionOverview {
 	if ws.App == nil || ws.Sessions == nil {
 		return nil
@@ -114,7 +118,7 @@ func (b *Backend) attachedSessionOverviews(ctx context.Context, ws *Workspace) [
 	for _, s := range sessions {
 		busy := false
 		if ws.AgentCoordinator != nil {
-			busy = ws.AgentCoordinator.IsSessionBusy(s.ID)
+			busy = ws.AgentCoordinator.IsSessionBusyOrAccepted(s.ID)
 		}
 		out = append(out, proto.SessionOverview{
 			ID:         s.ID,

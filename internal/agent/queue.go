@@ -432,6 +432,29 @@ func (a *sessionAgent) IsSessionBusy(sessionID string) bool {
 	return busy
 }
 
+// IsSessionBusyOrAccepted is the observer-facing busy predicate: true when
+// sessionID has an active run OR an accepted-but-not-yet-active one. The
+// dispatch window between BeginAccepted and activeRequests.Set spans
+// readyWg, model resolution, and DB writes, and the AttentionBusy event
+// that makes clients refresh their session overviews fires at the start
+// of it — so a listing that consulted IsSessionBusy alone would read
+// false and show a live turn as idle until the next unrelated refresh.
+//
+// Run itself must keep using the strict IsSessionBusy so a prompt is
+// never queued behind its own accept reservation.
+func (a *sessionAgent) IsSessionBusyOrAccepted(sessionID string) bool {
+	if a.IsSessionBusy(sessionID) {
+		return true
+	}
+	if a.acceptedRuns == nil {
+		return false
+	}
+	a.acceptedMu.Lock()
+	defer a.acceptedMu.Unlock()
+	count, _ := a.acceptedRuns.Get(sessionID)
+	return count > 0
+}
+
 // clearActiveRequest removes the session's active request and signals any
 // WaitForIdle waiters. Every place that releases an active request must go
 // through here so the idle wakeup is never missed.
