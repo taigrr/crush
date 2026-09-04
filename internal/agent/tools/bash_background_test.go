@@ -236,3 +236,66 @@ func TestMovedToBackgroundResponse_SharesContract(t *testing.T) {
 	}
 	require.Contains(t, movedToBackgroundResponse("x", backgroundReasonTimeout), "taking longer than expected")
 }
+
+func TestWatchBackgroundJob_NotifiesOnCompletion(t *testing.T) {
+	t.Parallel()
+
+	got := make(chan [2]string, 1)
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "sess-notify")
+	ctx = WithJobNotifier(ctx, func(sessionID, text string) { got <- [2]string{sessionID, text} })
+
+	bgManager := shell.GetBackgroundShellManager()
+	bgShell, err := bgManager.Start(context.Background(), t.TempDir(), nil, "echo tail-marker; exit 3", "run thing")
+	require.NoError(t, err)
+	watchBackgroundJob(ctx, bgShell)
+
+	select {
+	case n := <-got:
+		require.Equal(t, "sess-notify", n[0])
+		require.Contains(t, n[1], "[background job finished] run thing (job "+bgShell.ID+")")
+		require.Contains(t, n[1], "tail-marker")
+		require.Contains(t, n[1], "Exit code 3")
+		require.Contains(t, n[1], "automatic notice")
+	case <-time.After(5 * time.Second):
+		t.Fatal("no completion notification")
+	}
+}
+
+func TestWatchBackgroundJob_SilentWhenKilledOrNoNotifier(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sleep semantics differ on windows")
+	}
+	t.Parallel()
+
+	got := make(chan [2]string, 1)
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "sess-killed")
+	ctx = WithJobNotifier(ctx, func(sessionID, text string) { got <- [2]string{sessionID, text} })
+
+	bgManager := shell.GetBackgroundShellManager()
+	bgShell, err := bgManager.Start(context.Background(), t.TempDir(), nil, "sleep 30", "")
+	require.NoError(t, err)
+	watchBackgroundJob(ctx, bgShell)
+	require.NoError(t, bgManager.Kill(bgShell.ID))
+	select {
+	case n := <-got:
+		t.Fatalf("killed job must not notify, got %q", n[1])
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	// Without a notifier the watcher is a no-op and must not block.
+	other, err := bgManager.Start(context.Background(), t.TempDir(), nil, "echo x", "")
+	require.NoError(t, err)
+	watchBackgroundJob(context.WithValue(t.Context(), SessionIDContextKey, "s"), other)
+	other.Wait()
+}
+
+func TestJobFinishedNotification_TruncatesOutput(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("y", jobNotificationOutputLimit+100) + "END"
+	got := jobFinishedNotification("id1", "", "make all", long)
+	require.Contains(t, got, "[background job finished] make all (job id1)")
+	require.Contains(t, got, "…")
+	require.Contains(t, got, "END")
+	require.NotContains(t, got, strings.Repeat("y", jobNotificationOutputLimit+1), "only the tail of long output is kept")
+	require.Contains(t, jobFinishedNotification("id2", "", "true", ""), BashNoOutput)
+}
