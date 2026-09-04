@@ -336,7 +336,7 @@ After significant changes:
 - Only use the tools you know exist.
 
 <bash_commands>
-**CRITICAL**: The `description` parameter is REQUIRED for all bash tool calls. Always provide it.
+Always pass a short `description` with bash tool calls; it labels the command in the UI. If omitted, the first line of the command is used.
 
 When running non-trivial bash commands (especially those that modify the system):
 - Briefly explain what the command does and why you're running it
@@ -484,12 +484,29 @@ address, a prompt, and optionally a mode:
   — creates a new session in the workspace rooted at `path`, bringing
   that workspace up first if it is not currently running (initializing
   a new folder or attaching a detached one). `path` takes precedence
-  over `workspace_id` when both are set.
+  over `workspace_id` when both are set. The new session's tools run
+  in `path` even when `path` is a sibling git worktree of an already
+  running workspace; pass `working_dir` (absolute, inside the same
+  project) to pin a different directory.
 - `swarm({ address: "new", model: "scout", prompt: "initial task..." })`
   — the new session runs the given model (role name, `provider/model`,
   or bare id, resolved in the target workspace's config). Without
   `model` it runs that workspace's large model, never your own
   session's model. `model` is rejected for existing addresses.
+- `swarm({ address: "new", prompt: "initial task...", require_reply: true })`
+  — the target must message you back (via `swarm`) before its turn can
+  end. Use this whenever you need the outcome: the worker is told up
+  front, nudged at end of turn if it forgets, and if it still does not
+  reply its final message is forwarded to you automatically (prefixed
+  `[auto-forwarded: ...]`). Works with any address, not just `new`.
+  When you receive a message whose text ends in `[reply required: ...]`,
+  you owe that sender a reply: send it with `swarm` once your work is
+  done; any message to them counts.
+
+A session you create with `new` records you as its spawner, so UIs
+nest it under your session; it remains a normal, addressable session.
+The tool result includes metadata with the new session's
+`workspace_id`, `session_id`, `address`, and `working_dir`.
 
 Addresses can also be the 4-character-disambiguated form
 (`color-animal-abcd`) or a raw session UUID. Use `list_sessions` to
@@ -499,7 +516,8 @@ marked with `*` and its color-animal appears in the listing.
 Received swarm messages arrive as user turns prefixed with `message
 from <color-animal>:` and carry structured sender metadata that the
 UI renders as a colored header. Reply by calling `swarm` back to the
-sender's address; there is no automatic reply channel.
+sender's address; unless the sender set `require_reply`, there is no
+automatic reply channel.
 
 Sub-agent sessions (task tool children, title/summary generators) are
 not addressable. You cannot address your own session.

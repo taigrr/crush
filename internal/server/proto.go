@@ -21,14 +21,29 @@ type controllerV1 struct {
 	server  *Server
 }
 
-// handleGetHealth checks server health.
+// handleGetHealth checks server health. The body reports whether the
+// server is draining for an update and how many runs are still active.
 //
 //	@Summary		Health check
 //	@Tags			system
-//	@Success		200
+//	@Produce		json
+//	@Success		200	{object}	proto.Health
 //	@Router			/health [get]
 func (c *controllerV1) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
+	jsonEncode(w, c.backend.Health())
+}
+
+// handlePostDrain puts the server in drain mode: no new agent runs are
+// accepted, in-flight runs finish, and the server exits on its own once
+// none remain. Idempotent.
+//
+//	@Summary		Drain the server for an update
+//	@Tags			system
+//	@Produce		json
+//	@Success		200	{object}	proto.Health
+//	@Router			/drain [post]
+func (c *controllerV1) handlePostDrain(w http.ResponseWriter, _ *http.Request) {
+	jsonEncode(w, c.backend.Drain())
 }
 
 // handleGetVersion returns server version information.
@@ -1728,6 +1743,10 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
 		status = http.StatusNotFound
 	case errors.Is(err, backend.ErrWorkspaceClosing):
 		status = http.StatusConflict
+	case errors.Is(err, backend.ErrDraining):
+		c.server.logInfo(r, err.Error())
+		jsonErrorCode(w, http.StatusServiceUnavailable, proto.ErrorCodeDraining, err.Error())
+		return
 	case errors.Is(err, backend.ErrPreviewWorkspaceNotFound):
 		status = http.StatusNotFound
 	}
@@ -1741,7 +1760,12 @@ func jsonEncode(w http.ResponseWriter, v any) {
 }
 
 func jsonError(w http.ResponseWriter, status int, message string) {
+	jsonErrorCode(w, status, "", message)
+}
+
+// jsonErrorCode writes a proto.Error carrying a machine-readable code.
+func jsonErrorCode(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(proto.Error{Message: message})
+	_ = json.NewEncoder(w).Encode(proto.Error{Message: message, Code: code})
 }

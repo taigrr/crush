@@ -431,6 +431,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	commands := []*CommandItem{
 		NewCommandItem(c.com.Styles, "new_session", "New Session", "ctrl+n", ActionNewSession{}),
 		NewCommandItem(c.com.Styles, "switch_session", "Sessions", "ctrl+s", ActionOpenDialog{SessionsID}),
+		NewCommandItem(c.com.Styles, "pin_sessions_sidebar", "Pin/Unpin Sessions Sidebar", "alt+s", ActionToggleSessionsSidebarPin{}),
 		NewCommandItem(c.com.Styles, "import_sessions", "Import Sessions", "", ActionOpenDialog{SessionImportID}),
 		NewCommandItem(c.com.Styles, "switch_model", "Switch Model", "ctrl+m", ActionOpenDialog{ModelsID}),
 	}
@@ -492,6 +493,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	// antipattern.
 	if os.Getenv("EDITOR") != "" {
 		commands = append(commands, NewCommandItem(c.com.Styles, "open_external_editor", "Open External Editor", "ctrl+o", ActionExternalEditor{}))
+		commands = append(commands, NewCommandItem(c.com.Styles, "stash_prompt", "Stash/Restore Prompt", "alt+z", ActionToggleStash{}))
 	}
 
 	// Add Docker MCP command if available and not already enabled.

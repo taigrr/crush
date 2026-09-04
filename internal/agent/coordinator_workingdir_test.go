@@ -160,6 +160,55 @@ func TestCoordinatorWorkingDir_RequestCwd(t *testing.T) {
 			c.workingDir(ctxWithSessionCwd(sess.ID, "/proj/live")))
 	})
 
+	// A swarm-driven turn (SwarmSend, or a `swarm new` worker's first
+	// turn) carries no client cwd. On a worktree-enabled workspace the
+	// recorded session working dir must then win over the baked-in
+	// effectiveWorkingDir, so a worker pinned to a sibling worktree runs
+	// its tools there instead of in whichever tree attached first.
+	t.Run("worktree workspace without request cwd uses recorded session working dir", func(t *testing.T) {
+		t.Parallel()
+		env := testEnv(t)
+		wcfg, err := config.Init(env.workingDir, "", false)
+		require.NoError(t, err)
+		sess, err := env.sessions.Create(t.Context(), "worker")
+		require.NoError(t, err)
+		require.NoError(t, env.sessions.SetWorkingDir(t.Context(), sess.ID, "/proj/wt-linked2"))
+
+		c := &coordinator{
+			cfg:                 wcfg,
+			sessions:            env.sessions,
+			effectiveWorkingDir: "/proj/wt-linked",
+			worktrees:           &fakeWorktrees{},
+		}
+		ctx := context.WithValue(t.Context(), tools.SessionIDContextKey, sess.ID)
+		require.Equal(t, "/proj/wt-linked2", c.workingDir(ctx),
+			"no client cwd: the session's pinned working dir must beat effectiveWorkingDir")
+		// A live client cwd still wins over the pin.
+		require.Equal(t, "/proj/live",
+			c.workingDir(ctxWithSessionCwd(sess.ID, "/proj/live")))
+		// An active managed worktree still beats both.
+		c.worktrees = &fakeWorktrees{enabled: "/proj/.crush/worktrees/feat-x"}
+		require.Equal(t, "/proj/.crush/worktrees/feat-x", c.workingDir(ctx))
+	})
+
+	t.Run("worktree workspace without request cwd and no recorded dir falls back", func(t *testing.T) {
+		t.Parallel()
+		env := testEnv(t)
+		wcfg, err := config.Init(env.workingDir, "", false)
+		require.NoError(t, err)
+		sess, err := env.sessions.Create(t.Context(), "unpinned")
+		require.NoError(t, err)
+
+		c := &coordinator{
+			cfg:                 wcfg,
+			sessions:            env.sessions,
+			effectiveWorkingDir: "/proj/wt-first",
+			worktrees:           &fakeWorktrees{},
+		}
+		ctx := context.WithValue(t.Context(), tools.SessionIDContextKey, sess.ID)
+		require.Equal(t, "/proj/wt-first", c.workingDir(ctx))
+	})
+
 	t.Run("non-worktree workspace uses recorded session working dir", func(t *testing.T) {
 		t.Parallel()
 		env := testEnv(t)

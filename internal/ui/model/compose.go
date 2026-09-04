@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/util"
 	"github.com/taigrr/crush/internal/version"
+	"github.com/taigrr/crush/internal/workspace"
 )
 
 // attachSkill reads a skill's content by ID and returns it as a markdown
@@ -44,8 +46,15 @@ func (m *UI) attachSkill(skillID, name string) tea.Cmd {
 // attachments, then reports the error that prevented sending.
 func (m *UI) restoreUnsentPrompt(content string, attachments []message.Attachment, err error) tea.Cmd {
 	prevHeight := m.textarea.Height()
-	if m.textarea.Value() == "" {
+	content = strings.TrimPrefix(content, "[btw] ")
+	switch existing := m.textarea.Value(); {
+	case existing == "":
 		m.textarea.SetValue(content)
+	case content != "" && !strings.Contains(existing, content):
+		// Several prompts can come back at once (held during a server
+		// update and rejected on redelivery); keep them all rather than
+		// the first only.
+		m.textarea.SetValue(existing + "\n\n" + content)
 	}
 	for _, att := range attachments {
 		m.attachments.Update(att)
@@ -124,6 +133,15 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 		// or transport error. Run failures and cancellation surface
 		// through SSE-derived events, not this return value.
 		err := m.com.Workspace.AgentRun(context.Background(), sessionID, content, attachments...)
+		if errors.Is(err, workspace.ErrServerUpdating) {
+			// Not a failure: the server is being swapped for a newer
+			// build and the workspace is holding the prompt until it
+			// reconnects. Say so instead of alarming the user.
+			return util.InfoMsg{
+				Type: util.InfoTypeInfo,
+				Msg:  "Server is updating — your message is held and will be sent when it reconnects (keep this window open).",
+			}
+		}
 		if err != nil {
 			return util.InfoMsg{
 				Type: util.InfoTypeError,

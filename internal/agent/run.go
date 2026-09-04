@@ -177,6 +177,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			a.enqueueCall(call)
 			call.Accepted.Close()
 			mu.Unlock()
+			a.journalQueue(call.SessionID)
 			return nil, nil
 		}
 
@@ -200,6 +201,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		// default broker publish, which is what existing subscribers
 		// expect for queued turns.
 		a.enqueueCall(call)
+		a.journalQueue(call.SessionID)
 		return nil, nil
 	}
 
@@ -259,10 +261,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		largeModel.Model,
 		fantasy.WithSystemPrompt(systemPrompt),
 		fantasy.WithTools(agentTools...),
+		fantasy.WithRepairToolCall(repairToolCall),
 		fantasy.WithUserAgent(userAgent),
 	)
 
 	sessionLock := sync.Mutex{}
+	// incompleteSteps accumulates steps whose streamed tool calls were
+	// truncated; PrepareStep rewrites them out of the request history.
+	var incompleteSteps []incompleteStep
 	currentSession, err := a.sessions.Get(ctx, call.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session: %w", err)
@@ -466,6 +472,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			for i := range prepared.Messages {
 				prepared.Messages[i].ProviderOptions = nil
 			}
+			// A step whose tool_use block was lost in transit must not be
+			// replayed as an assistant turn (see incompleteStep).
+			prepared.Messages = patchIncompleteSteps(prepared.Messages, incompleteSteps)
 
 			// Use latest tools (updated by SetTools when MCP tools
 			// change), filtered to those available for this turn's
@@ -483,8 +492,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// into this turn; uncanceled prompts with a RunID are left
 			// queued so each runs as its own turn (with its own
 			// RunComplete) via the recursive run path below.
-			fold, canceledRunIDs := a.drainQueueForStep(call.SessionID)
-			a.publishCanceledQueueDrops(canceledRunIDs)
+			fold, canceled := a.drainQueueForStep(call.SessionID)
+			a.publishCanceledQueueDrops(canceled)
 			for _, queued := range fold {
 				userMessage, createErr := a.createUserMessage(callContext, queued)
 				if createErr != nil {
@@ -647,6 +656,21 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				}
 			}
 			currentAssistant.AddFinish(finishReason, "", "")
+			// A tool call that got tool-input-start but never tool-call
+			// means the provider stream dropped a block: fantasy's copy of
+			// this step is missing content the model produced. Record it
+			// so the next PrepareStep rewrites the step instead of sending
+			// the corrupted turn back (Anthropic rejects that outright).
+			if completed, unfinished := unfinishedToolCalls(currentAssistant); len(unfinished) > 0 {
+				for _, tc := range unfinished {
+					slog.Warn("Tool call never completed streaming; step will be replayed as text", "tool_call_id", tc.ID, "tool_name", tc.Name, "session_id", call.SessionID)
+				}
+				incompleteSteps = append(incompleteSteps, incompleteStep{
+					completed:  completed,
+					unfinished: unfinished,
+					text:       currentAssistant.Content().Text,
+				})
+			}
 			sessionLock.Lock()
 			defer sessionLock.Unlock()
 
@@ -836,7 +860,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
 			return a.dispatchNextQueued(ctx, call, currentAssistant, nil, err, &skipRunComplete)
 		}
-		return nil, err
+		// A provider/transport failure (e.g. the stream dying mid
+		// tool-call) must not strand prompts queued behind it either:
+		// the session goes idle, so nothing would ever drain them. Hand
+		// off the same way; a persistent failure surfaces on each queued
+		// turn in its own error finish.
+		a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
+		return a.dispatchNextQueued(ctx, call, currentAssistant, nil, err, &skipRunComplete)
 	}
 
 	if shouldSummarize {
@@ -850,6 +880,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			a.messageQueue.Update(call.SessionID, func(existing []SessionAgentCall, _ bool) ([]SessionAgentCall, bool) {
 				return append(existing, call), true
 			})
+			a.journalQueue(call.SessionID)
 		}
 	}
 
@@ -903,6 +934,15 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 func (a *sessionAgent) dispatchNextQueued(ctx context.Context, call SessionAgentCall, currentAssistant *message.Message, result *fantasy.AgentResult, err error, skipRunComplete *bool) (*fantasy.AgentResult, error) {
 	mu := a.sessionMu(call.SessionID)
 	mu.Lock()
+	// queueChanged tracks whether the queue was mutated under the lock
+	// so the journal write (a SQLite transaction) can run after the
+	// lock is released rather than while Cancel waits on it.
+	queueChanged := false
+	// drops collects queued calls discarded under the lock; their
+	// terminal events and release hooks are published after unlock,
+	// since the hook may make a network call and Cancel waits on this
+	// mutex.
+	var drops []SessionAgentCall
 	queuedMessages, _ := a.messageQueue.Get(call.SessionID)
 	if ctx.Err() != nil && len(queuedMessages) > 0 {
 		// The parent context itself is already done (e.g. workspace
@@ -915,7 +955,8 @@ func (a *sessionAgent) dispatchNextQueued(ctx context.Context, call SessionAgent
 		// detached-context publish Cancel/ClearQueue rely on, so a
 		// waiting caller still gets a terminal event.
 		a.messageQueue.Del(call.SessionID)
-		a.publishCanceledQueueDrops(queuedMessages)
+		queueChanged = true
+		drops = append(drops, queuedMessages...)
 		queuedMessages = nil
 	}
 	if mark, ok := a.cancelMark.Get(call.SessionID); ok && mark > 0 && len(queuedMessages) > 0 {
@@ -925,22 +966,16 @@ func (a *sessionAgent) dispatchNextQueued(ctx context.Context, call SessionAgent
 		// mark, or untracked); keep any queued after the cancel (higher
 		// sequence) so they still run.
 		var kept []SessionAgentCall
-		var canceledRunIDDrops []SessionAgentCall
 		for _, q := range queuedMessages {
 			if q.acceptSeq == 0 || q.acceptSeq <= mark {
-				if q.RunID != "" {
-					canceledRunIDDrops = append(canceledRunIDDrops, q)
-				}
+				drops = append(drops, q)
 				continue
 			}
 			kept = append(kept, q)
 		}
+		queueChanged = queueChanged || len(kept) != len(queuedMessages)
 		queuedMessages = kept
 		a.messageQueue.Set(call.SessionID, kept)
-		// A dropped prompt carrying a RunID must still publish its
-		// terminal cancelled RunComplete so a caller waiting on that
-		// RunID does not hang.
-		a.publishCanceledQueueDrops(canceledRunIDDrops)
 	}
 	if len(queuedMessages) == 0 {
 		// No queued work. Clear the cancel mark only when no accepted
@@ -957,6 +992,26 @@ func (a *sessionAgent) dispatchNextQueued(ctx context.Context, call SessionAgent
 			a.cancelMark.Del(call.SessionID)
 		}
 		mu.Unlock()
+		if queueChanged {
+			a.journalQueue(call.SessionID)
+		}
+		// A dropped prompt carrying a RunID must still publish its
+		// terminal cancelled RunComplete so a caller waiting on that
+		// RunID does not hang.
+		a.publishCanceledQueueDrops(drops)
+		return result, err
+	}
+	if a.dispatchPaused.Load() {
+		// The server is draining for an update: finish this turn but
+		// leave the queued follow-ups where they are. They are already
+		// journaled, so the next server rehydrates and runs them.
+		slog.Info("Queue dispatch paused; leaving queued prompts for the next server",
+			"session_id", call.SessionID, "queued", len(queuedMessages))
+		mu.Unlock()
+		if queueChanged {
+			a.journalQueue(call.SessionID)
+		}
+		a.publishCanceledQueueDrops(drops)
 		return result, err
 	}
 	// There are queued messages, restart the loop. Suppress the outer
@@ -992,6 +1047,9 @@ func (a *sessionAgent) dispatchNextQueued(ctx context.Context, call SessionAgent
 	// the recursive Run's accepted path observes as cancel-on-entry.
 	firstQueuedMessage.Accepted = a.BeginAccepted(call.SessionID)
 	mu.Unlock()
+	a.journalQueue(call.SessionID)
+	a.publishCanceledQueueDrops(drops)
+	a.notifyDispatched(firstQueuedMessage)
 	if outerOwesRunComplete {
 		complete := notify.RunComplete{SessionID: call.SessionID, RunID: call.RunID}
 		if currentAssistant != nil {

@@ -21,6 +21,9 @@ func connectionStatusLine(t *styles.Styles, connState workspace.ConnectionState,
 	case workspace.ConnectionStateReconnecting:
 		icon = t.Resource.ErrorIcon.String()
 		title = "Connection lost, reconnecting…"
+	case workspace.ConnectionStateUpdating:
+		icon = t.Resource.BusyIcon.String()
+		title = "Server updating, reconnecting…"
 	default:
 		return ""
 	}

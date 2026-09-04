@@ -1107,7 +1107,8 @@ func (s *Session) FullHelp() [][]key.Binding {
 
 // buildListItems builds the list items including active sessions, separator, and archived sessions.
 func (s *Session) buildListItems(mode sessionsMode) []list.FilterableItem {
-	items := sessionItems(s.com.Styles, mode, s.sessions...)
+	spawners := spawnerLabels(s.sessions, s.archivedSessions)
+	items := sessionItems(s.com.Styles, mode, spawners, s.sessions...)
 
 	// Record the active-session item pointers (in order) so their ✓ marks
 	// can be synced from the selection without rebuilding the list.
@@ -1124,7 +1125,7 @@ func (s *Session) buildListItems(mode sessionsMode) []list.FilterableItem {
 		items = append(items, NewSeparatorItem(s.com.Styles, "Archived"))
 
 		// Add archived sessions
-		archivedItems := sessionItems(s.com.Styles, mode, s.archivedSessions...)
+		archivedItems := sessionItems(s.com.Styles, mode, spawners, s.archivedSessions...)
 		items = append(items, archivedItems...)
 	} else {
 		s.archivedStartIndex = -1

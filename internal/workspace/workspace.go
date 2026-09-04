@@ -72,6 +72,12 @@ const (
 	// connected, the stream dropped, and it is now retrying with
 	// backoff.
 	ConnectionStateReconnecting
+	// ConnectionStateUpdating is Reconnecting with a known cause: the
+	// server refused a prompt because it is draining for a binary
+	// update, so the drop that follows is the old server exiting and
+	// the retry will land on its replacement. Prompts sent meanwhile
+	// are held client-side and delivered once reconnected.
+	ConnectionStateUpdating
 )
 
 // String returns a short human-readable label for the state.
@@ -81,9 +87,34 @@ func (s ConnectionState) String() string {
 		return "connected"
 	case ConnectionStateReconnecting:
 		return "reconnecting"
+	case ConnectionStateUpdating:
+		return "updating"
 	default:
 		return "connecting"
 	}
+}
+
+// HeldPromptsEvent is pushed to the TUI after a reconnect when prompts
+// held during a server update have been (re)delivered. Sent counts the
+// prompts accepted by the new server. Failed lists prompts the new
+// server rejected for a reason other than draining, with their text so
+// the UI can put them back in the editor; Err is the first such error.
+type HeldPromptsEvent struct {
+	Sent   int
+	Failed []FailedPrompt
+	Err    error
+	// KeptElsewhere counts prompts still held for a workspace other
+	// than the one this client is attached to; they are delivered if
+	// the client switches back.
+	KeptElsewhere int
+}
+
+// FailedPrompt is a held prompt that could not be redelivered.
+type FailedPrompt struct {
+	SessionID   string
+	Prompt      string
+	Attachments []message.Attachment
+	Err         error
 }
 
 // ConnectionEvent is pushed to the TUI whenever the client's

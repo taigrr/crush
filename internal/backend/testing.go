@@ -67,3 +67,22 @@ func WorkspaceLiveStreamCountForTest(ws *Workspace) int {
 	}
 	return n
 }
+
+// SetWorkspaceBusySessionsForTest overrides how ws reports its in-flight
+// sessions, so tests in other packages can simulate active runs for a
+// synthetic workspace without a real coordinator. The boolean busy
+// predicate is derived from it.
+func SetWorkspaceBusySessionsForTest(ws *Workspace, fn func() []string) {
+	ws.busySessionsFn = fn
+	ws.busyFn = func() bool { return len(fn()) > 0 }
+}
+
+// SignalDrainForTest wakes the drain waiter, standing in for the
+// run-completion hook that runAgent fires in production.
+func SignalDrainForTest(b *Backend) { b.signalDrain() }
+
+// RehydrateQueueForTest replays the journaled queue for ws through the
+// backend's normal rehydration path. Tests in other packages use it
+// after swapping in a scripted coordinator, since CreateWorkspace only
+// rehydrates when the workspace's config yields a real coordinator.
+func RehydrateQueueForTest(b *Backend, ws *Workspace) { b.rehydrateQueue(ws) }

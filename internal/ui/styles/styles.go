@@ -27,6 +27,10 @@ const (
 
 	FavoriteIcon string = "★"
 
+	// TreeElbowIcon prefixes a sidebar row nested under the row above
+	// (a swarm-spawned session under its spawner).
+	TreeElbowIcon string = "└"
+
 	ToolPending string = "●"
 	ToolSuccess string = "✓"
 	ToolError   string = "×"

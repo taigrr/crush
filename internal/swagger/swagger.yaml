@@ -719,6 +719,15 @@ definitions:
         type: string
       prompt_tokens:
         type: integer
+      spawned_by_session_id:
+        description: |-
+          SpawnedBySessionID and SpawnedByWorkspaceID are the swarm lineage
+          of the session (see [session.Session.SpawnedBySessionID]): the
+          session that created it via `swarm new` and that spawner's
+          workspace. Empty for sessions opened by a human or a client.
+        type: string
+      spawned_by_workspace_id:
+        type: string
       summary_message_id:
         type: string
       title:
@@ -729,6 +738,13 @@ definitions:
         type: array
       updated_at:
         type: integer
+      working_dir:
+        description: |-
+          WorkingDir is the directory the session's tools run in (see
+          [session.Session.WorkingDir]). Empty until the session's first
+          run stamps it, or when the workspace's worktree system owns the
+          per-session directory.
+        type: string
     type: object
   proto.Attachment:
     properties:
@@ -801,6 +817,11 @@ definitions:
     type: object
   proto.Error:
     properties:
+      code:
+        description: |-
+          Code, when set, identifies the condition machine-readably. See
+          the ErrorCode* constants.
+        type: string
       message:
         type: string
     type: object
@@ -838,6 +859,23 @@ definitions:
         type: integer
       turns:
         type: integer
+    type: object
+  proto.Health:
+    properties:
+      active_runs:
+        description: |-
+          ActiveRuns is the number of sessions, across all workspaces, with
+          an active or accepted-but-not-yet-active agent run. A run blocked
+          on a permission or question prompt counts.
+        type: integer
+      draining:
+        description: |-
+          Draining is true once the server has been asked to drain for an
+          update: it finishes in-flight runs but accepts no new ones, and
+          exits on its own when ActiveRuns reaches zero.
+        type: boolean
+      status:
+        type: string
     type: object
   proto.ImportCopilotResponse:
     properties:
@@ -1082,6 +1120,15 @@ definitions:
         type: string
       prompt_tokens:
         type: integer
+      spawned_by_session_id:
+        description: |-
+          SpawnedBySessionID and SpawnedByWorkspaceID are the swarm lineage
+          of the session (see [session.Session.SpawnedBySessionID]): the
+          session that created it via `swarm new` and that spawner's
+          workspace. Empty for sessions opened by a human or a client.
+        type: string
+      spawned_by_workspace_id:
+        type: string
       summary_message_id:
         type: string
       title:
@@ -1092,6 +1139,13 @@ definitions:
         type: array
       updated_at:
         type: integer
+      working_dir:
+        description: |-
+          WorkingDir is the directory the session's tools run in (see
+          [session.Session.WorkingDir]). Empty until the session's first
+          run stamps it, or when the workspace's worktree system owns the
+          per-session directory.
+        type: string
     type: object
   proto.SessionOverview:
     properties:
@@ -1114,6 +1168,13 @@ definitions:
         type: string
       is_busy:
         type: boolean
+      spawned_by_session_id:
+        description: |-
+          SpawnedBySessionID is the swarm lineage of the session (see
+          [session.Session.SpawnedBySessionID]): the session that created
+          it via `swarm new`. Empty for human/client-opened sessions. The
+          sidebar uses it to nest workers under their spawner.
+        type: string
       title:
         type: string
       unread:
@@ -1207,6 +1268,8 @@ definitions:
         type: string
       btw:
         type: boolean
+      require_reply:
+        type: boolean
       sender_animal:
         type: string
       sender_color:
@@ -1237,6 +1300,11 @@ definitions:
         type: string
       platform:
         type: string
+      protocol_version:
+        description: |-
+          ProtocolVersion is the server's [ProtocolVersion]. Servers that
+          predate the field report 0.
+        type: integer
       version:
         type: string
     type: object
@@ -1369,6 +1437,18 @@ paths:
       summary: Send server control command
       tags:
       - system
+  /drain:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.Health'
+      summary: Drain the server for an update
+      tags:
+      - system
   /events:
     get:
       produces:
@@ -1381,9 +1461,13 @@ paths:
       - events
   /health:
     get:
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
+          schema:
+            $ref: '#/definitions/proto.Health'
       summary: Health check
       tags:
       - system

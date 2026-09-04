@@ -32,6 +32,10 @@ func (m *mockSessionService) CreateWithModelRef(ctx context.Context, title, _ st
 	return m.Create(ctx, title)
 }
 
+func (m *mockSessionService) CreateWithOptions(ctx context.Context, title string, _ session.CreateOptions) (session.Session, error) {
+	return m.Create(ctx, title)
+}
+
 func (m *mockSessionService) CreateTitleSession(context.Context, string) (session.Session, error) {
 	return session.Session{}, nil
 }
@@ -89,6 +93,10 @@ func (m *mockSessionService) ListArchived(context.Context) ([]session.Session, e
 }
 
 func (m *mockSessionService) SetWorkingDir(context.Context, string, string) error {
+	return nil
+}
+
+func (m *mockSessionService) SetSpawnedBy(context.Context, string, string, string) error {
 	return nil
 }
 

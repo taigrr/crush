@@ -32,6 +32,9 @@ type Workspace struct {
 // Error represents an error response.
 type Error struct {
 	Message string `json:"message"`
+	// Code, when set, identifies the condition machine-readably. See
+	// the ErrorCode* constants.
+	Code string `json:"code,omitempty"`
 }
 
 // RunComplete is the authoritative end-of-run signal for a session,
@@ -224,6 +227,11 @@ type SessionOverview struct {
 	// sessions blocked on a permission prompt). It is read from the
 	// session's database (attached or detached) so it persists.
 	Favorite bool `json:"favorite,omitempty"`
+	// SpawnedBySessionID is the swarm lineage of the session (see
+	// [session.Session.SpawnedBySessionID]): the session that created
+	// it via `swarm new`. Empty for human/client-opened sessions. The
+	// sidebar uses it to nest workers under their spawner.
+	SpawnedBySessionID string `json:"spawned_by_session_id,omitempty"`
 }
 
 // WorkspaceOverview groups a workspace's sessions for the picker. Attached

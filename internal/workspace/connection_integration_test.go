@@ -17,22 +17,13 @@ import (
 // full stack (real HTTP/SSE server + real *client.Client, not a
 // scripted fn) end to end: a live connection is forcibly severed at
 // the TCP level, and the ClientWorkspace reconnect loop must report
-// ConnectionStateReconnecting and keep retrying rather than going
-// silent.
+// ConnectionStateReconnecting, then recover to Connected.
 //
-// It does not assert eventual recovery to Connected: the backend
-// currently tears the workspace down as soon as a client's last SSE
-// stream closes (see [backend.Backend] clientState/detachStream),
-// with no grace period to distinguish a transient drop from a
-// deliberate detach. So after a severed connection the server
-// legitimately has nothing left to reconnect to (subsequent attempts
-// get 404s), and the client is expected to keep reporting
-// Reconnecting indefinitely — which is still a strict improvement
-// over the previous behavior of silently stopping with no signal at
-// all. Making the backend tolerate a brief drop (e.g. a short
-// detach-grace window mirroring the existing create-grace hold) is a
-// natural follow-up but is a separate, larger change to shared
-// backend/session-teardown semantics and is out of scope here.
+// Recovery works even though the backend may have torn the workspace
+// down (or, after a server swap, be a different process that never
+// heard of the old workspace id): on a failed subscribe the loop
+// re-attaches by path via CreateWorkspace, which is first-wins by
+// resolved path, and retries against whatever id the server hands back.
 func TestClientWorkspace_ConnectionDropIsReportedAndRetried(t *testing.T) {
 	xdgIsolate(t)
 	rt := newRuntimeServer(t)
@@ -94,25 +85,15 @@ func TestClientWorkspace_ConnectionDropIsReportedAndRetried(t *testing.T) {
 		return ws.ConnectionState() == workspace.ConnectionStateReconnecting
 	}, 15*time.Second, 10*time.Millisecond, "client never reported Reconnecting after the drop")
 
-	// The loop must keep retrying (not give up and go silent) even
-	// though, per the doc comment above, the workspace is gone and
-	// these retries cannot currently succeed.
-	require.Never(t, func() bool {
+	// The loop must recover: the workspace is re-attached by path and
+	// the stream comes back up against the (possibly new) workspace id.
+	require.Eventually(t, func() bool {
 		return ws.ConnectionState() == workspace.ConnectionStateConnected
-	}, 500*time.Millisecond, 10*time.Millisecond, "must not report Connected against a torn-down workspace")
-	require.Equal(t, workspace.ConnectionStateReconnecting, ws.ConnectionState())
+	}, 10*time.Second, 10*time.Millisecond, "client never recovered to Connected after the drop")
 
 	got := snapshot()
 	require.Contains(t, got, workspace.ConnectionStateConnected)
 	require.Contains(t, got, workspace.ConnectionStateReconnecting)
-	// setConnState suppresses duplicate events for an unchanged state,
-	// so failed retries against the still-gone workspace must not spam
-	// repeated Reconnecting events. (A flaky retry that briefly
-	// resurrects the workspace before dropping again would legitimately
-	// push more than one; that is not expected against this harness,
-	// where the workspace is torn down deterministically on the first
-	// drop, but the assertion only checks for the disallowed duplicate
-	// case rather than an exact count.)
 	reconnectingCount := 0
 	for _, s := range got {
 		if s == workspace.ConnectionStateReconnecting {
