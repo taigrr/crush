@@ -31,6 +31,12 @@ definitions:
         type: integer
       default_reasoning_effort:
         type: string
+      dimensions:
+        description: |-
+          Dimensions is the size of the output vector for embedding models.
+          For embedding models that support multiple output sizes this is the
+          default/recommended dimensionality. It is zero for chat models.
+        type: integer
       id:
         type: string
       image:
@@ -95,16 +101,35 @@ definitions:
       max_items:
         type: integer
     type: object
-  config.ContextMode:
-    enum:
-    - standard
-    - extended
-    - dynamic
-    type: string
-    x-enum-varnames:
-    - ContextModeStandard
-    - ContextModeExtended
-    - ContextModeDynamic
+  config.EmbeddingConfig:
+    properties:
+      dimensions:
+        description: |-
+          Dimensions optionally requests a specific output dimensionality for
+          models that support it. Zero means the model default.
+        type: integer
+      hybrid_search:
+        description: |-
+          HybridSearch controls whether search surfaces fuse the semantic
+          (vector) signal with substring matching. Nil means the default
+          (true when an embedder is configured). When false, search is pure
+          substring and no query embeddings are computed. Toggling this does
+          NOT invalidate stored vectors (it is not part of the signature).
+        type: boolean
+      model:
+        description: Model is the embedding model id as used by the provider API.
+        type: string
+      normalize:
+        description: |-
+          Normalize requests unit-normalized vectors (so cosine reduces to a
+          dot product) for models that support it.
+        type: boolean
+      provider:
+        description: |-
+          Provider is the provider id, matching a key in the providers
+          config (same semantics as SelectedModel.Provider).
+        type: string
+    type: object
   config.HookConfig:
     properties:
       command:
@@ -186,6 +211,40 @@ definitions:
           omitted from the outgoing request rather than sent as
           "Header:".
         type: object
+      oauth:
+        description: |-
+          OAuth enables the MCP OAuth 2.1 authorization flow for HTTP
+          transport servers. When true, the client uses dynamic client
+          registration and opens a browser for the user to authorize.
+          Tokens are persisted automatically. Only supported for type=http.
+        type: boolean
+      oauth_callback_port:
+        description: |-
+          OAuthCallbackPort pins the localhost port used for the OAuth
+          redirect listener. Set this when the OAuth provider requires an
+          exact-match callback URL (e.g. GitHub OAuth Apps). When omitted,
+          Crush picks the first free port from its default range.
+        type: integer
+      oauth_client_id:
+        description: |-
+          OAuthClientID is an optional pre-registered OAuth client ID. Set
+          it for servers that do not support dynamic client registration
+          (e.g. GitHub, Slack) and instead issue client credentials when you
+          register an OAuth app. Values run through shell expansion, so
+          $VAR and $(cmd) work.
+        type: string
+      oauth_client_secret:
+        description: |-
+          OAuthClientSecret is the optional secret paired with
+          OAuthClientID for confidential clients. Values run through shell
+          expansion, so $VAR and $(cmd) work.
+        type: string
+      oauth_token:
+        allOf:
+        - $ref: '#/definitions/oauth.Token'
+        description: |-
+          OAuthToken is the persisted OAuth token for this server. It is
+          managed internally and stored in the global data config.
       timeout:
         type: integer
       type:
@@ -225,11 +284,6 @@ definitions:
     type: object
   config.SelectedModel:
     properties:
-      context_mode:
-        allOf:
-        - $ref: '#/definitions/config.ContextMode'
-        description: ContextMode controls how the model handles context window limits
-          for models that support extended context.
       frequency_penalty:
         type: number
       max_tokens:
@@ -270,10 +324,12 @@ definitions:
     enum:
     - large
     - small
+    - worker
     type: string
     x-enum-varnames:
     - SelectedModelTypeLarge
     - SelectedModelTypeSmall
+    - SelectedModelTypeWorker
   config.SnapshotsConfig:
     properties:
       enabled:
@@ -284,6 +340,28 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  config.SoundEvent:
+    properties:
+      disabled:
+        type: boolean
+      path:
+        type: string
+    type: object
+  config.SoundOptions:
+    properties:
+      blocked:
+        $ref: '#/definitions/config.SoundEvent'
+      disabled:
+        type: boolean
+      end_of_turn:
+        $ref: '#/definitions/config.SoundEvent'
+      queued:
+        $ref: '#/definitions/config.SoundEvent'
+      swarm:
+        $ref: '#/definitions/config.SoundEvent'
+      tool_error:
+        $ref: '#/definitions/config.SoundEvent'
     type: object
   config.TUIOptions:
     properties:
@@ -301,6 +379,12 @@ definitions:
           links or when the user wants reduced motion. Toggleable from the
           command palette and forced on by the CRUSH_LOW_BANDWIDTH env var.
         type: boolean
+      sessions_sidebar_width:
+        description: |-
+          SessionsSidebarWidth is the width in columns of the left session
+          navigator, persisted so a resize survives restarts. Zero means use
+          the built-in default.
+        type: integer
       theme:
         description: |-
           Theme selects the UI color theme by name. Builtin themes ("charmtone",
@@ -380,6 +464,8 @@ definitions:
     properties:
       $schema:
         type: string
+      embedding:
+        $ref: '#/definitions/config.EmbeddingConfig'
       hooks:
         additionalProperties:
           items:
@@ -393,7 +479,13 @@ definitions:
       models:
         additionalProperties:
           $ref: '#/definitions/config.SelectedModel'
-        description: We currently only support large/small as values here.
+        description: |-
+          Keys are "large", "small", the optional "worker", and any
+          user-defined role names (see ModelRoles). Role names are the
+          vocabulary the `model` parameter on the agent/review tools
+          accepts, so an operator can map e.g. "scout" to a cheap model on
+          one machine and a different one on another without prompts
+          changing.
         type: object
       options:
         $ref: '#/definitions/github_com_taigrr_crush_internal_config.Options'
@@ -466,6 +558,8 @@ definitions:
         items:
           type: string
         type: array
+      sound:
+        $ref: '#/definitions/config.SoundOptions'
       tui:
         $ref: '#/definitions/config.TUIOptions'
     type: object
@@ -513,6 +607,32 @@ definitions:
     - StateError
     - StateStopped
     - StateDisabled
+  oauth.OAuthClient:
+    properties:
+      auth_style:
+        type: integer
+      auth_url:
+        type: string
+      client_id:
+        type: string
+      client_secret:
+        type: string
+      token_url:
+        type: string
+    type: object
+  oauth.Token:
+    properties:
+      access_token:
+        type: string
+      client:
+        $ref: '#/definitions/oauth.OAuthClient'
+      expires_at:
+        type: integer
+      expires_in:
+        type: integer
+      refresh_token:
+        type: string
+    type: object
   proto.APIKeyKind:
     enum:
     - string
@@ -550,11 +670,33 @@ definitions:
         type: string
       session_id:
         type: string
+      swarm_parts:
+        description: |-
+          SwarmParts, when set, replaces the default TextContent user
+          message with one or more [SwarmMessage] parts. Used by
+          [Backend.SwarmSend] so the receiving session records
+          structured sender metadata (color, animal, workspace) instead
+          of a plain text prefix. The Prompt field must still be set to
+          the concatenated user-visible text so downstream code that
+          treats prompts as strings (queue drop notifications, run
+          logs) keeps working.
+        items:
+          $ref: '#/definitions/proto.SwarmMessage'
+        type: array
     type: object
   proto.AgentSession:
     properties:
+      animal:
+        type: string
       attached_clients:
         type: integer
+      color:
+        description: |-
+          Color and Animal are the session's swarm identity (see
+          [session.Session.Color] / .Animal). Empty when the session
+          has not yet been backfilled; UI code should fall back to no
+          address label / no color square in that case.
+        type: string
       completion_tokens:
         type: integer
       cost:
@@ -565,10 +707,14 @@ definitions:
         type: string
       is_busy:
         type: boolean
-      is_extended_context:
-        type: boolean
       message_count:
         type: integer
+      model_ref:
+        description: |-
+          ModelRef is the model reference the session was spawned with (see
+          [session.Session.ModelRef]); empty when it runs the workspace's
+          large model.
+        type: string
       parent_session_id:
         type: string
       prompt_tokens:
@@ -682,6 +828,17 @@ definitions:
       session_id:
         type: string
     type: object
+  proto.GoalStatus:
+    properties:
+      active:
+        type: boolean
+      condition:
+        type: string
+      max_turns:
+        type: integer
+      turns:
+        type: integer
+    type: object
   proto.ImportCopilotResponse:
     properties:
       success:
@@ -755,12 +912,14 @@ definitions:
     - 1
     - 2
     - 3
+    - 4
     type: integer
     x-enum-varnames:
     - MCPStateDisabled
     - MCPStateStarting
     - MCPStateConnected
     - MCPStateError
+    - MCPStateNeedsAuth
   proto.MessageRole:
     enum:
     - assistant
@@ -773,6 +932,22 @@ definitions:
     - User
     - System
     - Tool
+  proto.PeekMessagesParams:
+    properties:
+      root:
+        type: string
+      session_id:
+        type: string
+    type: object
+  proto.PeekSessionInfoResult:
+    properties:
+      files:
+        items:
+          $ref: '#/definitions/proto.File'
+        type: array
+      session:
+        $ref: '#/definitions/proto.Session'
+    type: object
   proto.PermissionAction:
     enum:
     - allow
@@ -833,6 +1008,26 @@ definitions:
       needs_init:
         type: boolean
     type: object
+  proto.QuestionAnswer:
+    properties:
+      cancelled:
+        type: boolean
+      id:
+        type: string
+      selected:
+        items:
+          type: string
+        type: array
+      session_id:
+        type: string
+      tool_call_id:
+        type: string
+    type: object
+  proto.QuestionAnswerResponse:
+    properties:
+      resolved:
+        type: boolean
+    type: object
   proto.ReadSkillRequest:
     properties:
       skill_id:
@@ -854,8 +1049,17 @@ definitions:
     type: object
   proto.Session:
     properties:
+      animal:
+        type: string
       attached_clients:
         type: integer
+      color:
+        description: |-
+          Color and Animal are the session's swarm identity (see
+          [session.Session.Color] / .Animal). Empty when the session
+          has not yet been backfilled; UI code should fall back to no
+          address label / no color square in that case.
+        type: string
       completion_tokens:
         type: integer
       cost:
@@ -868,6 +1072,12 @@ definitions:
         type: boolean
       message_count:
         type: integer
+      model_ref:
+        description: |-
+          ModelRef is the model reference the session was spawned with (see
+          [session.Session.ModelRef]); empty when it runs the workspace's
+          large model.
+        type: string
       parent_session_id:
         type: string
       prompt_tokens:
@@ -883,8 +1093,58 @@ definitions:
       updated_at:
         type: integer
     type: object
+  proto.SessionOverview:
+    properties:
+      animal:
+        type: string
+      color:
+        description: |-
+          Color and Animal are the session's swarm identity (see
+          [session.Session.Color] / .Animal). Empty when the session
+          has not yet been backfilled; the picker/sidebar should fall
+          back to no color square in that case.
+        type: string
+      favorite:
+        description: |-
+          Favorite pins the session to the top of the sidebar inbox (below
+          sessions blocked on a permission prompt). It is read from the
+          session's database (attached or detached) so it persists.
+        type: boolean
+      id:
+        type: string
+      is_busy:
+        type: boolean
+      title:
+        type: string
+      unread:
+        type: boolean
+      updated_at:
+        type: integer
+      working_dir:
+        type: string
+    type: object
+  proto.SetGoalRequest:
+    properties:
+      condition:
+        type: string
+      session_id:
+        type: string
+    type: object
+  proto.SetWorkingDirRequest:
+    properties:
+      working_dir:
+        type: string
+    type: object
   proto.ShellCommandRequest:
     properties:
+      client_id:
+        description: |-
+          ClientID identifies the client that initiated the command so the
+          server can run it in that client's launch directory. Multiple
+          clients can share one workspace (subdirectories or sibling git
+          worktrees collapsing to the same project root); without it the
+          command would run in whichever client created the workspace first.
+        type: string
       command:
         type: string
       session_id:
@@ -941,6 +1201,23 @@ definitions:
       state:
         $ref: '#/definitions/proto.SkillDiscoveryState'
     type: object
+  proto.SwarmMessage:
+    properties:
+      body:
+        type: string
+      btw:
+        type: boolean
+      sender_animal:
+        type: string
+      sender_color:
+        type: string
+      sender_session_id:
+        type: string
+      sender_workspace_id:
+        type: string
+      text:
+        type: string
+    type: object
   proto.Todo:
     properties:
       active_form:
@@ -991,8 +1268,25 @@ definitions:
         type: array
       version:
         type: string
+      working_dir:
+        type: string
       yolo:
         type: boolean
+    type: object
+  proto.WorkspaceOverview:
+    properties:
+      attached:
+        type: boolean
+      data_dir:
+        type: string
+      root:
+        type: string
+      sessions:
+        items:
+          $ref: '#/definitions/proto.SessionOverview'
+        type: array
+      workspace_id:
+        type: string
     type: object
   server.CreateWorktreeRequest:
     properties:
@@ -1075,6 +1369,16 @@ paths:
       summary: Send server control command
       tags:
       - system
+  /events:
+    get:
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+      summary: Stream global attention events (SSE)
+      tags:
+      - events
   /health:
     get:
       responses:
@@ -1083,6 +1387,74 @@ paths:
       summary: Health check
       tags:
       - system
+  /peek-messages:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Target workspace root and session id
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.PeekMessagesParams'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Message'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Peek a session's messages in any known workspace
+      tags:
+      - sessions
+  /peek-session-info:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Target workspace root and session id
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.PeekMessagesParams'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.PeekSessionInfoResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Peek a session's info in any known workspace
+      tags:
+      - sessions
   /version:
     get:
       produces:
@@ -1095,6 +1467,24 @@ paths:
       summary: Get server version
       tags:
       - system
+  /workspace-overviews:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/proto.WorkspaceOverview'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: List workspace/session overviews
+      tags:
+      - workspaces
   /workspaces:
     get:
       produces:
@@ -1243,6 +1633,28 @@ paths:
       summary: Send message to agent
       tags:
       - agent
+  /workspaces/{id}/agent/cancel:
+    post:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Cancel all agent sessions
+      tags:
+      - agent
   /workspaces/{id}/agent/default-small-model:
     get:
       parameters:
@@ -1351,6 +1763,131 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Cancel agent session
+      tags:
+      - agent
+  /workspaces/{id}/agent/sessions/{sid}/cwd:
+    post:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Working directory
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.SetWorkingDirRequest'
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Set session working directory
+      tags:
+      - agent
+  /workspaces/{id}/agent/sessions/{sid}/goal:
+    get:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.GoalStatus'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Get goal status
+      tags:
+      - agent
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Goal
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.SetGoalRequest'
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Set goal
+      tags:
+      - agent
+  /workspaces/{id}/agent/sessions/{sid}/goal/clear:
+    post:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Clear goal
       tags:
       - agent
   /workspaces/{id}/agent/sessions/{sid}/prompts/clear:
@@ -1512,6 +2049,33 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Summarize session
+      tags:
+      - agent
+  /workspaces/{id}/agent/sessions/{sid}/title:
+    post:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Regenerate session title
       tags:
       - agent
   /workspaces/{id}/agent/update:
@@ -2688,6 +3252,42 @@ paths:
       summary: Get workspace providers
       tags:
       - workspaces
+  /workspaces/{id}/questions/answer:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Question answer
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.QuestionAnswer'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.QuestionAnswerResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Answer question
+      tags:
+      - questions
   /workspaces/{id}/sessions:
     get:
       parameters:
@@ -2865,6 +3465,11 @@ paths:
         name: sid
         required: true
         type: string
+      - description: Workspace root (routes to a detached workspace when id is not
+          attached)
+        in: query
+        name: root
+        type: string
       responses:
         "200":
           description: OK
@@ -2877,6 +3482,42 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Archive a session
+      tags:
+      - sessions
+  /workspaces/{id}/sessions/{sid}/favorite:
+    post:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Workspace root (routes to a detached workspace when id is not
+          attached)
+        in: query
+        name: root
+        type: string
+      - description: Whether the session should be favorited (default true)
+        in: query
+        name: favorite
+        type: boolean
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Favorite or unfavorite a session
       tags:
       - sessions
   /workspaces/{id}/sessions/{sid}/filetracker/files:
@@ -3009,6 +3650,38 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Get user messages for session
+      tags:
+      - sessions
+  /workspaces/{id}/sessions/{sid}/seen:
+    post:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Workspace root (routes to a detached workspace when id is not
+          attached)
+        in: query
+        name: root
+        type: string
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Mark a session as read
       tags:
       - sessions
   /workspaces/{id}/sessions/{sid}/snapshots:
