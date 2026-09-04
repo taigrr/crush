@@ -24,6 +24,9 @@ func (m *UI) ShortHelp() []key.Binding {
 				cancelBinding.SetHelp("esc", "clear queue")
 			}
 			binds = append(binds, cancelBinding)
+			if m.hasRunningBash() {
+				binds = append(binds, k.Chat.BackgroundTool)
+			}
 		}
 
 		if m.focus == uiFocusEditor {
@@ -45,6 +48,9 @@ func (m *UI) ShortHelp() []key.Binding {
 				binds,
 				k.Editor.Newline,
 			)
+			if m.isAgentBusy() {
+				binds = append(binds, k.Editor.Steer)
+			}
 		case uiFocusMain:
 			binds = append(
 				binds,
@@ -160,7 +166,11 @@ func (m *UI) FullHelp() [][]key.Binding {
 			} else if m.pillsExpanded && m.com.Workspace.AgentQueuedPrompts(m.session.ID) > 0 {
 				cancelBinding.SetHelp("esc", "clear queue")
 			}
-			binds = append(binds, []key.Binding{cancelBinding})
+			busyBinds := []key.Binding{cancelBinding}
+			if m.hasRunningBash() {
+				busyBinds = append(busyBinds, k.Chat.BackgroundTool)
+			}
+			binds = append(binds, busyBinds)
 		}
 
 		mainBinds := []key.Binding{}
@@ -193,6 +203,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 		case uiFocusEditor:
 			editorBinds := []key.Binding{
 				k.Editor.Newline,
+				k.Editor.Steer,
 				k.Editor.MentionFile,
 				k.Editor.Commands,
 				k.Editor.OpenEditor,

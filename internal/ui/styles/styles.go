@@ -304,6 +304,11 @@ type Styles struct {
 		StateWaiting   lipgloss.Style // "Waiting for tool response..."
 		StateCancelled lipgloss.Style // "Canceled."
 
+		// Inline keystroke hint shown next to a running tool (e.g. the
+		// "alt+b to background" affordance on a long bash command).
+		HintKey  lipgloss.Style // Keystroke label
+		HintText lipgloss.Style // Action description
+
 		// Error styles
 		ErrorTag     lipgloss.Style // ERROR tag
 		ErrorMessage lipgloss.Style // Error message text
@@ -545,6 +550,7 @@ type Styles struct {
 		Blurred            lipgloss.Style // Blurred pill with hidden border
 		QueueItemPrefix    lipgloss.Style // Prefix for queue list items
 		QueueItemText      lipgloss.Style // Queue list item body text
+		QueueSteerTag      lipgloss.Style // "steer" tag on mid-turn asides in the queue list
 		QueueLabel         lipgloss.Style // "N Queued" label text
 		QueueIconBase      lipgloss.Style // Base style for queue gradient triangles
 		QueueGradFromColor color.Color    // Start color for queue indicator gradient

@@ -1,11 +1,19 @@
 package model
 
-import "charm.land/bubbles/v2/key"
+import (
+	"charm.land/bubbles/v2/key"
+	"github.com/taigrr/crush/internal/ui/chat"
+)
 
 type KeyMap struct {
 	Editor struct {
 		AddFile     key.Binding
 		SendMessage key.Binding
+		// Steer sends the prompt as a mid-turn aside while the agent is
+		// busy: it is folded into the active turn at the next step
+		// boundary instead of waiting in the queue for its own turn.
+		// When the agent is idle it behaves like SendMessage.
+		Steer       key.Binding
 		OpenEditor  key.Binding
 		Newline     key.Binding
 		AddImage    key.Binding
@@ -28,9 +36,14 @@ type KeyMap struct {
 	}
 
 	Chat struct {
-		NewSession          key.Binding
-		AddAttachment       key.Binding
-		Cancel              key.Binding
+		NewSession    key.Binding
+		AddAttachment key.Binding
+		Cancel        key.Binding
+		// BackgroundTool moves the running bash command to the
+		// background so the tool returns a job id and the turn continues.
+		// Only active while such a command is in flight; otherwise the
+		// key falls through to the focused component.
+		BackgroundTool      key.Binding
 		Tab                 key.Binding
 		Details             key.Binding
 		TogglePills         key.Binding
@@ -181,6 +194,10 @@ func DefaultKeyMap() KeyMap {
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "send"),
 	)
+	km.Editor.Steer = key.NewBinding(
+		key.WithKeys("alt+enter"),
+		key.WithHelp("alt+enter", "steer (send mid-turn)"),
+	)
 	km.Editor.OpenEditor = key.NewBinding(
 		key.WithKeys("ctrl+o"),
 		key.WithHelp("ctrl+o", "open editor"),
@@ -238,6 +255,10 @@ func DefaultKeyMap() KeyMap {
 	km.Chat.Cancel = key.NewBinding(
 		key.WithKeys("esc", "alt+esc"),
 		key.WithHelp("esc", "cancel"),
+	)
+	km.Chat.BackgroundTool = key.NewBinding(
+		key.WithKeys(chat.BackgroundToolKey),
+		key.WithHelp(chat.BackgroundToolKey, "background command"),
 	)
 	km.Chat.Tab = key.NewBinding(
 		key.WithKeys("tab"),

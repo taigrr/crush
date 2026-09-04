@@ -55,6 +55,15 @@ var builtinSlashCommands = []slashCommand{
 		},
 	},
 	{
+		name:            "bg",
+		aliases:         []string{"background"},
+		description:     "Move the running tools to the background and let the turn continue",
+		requiresSession: true,
+		run: func(m *UI, _ string) tea.Cmd {
+			return m.softInterruptTurn()
+		},
+	},
+	{
 		name:            "export",
 		argHint:         "[filename]",
 		description:     "Export the conversation to a Markdown file",
