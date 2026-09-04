@@ -166,6 +166,11 @@ type SessionsSidebar struct {
 // indicators.
 func (s *SessionsSidebar) SetPendingSessions(ids map[string]bool) {
 	s.pendingSessions = ids
+	// Pending outranks busy in both projections, so reproject the rows
+	// (keeping the cursor) rather than waiting for the next refresh.
+	prevID := s.selectedSessionID()
+	s.rebuildRows()
+	s.restoreCursor(prevID)
 }
 
 // HasPending reports whether the given session has an unresolved
@@ -563,25 +568,20 @@ func (s *SessionsSidebar) rebuildGroupedRows() {
 		}
 		emittedGroups++
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowWorkspace, wsIdx: wi})
-		shown := min(len(idxs), caps[wi])
-		expanded := s.expanded[s.overviews[wi].Root] && shown < len(idxs)
+		// An expanded workspace ignores its cap; it still gets the toggle
+		// row (as "show less") so it can be collapsed again.
+		limit := caps[wi]
+		expanded := s.expanded[s.overviews[wi].Root] && limit < len(idxs)
 		if expanded {
-			shown = len(idxs)
+			limit = len(idxs)
 		}
-		// Nest spawned workers under their spawner within the workspace.
-		// Nesting runs over the full filtered set (so a worker is pulled
-		// up next to its spawner even if it sorted lower) and the cap is
-		// applied to the nested order.
-		ids := make([]string, len(idxs))
-		spawners := make([]string, len(idxs))
-		for i, si := range idxs {
-			sess := s.overviews[wi].Sessions[si]
-			ids[i], spawners[i] = sess.ID, sess.SpawnedBySessionID
-		}
-		for _, n := range nestSpawned(ids, spawners)[:shown] {
+		// Nest spawned workers under their spawner and bubble the most
+		// urgent subtree to the top (see groupedRows).
+		shown := s.groupedRows(wi, idxs, limit)
+		for _, n := range shown {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: idxs[n.idx], depth: n.depth})
 		}
-		if remaining := len(idxs) - shown; remaining > 0 || expanded {
+		if remaining := len(idxs) - len(shown); remaining > 0 || expanded {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowOverflow, wsIdx: wi, remaining: remaining})
 		}
 	}
@@ -1541,7 +1541,16 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		return t.Dialog.SelectedItem.UnsetPadding().Width(width).Render(line)
 	}
 
+	// A running row must read as running when scanning a long list, so
+	// the title takes the status color too: pending (error) outranks busy
+	// (busy), matching the dot. Unread and idle keep the plain name style.
 	titleStyle := t.Resource.Name
+	switch {
+	case pending:
+		titleStyle = titleStyle.Foreground(t.Resource.ErrorIcon.GetForeground())
+	case sess.IsBusy:
+		titleStyle = titleStyle.Foreground(t.Resource.BusyIcon.GetForeground())
+	}
 	if marked {
 		titleStyle = titleStyle.Bold(true)
 	}
