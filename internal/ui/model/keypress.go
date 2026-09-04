@@ -340,6 +340,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					m.chat.Focus()
 					m.chat.SetSelected(m.chat.Len() - 1)
 				}
+			case key.Matches(msg, m.keyMap.Editor.Stash):
+				cmds = append(cmds, m.toggleStash())
 			case key.Matches(msg, m.keyMap.Editor.OpenEditor):
 				if m.isAgentBusy() {
 					cmds = append(cmds, util.ReportWarn("Agent is working, please wait..."))

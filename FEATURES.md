@@ -558,6 +558,11 @@ for slow links and SSH sessions.
 - Animated session **title reveal** with blinking cursor; auto re-title
   after 10 user messages
 - Ctrl+F toggles fullscreen chat; image picker moved to Ctrl+I
+- **Prompt stash** (`alt+z` / `ctrl+shift+z`, or "Stash/Restore Prompt" in
+  the palette): park the drafted prompt and its attachments, send something
+  else, press again to restore; with both a draft and a stash it swaps
+- Todo/queue pills are hidden while the chat is previewing another session
+  from the navigator (they describe the committed session)
 
 ---
 

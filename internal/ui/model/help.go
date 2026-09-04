@@ -196,6 +196,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 				k.Editor.MentionFile,
 				k.Editor.Commands,
 				k.Editor.OpenEditor,
+				k.Editor.Stash,
 			}
 			if m.currentModelSupportsImages() {
 				editorBinds = append(editorBinds, k.Editor.AddImage, k.Editor.PasteImage)
@@ -271,6 +272,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 				k.Editor.MentionFile,
 				k.Editor.Commands,
 				k.Editor.OpenEditor,
+				k.Editor.Stash,
 			}
 			if m.currentModelSupportsImages() {
 				editorBinds = append(editorBinds, k.Editor.AddImage, k.Editor.PasteImage)
