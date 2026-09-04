@@ -552,6 +552,12 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+		// Click-to-copy on the right sidebar's swarm address row.
+		if cmd, handled := m.handleSwarmAddressClick(msg); handled {
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
 		if m.handleAttachmentClick(msg) {
 			return m, tea.Batch(cmds...)
 		}

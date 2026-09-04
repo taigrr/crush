@@ -322,6 +322,14 @@ type UI struct {
 	rightSidebarScrollable   bool
 	rightSidebarMaxOffsetVal int
 
+	// swarmAddrRow is the absolute screen row of the sidebar's swarm
+	// address line (color-animal-shorthash) on the last frame, or -1 when
+	// it is not visible. swarmAddr is the address text rendered there.
+	// Both are recomputed each frame in drawSidebar so a click on that
+	// row can copy the address to the clipboard.
+	swarmAddrRow int
+	swarmAddr    string
+
 	// shellCancel cancels the in-flight bang-mode (!) shell command. It is
 	// non-nil only while a command is running; the cancellation propagates
 	// through the client HTTP request to the server's shell.Run context.

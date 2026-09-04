@@ -7,6 +7,7 @@ import (
 	"image"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
@@ -133,9 +134,30 @@ func getDynamicHeightLimits(availableHeight, fileCount, lspCount, mcpCount, skil
 	return maxFiles, maxLSPs, maxMCPs, maxSkills
 }
 
+// swarmAddressCopiedMessage is the footer alert shown after a click on the
+// sidebar's swarm address copies it to the clipboard.
+const swarmAddressCopiedMessage = "Swarm address copied to clipboard"
+
+// handleSwarmAddressClick copies the session's swarm address when the click
+// lands on the sidebar row that renders it. It reports whether the click
+// was consumed. Row/address are recorded by drawSidebar each frame, so a
+// click is only honored against the last drawn layout.
+func (m *UI) handleSwarmAddressClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
+	if m.swarmAddrRow < 0 || m.swarmAddr == "" {
+		return nil, false
+	}
+	pt := image.Pt(msg.X, msg.Y)
+	if !pt.In(m.layout.sidebar) || msg.Y != m.swarmAddrRow {
+		return nil, false
+	}
+	return common.CopyToClipboard(m.swarmAddr, swarmAddressCopiedMessage), true
+}
+
 // sidebar renders the chat sidebar containing session title, working
 // directory, model info, file list, LSP status, and MCP status.
 func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
+	m.swarmAddrRow = -1
+	m.swarmAddr = ""
 	if m.session == nil {
 		return
 	}
@@ -165,6 +187,7 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 			swarm.Identity{Color: sess.Color, Animal: sess.Animal},
 			sess.ID,
 		)
+		m.swarmAddr = addr
 		label := t.Sidebar.WorkingDir.Render(addr)
 		if square != "" {
 			swarmLine = square + " " + label
@@ -307,6 +330,16 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	// Clamp the offset in case content shrank since the last frame.
 	if m.rightSidebarOffset > m.rightSidebarMaxOffsetVal {
 		m.rightSidebarOffset = m.rightSidebarMaxOffsetVal
+	}
+
+	// The swarm line is the first block after the logo, so its index in
+	// lines is the logo's height. Translate through the scroll offset to
+	// an absolute screen row; -1 when scrolled out of view.
+	if swarmLine != "" {
+		swarmRow := lipgloss.Height(sidebarLogo) - m.rightSidebarOffset
+		if swarmRow >= 0 && swarmRow < height {
+			m.swarmAddrRow = area.Min.Y + swarmRow
+		}
 	}
 
 	end := min(m.rightSidebarOffset+height, totalLines)
