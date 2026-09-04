@@ -797,7 +797,19 @@ type Config struct {
 
 	Embedding *EmbeddingConfig `json:"embedding,omitempty" jsonschema:"description=Global text-embedding model for vector/hybrid history search. Must be set globally (~/.config/crush); workspace overrides are ignored."`
 
+	Includes []ConfigInclude `json:"includes,omitempty" jsonschema:"description=Directory-scoped config files merged on top of the global config when the working directory is inside dir. Honored only in the global config (~/.config/crush)."`
+
 	Agents map[string]Agent `json:"-"`
+}
+
+// ConfigInclude is a directory-scoped config layer declared in the global
+// config. When the working directory is dir or any descendant of it, the
+// file at path is merged after the global and data configs and before any
+// project or workspace config. It lets one file govern a whole tree of
+// repositories (e.g. ~/code/work) without copying it into every clone.
+type ConfigInclude struct {
+	Dir  string `json:"dir" jsonschema:"required,description=Directory that activates this include; ~ and env vars are expanded,example=~/code/work"`
+	Path string `json:"path" jsonschema:"required,description=Config file to merge when active; ~ and env vars are expanded,example=~/.config/crush/work.json"`
 }
 
 // JSONSchemaProperty overrides the schema for the concurrent-map Providers
