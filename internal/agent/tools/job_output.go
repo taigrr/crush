@@ -52,16 +52,7 @@ func NewJobOutputTool() fantasy.AgentTool {
 				// soft interrupt) or a per-call background request end the
 				// wait early: the job keeps running and the model gets the
 				// output so far with a "running" status.
-				bgRequested, releaseBg := RegisterBackgroundable(ctx, call.ID)
-				select {
-				case <-bgShell.Done():
-				case <-SoftInterrupt(ctx):
-					interrupted, waitCut = backgroundReasonSteer, true
-				case <-bgRequested:
-					interrupted, waitCut = backgroundReasonUser, true
-				case <-ctx.Done():
-				}
-				releaseBg()
+				interrupted, waitCut = waitForJob(ctx, bgShell, call.ID)
 			}
 
 			stdout, stderr, done, err := bgShell.GetOutput()
@@ -107,6 +98,24 @@ func NewJobOutputTool() fantasy.AgentTool {
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(result), metadata), nil
 		},
 	)
+}
+
+// waitForJob blocks until bgShell finishes, the step is soft-interrupted,
+// this call is asked to background, or ctx ends. It reports whether the
+// wait was cut short and why. The backgroundable registration is released
+// on every exit path.
+func waitForJob(ctx context.Context, bgShell *shell.BackgroundShell, callID string) (reason backgroundReason, cut bool) {
+	bgRequested, releaseBg := RegisterBackgroundable(ctx, callID)
+	defer releaseBg()
+	select {
+	case <-bgShell.Done():
+	case <-SoftInterrupt(ctx):
+		return backgroundReasonSteer, true
+	case <-bgRequested:
+		return backgroundReasonUser, true
+	case <-ctx.Done():
+	}
+	return backgroundReasonTimeout, false
 }
 
 // waitEndedEarlyNote explains why a job_output wait returned before the

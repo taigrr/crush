@@ -43,6 +43,12 @@ type BashResponseMetadata struct {
 	WorkingDirectory string `json:"working_directory"`
 	Background       bool   `json:"background,omitempty"`
 	ShellID          string `json:"shell_id,omitempty"`
+	// BackgroundReason says why a foreground command ended up as a
+	// background job: "timeout" (auto_background_after elapsed), "steer"
+	// (a user message was waiting) or "user" (backgrounded from the UI).
+	// Empty for commands that ran to completion or were started with
+	// run_in_background.
+	BackgroundReason string `json:"background_reason,omitempty"`
 }
 
 const (
@@ -387,6 +393,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				WorkingDirectory: bgShell.WorkingDir,
 				Background:       true,
 				ShellID:          bgShell.ID,
+				BackgroundReason: reason.String(),
 			}
 			watchBackgroundJob(ctx, bgShell)
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(movedToBackgroundResponse(bgShell.ID, reason)), metadata), nil
@@ -407,6 +414,18 @@ const (
 	// backgroundReasonUser: the user backgrounded this specific command.
 	backgroundReasonUser
 )
+
+// String returns the metadata label for the reason.
+func (r backgroundReason) String() string {
+	switch r {
+	case backgroundReasonSteer:
+		return "steer"
+	case backgroundReasonUser:
+		return "user"
+	default:
+		return "timeout"
+	}
+}
 
 // movedToBackgroundResponse is the single tool result used whenever a
 // foreground command keeps running as a background job, whichever path

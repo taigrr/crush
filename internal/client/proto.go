@@ -1292,6 +1292,9 @@ func (c *Client) SoftInterruptAgentSession(ctx context.Context, id string, sessi
 	}
 	defer rsp.Body.Close()
 	if rsp.StatusCode != http.StatusOK {
+		if msg := decodeErrorMessage(rsp.Body); msg != "" {
+			return fmt.Errorf("failed to soft-interrupt agent session: %s", msg)
+		}
 		return fmt.Errorf("failed to soft-interrupt agent session: status code %d", rsp.StatusCode)
 	}
 	return nil
@@ -1302,7 +1305,9 @@ func (c *Client) SoftInterruptAgentSession(ctx context.Context, id string, sessi
 // naming the background job. Fails when the call is unknown, already
 // finished, or cannot be backgrounded.
 func (c *Client) BackgroundAgentToolCall(ctx context.Context, id, sessionID, toolCallID string) error {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/tools/%s/background", id, sessionID, toolCallID), nil, nil, nil)
+	// Tool-call IDs come from the provider and are not guaranteed to be
+	// path-safe.
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/tools/%s/background", id, sessionID, url.PathEscape(toolCallID)), nil, nil, nil)
 	if err != nil {
 		return fmt.Errorf("failed to background tool call: %w", err)
 	}

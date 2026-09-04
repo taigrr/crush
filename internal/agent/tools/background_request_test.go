@@ -34,7 +34,7 @@ func TestBackgroundRequest_RoundTrip(t *testing.T) {
 
 func TestBackgroundRequest_ReleaseAndUnknown(t *testing.T) {
 	t.Parallel()
-	require.False(t, RequestBackground("", "never-registered"))
+	require.False(t, RequestBackground("s2", "never-registered"))
 	ctx := context.WithValue(t.Context(), SessionIDContextKey, "s2")
 	_, release := RegisterBackgroundable(ctx, "call-rel")
 	release()
@@ -54,11 +54,13 @@ func TestBackgroundRequest_ReleaseAndUnknown(t *testing.T) {
 	release()
 }
 
-func TestBackgroundRequest_EmptySessionMatchesAny(t *testing.T) {
+func TestBackgroundRequest_SessionMustMatchExactly(t *testing.T) {
 	t.Parallel()
 	ctx := context.WithValue(t.Context(), SessionIDContextKey, "s3")
 	ch, release := RegisterBackgroundable(ctx, "call-any")
 	defer release()
-	require.True(t, RequestBackground("", "call-any"))
+	require.False(t, RequestBackground("", "call-any"), "an empty session must not act as a wildcard")
+	require.Empty(t, BackgroundableToolCalls(""), "an empty session lists nothing registered under a real one")
+	require.True(t, RequestBackground("s3", "call-any"))
 	<-ch
 }

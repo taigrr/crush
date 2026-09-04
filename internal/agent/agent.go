@@ -134,6 +134,10 @@ type SessionAgentCall struct {
 	// paths treat as covered by any present mark, preserving the
 	// pre-sequence behavior.
 	acceptSeq uint64
+	// aside marks a system-originated notice (a finished background job)
+	// parked in pendingAsides rather than a user prompt, so a failed fold
+	// can put it back where it came from.
+	aside bool
 }
 
 type SessionAgent interface {

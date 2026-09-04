@@ -16,6 +16,7 @@ func newIdleTestAgent() *sessionAgent {
 	return &sessionAgent{
 		activeRequests: csync.NewMap[string, context.CancelFunc](),
 		softInterrupts: csync.NewMap[string, chan struct{}](),
+		dispatchMu:     csync.NewMap[string, *sync.Mutex](),
 		idleCh:         make(chan struct{}),
 	}
 }

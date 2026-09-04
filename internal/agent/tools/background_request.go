@@ -52,18 +52,16 @@ func RegisterBackgroundable(ctx context.Context, callID string) (<-chan struct{}
 }
 
 // RequestBackground asks the registered tool call callID to move its work
-// to the background. sessionID, when non-empty, must match the session
-// the call registered under. It reports whether a matching, not yet
+// to the background. sessionID must equal the session the call registered
+// under: the registry is process-wide, so the session is what scopes a
+// request to its own workspace. It reports whether a matching, not yet
 // signalled registration was found; false means the call already
 // finished, never registered, or belongs to another session.
 func RequestBackground(sessionID, callID string) bool {
 	backgroundRequests.mu.Lock()
 	defer backgroundRequests.mu.Unlock()
 	req, ok := backgroundRequests.calls[callID]
-	if !ok || req.fired {
-		return false
-	}
-	if sessionID != "" && req.sessionID != "" && req.sessionID != sessionID {
+	if !ok || req.fired || req.sessionID != sessionID {
 		return false
 	}
 	req.fired = true
@@ -71,18 +69,16 @@ func RequestBackground(sessionID, callID string) bool {
 	return true
 }
 
-// BackgroundableToolCalls lists the tool-call IDs currently registered for
-// sessionID (all sessions when empty). Intended for UIs that want to show
-// a "background this" hint only on calls that can honor it.
+// BackgroundableToolCalls lists the tool-call IDs currently registered
+// under sessionID that have not yet been asked to background. Intended for
+// UIs that want to show a "background this" hint only on calls that can
+// honor it; the same sessionID must be passed to RequestBackground.
 func BackgroundableToolCalls(sessionID string) []string {
 	backgroundRequests.mu.Lock()
 	defer backgroundRequests.mu.Unlock()
 	var ids []string
 	for id, req := range backgroundRequests.calls {
-		if req.fired {
-			continue
-		}
-		if sessionID != "" && req.sessionID != sessionID {
+		if req.fired || req.sessionID != sessionID {
 			continue
 		}
 		ids = append(ids, id)

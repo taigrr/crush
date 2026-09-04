@@ -281,6 +281,44 @@ func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceled []Ses
 	return fold, canceled, softInterrupt
 }
 
+// reparkFold puts back fold entries that drainQueueForStep handed out but
+// the caller could not persist (a createUserMessage failure aborts the
+// step). Prompts go to the front of the message queue, notices back to
+// pendingAsides, so nothing the user or a finished job said is lost when
+// the turn errors out; the next turn's first drain picks them up again.
+func (a *sessionAgent) reparkFold(sessionID string, remaining []SessionAgentCall) {
+	if len(remaining) == 0 {
+		return
+	}
+	var prompts, asides []SessionAgentCall
+	for _, c := range remaining {
+		if c.aside {
+			asides = append(asides, c)
+		} else {
+			prompts = append(prompts, c)
+		}
+	}
+	mu := a.sessionMu(sessionID)
+	mu.Lock()
+	if len(prompts) > 0 {
+		queued, _ := a.messageQueue.Get(sessionID)
+		a.messageQueue.Set(sessionID, append(prompts, queued...))
+	}
+	if len(asides) > 0 {
+		existing, _ := a.pendingAsides.Get(sessionID)
+		a.pendingAsides.Set(sessionID, append(asides, existing...))
+	}
+	mu.Unlock()
+	if len(prompts) > 0 {
+		a.journalQueue(sessionID)
+	}
+}
+
+// maxPendingAsides bounds how many system notices wait per session. A
+// session that never gets another turn would otherwise accumulate every
+// finished job forever; beyond the cap the oldest notice is dropped.
+const maxPendingAsides = 20
+
 // notifyJobDone is the tools.JobNotifyFunc handed to tools: it parks a
 // system notice for sessionID to be folded into the conversation at the
 // next step boundary (or the start of the next turn when idle). It takes
@@ -295,7 +333,12 @@ func (a *sessionAgent) notifyJobDone(sessionID, text string) {
 	mu.Lock()
 	defer mu.Unlock()
 	existing, _ := a.pendingAsides.Get(sessionID)
-	a.pendingAsides.Set(sessionID, append(existing, SessionAgentCall{SessionID: sessionID, Prompt: text}))
+	existing = append(existing, SessionAgentCall{SessionID: sessionID, Prompt: text, aside: true})
+	if drop := len(existing) - maxPendingAsides; drop > 0 {
+		slog.Warn("Dropping oldest pending job notices", "session_id", sessionID, "dropped", drop)
+		existing = existing[drop:]
+	}
+	a.pendingAsides.Set(sessionID, existing)
 }
 
 // armSoftInterruptLocked replaces the session's soft-interrupt channel
@@ -664,8 +707,16 @@ func (a *sessionAgent) clearActiveRequest(sessionID string) {
 	a.activeRequests.Del(sessionID)
 	// The step that owned the current soft-interrupt channel is over;
 	// drop it so a SoftInterrupt on the now-idle session is a no-op and
-	// the next turn starts from a clean slate.
-	a.softInterrupts.Del(sessionID)
+	// the next turn starts from a clean slate. Done under the dispatch
+	// mutex and only while the session is still idle: a new turn that
+	// slipped in after the Del above arms its own channel under the same
+	// mutex, and deleting that one would silently disarm its steers.
+	mu := a.sessionMu(sessionID)
+	mu.Lock()
+	if _, active := a.activeRequests.Get(sessionID); !active {
+		a.softInterrupts.Del(sessionID)
+	}
+	mu.Unlock()
 	a.signalIdle()
 }
 

@@ -198,25 +198,32 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		mu.Unlock()
 
 		defer a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
-	} else if a.IsSessionBusy(call.SessionID) {
+	} else {
 		// Queue the message if busy. Strip OnComplete: the caller that
 		// supplied the hook (typically coordinator.Run) has its own
 		// retry/coalesce scope that ends when it returns, so by the time
 		// the queue drains nobody is left to consume the buffered
 		// terminal event. The recursive Run will fall back to the
 		// default broker publish, which is what existing subscribers
-		// expect for queued turns. The enqueue and the steer's soft
-		// interrupt share one lock acquisition so the drain in
-		// PrepareStep observes them atomically.
+		// expect for queued turns. The busy check, the enqueue, and the
+		// steer's soft interrupt share one lock acquisition so the
+		// drain in PrepareStep observes them atomically and a session
+		// that went idle between an unlocked check and the enqueue
+		// cannot swallow the call.
 		mu := a.sessionMu(call.SessionID)
 		mu.Lock()
-		a.enqueueCall(call)
-		if call.Steer {
-			a.softInterruptLocked(call.SessionID)
+		busy := a.IsSessionBusy(call.SessionID)
+		if busy {
+			a.enqueueCall(call)
+			if call.Steer {
+				a.softInterruptLocked(call.SessionID)
+			}
 		}
 		mu.Unlock()
-		a.journalQueue(call.SessionID)
-		return nil, nil
+		if busy {
+			a.journalQueue(call.SessionID)
+			return nil, nil
+		}
 	}
 
 	// Copy mutable fields under lock to avoid races with
@@ -520,9 +527,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// drainQueueForStep).
 			fold, canceled, softInterrupt := a.drainQueueForStep(call.SessionID)
 			a.publishCanceledQueueDrops(canceled)
-			for _, queued := range fold {
+			for i, queued := range fold {
 				userMessage, createErr := a.createUserMessage(callContext, queued)
 				if createErr != nil {
+					a.reparkFold(call.SessionID, fold[i:])
 					return callContext, prepared, createErr
 				}
 				// Folded after everything the model has produced so far, so
