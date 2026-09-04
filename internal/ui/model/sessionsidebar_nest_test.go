@@ -1,9 +1,11 @@
 package model
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/proto"
@@ -93,8 +95,10 @@ func TestSidebar_NestsSpawnedSessions(t *testing.T) {
 		s.SetOverviews(overviews())
 		s.Render(40, 40, true)
 		ids, depths := sidebarSessionOrder(s)
-		require.Equal(t, []string{"other", "orch", "worker", "stray"}, ids)
-		require.Equal(t, []int{0, 0, 1, 0}, depths)
+		// The orchestrator's subtree bubbles up because its worker is the
+		// most recently updated session; the spawner stays first within it.
+		require.Equal(t, []string{"orch", "worker", "other", "stray"}, ids)
+		require.Equal(t, []int{0, 1, 0, 0}, depths)
 
 		out := ansi.Strip(strings.Join(s.renderRows(40, true), "\n"))
 		require.Contains(t, out, styles.TreeElbowIcon+" ")
@@ -135,12 +139,74 @@ func TestSidebar_NestsSpawnedSessions(t *testing.T) {
 		s.SetOverviews(overviews())
 		_, id, ok := s.Selected()
 		require.True(t, ok)
-		require.Equal(t, "other", id)
-		s.MoveDown()
-		_, id, _ = s.Selected()
 		require.Equal(t, "orch", id)
 		s.MoveDown()
 		_, id, _ = s.Selected()
 		require.Equal(t, "worker", id)
+		s.MoveDown()
+		_, id, _ = s.Selected()
+		require.Equal(t, "other", id)
 	})
+}
+
+// A busy worker nested under an idle spawner must not sink below idle
+// top-level sessions: the whole subtree sorts to the top of its group.
+func TestSidebar_BusyNestedWorkerBubblesSubtree(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{{
+		Root:     "/proj/a",
+		Attached: true,
+		Sessions: []proto.SessionOverview{
+			{ID: "unread", Title: "Unread", UpdatedAt: 90, Unread: true},
+			{ID: "recent", Title: "Recent", UpdatedAt: 80},
+			{ID: "orch", Title: "Orchestrator", UpdatedAt: 10},
+			{ID: "worker", Title: "Worker", UpdatedAt: 5, IsBusy: true, SpawnedBySessionID: "orch"},
+		},
+	}})
+	s.Render(40, 40, true)
+	ids, depths := sidebarSessionOrder(s)
+	require.Equal(t, []string{"orch", "worker", "unread", "recent"}, ids)
+	require.Equal(t, []int{0, 1, 0, 0}, depths)
+
+	// A pending prompt outranks busy: once the recent session blocks on a
+	// prompt it moves above the busy subtree without waiting for a refresh.
+	s.SetPendingSessions(map[string]bool{"recent": true})
+	ids, _ = sidebarSessionOrder(s)
+	require.Equal(t, []string{"recent", "orch", "worker", "unread"}, ids)
+
+	// The active session's subtree is still pinned first.
+	s.SetPendingSessions(nil)
+	s.SetActiveSession("unread")
+	ids, _ = sidebarSessionOrder(s)
+	require.Equal(t, []string{"unread", "orch", "worker", "recent"}, ids)
+}
+
+// A busy row's title is tinted with the busy color and a pending row's with
+// the error color, so a running session stands out beyond its 1-cell dot.
+func TestSidebar_BusyTitleTakesStatusColor(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	sty := s.com.Styles
+	busyFg := sty.Resource.BusyIcon.GetForeground()
+	errFg := sty.Resource.ErrorIcon.GetForeground()
+	nameFg := sty.Resource.Name.GetForeground()
+	require.NotEqual(t, nameFg, busyFg)
+
+	titleOf := func(fg color.Color) string {
+		return lipgloss.NewStyle().Foreground(fg).Render("Title")
+	}
+	idle := proto.SessionOverview{ID: "idle", Title: "Title"}
+	busy := proto.SessionOverview{ID: "busy", Title: "Title", IsBusy: true}
+
+	require.Contains(t, s.renderSessionRow(sty, idle, 40, false, false, false, "", 0), titleOf(nameFg))
+	require.Contains(t, s.renderSessionRow(sty, busy, 40, false, false, false, "", 0), titleOf(busyFg))
+
+	s.SetPendingSessions(map[string]bool{"busy": true})
+	require.Contains(t, s.renderSessionRow(sty, busy, 40, false, false, false, "", 0), titleOf(errFg))
+
+	// The focused selection keeps the existing selected style.
+	sel := s.renderSessionRow(sty, busy, 40, true, true, false, "", 0)
+	require.NotContains(t, sel, titleOf(errFg))
+	require.Contains(t, ansi.Strip(sel), "Title")
 }
