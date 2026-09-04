@@ -246,6 +246,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setSessionFavoriteStmt, err = db.PrepareContext(ctx, setSessionFavorite); err != nil {
 		return nil, fmt.Errorf("error preparing query SetSessionFavorite: %w", err)
 	}
+	if q.setSessionSpawnedByStmt, err = db.PrepareContext(ctx, setSessionSpawnedBy); err != nil {
+		return nil, fmt.Errorf("error preparing query SetSessionSpawnedBy: %w", err)
+	}
 	if q.setSessionSwarmIdentityStmt, err = db.PrepareContext(ctx, setSessionSwarmIdentity); err != nil {
 		return nil, fmt.Errorf("error preparing query SetSessionSwarmIdentity: %w", err)
 	}
@@ -651,6 +654,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setSessionFavoriteStmt: %w", cerr)
 		}
 	}
+	if q.setSessionSpawnedByStmt != nil {
+		if cerr := q.setSessionSpawnedByStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setSessionSpawnedByStmt: %w", cerr)
+		}
+	}
 	if q.setSessionSwarmIdentityStmt != nil {
 		if cerr := q.setSessionSwarmIdentityStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setSessionSwarmIdentityStmt: %w", cerr)
@@ -814,6 +822,7 @@ type Queries struct {
 	recordFileReadStmt                      *sql.Stmt
 	renameSessionStmt                       *sql.Stmt
 	setSessionFavoriteStmt                  *sql.Stmt
+	setSessionSpawnedByStmt                 *sql.Stmt
 	setSessionSwarmIdentityStmt             *sql.Stmt
 	setSessionWorkingDirStmt                *sql.Stmt
 	setWorktreeActiveStmt                   *sql.Stmt
@@ -904,6 +913,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordFileReadStmt:                      q.recordFileReadStmt,
 		renameSessionStmt:                       q.renameSessionStmt,
 		setSessionFavoriteStmt:                  q.setSessionFavoriteStmt,
+		setSessionSpawnedByStmt:                 q.setSessionSpawnedByStmt,
 		setSessionSwarmIdentityStmt:             q.setSessionSwarmIdentityStmt,
 		setSessionWorkingDirStmt:                q.setSessionWorkingDirStmt,
 		setWorktreeActiveStmt:                   q.setWorktreeActiveStmt,

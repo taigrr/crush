@@ -88,6 +88,8 @@ type Session struct {
 	Animal               sql.NullString `json:"animal"`
 	Favorite             int64          `json:"favorite"`
 	ModelRef             sql.NullString `json:"model_ref"`
+	SpawnedBySessionID   sql.NullString `json:"spawned_by_session_id"`
+	SpawnedByWorkspaceID sql.NullString `json:"spawned_by_workspace_id"`
 }
 
 type Snapshot struct {

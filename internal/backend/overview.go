@@ -89,6 +89,8 @@ func (b *Backend) ListWorkspaceOverviews(ctx context.Context) ([]proto.Workspace
 					Color:      p.Color,
 					Animal:     p.Animal,
 					Favorite:   p.Favorite,
+
+					SpawnedBySessionID: p.SpawnedBySessionID,
 				})
 			}
 			sortSessionOverviews(ov.Sessions)
@@ -130,6 +132,8 @@ func (b *Backend) attachedSessionOverviews(ctx context.Context, ws *Workspace) [
 			Color:      s.Color,
 			Animal:     s.Animal,
 			Favorite:   s.Favorite,
+
+			SpawnedBySessionID: s.SpawnedBySessionID,
 		})
 	}
 	return out
