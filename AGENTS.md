@@ -97,6 +97,19 @@ internal/
   enabled. Sender identity is stamped by the
   backend from the sender's session row (untrusted tool input is
   overwritten) to prevent spoofing.
+- **Mid-turn steering / soft interrupts**: a prompt with an empty RunID
+  is folded into the active turn at the next step boundary
+  (`drainQueueForStep` in `internal/agent/queue.go`); folds are re-spliced
+  into every later step (`internal/agent/fold.go`). A *steer*
+  (`SessionAgentCall.Steer`, `proto.AgentMessage.Steer`, `/btw`, swarm
+  `mode: "btw"`) additionally closes the session's soft-interrupt channel
+  (`tools.SoftInterrupt(ctx)`), which opted-in tools (bash, job_output)
+  treat as "wrap up now": the command keeps running as a background job
+  and the tool returns its job id. A soft interrupt never cancels a tool.
+  `tools.RegisterBackgroundable`/`RequestBackground` do the same for one
+  specific tool call (the UI's "background this" action). Finished
+  background jobs are reported back through `tools.JobNotifier` as a
+  folded `[background job finished]` notice that never starts a turn.
 
 ## Build/Test/Lint Commands
 

@@ -106,10 +106,41 @@
         "embedding": {
           "$ref": "#/$defs/EmbeddingConfig",
           "description": "Global text-embedding model for vector/hybrid history search. Must be set globally (~/.config/crush); workspace overrides are ignored."
+        },
+        "includes": {
+          "items": {
+            "$ref": "#/$defs/ConfigInclude"
+          },
+          "type": "array",
+          "description": "Directory-scoped config files merged on top of the global config when the working directory is inside dir. Honored only in the global config (~/.config/crush)."
         }
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "ConfigInclude": {
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Directory that activates this include; ~ and env vars are expanded",
+          "examples": [
+            "~/code/work"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "description": "Config file to merge when active; ~ and env vars are expanded",
+          "examples": [
+            "~/.config/crush/work.json"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "dir",
+        "path"
+      ]
     },
     "EmbeddingConfig": {
       "properties": {
