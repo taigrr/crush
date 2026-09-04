@@ -635,6 +635,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		// Scroll the left session navigator when the pointer is over it,
+		// regardless of focus, so a long list can be browsed without
+		// moving the cursor row by row.
+		if m.handleLeftSidebarWheel(msg) {
+			return m, tea.Batch(cmds...)
+		}
+
 		// Otherwise handle mouse wheel for chat.
 		switch m.state {
 		case uiChat:
