@@ -109,9 +109,9 @@ func newWaitTool(started chan<- struct{}) fantasy.AgentTool {
 		})
 }
 
-// toolResultText digs the text of the first tool result part out of a
+// firstToolResultText digs the text of the first tool result part out of a
 // prompt.
-func toolResultText(t *testing.T, p fantasy.Prompt) string {
+func firstToolResultText(t *testing.T, p fantasy.Prompt) string {
 	t.Helper()
 	for _, msg := range p {
 		if msg.Role != fantasy.MessageRoleTool {
@@ -184,7 +184,7 @@ func TestRun_SteerSoftInterruptsToolAndFoldsAtNextStep(t *testing.T) {
 
 	prompts := model.Prompts()
 	require.Len(t, prompts, 2, "one step for the tool call, one after the fold")
-	require.Equal(t, "interrupted", toolResultText(t, prompts[1]),
+	require.Equal(t, "interrupted", firstToolResultText(t, prompts[1]),
 		"the steer must wake the tool via the soft interrupt, not let it time out")
 	require.True(t, containsSteer(prompts[1]),
 		"the steer must be folded into the step right after the interrupted tool")
@@ -332,7 +332,7 @@ func TestRun_SoftInterruptAloneWakesToolWithoutMessage(t *testing.T) {
 
 	prompts := model.Prompts()
 	require.Len(t, prompts, 2)
-	require.Equal(t, "interrupted", toolResultText(t, prompts[1]))
+	require.Equal(t, "interrupted", firstToolResultText(t, prompts[1]))
 	require.False(t, containsSteer(prompts[1]))
 	require.Equal(t, len(userTexts(prompts[0])), len(userTexts(prompts[1])),
 		"a bare soft interrupt must not inject a user message")
