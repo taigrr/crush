@@ -24,8 +24,9 @@ const (
 	sidebarRowWorkspace sidebarRowKind = iota
 	sidebarRowSession
 	// sidebarRowOverflow is the "…N more" row shown when a workspace has
-	// more sessions than its per-workspace display cap. Selecting it opens
-	// the full session picker for that workspace.
+	// more sessions than its per-workspace display cap. Selecting it
+	// expands the workspace in place; once expanded the same row reads
+	// "show less" (remaining == 0) and collapses it again.
 	sidebarRowOverflow
 	// sidebarRowSection is a non-selectable status-section header used only
 	// in inbox mode (e.g. "Running", "Unread", "Read"). Like workspace
@@ -45,6 +46,7 @@ type sidebarRow struct {
 	// session index within that workspace (only for session rows).
 	sessIdx int
 	// remaining is the count of hidden sessions (only for overflow rows).
+	// Zero on the collapse row of an expanded workspace.
 	remaining int
 	// label is the header text for section rows (inbox mode only).
 	label string
@@ -110,6 +112,12 @@ type SessionsSidebar struct {
 	// per-workspace session cap so one workspace cannot push others off
 	// the screen.
 	bodyHeight int
+
+	// expanded holds the roots of workspaces the user expanded past their
+	// cap (enter on the "…N more" row). Keyed by root so it survives
+	// overview refreshes and re-sorts; cleared per workspace by the "show
+	// less" row. Ignored in inbox mode, which never caps.
+	expanded map[string]bool
 
 	// activeSessionID is the session currently open in the main pane, shown
 	// with a marker.
@@ -556,6 +564,10 @@ func (s *SessionsSidebar) rebuildGroupedRows() {
 		emittedGroups++
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowWorkspace, wsIdx: wi})
 		shown := min(len(idxs), caps[wi])
+		expanded := s.expanded[s.overviews[wi].Root] && shown < len(idxs)
+		if expanded {
+			shown = len(idxs)
+		}
 		// Nest spawned workers under their spawner within the workspace.
 		// Nesting runs over the full filtered set (so a worker is pulled
 		// up next to its spawner even if it sorted lower) and the cap is
@@ -569,10 +581,39 @@ func (s *SessionsSidebar) rebuildGroupedRows() {
 		for _, n := range nestSpawned(ids, spawners)[:shown] {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: idxs[n.idx], depth: n.depth})
 		}
-		if remaining := len(idxs) - shown; remaining > 0 {
+		if remaining := len(idxs) - shown; remaining > 0 || expanded {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowOverflow, wsIdx: wi, remaining: remaining})
 		}
 	}
+}
+
+// ToggleOverflowUnderCursor expands or collapses the workspace whose
+// "…N more" / "show less" row is under the cursor and reports whether the
+// cursor was on such a row. After the rebuild the cursor rests on that
+// workspace's toggle row again, so enter twice is a no-op round trip.
+func (s *SessionsSidebar) ToggleOverflowUnderCursor() bool {
+	if s.cursor < 0 || s.cursor >= len(s.rows) || s.rows[s.cursor].kind != sidebarRowOverflow {
+		return false
+	}
+	wi := s.rows[s.cursor].wsIdx
+	root := s.overviews[wi].Root
+	if s.expanded == nil {
+		s.expanded = map[string]bool{}
+	}
+	if s.expanded[root] {
+		delete(s.expanded, root)
+	} else {
+		s.expanded[root] = true
+	}
+	s.rebuildRows()
+	for i, r := range s.rows {
+		if r.kind == sidebarRowOverflow && r.wsIdx == wi {
+			s.cursor = i
+			break
+		}
+	}
+	s.ensureVisible()
+	return true
 }
 
 // computeCaps returns the per-workspace session display cap. Sessions are
@@ -1380,15 +1421,19 @@ func (s *SessionsSidebar) renderRows(width int, focused bool) []string {
 	return out
 }
 
-// renderOverflowRow renders the "…N more" row that opens the workspace's
-// full session picker when selected. It aligns under the session titles
-// (a 5-cell prefix: bar + space + active + marker + space).
+// renderOverflowRow renders the "…N more" row that expands the workspace
+// in place when selected, or "show less" for an expanded one. It aligns
+// under the session titles (a 5-cell prefix: bar + space + active + marker
+// + space).
 func (s *SessionsSidebar) renderOverflowRow(t *styles.Styles, remaining, width int, selected, focused bool) string {
 	bar := " "
 	if selected {
 		bar = styles.BorderThick
 	}
-	label := fmt.Sprintf("… %d more", remaining)
+	label := "… show less"
+	if remaining > 0 {
+		label = fmt.Sprintf("… %d more", remaining)
+	}
 	prefix := bar + "    " // bar + 4 spaces = 5-cell prefix
 	avail := max(1, width-ansi.StringWidth(prefix))
 	label = ansi.Truncate(label, avail, "…")

@@ -1755,3 +1755,63 @@ func TestSidebar_SectionNavigationInbox(t *testing.T) {
 	s.MovePrevSection()
 	require.Equal(t, start, s.cursor, "prev jumps to current section start first")
 }
+
+// TestSidebar_ExpandOverflowInPlace verifies enter on the "…N more" row
+// reveals every session of that workspace, the row becomes "show less",
+// the cursor stays on it, and toggling again collapses back to the cap.
+func TestSidebar_ExpandOverflowInPlace(t *testing.T) {
+	t.Parallel()
+	s := newTestSidebar(t)
+	s.SetOverviews([]proto.WorkspaceOverview{
+		manySessions("/proj/a", 20),
+		manySessions("/proj/b", 20),
+	})
+	s.Render(30, 22, true)
+
+	// Walk to the first overflow row (workspace a).
+	for {
+		if root, ok := s.SelectedOverflowWorkspace(); ok {
+			require.Equal(t, "/proj/a", root)
+			break
+		}
+		before := s.cursor
+		s.MoveDown()
+		require.NotEqual(t, before, s.cursor, "never found an overflow row")
+	}
+	require.Equal(t, 20-s.rows[s.cursor].remaining, countSessionRows(s, 0), "capped before expand")
+
+	require.True(t, s.ToggleOverflowUnderCursor())
+	require.Equal(t, 20, countSessionRows(s, 0), "expanded workspace shows every session")
+	require.Equal(t, sidebarRowOverflow, s.rows[s.cursor].kind, "cursor stays on the toggle row")
+	require.Zero(t, s.rows[s.cursor].remaining, "toggle row is now a collapse row")
+	require.Contains(t, s.Render(30, 22, true), "show less")
+	require.Less(t, countSessionRows(s, 1), 20, "sibling workspace stays capped")
+
+	require.True(t, s.ToggleOverflowUnderCursor())
+	require.Less(t, countSessionRows(s, 0), 20, "collapsed back to the cap")
+	require.Positive(t, s.rows[s.cursor].remaining)
+
+	// A refresh keeps the expansion (keyed by root, not row index).
+	require.True(t, s.ToggleOverflowUnderCursor())
+	s.SetOverviews([]proto.WorkspaceOverview{
+		manySessions("/proj/a", 20),
+		manySessions("/proj/b", 20),
+	})
+	require.Equal(t, 20, countSessionRows(s, 0))
+
+	// Not on an overflow row: no-op.
+	s.cursor = 0
+	s.snapCursorToSession(1)
+	require.False(t, s.ToggleOverflowUnderCursor())
+}
+
+// countSessionRows counts session rows projected for workspace wi.
+func countSessionRows(s *SessionsSidebar, wi int) int {
+	n := 0
+	for _, r := range s.rows {
+		if r.kind == sidebarRowSession && r.wsIdx == wi {
+			n++
+		}
+	}
+	return n
+}

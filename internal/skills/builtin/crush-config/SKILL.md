@@ -297,6 +297,17 @@ session navigator (ctrl+s). Valid range is 20-80; omit it for the default of
 data config, so a value set in a project or workspace config outranks the
 resize and pins the width for that project.
 
+## Sessions sidebar pin
+
+`options.tui.sessions_sidebar_pinned: true` keeps the navigator open across
+session switches: activating a session, `esc`, and `h` return focus to the
+editor instead of collapsing it, and `ctrl+s` toggles focus between the
+navigator and the editor. Toggle it in the UI with `alt+s` anywhere, `p`
+while the navigator is focused, or "Pin/Unpin Sessions Sidebar" in the
+command palette; the toggle writes this key to the global data config.
+(`alt+s` rather than `ctrl+shift+s`: without the Kitty keyboard protocol
+terminals cannot tell the shifted form apart from `ctrl+s`.)
+
 ## Themes
 
 `options.tui.theme` selects the UI color theme by name. Because local config

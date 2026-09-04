@@ -275,6 +275,11 @@ type UI struct {
 	// uiFocusLeftSidebar.
 	leftSidebar        *SessionsSidebar
 	leftSidebarVisible bool
+	// leftSidebarPinned keeps the navigator open across session switches:
+	// activating a session, esc, and h return focus to the editor instead
+	// of collapsing it, and ctrl+s toggles focus rather than visibility.
+	// Seeded from config and persisted on toggle.
+	leftSidebarPinned bool
 	// leftSidebarWidth is the navigator's width in columns. Seeded from
 	// config so a resize persists across restarts.
 	leftSidebarWidth int
@@ -506,6 +511,10 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 
 	// Seed the navigator width from config so a previous resize persists.
 	ui.leftSidebarWidth = clampLeftSidebarWidth(com.Config().Options.TUI.SessionsSidebarWidth)
+	// A pinned navigator starts open (the layout only carves it out in the
+	// chat and landing states); focus stays with the editor.
+	ui.leftSidebarPinned = com.Config().Options.TUI.SessionsSidebarPinned
+	ui.leftSidebarVisible = ui.leftSidebarPinned
 
 	// set onboarding state defaults
 	ui.onboarding.yesInitializeSelected = true
