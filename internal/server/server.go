@@ -109,6 +109,7 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("GET /v1/version", c.handleGetVersion)
 	mux.HandleFunc("GET /v1/config", c.handleGetConfig)
 	mux.HandleFunc("POST /v1/control", c.handlePostControl)
+	mux.HandleFunc("POST /v1/drain", c.handlePostDrain)
 	mux.HandleFunc("GET /v1/workspaces", c.handleGetWorkspaces)
 	mux.HandleFunc("GET /v1/workspace-overviews", c.handleGetWorkspaceOverviews)
 	mux.HandleFunc("POST /v1/peek-messages", c.handlePostPeekMessages)

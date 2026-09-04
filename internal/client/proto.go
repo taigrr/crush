@@ -695,13 +695,22 @@ func (c *Client) SendMessage(ctx context.Context, id string, sessionID, runID, p
 	}
 	defer rsp.Body.Close()
 	if rsp.StatusCode != http.StatusOK && rsp.StatusCode != http.StatusAccepted {
-		if msg := decodeErrorMessage(rsp.Body); msg != "" {
-			return fmt.Errorf("failed to send message to agent: status code %d: %s", rsp.StatusCode, msg)
+		e := decodeError(rsp.Body)
+		if rsp.StatusCode == http.StatusServiceUnavailable && e.Code == proto.ErrorCodeDraining {
+			return ErrServerDraining
+		}
+		if e.Message != "" {
+			return fmt.Errorf("failed to send message to agent: status code %d: %s", rsp.StatusCode, e.Message)
 		}
 		return fmt.Errorf("failed to send message to agent: status code %d", rsp.StatusCode)
 	}
 	return nil
 }
+
+// ErrServerDraining is returned by SendMessage when the server refused
+// the prompt because it is draining for an update. The prompt was not
+// accepted; callers should hold it and retry once a server is back.
+var ErrServerDraining = errors.New("server is updating; prompt not accepted")
 
 // RunShellCommand runs a shell command in the workspace without triggering the agent.
 func (c *Client) RunShellCommand(ctx context.Context, id, sessionID, command string) (proto.ShellCommandResponse, error) {
@@ -729,11 +738,17 @@ func (c *Client) RunShellCommand(ctx context.Context, id, sessionID, command str
 // with a non-empty message, letting callers fall back to a
 // status-only error.
 func decodeErrorMessage(body io.Reader) string {
+	return decodeError(body).Message
+}
+
+// decodeError decodes a proto.Error body, returning the zero value when
+// the body is not one.
+func decodeError(body io.Reader) proto.Error {
 	var e proto.Error
 	if err := json.NewDecoder(body).Decode(&e); err != nil {
-		return ""
+		return proto.Error{}
 	}
-	return e.Message
+	return e
 }
 
 // GetAgentSessionInfo retrieves the agent session info for a workspace.
