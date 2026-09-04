@@ -11,9 +11,12 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/taigrr/crush/internal/agent"
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/home"
+	"github.com/taigrr/crush/internal/journal"
+	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
@@ -351,8 +354,34 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 		// TextContent user message with structured swarm parts.
 		SwarmParts: []proto.SwarmMessage{part},
 	}
+	if b.Draining() {
+		// The server is draining for an update and will not start a
+		// new turn. Rather than fail the sender's tool call, journal
+		// the message onto the target's persisted queue so the next
+		// server delivers it when it rehydrates the workspace.
+		if err := b.deferSwarmSend(ctx, ws, msg); err != nil {
+			return SwarmSendResult{}, err
+		}
+		return SwarmSendResult{
+			WorkspaceID: target.WorkspaceID,
+			SessionID:   target.SessionID,
+			Delivery:    "deferred",
+		}, nil
+	}
 	if err := b.SendMessage(target.WorkspaceID, msg); err != nil {
-		return SwarmSendResult{}, err
+		if !errors.Is(err, ErrDraining) {
+			return SwarmSendResult{}, err
+		}
+		// A drain landed between the check above and the send: defer
+		// rather than fail the sender's tool call.
+		if derr := b.deferSwarmSend(ctx, ws, msg); derr != nil {
+			return SwarmSendResult{}, derr
+		}
+		return SwarmSendResult{
+			WorkspaceID: target.WorkspaceID,
+			SessionID:   target.SessionID,
+			Delivery:    "deferred",
+		}, nil
 	}
 	publishSwarmReceived(ws, target.SessionID, targetSess.Title, part)
 
@@ -372,6 +401,60 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 		SessionID:   target.SessionID,
 		Delivery:    delivery,
 	}, nil
+}
+
+// deferSwarmSend appends msg to the target session's journaled queue
+// without dispatching it. Used while draining: the entry is replayed by
+// the next server's rehydrateQueue. Best-effort against a concurrent
+// journal write by the target's own (finishing) turn: the queue is tiny
+// and the window is the drain's final moments.
+func (b *Backend) deferSwarmSend(ctx context.Context, ws *Workspace, msg proto.AgentMessage) error {
+	if ws.App == nil || ws.Journal == nil {
+		return ErrDraining
+	}
+	attachments := proto.AttachmentsToMessage(msg.Attachments)
+	parts := make([]message.SwarmMessage, 0, len(msg.SwarmParts))
+	for _, p := range msg.SwarmParts {
+		parts = append(parts, message.SwarmMessage{
+			Text:              p.Text,
+			Body:              p.Body,
+			SenderSessionID:   p.SenderSessionID,
+			SenderColor:       p.SenderColor,
+			SenderAnimal:      p.SenderAnimal,
+			SenderWorkspaceID: p.SenderWorkspaceID,
+			BTW:               p.BTW,
+			RequireReply:      p.RequireReply,
+		})
+	}
+	// Prefer the coordinator's own queue: the append is serialized on
+	// the target session's dispatch mutex and journaled by the normal
+	// write-through, so it cannot race the target's finishing turn. The
+	// entry MUST carry a run id: drainQueueForStep folds id-less queued
+	// calls into a still-streaming turn on this (old) server, which is
+	// the opposite of deferring. Dispatch of id-bearing calls is paused
+	// while draining, so with an id it stays put for the next server.
+	if d, ok := ws.AgentCoordinator.(agent.Drainable); ok {
+		d.DeferPrompt(msg.SessionID, newRunID(), msg.Prompt, attachments, parts)
+		slog.Info("Swarm message deferred until after server update", "session_id", msg.SessionID)
+		return nil
+	}
+	// Coordinators without drain support: write the journal directly.
+	queues, err := ws.Journal.LoadQueue(ctx)
+	if err != nil {
+		return fmt.Errorf("defer swarm send: %w", err)
+	}
+	entries := append(queues[msg.SessionID], journal.QueuedPrompt{
+		SessionID:   msg.SessionID,
+		RunID:       newRunID(),
+		Prompt:      msg.Prompt,
+		Attachments: attachments,
+		SwarmParts:  parts,
+	})
+	if err := ws.Journal.SaveQueue(ctx, msg.SessionID, entries); err != nil {
+		return fmt.Errorf("defer swarm send: %w", err)
+	}
+	slog.Info("Swarm message deferred until after server update", "session_id", msg.SessionID, "queued", len(entries))
+	return nil
 }
 
 // resurrectTargetSession fetches a swarm target by id, unarchiving it

@@ -221,12 +221,16 @@ func TestCreateWorkspace_WiresSwarm(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, sc.SwarmWired(), "CreateWorkspace must wire the swarm backend without a follow-up InitAgent")
 
-	// Re-init (as the HTTP /agent/init flow does) rebuilds the
-	// coordinator; it must re-wire, not drop, the swarm backend.
+	// Re-init (as every connecting client does via /agent/init) must
+	// keep the SAME coordinator: a rebuild would orphan any run already
+	// dispatched on it (e.g. a replayed journaled queue) from the
+	// busy/drain/teardown paths, which consult ws.AgentCoordinator.
+	before := ws.AgentCoordinator
 	require.NoError(t, b.InitAgent(t.Context(), ws.ID))
+	require.Same(t, before, ws.AgentCoordinator, "InitAgent must not rebuild an existing coordinator")
 	sc, ok = ws.AgentCoordinator.(agent.SwarmConfigurable)
 	require.True(t, ok)
-	require.True(t, sc.SwarmWired(), "InitAgent must re-wire the swarm backend after rebuilding the coordinator")
+	require.True(t, sc.SwarmWired(), "swarm wiring must survive InitAgent")
 }
 
 // TestCreateWorkspace_ReuseRewiresSwarm guards the regression where a
