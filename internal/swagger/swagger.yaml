@@ -817,6 +817,11 @@ definitions:
     type: object
   proto.Error:
     properties:
+      code:
+        description: |-
+          Code, when set, identifies the condition machine-readably. See
+          the ErrorCode* constants.
+        type: string
       message:
         type: string
     type: object
@@ -854,6 +859,23 @@ definitions:
         type: integer
       turns:
         type: integer
+    type: object
+  proto.Health:
+    properties:
+      active_runs:
+        description: |-
+          ActiveRuns is the number of sessions, across all workspaces, with
+          an active or accepted-but-not-yet-active agent run. A run blocked
+          on a permission or question prompt counts.
+        type: integer
+      draining:
+        description: |-
+          Draining is true once the server has been asked to drain for an
+          update: it finishes in-flight runs but accepts no new ones, and
+          exits on its own when ActiveRuns reaches zero.
+        type: boolean
+      status:
+        type: string
     type: object
   proto.ImportCopilotResponse:
     properties:
@@ -1278,6 +1300,11 @@ definitions:
         type: string
       platform:
         type: string
+      protocol_version:
+        description: |-
+          ProtocolVersion is the server's [ProtocolVersion]. Servers that
+          predate the field report 0.
+        type: integer
       version:
         type: string
     type: object
@@ -1410,6 +1437,18 @@ paths:
       summary: Send server control command
       tags:
       - system
+  /drain:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.Health'
+      summary: Drain the server for an update
+      tags:
+      - system
   /events:
     get:
       produces:
@@ -1422,9 +1461,13 @@ paths:
       - events
   /health:
     get:
+      produces:
+      - application/json
       responses:
         "200":
           description: OK
+          schema:
+            $ref: '#/definitions/proto.Health'
       summary: Health check
       tags:
       - system

@@ -111,7 +111,10 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 ### CLI & Client/Server
 
 - Extra subcommands: `crush search`, `crush embeddings`, `crush db`,
-  `crush reload`, `crush shutdown`.
+  `crush reload`, `crush shutdown`, `crush update --graceful`.
+- Updating the binary does not kill in-flight work: the old server
+  drains and hands its queue off to the new one (see [Updating the
+  server](#updating-the-server-without-losing-work)).
 - Client/server mode by default, sharing one workspace per directory
   across multiple clients with row-level DB sync and multi-client
   permission coordination.
@@ -421,6 +424,81 @@ open against it. When the last stream disconnects, the workspace is torn
 down. There is a short grace window right after `POST /v1/workspaces` so a
 client that has created the workspace but not yet opened its event stream
 does not get reaped before it can attach.
+
+### Updating the server without losing work
+
+The background server outlives any single TUI, so replacing the `crush`
+binary while agents are mid-turn used to mean cancelling all of them. It no
+longer does. A server can be put in **drain** mode: it stops accepting new
+prompts, lets every in-flight turn finish (including turns waiting on a
+permission or question prompt — answer them to let the update proceed), keeps
+serving reads and event streams so open TUIs stay live, and exits on its own
+once nothing is running.
+
+```bash
+# 1. Replace the binary however you like, e.g.
+go build -o ~/go/bin/crush.new . && mv ~/go/bin/crush.new ~/go/bin/crush
+
+# 2. Hand the running server off to it
+crush update --graceful            # waits as long as it takes
+crush update --graceful --timeout 5m   # force-restart after 5 minutes
+```
+
+`crush update` with no flags only reports whether a newer release exists.
+
+Two kinds of state survive the swap because they are journaled in each
+workspace database:
+
+- **Queued prompts** (`session_queue`) — anything sent to a busy session and
+  not yet run. The new server replays them, in order, as ordinary turns with
+  fresh run ids. Whoever was waiting on the original run id in the old
+  process is gone, so a `crush run` caller blocked on a queued prompt will
+  need to reconnect; the prompt itself is not lost.
+- **Swarm reply obligations** (`swarm_reply_obligations`) — `require_reply`
+  debts, so a worker still answers its spawner after the update.
+
+Swarm messages sent *during* the drain are journaled onto the target's queue
+(the tool reports `delivery: "deferred"`) and delivered by the new server.
+
+What a TUI sees: a prompt sent while the server is draining is not an error —
+the client holds it, shows "server updating", reconnects to the new server,
+re-attaches its workspace by path (sessions keep their ids), and sends the
+held prompts. Nothing composed is lost.
+
+The automatic path does the same thing. When a TUI built from a newer binary
+finds an older server, it asks it to drain and waits up to 30 seconds
+(`CRUSH_STALE_SERVER_WAIT`, a Go duration; `0` waits forever), printing what
+it is waiting on, before falling back to a forced restart. A server whose
+wire protocol differs (`protocol_version` in `GET /v1/version`) cannot be
+drained by the new client and is force-restarted immediately.
+
+`crush --reset` is the explicit forced path: stop the server now (cancelling
+in-flight runs, dropping queued prompts), start a fresh one, connect. A
+server that is force-stopped or killed leaves no hand-off marker; whatever
+rows it left in the journal are replayed by the next server only if they are
+less than 24 hours old, so a crash cannot resurrect a stale prompt days later.
+
+If the process driving the update (`crush update --graceful`, or the TUI
+that triggered the automatic drain) dies before the old server has exited,
+the old server keeps draining on its own but nobody spawns the new one, and
+open TUIs sit in "server updating" until one does. Run `crush update
+--graceful` again (it resumes the wait) or `crush --reset` to recover.
+`CRUSH_STALE_SERVER_WAIT=0` waits forever, so if the only run holding the
+drain open is blocked on a permission prompt that this TUI is the one meant
+to answer, it will wait indefinitely — answer it from another client, or
+leave the default bounded wait.
+
+Endpoints: `POST /v1/drain` starts a drain; `GET /v1/health` returns
+`{"status":"ok","draining":bool,"active_runs":N}`; a prompt refused during a
+drain is HTTP 503 with `{"code":"draining"}`. A starting server that finds a
+draining predecessor on its socket waits for it to exit
+(`CRUSH_SERVER_TAKEOVER_WAIT`, default 10m) rather than racing it for the
+database.
+
+Not covered: a provider stream cannot move between processes (the drain
+waits for it instead), and background shells started by the `bash` tool are
+children of the old server process and end with it — the new server's job
+list starts empty.
 
 ### Swarm
 

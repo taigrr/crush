@@ -729,6 +729,24 @@ When multiple hooks match, their decisions are aggregated:
 - `CRUSH_DISABLE_PROVIDER_AUTO_UPDATE` - Disable automatic provider updates
 - `CRUSH_DISABLE_DEFAULT_PROVIDERS` - Disable default provider configurations
 - `CONTEXT7_API_KEY` - API key for the `context7` docs tool (`ctx7sk-...`); optional, raises rate limits. Not read from `crush.json`; export it in the shell that launches Crush.
+- `CRUSH_STALE_SERVER_WAIT` - How long a newer TUI waits for an older
+  background server to drain (finish in-flight runs) before force-restarting
+  it. Go duration; default `30s`; `0` waits forever.
+- `CRUSH_SERVER_TAKEOVER_WAIT` - How long a starting server waits for a
+  draining predecessor on the same socket to exit. Default `10m`.
+- `CRUSH_SERVER_READY_TIMEOUT` - How long a client waits for a freshly
+  spawned server to answer `/v1/health`. Default `10s`.
+
+## Updating the Server Without Losing Work
+
+The background server is replaced with `crush update --graceful` after the
+binary has been swapped on disk (`crush update` alone only reports whether a
+newer release exists). The old server drains: no new prompts, in-flight
+turns finish (turns blocked on a permission/question prompt count — they must
+be answered), TUIs stay connected, and it exits by itself. Queued prompts and
+swarm `require_reply` obligations are journaled in the workspace database and
+replayed by the new server. `--timeout 5m` falls back to a forced restart.
+`crush --reset` is the forced path (cancels runs, drops queued prompts).
 
 ## Procedures
 
