@@ -11,21 +11,40 @@ import (
 	"github.com/taigrr/crush/internal/swarm"
 )
 
-// recordingSwarmBackend captures the model reference passed to the create
-// paths so the swarm tool's `model` plumbing can be asserted without a
-// backend.
+// recordingSwarmBackend captures the options passed to the create paths
+// so the swarm tool's `model`, lineage, and `working_dir` plumbing can
+// be asserted without a backend.
 type recordingSwarmBackend struct {
 	stubSwarmBackend
 	gotModelRef string
+	gotOpts     SwarmNewOptions
+	gotPath     string
 	rejectRef   bool
+	created     session.Session
 }
 
-func (r *recordingSwarmBackend) CreateSessionInWorkspace(_ context.Context, _, _, modelRef string) (session.Session, error) {
-	r.gotModelRef = modelRef
-	if r.rejectRef && modelRef != "" {
-		return session.Session{}, errors.New(`invalid session model: unknown model "` + modelRef + `"`)
+func (r *recordingSwarmBackend) CreateSessionInWorkspace(_ context.Context, _ string, opts SwarmNewOptions) (session.Session, error) {
+	r.gotModelRef = opts.ModelRef
+	r.gotOpts = opts
+	if r.rejectRef && opts.ModelRef != "" {
+		return session.Session{}, errors.New(`invalid session model: unknown model "` + opts.ModelRef + `"`)
 	}
-	return session.Session{ID: "worker", Color: "plum", Animal: "flamingo", ModelRef: modelRef}, nil
+	r.created = session.Session{
+		ID: "worker", Color: "plum", Animal: "flamingo", ModelRef: opts.ModelRef,
+		SpawnedBySessionID:   opts.SpawnedBySessionID,
+		SpawnedByWorkspaceID: opts.SpawnedByWorkspaceID,
+		WorkingDir:           opts.WorkingDir,
+	}
+	return r.created, nil
+}
+
+func (r *recordingSwarmBackend) CreateSessionInWorkspaceAtPath(_ context.Context, path string, opts SwarmNewOptions) (string, session.Session, error) {
+	r.gotPath = path
+	if opts.WorkingDir == "" {
+		opts.WorkingDir = path
+	}
+	sess, err := r.CreateSessionInWorkspace(context.Background(), "ws-at-path", opts)
+	return "ws-at-path", sess, err
 }
 
 func (r *recordingSwarmBackend) Send(context.Context, string, SwarmLookupResult, message.SwarmMessage) (string, error) {

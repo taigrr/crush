@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/taigrr/fantasy"
@@ -37,12 +38,11 @@ type SwarmBackend interface {
 	Send(ctx context.Context, senderSessionID string, target SwarmLookupResult, part message.SwarmMessage) (delivery string, err error)
 	// CreateSessionInWorkspace creates a new session in an existing
 	// workspace and returns it (with color/animal assigned). Fails
-	// if the workspace is not currently running.
-	// modelRef, when non-empty, is the model reference the new session
-	// runs on (a role name, provider/model, or bare id); it is validated
-	// against the target workspace's config. Empty runs the workspace's
-	// large model.
-	CreateSessionInWorkspace(ctx context.Context, workspaceID, title, modelRef string) (session.Session, error)
+	// if the workspace is not currently running. opts carries the
+	// title, optional model reference, swarm lineage, and optional
+	// working dir; the backend validates the model reference and the
+	// working dir against the target workspace.
+	CreateSessionInWorkspace(ctx context.Context, workspaceID string, opts SwarmNewOptions) (session.Session, error)
 	// ArchiveSessionInWorkspace archives a session that was created
 	// via CreateSessionInWorkspace but that we then failed to send
 	// the initial message to. Best-effort compensating cleanup so
@@ -52,8 +52,9 @@ type SwarmBackend interface {
 	// for the given directory path (creating it on disk or attaching
 	// a detached one if needed), then creates a new session in it. It
 	// returns the resolved workspace id alongside the session so the
-	// caller can deliver the initial message.
-	CreateSessionInWorkspaceAtPath(ctx context.Context, path, title, modelRef string) (workspaceID string, sess session.Session, err error)
+	// caller can deliver the initial message. When opts.WorkingDir is
+	// empty the session's working dir defaults to path.
+	CreateSessionInWorkspaceAtPath(ctx context.Context, path string, opts SwarmNewOptions) (workspaceID string, sess session.Session, err error)
 	// ResolveWorkspaceByPath resolves a directory path to the ID of
 	// the running workspace rooted at that path. found is false (with
 	// no error) when no running workspace matches.
@@ -73,6 +74,47 @@ type SwarmLookupResult struct {
 	Animal        string
 	WorkspaceRoot string
 	Sub           bool
+}
+
+// SwarmNewOptions describes the session a `swarm new` call creates. It
+// mirrors backend.SwarmSpawnOptions so the tool package does not import
+// backend directly.
+type SwarmNewOptions struct {
+	Title string
+	// ModelRef, when non-empty, is the model reference the new session
+	// runs on (a role name, provider/model, or bare id) instead of the
+	// workspace large model. Validated by the backend against the
+	// target workspace's config.
+	ModelRef string
+	// SpawnedBySessionID and SpawnedByWorkspaceID are the trusted
+	// identity of the spawning session, recorded as lineage on the new
+	// session. They come from the tool's own context, never from model
+	// input.
+	SpawnedBySessionID   string
+	SpawnedByWorkspaceID string
+	// WorkingDir, when set, is the absolute directory the new
+	// session's tools run in. The backend validates it resolves to the
+	// target workspace's project.
+	WorkingDir string
+}
+
+// SwarmResponseMetadata is attached to every successful swarm tool
+// result so UIs can link to the target session without parsing prose.
+type SwarmResponseMetadata struct {
+	WorkspaceID string `json:"workspace_id"`
+	SessionID   string `json:"session_id"`
+	Color       string `json:"color,omitempty"`
+	Animal      string `json:"animal,omitempty"`
+	// Address is the shorthash-qualified color-animal form.
+	Address string `json:"address,omitempty"`
+	// WorkingDir is the directory a newly created session runs in;
+	// empty for deliveries to existing sessions.
+	WorkingDir string `json:"working_dir,omitempty"`
+	// Delivery is "sent" (target was idle) or "queued" (target busy).
+	Delivery string `json:"delivery"`
+	BTW      bool   `json:"btw,omitempty"`
+	// Created is true when this call spawned the target session.
+	Created bool `json:"created,omitempty"`
 }
 
 // SwarmParams is the JSON schema exposed to the model.
@@ -104,6 +146,11 @@ type SwarmParams struct {
 	// the TARGET workspace's config on every turn. Omitted keeps today's
 	// default: the new session runs its workspace's large model.
 	Model string `json:"model,omitempty" description:"With address='new': the model for the new session, as a role name (large, small, worker, or a configured role), 'provider/model', or a bare model id, resolved in the target workspace's config. Omitted runs that workspace's large model. Rejected (tool error) for existing sessions, which keep their own model."`
+	// WorkingDir is optional when Address == "new": the absolute
+	// directory the new session's tools run in. Must resolve to the
+	// target workspace's project (a subdirectory or a sibling git
+	// worktree). Defaults to Path when Path is given.
+	WorkingDir string `json:"working_dir,omitempty" description:"With address='new': absolute directory the new session's tools run in. Must be inside the target workspace's project (a subdirectory or a linked git worktree of it). Defaults to path when path is given."`
 }
 
 // NewSwarmTool builds the fantasy tool wrapper. sessions is the
@@ -185,6 +232,9 @@ func runSwarm(
 	if strings.TrimSpace(params.Model) != "" {
 		return fantasy.NewTextErrorResponse("swarm: 'model' only applies with address='new'; an existing session keeps its own model"), nil
 	}
+	if strings.TrimSpace(params.WorkingDir) != "" {
+		return fantasy.NewTextErrorResponse("swarm: 'working_dir' only applies with address='new'; an existing session keeps its own working directory"), nil
+	}
 	return runSwarmDeliver(ctx, be, sender, address, params.Prompt, btw)
 }
 
@@ -250,6 +300,18 @@ func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, param
 		title = firstLine(params.Prompt, 60)
 	}
 
+	workingDir := strings.TrimSpace(params.WorkingDir)
+	if workingDir != "" && !filepath.IsAbs(workingDir) {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: working_dir must be an absolute path, got %q", workingDir)), nil
+	}
+	opts := SwarmNewOptions{
+		Title:                title,
+		ModelRef:             strings.TrimSpace(params.Model),
+		SpawnedBySessionID:   sender.id,
+		SpawnedByWorkspaceID: sender.workspaceID,
+		WorkingDir:           workingDir,
+	}
+
 	var (
 		workspaceID string
 		newSess     session.Session
@@ -257,8 +319,10 @@ func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, param
 	)
 	if path := strings.TrimSpace(params.Path); path != "" {
 		// Path-based: bring up the workspace for this directory
-		// (creating or attaching it) and create a session in it.
-		workspaceID, newSess, err = be.CreateSessionInWorkspaceAtPath(ctx, path, title, strings.TrimSpace(params.Model))
+		// (creating or attaching it) and create a session in it. The
+		// backend pins the session's working dir to path unless an
+		// explicit working_dir was given.
+		workspaceID, newSess, err = be.CreateSessionInWorkspaceAtPath(ctx, path, opts)
 	} else {
 		workspaceID = params.WorkspaceID
 		if workspaceID == "" {
@@ -272,7 +336,7 @@ func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, param
 		if workspaceID == "" {
 			return fantasy.NewTextErrorResponse("swarm: address='new' requires workspace_id or path (sender workspace id unavailable)"), nil
 		}
-		newSess, err = be.CreateSessionInWorkspace(ctx, workspaceID, title, strings.TrimSpace(params.Model))
+		newSess, err = be.CreateSessionInWorkspace(ctx, workspaceID, opts)
 	}
 	if err != nil {
 		if isContextErr(err) {
@@ -302,12 +366,25 @@ func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, param
 	if newSess.ModelRef != "" {
 		modelNote = " Runs on " + newSess.ModelRef + "."
 	}
-	return fantasy.NewTextResponse(fmt.Sprintf(
-		"Created and %s to %s (workspace=%s, session=%s).%s",
-		delivery,
-		swarm.FormatAddress(swarm.Identity{Color: newSess.Color, Animal: newSess.Animal}, newSess.ID),
-		workspaceID, newSess.ID, modelNote,
-	)), nil
+	dirNote := ""
+	if newSess.WorkingDir != "" {
+		dirNote = fmt.Sprintf(" Working dir %s.", newSess.WorkingDir)
+	}
+	targetAddress := swarm.FormatAddress(swarm.Identity{Color: newSess.Color, Animal: newSess.Animal}, newSess.ID)
+	return fantasy.WithResponseMetadata(fantasy.NewTextResponse(fmt.Sprintf(
+		"Created and %s to %s (workspace=%s, session=%s).%s%s",
+		delivery, targetAddress, workspaceID, newSess.ID, modelNote, dirNote,
+	)), SwarmResponseMetadata{
+		WorkspaceID: workspaceID,
+		SessionID:   newSess.ID,
+		Color:       newSess.Color,
+		Animal:      newSess.Animal,
+		Address:     targetAddress,
+		WorkingDir:  newSess.WorkingDir,
+		Delivery:    delivery,
+		BTW:         btw,
+		Created:     true,
+	}), nil
 }
 
 // runSwarmDeliver resolves an existing address and delivers the
@@ -339,11 +416,19 @@ func runSwarmDeliver(ctx context.Context, be SwarmBackend, sender swarmSender, a
 	if softErr != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: %s", softErr)), nil
 	}
-	return fantasy.NewTextResponse(fmt.Sprintf(
+	targetAddress := swarm.FormatAddress(swarm.Identity{Color: target.Color, Animal: target.Animal}, target.SessionID)
+	return fantasy.WithResponseMetadata(fantasy.NewTextResponse(fmt.Sprintf(
 		"%s: %s (from %s to %s)",
-		delivery, prompt, sender.address,
-		swarm.FormatAddress(swarm.Identity{Color: target.Color, Animal: target.Animal}, target.SessionID),
-	)), nil
+		delivery, prompt, sender.address, targetAddress,
+	)), SwarmResponseMetadata{
+		WorkspaceID: target.WorkspaceID,
+		SessionID:   target.SessionID,
+		Color:       target.Color,
+		Animal:      target.Animal,
+		Address:     targetAddress,
+		Delivery:    delivery,
+		BTW:         btw,
+	}), nil
 }
 
 // buildSwarmPart constructs the proto.SwarmMessage that will be stored

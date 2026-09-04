@@ -409,19 +409,21 @@ func NewCoordinator(
 // workingDir resolves the working directory for a turn. If the turn's
 // session has an active (Crush-managed) worktree, tools operate inside
 // that worktree; otherwise they fall back to the cwd of the client that
-// initiated the turn (set via tools.WithWorkingDir), and finally to the
-// workspace defaults. The per-request cwd matters because sibling git
-// worktrees collapse to the same project root and thus share a single
-// workspace and coordinator: without it every client would resolve to
-// whichever client created the workspace first (c.effectiveWorkingDir),
-// so launching Crush from a sibling worktree could run tools in an
-// unrelated worktree. The session ID is read from ctx (set via
-// tools.SessionIDContextKey), so a missing session, a disabled worktree
-// service, or a lookup error all gracefully degrade to the request cwd
-// or workspace root.
+// initiated the turn (set via tools.WithWorkingDir), then to the
+// session's recorded working dir when the turn carries no client cwd,
+// and finally to the workspace defaults. The per-request cwd matters
+// because sibling git worktrees collapse to the same project root and
+// thus share a single workspace and coordinator: without it every client
+// would resolve to whichever client created the workspace first
+// (c.effectiveWorkingDir), so launching Crush from a sibling worktree
+// could run tools in an unrelated worktree. The session ID is read from
+// ctx (set via tools.SessionIDContextKey), so a missing session, a
+// disabled worktree service, or a lookup error all gracefully degrade to
+// the request cwd or workspace root.
 func (c *coordinator) workingDir(ctx context.Context) string {
+	requestCwd := tools.GetWorkingDirFromContext(ctx)
 	root := cmp.Or(
-		tools.GetWorkingDirFromContext(ctx),
+		requestCwd,
 		c.effectiveWorkingDir,
 		c.cfg.WorkingDir(),
 	)
@@ -431,12 +433,22 @@ func (c *coordinator) workingDir(ctx context.Context) string {
 	// working directories. An active (Crush-managed) worktree wins;
 	// otherwise tools run in the live request cwd so that `cd`-following
 	// (launching from, or moving into, a sibling worktree) keeps working.
-	// The recorded session working dir deliberately does NOT participate
-	// here: mixing it in froze the cwd and broke worktree support.
+	// The recorded session working dir only participates when the turn
+	// carries NO client cwd at all: that is the swarm/API-driven case (a
+	// `swarm new` worker pinned to a sibling worktree, or a queued swarm
+	// send to it), where nothing else identifies which tree the session
+	// belongs to. Interactive clients always carry a cwd, so letting the
+	// recorded dir win over a live cwd (which froze the cwd and broke
+	// worktree support) cannot recur.
 	if c.worktrees != nil && c.worktrees.IsEnabled() {
 		if sessionID != "" {
 			if wt, err := c.worktrees.GetActive(ctx, sessionID); err == nil && wt != nil && wt.Path != "" {
 				return wt.Path
+			}
+		}
+		if requestCwd == "" {
+			if dir := c.sessionWorkingDir(ctx, sessionID); dir != "" {
+				return dir
 			}
 		}
 		return root
@@ -445,13 +457,24 @@ func (c *coordinator) workingDir(ctx context.Context) string {
 	// Non-worktree workspace: the recorded session working directory is the
 	// per-session persistence, so a session resumed from a different client
 	// (with a different launch cwd) still runs its tools where it began.
-	if sessionID != "" && c.sessions != nil {
-		if sess, err := c.sessions.Get(ctx, sessionID); err == nil && sess.WorkingDir != "" {
-			return sess.WorkingDir
-		}
+	if dir := c.sessionWorkingDir(ctx, sessionID); dir != "" {
+		return dir
 	}
 
 	return root
+}
+
+// sessionWorkingDir returns the session's recorded working dir, or ""
+// when there is no session, no session service, or nothing recorded.
+func (c *coordinator) sessionWorkingDir(ctx context.Context, sessionID string) string {
+	if sessionID == "" || c.sessions == nil {
+		return ""
+	}
+	sess, err := c.sessions.Get(ctx, sessionID)
+	if err != nil {
+		return ""
+	}
+	return sess.WorkingDir
 }
 
 // stampSessionWorkingDir records the session's working directory the first

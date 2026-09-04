@@ -6,11 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/db"
+	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
@@ -25,6 +28,11 @@ var (
 	ErrSwarmTargetIsSubagent  = errors.New("swarm target is a sub-agent session (not addressable)")
 	ErrSwarmSelfAddressed     = errors.New("swarm target is the sender's own session")
 	ErrSwarmWorkspaceNotFound = errors.New("swarm target workspace not found")
+	// ErrSwarmWorkingDirOutside is returned by CreateSwarmSession when
+	// the requested working_dir does not resolve to the target
+	// workspace's project (neither a subdirectory nor a linked git
+	// worktree of it).
+	ErrSwarmWorkingDirOutside = errors.New("swarm working_dir must be inside the target workspace")
 )
 
 // SwarmLookupResult describes a resolved swarm address across all
@@ -448,12 +456,36 @@ func lookupSenderIdentity(ctx context.Context, b *Backend, senderSessionID strin
 	return senderIdentity{}
 }
 
+// SwarmSpawnOptions describes the session [Backend.CreateSwarmSession]
+// creates on behalf of a `swarm new` call.
+type SwarmSpawnOptions struct {
+	Title string
+	// ModelRef, when non-empty, is the model reference the worker runs
+	// on (see [session.Session.ModelRef]); it is validated against the
+	// target workspace's config. Empty runs the workspace's large model.
+	ModelRef string
+	// SpawnedBySessionID and SpawnedByWorkspaceID record the spawner as
+	// lineage on the new session. When the spawner session can be
+	// located in a running workspace its identity is re-derived from
+	// the session row (mirroring SwarmSend's trusted-sender rule) so a
+	// caller cannot record a forged lineage.
+	SpawnedBySessionID   string
+	SpawnedByWorkspaceID string
+	// WorkingDir pins the directory the new session's tools run in. It
+	// must resolve (Abs + EvalSymlinks + project root) to the target
+	// workspace; otherwise creation fails with ErrSwarmWorkingDirOutside.
+	WorkingDir string
+}
+
 // CreateSwarmSession spins up a new session in an existing workspace
 // so the caller can send an initial-prompt swarm message to it.
 // Fails if the workspace does not exist or swarm is disabled. On
 // failure to assign identity, the freshly-created session is
 // archived so callers who retry don't accumulate ghost sessions.
-func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title, modelRef string) (session.Session, error) {
+//
+// Lineage and working dir are stamped in the same insert as creation
+// so the Created event already carries them.
+func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID string, opts SwarmSpawnOptions) (session.Session, error) {
 	ws, ok := b.workspaces.Get(workspaceID)
 	if !ok {
 		return session.Session{}, ErrSwarmWorkspaceNotFound
@@ -463,7 +495,7 @@ func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title, mo
 	// anything, so a bad reference never leaves an orphan session. An
 	// empty ref means the worker runs the workspace's large model, the
 	// historical default.
-	modelRef = strings.TrimSpace(modelRef)
+	modelRef := strings.TrimSpace(opts.ModelRef)
 	if modelRef != "" {
 		if ws.Cfg == nil {
 			return session.Session{}, fmt.Errorf("%w: workspace has no config", ErrInvalidSessionModel)
@@ -472,7 +504,17 @@ func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title, mo
 			return session.Session{}, fmt.Errorf("%w: %v", ErrInvalidSessionModel, err)
 		}
 	}
-	sess, err := ws.Sessions.CreateWithModelRef(ctx, title, modelRef)
+	workingDir, err := b.resolveSwarmWorkingDir(ws, opts.WorkingDir)
+	if err != nil {
+		return session.Session{}, err
+	}
+	spawner := b.trustedSpawner(ctx, opts)
+	sess, err := ws.Sessions.CreateWithOptions(ctx, opts.Title, session.CreateOptions{
+		ModelRef:             modelRef,
+		SpawnedBySessionID:   spawner.SessionID,
+		SpawnedByWorkspaceID: spawner.WorkspaceID,
+		WorkingDir:           workingDir,
+	})
 	if err != nil {
 		return session.Session{}, err
 	}
@@ -489,6 +531,62 @@ func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title, mo
 	return filled, nil
 }
 
+// trustedSpawner returns the lineage to record for a spawn. When the
+// claimed spawner session is found in a running workspace, its real
+// workspace id wins over the caller-supplied one (the same rule
+// [Backend.SwarmSend] applies to sender identity). When it cannot be
+// found — the spawner's workspace was torn down mid-call — the claimed
+// values are kept so lineage is not silently dropped.
+func (b *Backend) trustedSpawner(ctx context.Context, opts SwarmSpawnOptions) senderIdentity {
+	claimed := senderIdentity{
+		SessionID:   opts.SpawnedBySessionID,
+		WorkspaceID: opts.SpawnedByWorkspaceID,
+	}
+	if claimed.SessionID == "" {
+		return senderIdentity{}
+	}
+	if found := lookupSenderIdentity(ctx, b, claimed.SessionID); found.SessionID != "" {
+		return found
+	}
+	return claimed
+}
+
+// resolveSwarmWorkingDir validates and canonicalizes the working dir a
+// spawned session is pinned to. Empty means "unpinned" and is returned
+// as-is. Otherwise the directory must exist and resolve (absolute,
+// symlinks evaluated, collapsed to its git project root) to the same
+// key the target workspace is registered under, so a sibling git
+// worktree of the project is accepted while an unrelated directory is
+// refused.
+func (b *Backend) resolveSwarmWorkingDir(ws *Workspace, dir string) (string, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(home.Expand(dir))
+	if err != nil {
+		return "", fmt.Errorf("swarm: working_dir: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("swarm: working_dir %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("swarm: working_dir %s is not a directory", dir)
+	}
+	key, err := resolveWorkspaceKey(abs)
+	if err != nil {
+		return "", fmt.Errorf("swarm: working_dir: %w", err)
+	}
+	if key != ws.resolvedPath {
+		return "", fmt.Errorf("%w: %s resolves to project %s, not %s", ErrSwarmWorkingDirOutside, dir, key, ws.resolvedPath)
+	}
+	return abs, nil
+}
+
 // CreateSwarmSessionAtPath ensures a workspace is running for the
 // given directory path — reusing the already-running workspace when
 // one exists, otherwise bringing a new one up (creating it on disk or
@@ -502,9 +600,19 @@ func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title, mo
 //
 // Returns the resolved workspace id alongside the identity-filled
 // session. The swarm-enabled gate is enforced via CreateSwarmSession.
-func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title, modelRef string) (string, session.Session, error) {
+//
+// The session's working dir defaults to path when opts.WorkingDir is
+// empty. This matters when the workspace is already running: sibling
+// git worktrees collapse to one workspace whose effectiveWorkingDir is
+// whichever client attached first, and a swarm-driven turn carries no
+// client cwd, so without the pin the worker's tools would run in the
+// wrong tree.
+func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path string, opts SwarmSpawnOptions) (string, session.Session, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", session.Session{}, ErrPathRequired
+	}
+	if opts.WorkingDir == "" {
+		opts.WorkingDir = path
 	}
 
 	// Fast path: a workspace is already running for this path.
@@ -517,7 +625,7 @@ func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title, mod
 	b.mu.Unlock()
 	if ok {
 		if _, found := b.workspaces.Get(existingID); found {
-			sess, err := b.CreateSwarmSession(ctx, existingID, title, modelRef)
+			sess, err := b.CreateSwarmSession(ctx, existingID, opts)
 			if err != nil {
 				return "", session.Session{}, err
 			}
@@ -535,7 +643,7 @@ func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title, mod
 	if err != nil {
 		return "", session.Session{}, fmt.Errorf("swarm: failed to bring up workspace: %w", err)
 	}
-	sess, err := b.CreateSwarmSession(ctx, ws.ID, title, modelRef)
+	sess, err := b.CreateSwarmSession(ctx, ws.ID, opts)
 	if err != nil {
 		return "", session.Session{}, err
 	}
