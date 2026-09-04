@@ -27,6 +27,8 @@ type Querier interface {
 	CreateWorktree(ctx context.Context, arg CreateWorktreeParams) error
 	DeactivateSessionWorktrees(ctx context.Context, sessionID string) error
 	DeleteAllEmbeddings(ctx context.Context) error
+	DeleteAllSessionQueues(ctx context.Context) error
+	DeleteAllSwarmReplyObligations(ctx context.Context) error
 	DeleteEmbeddingsBySession(ctx context.Context, sessionID sql.NullString) error
 	DeleteEmbeddingsBySource(ctx context.Context, arg DeleteEmbeddingsBySourceParams) error
 	DeleteEmbeddingsExceptSignature(ctx context.Context, signature string) error
@@ -36,9 +38,11 @@ type Querier interface {
 	DeleteSession(ctx context.Context, id string) error
 	DeleteSessionFiles(ctx context.Context, sessionID string) error
 	DeleteSessionMessages(ctx context.Context, sessionID string) error
+	DeleteSessionQueue(ctx context.Context, sessionID string) error
 	DeleteSessionSnapshots(ctx context.Context, sessionID string) error
 	DeleteSessionWorktrees(ctx context.Context, sessionID string) error
 	DeleteSnapshot(ctx context.Context, id string) error
+	DeleteSwarmReplyObligations(ctx context.Context, obligatedSessionID string) error
 	DeleteWorktree(ctx context.Context, id string) error
 	FindSessionsByColorAnimal(ctx context.Context, arg FindSessionsByColorAnimalParams) ([]Session, error)
 	GetActiveWorktree(ctx context.Context, sessionID string) (Worktree, error)
@@ -63,6 +67,8 @@ type Querier interface {
 	GetWorktree(ctx context.Context, id string) (Worktree, error)
 	GetWorktreeByName(ctx context.Context, arg GetWorktreeByNameParams) (Worktree, error)
 	HasEmbedding(ctx context.Context, arg HasEmbeddingParams) (bool, error)
+	InsertSessionQueueEntry(ctx context.Context, arg InsertSessionQueueEntryParams) error
+	InsertSwarmReplyObligation(ctx context.Context, arg InsertSwarmReplyObligationParams) error
 	ListAllMessages(ctx context.Context) ([]Message, error)
 	ListAllSnapshots(ctx context.Context) ([]Snapshot, error)
 	ListAllUserMessages(ctx context.Context) ([]Message, error)
@@ -76,11 +82,13 @@ type Querier interface {
 	ListMessagesBySession(ctx context.Context, sessionID string) ([]Message, error)
 	ListMilestonesBySession(ctx context.Context, sessionID string) ([]Milestone, error)
 	ListNewFiles(ctx context.Context) ([]File, error)
+	ListSessionQueue(ctx context.Context) ([]SessionQueue, error)
 	ListSessionReadFiles(ctx context.Context, sessionID string) ([]ReadFile, error)
 	ListSessions(ctx context.Context) ([]Session, error)
 	ListSessionsMissingSwarmIdentity(ctx context.Context) ([]string, error)
 	ListSnapshots(ctx context.Context, sessionID string) ([]Snapshot, error)
 	ListSourceIDsForSignature(ctx context.Context, arg ListSourceIDsForSignatureParams) ([]string, error)
+	ListSwarmReplyObligations(ctx context.Context) ([]SwarmReplyObligation, error)
 	ListUserMessagesBySession(ctx context.Context, sessionID string) ([]Message, error)
 	ListWorktrees(ctx context.Context, sessionID string) ([]Worktree, error)
 	MarkSessionFinished(ctx context.Context, id string) error
