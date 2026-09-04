@@ -19,11 +19,13 @@ func TestMantleGatewayURL(t *testing.T) {
 		{name: "unset", gw: "", userPin: false, want: ""},
 		{name: "blank", gw: "   ", userPin: false, want: ""},
 		{name: "user pinned wins", gw: "https://gw.example", userPin: true, want: ""},
-		{name: "bare origin appends path", gw: "https://gw.example", userPin: false, want: "https://gw.example/openai/v1"},
-		{name: "trailing slash trimmed", gw: "https://gw.example/", userPin: false, want: "https://gw.example/openai/v1"},
-		{name: "multiple trailing slashes trimmed", gw: "https://gw.example//", userPin: false, want: "https://gw.example/openai/v1"},
-		{name: "already has openai path, no double append", gw: "https://gw.example/openai/v1", userPin: false, want: "https://gw.example/openai/v1"},
-		{name: "already has openai path with trailing slash", gw: "https://gw.example/openai/v1/", userPin: false, want: "https://gw.example/openai/v1"},
+		{name: "bare origin appends v1", gw: "https://gw.example", userPin: false, want: "https://gw.example/v1"},
+		{name: "gw path origin appends v1", gw: "https://gw.example/gw", userPin: false, want: "https://gw.example/gw/v1"},
+		{name: "trailing slash trimmed", gw: "https://gw.example/", userPin: false, want: "https://gw.example/v1"},
+		{name: "multiple trailing slashes trimmed", gw: "https://gw.example//", userPin: false, want: "https://gw.example/v1"},
+		{name: "already has v1, no double append", gw: "https://gw.example/gw/v1", userPin: false, want: "https://gw.example/gw/v1"},
+		{name: "v1 with trailing slash", gw: "https://gw.example/gw/v1/", userPin: false, want: "https://gw.example/gw/v1"},
+		{name: "direct-bedrock openai/v1 suffix left alone", gw: "https://bedrock-mantle.us-east-2.api.aws/openai/v1", userPin: false, want: "https://bedrock-mantle.us-east-2.api.aws/openai/v1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -60,7 +62,7 @@ func TestConfigureProviders_MantleGatewayApplied(t *testing.T) {
 
 	p, ok := cfg.Providers.Get("bedrock-mantle")
 	require.True(t, ok, "mantle provider should be present")
-	require.Equal(t, "https://gw.example/openai/v1", p.BaseURL)
+	require.Equal(t, "https://gw.example/v1", p.BaseURL)
 }
 
 // An explicit base_url pin must win over the gateway env var.

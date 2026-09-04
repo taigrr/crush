@@ -457,25 +457,28 @@ func (c *Config) applyProviderSpecificConfig(store *ConfigStore, env env.Env, re
 	return false
 }
 
-// mantleGatewayURL returns the OpenAI-compatible endpoint Bedrock Mantle
+// mantleGatewayURL returns the OpenAI-compatible base URL Bedrock Mantle
 // should use when a corporate gateway fronts Bedrock, or "" to leave the
 // configured base URL alone. gw is the value of AWS_ENDPOINT_URL_BEDROCK;
 // it is ignored (returns "") when blank or when the user pinned
 // providers.bedrock-mantle.base_url themselves.
 //
-// The gateway value is treated as an origin and Mantle's OpenAI-compatible
-// path is appended only when not already present, so both
-// https://gw.example and https://gw.example/openai/v1 resolve identically.
+// The gateway value is treated as an origin and the OpenAI base path "/v1"
+// is appended (the provider then posts to "<base>/responses"). The gateway
+// exposes the OpenAI Responses surface at "<gw>/v1/responses" — mapping it
+// to Bedrock's native "/openai/v1/responses" — so a bare origin, a "/v1"
+// suffix, and a direct-Bedrock "/openai/v1" suffix all resolve to a valid
+// base and are left idempotent.
 func mantleGatewayURL(gw string, userPinned bool) string {
 	gw = strings.TrimSpace(gw)
 	if gw == "" || userPinned {
 		return ""
 	}
 	gw = strings.TrimRight(gw, "/")
-	if strings.HasSuffix(gw, "/openai/v1") {
+	if strings.HasSuffix(gw, "/v1") {
 		return gw
 	}
-	return gw + "/openai/v1"
+	return gw + "/v1"
 }
 
 func (c *Config) setDefaults(workingDir, dataDir string) {

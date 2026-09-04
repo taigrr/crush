@@ -1280,17 +1280,44 @@ func (c *coordinator) buildAnthropicProvider(baseURL, apiKey string, headers map
 	return anthropic.New(opts...)
 }
 
-func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[string]string) (fantasy.Provider, error) {
+func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[string]string, providerID string) (fantasy.Provider, error) {
+	return openai.New(openaiProviderOptions(baseURL, apiKey, headers, providerID, c.cfg.Config().Options.Debug)...)
+}
+
+// openaiProviderOptions assembles the fantasy OpenAI provider options Crush
+// uses for a "openai"-type provider. It is a free function (not a method) so
+// tests can build the exact same provider the coordinator does. For Bedrock
+// Mantle it installs the HTTP-200 error-envelope transport.
+func openaiProviderOptions(baseURL, apiKey string, headers map[string]string, providerID string, debug bool) []openai.Option {
+	isMantle := providerID == string(catwalk.InferenceProviderBedrockMantle)
 	opts := []openai.Option{
 		openai.WithAPIKey(apiKey),
 		openai.WithUseResponsesAPI(),
 		openai.WithResponsesAPIFunc(func(modelID string) bool {
+			// Bedrock Mantle's OpenAI surface is Responses-only (its
+			// gateway does not proxy /chat/completions), and its model ids
+			// (e.g. us.openai.gpt-5.6-sol) are not recognized by
+			// IsResponsesModel, so force the Responses API for it.
+			if isMantle {
+				return true
+			}
 			return openai.IsResponsesModel(modelID) ||
 				openai.IsResponsesModel(strings.TrimPrefix(modelID, "openai."))
 		}),
 	}
-	if c.cfg.Config().Options.Debug {
-		httpClient := log.NewHTTPClient()
+	var httpClient *http.Client
+	if debug {
+		httpClient = log.NewHTTPClient()
+	}
+	// Bedrock Mantle serves the OpenAI surface but returns OpenAI-style error
+	// envelopes with HTTP 200, which the SDK would otherwise parse as an empty
+	// (successful) response. Its catalog type is "openai", so it is built here
+	// (not in buildOpenaiCompatProvider); wrap the transport so those errors
+	// surface with a real status.
+	if isMantle {
+		httpClient = withMantleErrorTransport(httpClient)
+	}
+	if httpClient != nil {
 		opts = append(opts, openai.WithHTTPClient(httpClient))
 	}
 	if len(headers) > 0 {
@@ -1299,7 +1326,7 @@ func (c *coordinator) buildOpenaiProvider(baseURL, apiKey string, headers map[st
 	if baseURL != "" {
 		opts = append(opts, openai.WithBaseURL(baseURL))
 	}
-	return openai.New(opts...)
+	return opts
 }
 
 func (c *coordinator) buildOpenrouterProvider(_, apiKey string, headers map[string]string) (fantasy.Provider, error) {
@@ -1355,11 +1382,11 @@ func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers 
 	// Bedrock Mantle returns OpenAI-style error envelopes with HTTP 200,
 	// which the SDK would otherwise parse as an empty (successful) response.
 	// Wrap the transport so those errors are surfaced with a real status.
+	// The default mantle provider has catalog type "openai" and is built by
+	// buildOpenaiProvider; this covers a mantle provider configured as
+	// openai-compat.
 	if providerID == string(catwalk.InferenceProviderBedrockMantle) {
-		if httpClient == nil {
-			httpClient = &http.Client{}
-		}
-		httpClient.Transport = &mantleErrorTransport{base: httpClient.Transport}
+		httpClient = withMantleErrorTransport(httpClient)
 	}
 	if httpClient != nil {
 		opts = append(opts, openaicompat.WithHTTPClient(httpClient))
@@ -1501,7 +1528,7 @@ func (c *coordinator) buildProvider(providerCfg config.ProviderConfig, model con
 
 	switch providerCfg.Type {
 	case openai.Name:
-		return c.buildOpenaiProvider(baseURL, apiKey, headers)
+		return c.buildOpenaiProvider(baseURL, apiKey, headers, providerCfg.ID)
 	case anthropic.Name:
 		return c.buildAnthropicProvider(baseURL, apiKey, headers, providerCfg.ID)
 	case openrouter.Name:
