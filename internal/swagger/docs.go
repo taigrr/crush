@@ -74,6 +74,25 @@ const docTemplate = `{
                 }
             }
         },
+        "/drain": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "system"
+                ],
+                "summary": "Drain the server for an update",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Health"
+                        }
+                    }
+                }
+            }
+        },
         "/events": {
             "get": {
                 "produces": [
@@ -92,13 +111,19 @@ const docTemplate = `{
         },
         "/health": {
             "get": {
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "system"
                 ],
                 "summary": "Health check",
                 "responses": {
                     "200": {
-                        "description": "OK"
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Health"
+                        }
                     }
                 }
             }
@@ -5630,6 +5655,10 @@ const docTemplate = `{
         "proto.Error": {
             "type": "object",
             "properties": {
+                "code": {
+                    "description": "Code, when set, identifies the condition machine-readably. See\nthe ErrorCode* constants.",
+                    "type": "string"
+                },
                 "message": {
                     "type": "string"
                 }
@@ -5686,6 +5715,22 @@ const docTemplate = `{
                 },
                 "turns": {
                     "type": "integer"
+                }
+            }
+        },
+        "proto.Health": {
+            "type": "object",
+            "properties": {
+                "active_runs": {
+                    "description": "ActiveRuns is the number of sessions, across all workspaces, with\nan active or accepted-but-not-yet-active agent run. A run blocked\non a permission or question prompt counts.",
+                    "type": "integer"
+                },
+                "draining": {
+                    "description": "Draining is true once the server has been asked to drain for an\nupdate: it finishes in-flight runs but accepts no new ones, and\nexits on its own when ActiveRuns reaches zero.",
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },
@@ -6276,6 +6321,10 @@ const docTemplate = `{
                 },
                 "platform": {
                     "type": "string"
+                },
+                "protocol_version": {
+                    "description": "ProtocolVersion is the server's [ProtocolVersion]. Servers that\npredate the field report 0.",
+                    "type": "integer"
                 },
                 "version": {
                     "type": "string"
