@@ -53,6 +53,7 @@ func init() {
 	rootCmd.Flags().BoolP("yolo", "y", false, "Automatically accept all permissions (dangerous mode)")
 	rootCmd.Flags().StringP("session", "s", "", "Continue a previous session by ID")
 	rootCmd.Flags().BoolP("continue", "C", false, "Continue the most recent session")
+	rootCmd.Flags().Bool("reset", false, "Force-stop the background server (cancelling in-flight runs) and start a fresh one before connecting")
 	rootCmd.MarkFlagsMutuallyExclusive("session", "continue")
 
 	rootCmd.AddCommand(
@@ -97,10 +98,22 @@ crush --session {session-id}
 
 # Continue the most recent session
 crush --continue
+
+# Force-restart the background server (cancels in-flight runs), then connect
+crush --reset
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID, _ := cmd.Flags().GetString("session")
 		continueLast, _ := cmd.Flags().GetBool("continue")
+
+		if reset, _ := cmd.Flags().GetBool("reset"); reset {
+			// The explicit forced path: no drain, no waiting on
+			// in-flight runs. ensureServer then finds no socket and
+			// spawns a fresh server from this binary.
+			if err := resetServer(cmd); err != nil {
+				return err
+			}
+		}
 
 		ws, cleanup, err := setupWorkspaceWithProgressBar(cmd)
 		if err != nil {
@@ -242,6 +255,9 @@ func setupClientServerWorkspace(cmd *cobra.Command) (workspace.Workspace, func()
 	}
 
 	clientWs := workspace.NewClientWorkspace(c, *protoWs)
+	if req, err := workspaceRequest(cmd); err == nil {
+		clientWs.SetCreationArgs(req)
+	}
 
 	if protoWs.Config.IsConfigured() {
 		if err := clientWs.InitCoderAgent(cmd.Context()); err != nil {
@@ -264,21 +280,44 @@ func connectToServer(cmd *cobra.Command, opts ...func(*proto.Workspace)) (*clien
 		return nil, nil, nil, err
 	}
 
+	ctx := cmd.Context()
+
+	wsReq, err := workspaceRequest(cmd, opts...)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	c, err := client.NewClient(wsReq.Path, hostURL.Scheme, hostURL.Host)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	ws, err := c.CreateWorkspace(ctx, wsReq)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create workspace: %v", err)
+	}
+
+	if ws.Config != nil {
+		logFile := filepath.Join(ws.Config.Options.DataDirectory, "logs", "crush.log")
+		crushlog.Setup(logFile, wsReq.Debug)
+	}
+
+	cleanup := func() { _ = c.DeleteWorkspace(context.Background(), ws.ID) }
+	return c, ws, cleanup, nil
+}
+
+// workspaceRequest builds the POST /v1/workspaces body for this client
+// from its flags, cwd, and environment. It is deterministic so the
+// ClientWorkspace can re-issue the exact same request when it has to
+// re-attach after a server swap (see ClientWorkspace.reattachByPath).
+func workspaceRequest(cmd *cobra.Command, opts ...func(*proto.Workspace)) (proto.Workspace, error) {
 	debug, _ := cmd.Flags().GetBool("debug")
 	yolo, _ := cmd.Flags().GetBool("yolo")
 	dataDir, _ := cmd.Flags().GetString("data-dir")
-	ctx := cmd.Context()
-
 	cwd, err := ResolveCwd(cmd)
 	if err != nil {
-		return nil, nil, nil, err
+		return proto.Workspace{}, err
 	}
-
-	c, err := client.NewClient(cwd, hostURL.Scheme, hostURL.Host)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
 	wsReq := proto.Workspace{
 		Path:    cwd,
 		DataDir: dataDir,
@@ -290,19 +329,7 @@ func connectToServer(cmd *cobra.Command, opts ...func(*proto.Workspace)) (*clien
 	for _, opt := range opts {
 		opt(&wsReq)
 	}
-
-	ws, err := c.CreateWorkspace(ctx, wsReq)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create workspace: %v", err)
-	}
-
-	if ws.Config != nil {
-		logFile := filepath.Join(ws.Config.Options.DataDirectory, "logs", "crush.log")
-		crushlog.Setup(logFile, debug)
-	}
-
-	cleanup := func() { _ = c.DeleteWorkspace(context.Background(), ws.ID) }
-	return c, ws, cleanup, nil
+	return wsReq, nil
 }
 
 // ensureServer auto-starts a detached server if the socket file does not
@@ -550,46 +577,98 @@ func probeHealth(ctx context.Context, h *http.Client, reqURL string, hostURL *ur
 }
 
 // restartIfStale checks whether the running server matches the current
-// client version. When they differ, it sends a shutdown command and
-// removes the stale socket so the caller can start a fresh server.
+// client version. When they differ, it asks the server to drain — finish
+// its in-flight runs without accepting new ones, then exit — and waits
+// for it, printing what it is waiting on to stderr. The wait is bounded
+// by staleServerWait (CRUSH_STALE_SERVER_WAIT, default 30s) so a user is
+// never stuck: on timeout, or against a server too old to drain, it
+// falls back to the forced stop (in-flight runs cancelled). Either way
+// the socket is gone when it returns restarted=true.
 //
-// It returns restarted=true when it has shut down a stale server and the
-// caller must spawn a new one. When the server matches the client version
-// (or the check itself fails), restarted is false.
+// When the server matches the client version (or the check itself
+// fails), restarted is false.
 func restartIfStale(cmd *cobra.Command, hostURL *url.URL) (restarted bool, err error) {
+	ctx := cmd.Context()
 	c, err := client.NewClient("", hostURL.Scheme, hostURL.Host)
 	if err != nil {
 		return false, err
 	}
-	vi, err := c.VersionInfo(cmd.Context())
+	vi, err := c.VersionInfo(ctx)
 	if err != nil {
 		return false, err
 	}
-	if vi.Version == version.Version && vi.BuildID == version.BuildID {
+	if sameBuild(vi) {
 		return false, nil
 	}
 	slog.Info(
-		"Server version mismatch, restarting",
+		"Server version mismatch, draining and restarting",
 		"server_version", vi.Version,
 		"client_version", version.Version,
 		"server_build_id", vi.BuildID,
 		"client_build_id", version.BuildID,
+		"server_protocol", vi.ProtocolVersion,
+		"client_protocol", proto.ProtocolVersion,
 	)
-	_ = c.ShutdownServer(cmd.Context())
-	// Give the old process a moment to release the socket.
-	for range 20 {
-		if _, err := os.Stat(hostURL.Host); errors.Is(err, fs.ErrNotExist) {
-			break
-		}
-		select {
-		case <-cmd.Context().Done():
-			return true, cmd.Context().Err()
-		case <-time.After(100 * time.Millisecond):
-		}
+	wait := staleServerWait()
+	fmt.Fprintf(os.Stderr, "Crush server is %s; updating to %s. Letting in-flight work finish first...\n",
+		vi.Version, version.Version)
+	switch drainAndWait(ctx, hostURL, c, vi, wait, os.Stderr) {
+	case drainResultExited:
+		return true, nil
+	case drainResultCanceled:
+		return true, ctx.Err()
+	case drainResultUnsupported:
+		fmt.Fprintln(os.Stderr, "Old server cannot drain; restarting it (in-flight runs will be cancelled).")
+	case drainResultTimeout:
+		fmt.Fprintf(os.Stderr, "Old server still busy after %s; restarting it (in-flight runs will be cancelled). Set CRUSH_STALE_SERVER_WAIT to wait longer.\n", wait)
 	}
-	// Force-remove if the socket is still lingering.
-	_ = os.Remove(hostURL.Host)
+	forceStopServer(ctx, hostURL, c, true, os.Stderr)
 	return true, nil
+}
+
+// resetServer force-stops any running server for the configured host so
+// the caller's ensureServer spawns a fresh one. It is the explicit
+// "kill it" path behind `crush --reset`; the automatic stale-server path
+// (restartIfStale) drains first and only forces on timeout.
+func resetServer(cmd *cobra.Command) error {
+	hostURL, err := server.ParseHostURL(clientHost)
+	if err != nil {
+		return fmt.Errorf("invalid host URL: %v", err)
+	}
+	if hostURL.Scheme != "unix" && hostURL.Scheme != "npipe" {
+		return fmt.Errorf("--reset only manages socket-based servers (host is %s)", hostURL.Scheme)
+	}
+	if _, err := os.Stat(hostURL.Host); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	c, err := client.NewClient("", hostURL.Scheme, hostURL.Host)
+	if err != nil {
+		return err
+	}
+	// Probe first: escalating to signals is only safe against a pid we
+	// just saw serving this socket.
+	probeCtx, cancel := context.WithTimeout(cmd.Context(), 3*time.Second)
+	_, probeErr := c.VersionInfo(probeCtx)
+	cancel()
+	alive := probeErr == nil
+	if !alive && !isDeadSocketErr(probeErr) {
+		// Something is listening but did not answer as a server would
+		// (mid-shutdown, or too loaded). We can ask it to stop and wait,
+		// but must neither signal it nor unlink its socket.
+		fmt.Fprintf(os.Stderr, "Server socket did not answer cleanly (%v); asking it to shut down and waiting.\n", probeErr)
+		shutdownCtx, cancel := context.WithTimeout(cmd.Context(), 3*time.Second)
+		_ = c.ShutdownServer(shutdownCtx)
+		cancel()
+		gone := waitForSocketGone(cmd.Context(), hostURL, 10*time.Second)
+		removeServerPIDIfDead(hostURL)
+		if !gone {
+			return fmt.Errorf("a process is still listening on %s and could not be verified as the crush server; stop it manually", hostURL.Host)
+		}
+		return nil
+	}
+	fmt.Fprintln(os.Stderr, "Stopping the Crush server (in-flight runs will be cancelled)...")
+	forceStopServer(cmd.Context(), hostURL, c, alive, os.Stderr)
+	return nil
 }
 
 var safeNameRegexp = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
