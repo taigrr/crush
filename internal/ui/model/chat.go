@@ -11,6 +11,7 @@ import (
 	"github.com/clipperhouse/displaywidth"
 	"github.com/clipperhouse/uax29/v2/words"
 	"github.com/taigrr/crush/internal/ui/anim"
+	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
@@ -216,6 +217,18 @@ func (m *Chat) SetSize(width, height int) {
 // Len returns the number of items in the chat list.
 func (m *Chat) Len() int {
 	return m.list.Len()
+}
+
+// UserMessages returns the user-role messages currently shown, oldest
+// first. These are the valid fork points for the session.
+func (m *Chat) UserMessages() []*message.Message {
+	var out []*message.Message
+	for i := range m.list.Len() {
+		if item, ok := m.list.ItemAt(i).(*chat.UserMessageItem); ok {
+			out = append(out, item.Message())
+		}
+	}
+	return out
 }
 
 // InvalidateRenderCaches drops cached rendered output on every message

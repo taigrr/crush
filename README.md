@@ -44,8 +44,9 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 - **Real git worktrees.** Run parallel branches of work in isolated
   directories with per-session working dirs, plus merge/rebase support and
   post-create hooks (`bun i`, `go mod download`, …).
-- **Conversation forking.** Fork a session from any message, optionally
-  into its own worktree.
+- **Conversation forking.** `/fork` forks the open session at its latest
+  message (or pick an earlier one from the completion list), optionally
+  into its own worktree; `shift+F` on a focused user message does the same.
 
 ### Context Management
 

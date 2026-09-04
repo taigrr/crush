@@ -558,6 +558,10 @@ for slow links and SSH sessions.
 - Animated session **title reveal** with blinking cursor; auto re-title
   after 10 user messages
 - Ctrl+F toggles fullscreen chat; image picker moved to Ctrl+I
+- **`/fork [message]`** and "Fork Conversation" in the palette: fork the
+  open session at its latest user message, or pick an earlier one from the
+  completion list (newest first, with a preview); `shift+F` on a focused
+  user message still works
 - **Prompt stash** (`alt+z` / `ctrl+shift+z`, or "Stash/Restore Prompt" in
   the palette): park the drafted prompt and its attachments, send something
   else, press again to restore; with both a draft and a stash it swaps

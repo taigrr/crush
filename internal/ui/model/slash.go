@@ -99,6 +99,18 @@ var builtinSlashCommands = []slashCommand{
 		},
 	},
 	{
+		name:            "fork",
+		argHint:         "[message]",
+		description:     "Fork this conversation into a new session (at the latest message, or the one chosen)",
+		requiresSession: true,
+		run: func(m *UI, args string) tea.Cmd {
+			return m.handleForkSlash(args)
+		},
+		argCompletions: func(m *UI, args string) []completions.ArgCompletionValue {
+			return m.forkArgCompletions(args)
+		},
+	},
+	{
 		name:            "model",
 		argHint:         "[role] [model [effort]]",
 		description:     "Switch the large model, or set a role (large, small, worker, custom) for the workspace",

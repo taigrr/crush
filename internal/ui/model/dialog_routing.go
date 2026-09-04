@@ -163,6 +163,13 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		}
 		cmds = append(cmds, util.ReportInfo("Sysadmin mode "+status))
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionForkLatest:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		if !m.hasSession() {
+			cmds = append(cmds, util.ReportError(fmt.Errorf("no active session to fork")))
+			break
+		}
+		cmds = append(cmds, m.handleForkSlash(""))
 	case dialog.ActionToggleStash:
 		m.dialog.CloseDialog(dialog.CommandsID)
 		cmds = append(cmds, m.toggleStash())
