@@ -48,6 +48,10 @@ type sidebarRow struct {
 	remaining int
 	// label is the header text for section rows (inbox mode only).
 	label string
+	// depth is the nesting level of a session row: 0 for a top-level
+	// session, 1 for a swarm-spawned session rendered directly under its
+	// spawner (see nestSpawned).
+	depth int
 }
 
 // sidebarViewMode selects how the sidebar projects its sessions.
@@ -488,8 +492,17 @@ func (s *SessionsSidebar) rebuildInboxRows() {
 			return
 		}
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowSection, label: label})
-		for _, r := range refs {
-			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: r.wi, sessIdx: r.si})
+		// Nest spawned workers under their spawner when both landed in
+		// this section; a worker whose spawner is elsewhere stays flat.
+		ids := make([]string, len(refs))
+		spawners := make([]string, len(refs))
+		for i, r := range refs {
+			sess := s.overviews[r.wi].Sessions[r.si]
+			ids[i], spawners[i] = sess.ID, sess.SpawnedBySessionID
+		}
+		for _, n := range nestSpawned(ids, spawners) {
+			r := refs[n.idx]
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: r.wi, sessIdx: r.si, depth: n.depth})
 		}
 	}
 	emit("Blocked", blocked)
@@ -543,8 +556,18 @@ func (s *SessionsSidebar) rebuildGroupedRows() {
 		emittedGroups++
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowWorkspace, wsIdx: wi})
 		shown := min(len(idxs), caps[wi])
-		for _, si := range idxs[:shown] {
-			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: si})
+		// Nest spawned workers under their spawner within the workspace.
+		// Nesting runs over the full filtered set (so a worker is pulled
+		// up next to its spawner even if it sorted lower) and the cap is
+		// applied to the nested order.
+		ids := make([]string, len(idxs))
+		spawners := make([]string, len(idxs))
+		for i, si := range idxs {
+			sess := s.overviews[wi].Sessions[si]
+			ids[i], spawners[i] = sess.ID, sess.SpawnedBySessionID
+		}
+		for _, n := range nestSpawned(ids, spawners)[:shown] {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: idxs[n.idx], depth: n.depth})
 		}
 		if remaining := len(idxs) - shown; remaining > 0 {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowOverflow, wsIdx: wi, remaining: remaining})
@@ -1349,7 +1372,7 @@ func (s *SessionsSidebar) renderRows(width int, focused bool) []string {
 			if s.mode == sidebarModeInbox {
 				tag = filepath.Base(ws.Root)
 			}
-			out = append(out, s.renderSessionRow(t, sess, width, selected, focused, s.selected[sess.ID], tag))
+			out = append(out, s.renderSessionRow(t, sess, width, selected, focused, s.selected[sess.ID], tag, r.depth))
 		case sidebarRowOverflow:
 			out = append(out, s.renderOverflowRow(t, r.remaining, width, selected, focused))
 		}
@@ -1383,7 +1406,7 @@ func (s *SessionsSidebar) renderWorkspaceRow(t *styles.Styles, ws proto.Workspac
 	return common.Section(t, name, width)
 }
 
-func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, focused, marked bool, tag string) string {
+func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, focused, marked bool, tag string, depth int) string {
 	// Status glyph: pending-prompt dot (red), busy dot (yellow), unread
 	// dot (green), or blank. Pending outranks busy because a session
 	// blocked on a permission/question prompt is almost always ALSO busy
@@ -1437,9 +1460,14 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		squareCell = square
 	}
 
-	// Build the fixed-width prefix: bar + space + active + marker + square + space.
-	// Each glyph is a single cell.
-	prefixRaw := bar + " " + active + marker + squareCell + " "
+	// Build the fixed-width prefix: bar + space + active + marker + indent + square + space.
+	// Each glyph is a single cell. A nested (swarm-spawned) row is pushed
+	// right by a tree elbow so it reads as belonging to the row above.
+	indent := ""
+	if depth > 0 {
+		indent = strings.Repeat(" ", (depth-1)*2) + styles.TreeElbowIcon + " "
+	}
+	prefixRaw := bar + " " + active + marker + indent + squareCell + " "
 	prefixWidth := ansi.StringWidth(prefixRaw)
 
 	// Inbox mode appends a dim workspace tag suffix (basename of the
@@ -1472,7 +1500,7 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 	if marked {
 		titleStyle = titleStyle.Bold(true)
 	}
-	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + squareCell + " "
+	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + t.Resource.AdditionalText.Render(indent) + squareCell + " "
 	styledFav := ""
 	if favRaw != "" {
 		styledFav = t.Resource.Name.Render(favRaw)
