@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/client"
-	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 )
@@ -71,7 +70,7 @@ func (f *fakeServerSwap) create(_ context.Context, ws proto.Workspace) (*proto.W
 	return nil, errors.New("connection refused")
 }
 
-func (f *fakeServerSwap) send(_ context.Context, id, sessionID, _ string, prompt string, _ ...message.Attachment) error {
+func (f *fakeServerSwap) send(_ context.Context, id string, p heldPrompt) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch f.phase {
@@ -80,7 +79,7 @@ func (f *fakeServerSwap) send(_ context.Context, id, sessionID, _ string, prompt
 	case "gap":
 		return errors.New("connection refused")
 	}
-	f.sent = append(f.sent, prompt)
+	f.sent = append(f.sent, p.prompt)
 	f.sentTo = append(f.sentTo, id)
 	return nil
 }
@@ -185,14 +184,14 @@ func TestFlushHeldPrompts_KeepsForeignAndReportsFailed(t *testing.T) {
 	t.Parallel()
 	w := NewClientWorkspace(nil, proto.Workspace{ID: "ws-B", Path: "/proj"})
 	var sent []string
-	w.sendMessageFn = func(_ context.Context, _, _, _ string, prompt string, _ ...message.Attachment) error {
-		switch prompt {
+	w.sendMessageFn = func(_ context.Context, _ string, p heldPrompt) error {
+		switch p.prompt {
 		case "bad":
 			return errors.New("400 empty prompt")
 		case "drains":
 			return client.ErrServerDraining
 		}
-		sent = append(sent, prompt)
+		sent = append(sent, p.prompt)
 		return nil
 	}
 	w.held = []heldPrompt{
@@ -223,7 +222,7 @@ func TestHold_UpdatingOnlyForDraining(t *testing.T) {
 	t.Parallel()
 	w := NewClientWorkspace(nil, proto.Workspace{ID: "ws", Path: "/proj"})
 	w.connState = ConnectionStateReconnecting
-	w.sendMessageFn = func(context.Context, string, string, string, string, ...message.Attachment) error {
+	w.sendMessageFn = func(context.Context, string, heldPrompt) error {
 		return errors.New("dial unix: connection refused")
 	}
 	require.ErrorIs(t, w.AgentRun(context.Background(), "s", "crash"), ErrServerUpdating)
@@ -233,7 +232,7 @@ func TestHold_UpdatingOnlyForDraining(t *testing.T) {
 	// holding here": the send is still attempted.
 	w.held = append(w.held, heldPrompt{path: "/other", prompt: "x"})
 	sends := 0
-	w.sendMessageFn = func(context.Context, string, string, string, string, ...message.Attachment) error {
+	w.sendMessageFn = func(context.Context, string, heldPrompt) error {
 		sends++
 		return client.ErrServerDraining
 	}
@@ -280,4 +279,23 @@ func TestReattachByPath_FollowsSwitchAndYieldsToConcurrentSwitch(t *testing.T) {
 	}
 	require.Error(t, w.reattachByPath(context.Background()))
 	require.Equal(t, "ws-3", w.workspaceID(), "the concurrent switch must not be clobbered")
+}
+
+// TestAgentRunBTW_GoesThroughSendHook: a steer must use the same hook a
+// normal prompt does, so a fake (and the drain hold path) sees it. A
+// second func the fakes do not override would call the real client and
+// hang the test suite against a server that is not there.
+func TestAgentRunBTW_GoesThroughSendHook(t *testing.T) {
+	t.Parallel()
+	w := NewClientWorkspace(nil, proto.Workspace{ID: "ws", Path: "/proj"})
+	var got []heldPrompt
+	w.sendMessageFn = func(_ context.Context, _ string, p heldPrompt) error {
+		got = append(got, p)
+		return nil
+	}
+	require.NoError(t, w.AgentRunBTW(context.Background(), "s", "turn left"))
+	require.Len(t, got, 1)
+	require.True(t, got[0].steer, "AgentRunBTW must send a steer")
+	require.Equal(t, "[btw] turn left", got[0].prompt)
+	require.Empty(t, got[0].runID, "a steer folds into the active turn, so it carries no RunID")
 }

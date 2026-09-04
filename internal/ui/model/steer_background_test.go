@@ -36,6 +36,8 @@ func (w *steerWorkspace) Config() *config.Config { return nil }
 func (w *steerWorkspace) AgentIsReady() bool     { return true }
 func (w *steerWorkspace) AgentIsBusy() bool      { return w.busy }
 
+func (w *steerWorkspace) AgentIsSessionBusy(string) bool { return w.busy }
+
 func (w *steerWorkspace) AgentReadiness(context.Context) (bool, error) { return true, nil }
 
 func (w *steerWorkspace) ConnectionState() workspace.ConnectionState {
