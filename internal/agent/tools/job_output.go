@@ -45,8 +45,23 @@ func NewJobOutputTool() fantasy.AgentTool {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("background shell not found: %s", params.ShellID)), nil
 			}
 
+			var interrupted backgroundReason
+			waitCut := false
 			if params.Wait {
-				bgShell.WaitContext(ctx)
+				// Block until the job finishes, but let a steer (step-wide
+				// soft interrupt) or a per-call background request end the
+				// wait early: the job keeps running and the model gets the
+				// output so far with a "running" status.
+				bgRequested, releaseBg := RegisterBackgroundable(ctx, call.ID)
+				select {
+				case <-bgShell.Done():
+				case <-SoftInterrupt(ctx):
+					interrupted, waitCut = backgroundReasonSteer, true
+				case <-bgRequested:
+					interrupted, waitCut = backgroundReasonUser, true
+				case <-ctx.Done():
+				}
+				releaseBg()
 			}
 
 			stdout, stderr, done, err := bgShell.GetOutput()
@@ -86,7 +101,21 @@ func NewJobOutputTool() fantasy.AgentTool {
 			}
 
 			result := fmt.Sprintf("Status: %s\n\n%s", status, output)
+			if waitCut && !done {
+				result = waitEndedEarlyNote(interrupted) + "\n\n" + result
+			}
 			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(result), metadata), nil
 		},
 	)
+}
+
+// waitEndedEarlyNote explains why a job_output wait returned before the
+// job finished; the job itself keeps running.
+func waitEndedEarlyNote(reason backgroundReason) string {
+	switch reason {
+	case backgroundReasonUser:
+		return "Stopped waiting at the user's request; the job is still running in the background."
+	default:
+		return "Stopped waiting because a user message is waiting for you; the job is still running in the background. Read and act on the user's message first."
+	}
 }
