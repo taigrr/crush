@@ -603,7 +603,14 @@ Highlights:
 - New `swarm` tool exposed to main agents only. Params: `address`
   (color-animal / with-shorthash / raw UUID / `"new"`), `prompt`,
   optional `mode` (`queue` default, `btw` prefixes `[btw]`),
-  `workspace_id` (for `new`), `title` (for `new`).
+  `workspace_id` / `path` / `title` / `model` / `working_dir` (for
+  `new`), and `require_reply`.
+- `require_reply` registers a reply obligation on the target
+  (`swarm.ReplyTracker`, coordinator-owned, in-memory). The coordinator's
+  end-of-turn loop nudges the target with a continuation turn while it
+  still owes a reply (max 2), then forwards its final message to the
+  sender on its behalf; a failed or canceled turn forwards the error.
+  Any swarm send from the target to the sender fulfills the obligation.
 - Cross-workspace address resolution via `Backend.LookupSwarmAddress`;
   per-workspace DB errors are collected but never mask a real match.
 - Delivered as a `SwarmMessage` content part with structured sender

@@ -434,7 +434,7 @@ func TestSwarmContextCancellationIsFatal(t *testing.T) {
 	cfg := func() swarm.Config { return swarm.Config{} }
 
 	ctx := context.WithValue(context.Background(), SessionIDContextKey, "sender")
-	resp, err := runSwarm(ctx, be, sess, cfg, "ws", SwarmParams{
+	resp, err := runSwarm(ctx, be, sess, cfg, "ws", nil, SwarmParams{
 		Address: "someone-else",
 		Prompt:  "hello",
 	})

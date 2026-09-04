@@ -96,6 +96,12 @@ type SwarmMessage struct {
 	// the receiver's current turn) rather than the default queued
 	// mode.
 	BTW bool `json:"btw,omitempty"`
+	// RequireReply is true when the sender asked for a guaranteed
+	// reply: the receiving session may not end its turn until it has
+	// sent a swarm message back to SenderSessionID. The coordinator
+	// enforces this by nudging the agent and, as a last resort,
+	// replying on its behalf.
+	RequireReply bool `json:"require_reply,omitempty"`
 }
 
 func (sm SwarmMessage) String() string {

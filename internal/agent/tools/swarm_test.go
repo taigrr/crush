@@ -32,7 +32,7 @@ func decodeSwarmMetadata(t *testing.T, raw string) SwarmResponseMetadata {
 func TestSwarmNew_StampsLineageFromSender(t *testing.T) {
 	t.Parallel()
 	be := &recordingSwarmBackend{}
-	resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws-sender", SwarmParams{
+	resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws-sender", nil, SwarmParams{
 		Address: "new", Prompt: "hello",
 	})
 	require.NoError(t, err)
@@ -52,7 +52,7 @@ func TestSwarmNew_WorkingDirParam(t *testing.T) {
 	t.Run("absolute working_dir is passed through", func(t *testing.T) {
 		t.Parallel()
 		be := &recordingSwarmBackend{}
-		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", SwarmParams{
+		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", nil, SwarmParams{
 			Address: "new", Prompt: "hello", WorkingDir: "/proj/wt-linked2",
 		})
 		require.NoError(t, err)
@@ -64,7 +64,7 @@ func TestSwarmNew_WorkingDirParam(t *testing.T) {
 	t.Run("relative working_dir is a tool error without a session", func(t *testing.T) {
 		t.Parallel()
 		be := &recordingSwarmBackend{}
-		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", SwarmParams{
+		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", nil, SwarmParams{
 			Address: "new", Prompt: "hello", WorkingDir: "wt-linked2",
 		})
 		require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestSwarmNew_WorkingDirParam(t *testing.T) {
 	t.Run("path defaults the working dir", func(t *testing.T) {
 		t.Parallel()
 		be := &recordingSwarmBackend{}
-		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", SwarmParams{
+		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", nil, SwarmParams{
 			Address: "new", Prompt: "hello", Path: "/proj/wt-linked2",
 		})
 		require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestSwarmNew_WorkingDirParam(t *testing.T) {
 	t.Run("working_dir on an existing address is rejected", func(t *testing.T) {
 		t.Parallel()
 		be := &recordingSwarmBackend{}
-		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", SwarmParams{
+		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", nil, SwarmParams{
 			Address: "plum-flamingo", Prompt: "hi", WorkingDir: "/proj",
 		})
 		require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestSwarm_ResultMetadata(t *testing.T) {
 	t.Run("new", func(t *testing.T) {
 		t.Parallel()
 		be := &recordingSwarmBackend{}
-		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", SwarmParams{
+		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", nil, SwarmParams{
 			Address: "new", Prompt: "hello", Mode: "btw",
 		})
 		require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestSwarm_ResultMetadata(t *testing.T) {
 		be := &lookupSwarmBackend{
 			target: SwarmLookupResult{WorkspaceID: "ws-other", SessionID: "target", Color: "plum", Animal: "flamingo"},
 		}
-		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", SwarmParams{
+		resp, err := runSwarm(swarmSenderCtx(), be, swarmSenderSessions(), swarm.Default, "ws", nil, SwarmParams{
 			Address: "plum-flamingo", Prompt: "hi",
 		})
 		require.NoError(t, err)

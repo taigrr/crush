@@ -216,6 +216,13 @@ type coordinator struct {
 	// this coordinator, so a second concurrent caller doesn't launch
 	// a redundant deferred goroutine or race the first's rebuild.
 	swarmWiring bool
+
+	// swarmReplies tracks reply obligations created by require_reply
+	// swarm messages: a session that received one may not end its turn
+	// until it has messaged the sender back. Registered on delivery in
+	// run, fulfilled by the swarm tool, enforced by the end-of-turn
+	// continuation loop.
+	swarmReplies *swarm.ReplyTracker
 }
 
 // SetSwarmBackend wires the cross-workspace swarm dispatcher into
@@ -384,6 +391,7 @@ func NewCoordinator(
 		activeSkills:        activeSkills,
 		skillTracker:        skillTracker,
 		effectiveWorkingDir: effectiveWorkingDir,
+		swarmReplies:        swarm.NewReplyTracker(),
 	}
 
 	agentCfg, ok := cfg.Config().Agents[config.AgentCoder]
@@ -612,6 +620,10 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	// first user message on this dispatch carries them. Subsequent
 	// goal-driven continuations run as ordinary text turns.
 	currentSwarmParts := SwarmPartsFromContext(ctx)
+	// Record any reply the incoming swarm message demands before the
+	// turn starts, so the end-of-turn check below sees it even if the
+	// agent never calls the swarm tool.
+	c.registerReplyObligations(sessionID, currentSwarmParts)
 
 	runOnce := func() (*fantasy.AgentResult, error) {
 		run := func() (*fantasy.AgentResult, error) {
@@ -664,6 +676,10 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	for {
 		result, originalErr = runOnce()
 		if originalErr != nil || ctx.Err() != nil {
+			// A turn that died with an error still owes its spawner an
+			// answer; tell them what went wrong rather than leaving them
+			// waiting on a session that will never reply.
+			c.failReplyObligations(sessionID, originalErr)
 			break
 		}
 		// A nil result means no turn actually executed here: either
@@ -678,6 +694,17 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		// so breaking is correct in both.
 		if result == nil {
 			break
+		}
+		// Reply obligations take precedence over the goal: a worker that
+		// owes its spawner an answer is nudged to send it before the
+		// goal evaluator gets a say, so the parent is never left
+		// waiting on a session that has already gone idle.
+		if contPrompt, ok := c.advanceReplyObligations(ctx, sessionID, result); ok {
+			currentPrompt = contPrompt
+			currentAttachments = nil
+			currentAccept = nil
+			currentSwarmParts = nil
+			continue
 		}
 		cont, contPrompt := c.currentAgent.AdvanceGoal(ctx, sessionID)
 		if !cont {
@@ -1106,7 +1133,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 			swarmConfigFn = swarm.Default
 		}
 		allTools = append(allTools, tools.NewSwarmTool(
-			swarmBackend, c.sessions, swarmConfigFn, swarmWorkspaceID,
+			swarmBackend, c.sessions, swarmConfigFn, swarmWorkspaceID, c.swarmReplies,
 		))
 		allTools = append(allTools, tools.NewWorkspaceLookupTool(swarmBackend))
 		allTools = append(allTools, tools.NewRenameSessionTool(swarmBackend))

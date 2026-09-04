@@ -493,6 +493,15 @@ address, a prompt, and optionally a mode:
   or bare id, resolved in the target workspace's config). Without
   `model` it runs that workspace's large model, never your own
   session's model. `model` is rejected for existing addresses.
+- `swarm({ address: "new", prompt: "initial task...", require_reply: true })`
+  — the target must message you back (via `swarm`) before its turn can
+  end. Use this whenever you need the outcome: the worker is told up
+  front, nudged at end of turn if it forgets, and if it still does not
+  reply its final message is forwarded to you automatically (prefixed
+  `[auto-forwarded: ...]`). Works with any address, not just `new`.
+  When you receive a message whose text ends in `[reply required: ...]`,
+  you owe that sender a reply: send it with `swarm` once your work is
+  done; any message to them counts.
 
 A session you create with `new` records you as its spawner, so UIs
 nest it under your session; it remains a normal, addressable session.
@@ -507,7 +516,8 @@ marked with `*` and its color-animal appears in the listing.
 Received swarm messages arrive as user turns prefixed with `message
 from <color-animal>:` and carry structured sender metadata that the
 UI renders as a colored header. Reply by calling `swarm` back to the
-sender's address; there is no automatic reply channel.
+sender's address; unless the sender set `require_reply`, there is no
+automatic reply channel.
 
 Sub-agent sessions (task tool children, title/summary generators) are
 not addressable. You cannot address your own session.
