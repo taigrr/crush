@@ -1297,6 +1297,25 @@ func (c *Client) SoftInterruptAgentSession(ctx context.Context, id string, sessi
 	return nil
 }
 
+// BackgroundAgentToolCall asks one in-flight tool call to move its work to
+// the background so the turn can continue; the tool returns a result
+// naming the background job. Fails when the call is unknown, already
+// finished, or cannot be backgrounded.
+func (c *Client) BackgroundAgentToolCall(ctx context.Context, id, sessionID, toolCallID string) error {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/tools/%s/background", id, sessionID, toolCallID), nil, nil, nil)
+	if err != nil {
+		return fmt.Errorf("failed to background tool call: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		if msg := decodeErrorMessage(rsp.Body); msg != "" {
+			return fmt.Errorf("failed to background tool call: %s", msg)
+		}
+		return fmt.Errorf("failed to background tool call: status code %d", rsp.StatusCode)
+	}
+	return nil
+}
+
 // CancelAgent cancels all ongoing agent operations for a workspace.
 func (c *Client) CancelAgent(ctx context.Context, id string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/cancel", id), nil, nil, nil)

@@ -222,6 +222,10 @@ type Workspace interface {
 	// step to wrap up early without cancelling them (a running shell
 	// command becomes a background job) and lets the turn continue.
 	AgentSoftInterrupt(sessionID string)
+	// AgentBackgroundTool asks one in-flight tool call to hand its work
+	// back as a background job so the turn continues. Errors when the
+	// call is unknown, finished, or cannot be backgrounded.
+	AgentBackgroundTool(ctx context.Context, sessionID, toolCallID string) error
 	AgentRunShellCommand(ctx context.Context, sessionID, command string) (proto.ShellCommandResponse, error)
 	AgentCancel(sessionID string)
 	// AgentCancelAll cancels every in-flight agent run in the workspace,

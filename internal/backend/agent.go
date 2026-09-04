@@ -359,6 +359,23 @@ func (b *Backend) SoftInterruptSession(workspaceID, sessionID string) error {
 	return nil
 }
 
+// BackgroundToolCall asks one specific in-flight tool call to move its
+// work to the background: the tool returns a normal result naming the
+// background job and the turn continues. Unlike SoftInterruptSession it
+// targets a single call rather than every opted-in tool in the step. It
+// returns ErrToolCallNotBackgroundable when the call is unknown, already
+// finished, does not support backgrounding, or belongs to another
+// session.
+func (b *Backend) BackgroundToolCall(workspaceID, sessionID, toolCallID string) error {
+	if _, err := b.GetWorkspace(workspaceID); err != nil {
+		return err
+	}
+	if !tools.RequestBackground(sessionID, toolCallID) {
+		return ErrToolCallNotBackgroundable
+	}
+	return nil
+}
+
 // CancelAllSessions cancels every in-flight agent run in the workspace,
 // regardless of which session it belongs to. It is the workspace-wide
 // counterpart to CancelSession, used when a client is not focused on the

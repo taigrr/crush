@@ -1161,6 +1161,32 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionInterrupt(w http.ResponseW
 	w.WriteHeader(http.StatusOK)
 }
 
+// handlePostWorkspaceAgentSessionToolBackground moves one in-flight tool
+// call to the background: the tool returns a result naming the background
+// job and the turn continues.
+//
+//	@Summary		Background a running tool call
+//	@Description	Ask a single in-flight tool call (e.g. a bash command) to hand its work back as a background job so the turn can continue. 409 if the call is unknown, finished, or cannot be backgrounded.
+//	@Tags			agent
+//	@Param			id		path	string	true	"Workspace ID"
+//	@Param			sid		path	string	true	"Session ID"
+//	@Param			tcid	path	string	true	"Tool call ID"
+//	@Success		200
+//	@Failure		404	{object}	proto.Error
+//	@Failure		409	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/tools/{tcid}/background [post]
+func (c *controllerV1) handlePostWorkspaceAgentSessionToolBackground(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	sid := r.PathValue("sid")
+	tcid := r.PathValue("tcid")
+	if err := c.backend.BackgroundToolCall(id, sid, tcid); err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // handlePostWorkspaceAgentCancel cancels all running agent sessions in
 // the workspace.
 //
@@ -1771,6 +1797,8 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
 		c.server.logInfo(r, err.Error())
 		jsonErrorCode(w, http.StatusServiceUnavailable, proto.ErrorCodeDraining, err.Error())
 		return
+	case errors.Is(err, backend.ErrToolCallNotBackgroundable):
+		status = http.StatusConflict
 	case errors.Is(err, backend.ErrPreviewWorkspaceNotFound):
 		status = http.StatusNotFound
 	}
