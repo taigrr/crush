@@ -10,7 +10,6 @@ import (
 	_ "image/jpeg" // JPEG decoding.
 	_ "image/png"  // PNG decoding.
 	"os"
-	"strconv"
 	"strings"
 	"unicode"
 
@@ -49,9 +48,9 @@ type UserMessageItem struct {
 
 	// imageIDs memoizes imageCacheID results so the content hash is
 	// computed once per attachment, not on every render frame. Keyed by
-	// path + byte length; a user message is immutable once submitted, so
-	// the cache never needs invalidation.
-	imageIDs map[string]string
+	// the attachment's index within the message; a user message is
+	// immutable once submitted, so the cache never needs invalidation.
+	imageIDs map[int]string
 }
 
 // NewUserMessageItem creates a new UserMessageItem.
@@ -214,13 +213,13 @@ func (m *UserMessageItem) renderAttachments(width int) string {
 	var parts []string
 
 	if m.imageConfig != nil && m.imageConfig.Encoding == fimage.EncodingKitty {
-		for _, bc := range binaryContents {
+		for i, bc := range binaryContents {
 			if !strings.HasPrefix(bc.MIMEType, "image/") {
 				continue
 			}
 			cols, rows := imageRenderDims(m.imageConfig)
 
-			id := m.imageCacheID(bc)
+			id := m.imageCacheID(i, bc)
 			if fimage.HasTransmitted(id, cols, rows) {
 				imgRender := m.imageConfig.Encoding.Render(id, cols, rows)
 				parts = append(parts, imgRender)
@@ -256,14 +255,14 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 	}
 
 	var cmds []tea.Cmd
-	for _, bc := range m.message.BinaryContent() {
+	for i, bc := range m.message.BinaryContent() {
 		if !strings.HasPrefix(bc.MIMEType, "image/") {
 			continue
 		}
 
 		cols, rows := imageRenderDims(m.imageConfig)
 
-		id := m.imageCacheID(bc)
+		id := m.imageCacheID(i, bc)
 		if fimage.HasTransmitted(id, cols, rows) {
 			continue
 		}
@@ -301,24 +300,26 @@ func (m *UserMessageItem) TransmitImages() tea.Cmd {
 // the name alone would make a later paste render as an earlier one; mix in
 // a hash of the bytes when they are available.
 //
-// The result is memoized per item (keyed by path + byte length) so the
-// hash is computed once rather than on every render frame.
-func (m *UserMessageItem) imageCacheID(bc message.BinaryContent) string {
+// The result is memoized per item, keyed by the attachment's index within
+// the message, so the hash is computed once rather than on every render
+// frame. Indexing (rather than path+length) keeps the memo collision-free
+// even for legacy messages that carry two same-named, equal-length
+// attachments with different content.
+func (m *UserMessageItem) imageCacheID(idx int, bc message.BinaryContent) string {
 	if len(bc.Data) == 0 {
 		return bc.Path
 	}
-	key := bc.Path + "#" + strconv.Itoa(len(bc.Data))
 	if m.imageIDs != nil {
-		if id, ok := m.imageIDs[key]; ok {
+		if id, ok := m.imageIDs[idx]; ok {
 			return id
 		}
 	}
 	sum := sha256.Sum256(bc.Data)
 	id := bc.Path + "#" + hex.EncodeToString(sum[:8])
 	if m.imageIDs == nil {
-		m.imageIDs = make(map[string]string)
+		m.imageIDs = make(map[int]string)
 	}
-	m.imageIDs[key] = id
+	m.imageIDs[idx] = id
 	return id
 }
 
