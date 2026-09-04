@@ -128,6 +128,9 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 	if msg.RunID != "" {
 		ctx = agent.WithRunID(ctx, msg.RunID)
 	}
+	if msg.Steer {
+		ctx = agent.WithSteer(ctx)
+	}
 	ctx = agent.WithRunCompleteMarker(ctx)
 
 	// Route the originating client's editor bridge to the tools for this
@@ -333,6 +336,25 @@ func (b *Backend) CancelSession(workspaceID, sessionID string) error {
 
 	if ws.AgentCoordinator != nil {
 		ws.AgentCoordinator.Cancel(sessionID)
+	}
+	return nil
+}
+
+// SoftInterruptSession asks the tools running in the session's current
+// step to wrap up early without cancelling anything: a long-running bash
+// command is handed back to the model as a background job it can poll
+// with job_output, and the turn continues. This is the "background the
+// running command" affordance; a steer (proto.AgentMessage.Steer) does
+// the same and additionally queues a message. It is a no-op when the
+// session is idle or nothing in the step listens for the interrupt.
+func (b *Backend) SoftInterruptSession(workspaceID, sessionID string) error {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+
+	if ws.AgentCoordinator != nil {
+		ws.AgentCoordinator.SoftInterrupt(sessionID)
 	}
 	return nil
 }

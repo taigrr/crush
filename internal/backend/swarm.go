@@ -353,6 +353,9 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 		// SwarmParts, when non-empty, replaces the default
 		// TextContent user message with structured swarm parts.
 		SwarmParts: []proto.SwarmMessage{part},
+		// A btw aside is a steer: fold into the target's active turn
+		// and wake its long-running tools so it lands sooner.
+		Steer: part.BTW,
 	}
 	if b.Draining() {
 		// The server is draining for an update and will not start a
