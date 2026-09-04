@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/fantasy"
 )
@@ -417,4 +418,95 @@ func TestRun_JobNoticeFoldsAtNextStepAndNeverStartsATurn(t *testing.T) {
 	require.Contains(t, userTexts(prompts[2]), "[background job finished] idle-notice")
 	_, pending = sa.pendingAsides.Get(sess.ID)
 	require.False(t, pending)
+}
+
+// TestDeferCall_SteerSoftInterruptsActiveTurn: a swarm btw message that is
+// deferred (drain-time, so it carries a RunID and waits for its own turn)
+// must still wake the active turn's tools, exactly like a live steer, so
+// the turn it is waiting on ends sooner.
+func TestDeferCall_SteerSoftInterruptsActiveTurn(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	started := make(chan struct{}, 1)
+	model := &toolThenFinishModel{}
+	sa := testSessionAgent(env, model, &finishStreamModel{text: "title"}, "system", newWaitTool(started)).(*sessionAgent)
+
+	sess, err := env.sessions.Create(t.Context(), "session")
+	require.NoError(t, err)
+
+	mainDone := make(chan error, 1)
+	go func() {
+		_, runErr := sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, RunID: "run-main", Prompt: "main"})
+		mainDone <- runErr
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool never started")
+	}
+
+	sa.deferCall(SessionAgentCall{SessionID: sess.ID, RunID: "run-deferred", Prompt: "later", Steer: true}, false)
+	require.Equal(t, 1, sa.QueuedPrompts(sess.ID), "a deferred steer waits for its own turn")
+
+	select {
+	case err := <-mainDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("main turn did not finish")
+	}
+	prompts := model.Prompts()
+	require.GreaterOrEqual(t, len(prompts), 2)
+	require.Equal(t, "interrupted", firstToolResultText(t, prompts[1]), "the deferred steer must wake the running tool")
+}
+
+// TestRun_SteerFoldReportsDispatch: a folded steer is reported through the
+// queue-dispatch hook like any drained prompt, so reply obligations it
+// carries flip from undelivered to delivered.
+func TestRun_SteerFoldReportsDispatch(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	started := make(chan struct{}, 1)
+	model := &toolThenFinishModel{}
+	var dispatched []string
+	var dispatchedMu sync.Mutex
+	sa := NewSessionAgent(SessionAgentOptions{
+		LargeModel:   Model{Model: model, CatwalkCfg: catwalk.Model{ContextWindow: 200000, DefaultMaxTokens: 10000}},
+		SmallModel:   Model{Model: &finishStreamModel{text: "title"}, CatwalkCfg: catwalk.Model{ContextWindow: 200000, DefaultMaxTokens: 10000}},
+		SystemPrompt: "system",
+		IsYolo:       true,
+		Sessions:     env.sessions,
+		Messages:     env.messages,
+		Tools:        []fantasy.AgentTool{newWaitTool(started)},
+		OnQueueDispatch: func(c SessionAgentCall) {
+			dispatchedMu.Lock()
+			dispatched = append(dispatched, c.Prompt)
+			dispatchedMu.Unlock()
+		},
+	}).(*sessionAgent)
+
+	sess, err := env.sessions.Create(t.Context(), "session")
+	require.NoError(t, err)
+	mainDone := make(chan error, 1)
+	go func() {
+		_, runErr := sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, RunID: "run-main", Prompt: "main"})
+		mainDone <- runErr
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool never started")
+	}
+	_, err = sa.Run(t.Context(), SessionAgentCall{SessionID: sess.ID, Prompt: "steer", Steer: true})
+	require.NoError(t, err)
+	select {
+	case err := <-mainDone:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("main turn did not finish")
+	}
+	dispatchedMu.Lock()
+	defer dispatchedMu.Unlock()
+	require.Equal(t, []string{"steer"}, dispatched)
 }
