@@ -1383,8 +1383,10 @@ func (c *coordinator) buildOpenaiCompatProvider(baseURL, apiKey string, headers 
 	// which the SDK would otherwise parse as an empty (successful) response.
 	// Wrap the transport so those errors are surfaced with a real status.
 	// The default mantle provider has catalog type "openai" and is built by
-	// buildOpenaiProvider; this covers a mantle provider configured as
-	// openai-compat.
+	// buildOpenaiProvider (which also forces the Responses API); this branch
+	// only fires if a user overrides mantle's type to "openai-compat", and
+	// installs the transport as a defensive measure — it does not force the
+	// Responses API here, so that override is not a fully supported path.
 	if providerID == string(catwalk.InferenceProviderBedrockMantle) {
 		httpClient = withMantleErrorTransport(httpClient)
 	}
