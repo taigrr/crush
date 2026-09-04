@@ -697,10 +697,18 @@ When multiple hooks match, their decisions are aggregated:
 ```json
 {
   "permissions": {
-    "allowed_tools": ["view", "ls", "grep", "edit"]
+    "allowed_tools": ["view", "ls", "grep", "edit"],
+    "sysadmin": false
   }
 }
 ```
+
+- `allowed_tools`: tools that never prompt for permission.
+- `sysadmin` (default `false`): start every workspace with sysadmin mode
+  on, so the bash tool's sysadmin command filter (package managers,
+  `sudo`, `systemctl`, network tools, ...) is bypassed from the first
+  turn. The command-palette toggle ("Enable/Disable Sysadmin Mode")
+  still works and overrides this for the running process.
 
 ## Environment Variables
 
@@ -709,6 +717,7 @@ When multiple hooks match, their decisions are aggregated:
 - `CRUSH_SKILLS_DIR` - Override default skills directory
 - `CRUSH_DISABLE_PROVIDER_AUTO_UPDATE` - Disable automatic provider updates
 - `CRUSH_DISABLE_DEFAULT_PROVIDERS` - Disable default provider configurations
+- `CONTEXT7_API_KEY` - API key for the `context7` docs tool (`ctx7sk-...`); optional, raises rate limits. Not read from `crush.json`; export it in the shell that launches Crush.
 
 ## Procedures
 

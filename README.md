@@ -102,7 +102,8 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 - **Swarm**: sessions message each other by `color-animal` address across
   workspaces, spawn workers pinned to a sibling worktree, and record who
   spawned whom so the sidebar nests workers under their orchestrator.
-- Ephemeral **sysadmin mode** toggle to bypass the command filter.
+- Ephemeral **sysadmin mode** toggle to bypass the command filter, or
+  `permissions.sysadmin: true` to start with it on.
 - Bundled **ripgrep** enforcement for fast content search.
 - Message queueing and deferred model/context changes while the agent is
   busy.
