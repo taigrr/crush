@@ -199,6 +199,17 @@ func (m *Message) Content() TextContent {
 	return TextContent{}
 }
 
+// IsSwarmMessage reports whether this user-role message was injected by
+// another session via the swarm tool rather than typed by the user.
+func (m *Message) IsSwarmMessage() bool {
+	for _, part := range m.Parts {
+		if _, ok := part.(SwarmMessage); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Message) ReasoningContent() ReasoningContent {
 	for _, part := range m.Parts {
 		if c, ok := part.(ReasoningContent); ok {
