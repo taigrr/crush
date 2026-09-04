@@ -697,6 +697,8 @@ func QuickStyle(o QuickStyleOpts) Styles {
 
 	s.Tool.StateWaiting = base.Foreground(o.FgMostSubtle)
 	s.Tool.StateCancelled = base.Foreground(o.FgMostSubtle)
+	s.Tool.HintKey = base.Foreground(o.FgMoreSubtle)
+	s.Tool.HintText = base.Foreground(o.FgMostSubtle)
 
 	s.Tool.ErrorTag = base.Padding(0, 1).Background(o.Destructive).Foreground(o.OnPrimary)
 	s.Tool.ErrorMessage = base.Foreground(o.FgSubtle)
@@ -1030,6 +1032,7 @@ func QuickStyle(o QuickStyleOpts) Styles {
 	s.Pills.Blurred = base.Padding(0, 1).BorderStyle(lipgloss.HiddenBorder())
 	s.Pills.QueueItemPrefix = lipgloss.NewStyle().Foreground(o.FgMoreSubtle).SetString("  •")
 	s.Pills.QueueItemText = lipgloss.NewStyle().Foreground(o.FgMoreSubtle)
+	s.Pills.QueueSteerTag = lipgloss.NewStyle().Foreground(o.Secondary)
 	s.Pills.QueueLabel = lipgloss.NewStyle().Foreground(o.FgBase)
 	s.Pills.QueueIconBase = lipgloss.NewStyle().Foreground(o.FgBase)
 	s.Pills.QueueGradFromColor = o.Error

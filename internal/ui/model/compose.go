@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/util"
@@ -251,6 +252,74 @@ func (m *UI) sendBTWMessage(content string) tea.Cmd {
 			}
 		}
 		return nil
+	}
+}
+
+// steerOrSend routes a prompt submitted with the steer key. While the
+// agent is busy the prompt is folded into the active turn as an aside;
+// otherwise there is nothing to steer and it is sent as a normal turn.
+// Steers are text-only: a prompt carrying attachments is queued as its
+// own turn instead, and the user is told why.
+func (m *UI) steerOrSend(content string, attachments ...message.Attachment) tea.Cmd {
+	if !m.hasSession() || !m.isAgentBusy() {
+		return m.sendMessage(content, attachments...)
+	}
+	if len(attachments) > 0 {
+		return tea.Batch(
+			util.ReportWarn("Steering does not support attachments; queued as a new turn instead"),
+			m.sendMessage(content, attachments...),
+		)
+	}
+	if content == "" {
+		return nil
+	}
+	return m.sendBTWMessage(content)
+}
+
+// backgroundRunningBash asks the server to move the session's in-flight
+// bash command to the background. The tool returns a job id and the turn
+// carries on; the UI re-renders the call as a job once the result lands.
+// Returns nil when no bash command is running, so the caller can let the
+// key fall through to whatever else is bound to it.
+func (m *UI) backgroundRunningBash() tea.Cmd {
+	if !m.hasSession() || !m.isAgentBusy() {
+		return nil
+	}
+	tc, ok := m.chat.RunningToolCall(tools.BashToolName)
+	if !ok {
+		return nil
+	}
+	sessionID := m.session.ID
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := m.com.Workspace.AgentBackgroundTool(ctx, sessionID, tc.ID); err != nil {
+			return util.InfoMsg{
+				Type: util.InfoTypeError,
+				Msg:  fmt.Sprintf("could not background command: %v", err),
+			}
+		}
+		return util.InfoMsg{
+			Type: util.InfoTypeInfo,
+			Msg:  "Command moved to the background",
+		}
+	}
+}
+
+// softInterruptTurn asks every long-running tool in the session's current
+// step to wrap up early (backgrounding shells, returning partial output)
+// without cancelling the turn. Used by /bg.
+func (m *UI) softInterruptTurn() tea.Cmd {
+	if !m.isAgentBusy() {
+		return util.ReportWarn("Agent is idle; nothing to background")
+	}
+	sessionID := m.session.ID
+	return func() tea.Msg {
+		m.com.Workspace.AgentSoftInterrupt(sessionID)
+		return util.InfoMsg{
+			Type: util.InfoTypeInfo,
+			Msg:  "Asked running tools to wrap up and continue in the background",
+		}
 	}
 }
 

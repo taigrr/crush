@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/editor"
+	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/ui/util"
 )
 
@@ -131,6 +132,16 @@ func (m *UI) isAgentBusy() bool {
 func (m *UI) isWorkspaceBusy() bool {
 	return m.com.Workspace.AgentIsReady() &&
 		m.com.Workspace.AgentIsBusy()
+}
+
+// hasRunningBash reports whether the current session has a bash tool call
+// in flight that could be moved to the background.
+func (m *UI) hasRunningBash() bool {
+	if !m.hasSession() || m.chat == nil {
+		return false
+	}
+	_, ok := m.chat.RunningToolCall(tools.BashToolName)
+	return ok
 }
 
 // hasSession returns true if there is an active session with a valid ID.

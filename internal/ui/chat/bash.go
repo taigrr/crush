@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -17,6 +18,30 @@ import (
 // Bash Tool
 // -----------------------------------------------------------------------------
 
+const (
+	// BackgroundToolKey is the keystroke that moves the running shell
+	// command to the background. It is shared with the model's keymap so
+	// the in-chat hint and the help overlay always agree.
+	BackgroundToolKey = "alt+b"
+	// BackgroundHintDelay is how long a bash call must have been running
+	// before the background hint is shown. Short commands finish before
+	// the hint would be useful, so it stays out of the way for them.
+	BackgroundHintDelay = 2 * time.Second
+)
+
+// bashBackgroundHint returns the "alt+b to background" affordance for a
+// bash call that has been running long enough to be worth backgrounding,
+// or an empty string otherwise.
+func bashBackgroundHint(sty *styles.Styles, opts *ToolRenderOpts) string {
+	if !opts.IsRunning() || opts.RunningSince.IsZero() {
+		return ""
+	}
+	if time.Since(opts.RunningSince) < BackgroundHintDelay {
+		return ""
+	}
+	return sty.Tool.HintKey.Render(BackgroundToolKey) + " " + sty.Tool.HintText.Render("to background")
+}
+
 // BashToolMessageItem is a message item that represents a bash tool call.
 type BashToolMessageItem struct {
 	*baseToolMessageItem
@@ -25,13 +50,22 @@ type BashToolMessageItem struct {
 var _ ToolMessageItem = (*BashToolMessageItem)(nil)
 
 // NewBashToolMessageItem creates a new [BashToolMessageItem].
+//
+// Unlike most tools, a bash item keeps ticking after its input has fully
+// streamed and until a result lands: the "alt+b to background" hint is
+// time-gated on how long the command has been running, and only the
+// animation tick re-renders an item whose data has not changed.
 func NewBashToolMessageItem(
 	sty *styles.Styles,
 	toolCall message.ToolCall,
 	result *message.ToolResult,
 	canceled bool,
 ) ToolMessageItem {
-	return newBaseToolMessageItem(sty, toolCall, result, &BashToolRenderContext{}, canceled)
+	item := newBaseToolMessageItem(sty, toolCall, result, &BashToolRenderContext{}, canceled)
+	item.spinningFunc = func(state SpinningState) bool {
+		return !state.HasResult() && !state.IsCanceled()
+	}
+	return &BashToolMessageItem{baseToolMessageItem: item}
 }
 
 // BashToolRenderContext renders bash tool messages.
@@ -75,6 +109,9 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	}
 
 	if earlyState, ok := toolEarlyStateContent(sty, opts, cappedWidth); ok {
+		if hint := bashBackgroundHint(sty, opts); hint != "" {
+			earlyState += "  " + hint
+		}
 		return joinToolParts(header, earlyState)
 	}
 

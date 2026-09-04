@@ -196,6 +196,16 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 
+	// Background the running bash command. Only consumed while one is
+	// actually in flight; otherwise the key keeps its usual meaning in
+	// the focused component (word-backward in the editor).
+	if key.Matches(msg, m.keyMap.Chat.BackgroundTool) {
+		if cmd := m.backgroundRunningBash(); cmd != nil {
+			cmds = append(cmds, cmd)
+			return tea.Batch(cmds...)
+		}
+	}
+
 	switch m.state {
 	case uiOnboarding:
 		return tea.Batch(cmds...)
@@ -272,7 +282,8 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					return m.pasteImageFromClipboard(idx)
 				})
 
-			case key.Matches(msg, m.keyMap.Editor.SendMessage):
+			case key.Matches(msg, m.keyMap.Editor.SendMessage), key.Matches(msg, m.keyMap.Editor.Steer):
+				steer := key.Matches(msg, m.keyMap.Editor.Steer)
 				prevHeight := m.textarea.Height()
 				value := m.textarea.Value()
 				if before, ok := strings.CutSuffix(value, "\\"); ok {
@@ -321,6 +332,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				m.randomizePlaceholders()
 				m.historyReset()
 
+				if steer {
+					return m.steerOrSend(value, attachments...)
+				}
 				return m.sendMessage(value, attachments...)
 			case key.Matches(msg, m.keyMap.Chat.NewSession):
 				if !m.hasSession() {

@@ -67,6 +67,9 @@ type ToolMessageItem interface {
 	SetMessageID(id string)
 	SetStatus(status ToolStatus)
 	Status() ToolStatus
+	// IsRunning reports whether the call is executing: input fully
+	// streamed, no result yet, not canceled.
+	IsRunning() bool
 	SetImageConfig(cfg *ImageConfig)
 	TransmitImage() tea.Cmd
 }
@@ -116,6 +119,17 @@ type ToolRenderOpts struct {
 	IsSpinning      bool
 	Status          ToolStatus
 	ImageConfig     *ImageConfig
+	// RunningSince is when the tool call's input finished streaming and
+	// the tool started executing. Zero until then, and left as-is once a
+	// result arrives so renderers can show elapsed-time affordances only
+	// while the call is genuinely in flight.
+	RunningSince time.Time
+}
+
+// IsRunning returns true when the tool call has fully arrived, is being
+// executed, and has not yet produced a result or been canceled.
+func (o *ToolRenderOpts) IsRunning() bool {
+	return o.ToolCall.Finished && !o.HasResult() && o.Status == ToolStatusRunning
 }
 
 // ImageConfig holds configuration for inline image rendering.
@@ -186,6 +200,11 @@ type baseToolMessageItem struct {
 
 	// imageConfig holds configuration for inline image rendering.
 	imageConfig *ImageConfig
+
+	// runningSince records when the tool call finished streaming its
+	// input without a result yet, i.e. when execution began from the
+	// UI's point of view. Zero while the input is still streaming.
+	runningSince time.Time
 }
 
 var _ Expandable = (*baseToolMessageItem)(nil)
@@ -214,6 +233,9 @@ func newBaseToolMessageItem(
 		toolCall:                 toolCall,
 		result:                   result,
 		status:                   status,
+	}
+	if toolCall.Finished && result == nil && !canceled {
+		t.runningSince = time.Now()
 	}
 	t.anim = anim.New(anim.Settings{
 		ID:          toolCall.ID,
@@ -360,6 +382,7 @@ func (t *baseToolMessageItem) RawRender(width int) string {
 			IsSpinning:      t.isSpinning(),
 			Status:          t.computeStatus(),
 			ImageConfig:     t.imageConfig,
+			RunningSince:    t.runningSince,
 		})
 
 		// Prepend hook indicator if hooks ran for this tool call.
@@ -423,9 +446,18 @@ func (t *baseToolMessageItem) ToolCall() message.ToolCall {
 
 // SetToolCall sets the tool call associated with this message item.
 func (t *baseToolMessageItem) SetToolCall(tc message.ToolCall) {
+	if tc.Finished && !t.toolCall.Finished && t.result == nil && t.runningSince.IsZero() {
+		t.runningSince = time.Now()
+	}
 	t.toolCall = tc
 	t.clearCache()
 	t.Bump()
+}
+
+// IsRunning reports whether the tool call has fully arrived and is
+// executing without a result yet. Canceled calls are not running.
+func (t *baseToolMessageItem) IsRunning() bool {
+	return t.toolCall.Finished && t.result == nil && t.status == ToolStatusRunning
 }
 
 // SetResult sets the tool result associated with this message item.
