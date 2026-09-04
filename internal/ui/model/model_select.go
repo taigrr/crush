@@ -129,8 +129,10 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 				m.applyTheme(themes.ThemeForProvider(providerID, m.hasDarkBackground))
 			}
 		}
-		if _, ok := cfg.Models[config.SelectedModelTypeSmall]; !ok {
-			// Ensure small model is set is unset.
+		if _, ok := cfg.Models[config.SelectedModelTypeSmall]; !ok && msg.ModelType == config.SelectedModelTypeLarge {
+			// Ensure small is set when large is chosen and small is unset;
+			// setting worker or a custom role must not pick small from that
+			// role's provider.
 			smallModel := m.com.Workspace.GetDefaultSmallModel(providerID)
 			if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, config.SelectedModelTypeSmall, smallModel); err != nil {
 				cmds = append(cmds, util.ReportError(err))

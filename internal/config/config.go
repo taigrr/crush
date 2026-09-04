@@ -57,7 +57,23 @@ func (s SelectedModelType) String() string {
 const (
 	SelectedModelTypeLarge SelectedModelType = "large"
 	SelectedModelTypeSmall SelectedModelType = "small"
+	// SelectedModelTypeWorker is an optional default for delegated work:
+	// when set, the agent and review tools run it unless the
+	// call names a model explicitly. It lets a strong large model (the one
+	// you talk to) hand mechanical sub-tasks to a cheaper one without any
+	// per-call ceremony. Unset means delegated work runs the large model.
+	SelectedModelTypeWorker SelectedModelType = "worker"
 )
+
+// IsBuiltinModelType reports whether t is one of the fixed model slots
+// (large, small, worker) as opposed to a user-defined role name.
+func IsBuiltinModelType(t SelectedModelType) bool {
+	switch t {
+	case SelectedModelTypeLarge, SelectedModelTypeSmall, SelectedModelTypeWorker:
+		return true
+	}
+	return false
+}
 
 const (
 	AgentCoder    string = "coder"
@@ -739,8 +755,13 @@ func (h *HookConfig) TimeoutDuration() time.Duration {
 type Config struct {
 	Schema string `json:"$schema,omitempty"`
 
-	// We currently only support large/small as values here.
-	Models map[SelectedModelType]SelectedModel `json:"models,omitempty" jsonschema:"description=Model configurations for different model types,example={\"large\":{\"model\":\"gpt-4o\",\"provider\":\"openai\"}}"`
+	// Keys are "large", "small", the optional "worker", and any
+	// user-defined role names (see ModelRoles). Role names are the
+	// vocabulary the `model` parameter on the agent/review tools
+	// accepts, so an operator can map e.g. "scout" to a cheap model on
+	// one machine and a different one on another without prompts
+	// changing.
+	Models map[SelectedModelType]SelectedModel `json:"models,omitempty" jsonschema:"description=Model configurations by role. Built-in roles: large (the model you talk to)\\, small (titles/summaries)\\, worker (optional default for delegated work via the agent/review tools). Any other key defines a named role usable as the model parameter on those tools,example={\"large\":{\"model\":\"gpt-4o\",\"provider\":\"openai\"}}"`
 
 	// Recently used models stored in the data directory config.
 	RecentModels map[SelectedModelType][]SelectedModel `json:"recent_models,omitempty" jsonschema:"-"`
@@ -807,6 +828,21 @@ func (c *Config) GetModel(provider, model string) *catwalk.Model {
 	return nil
 }
 
+// EnabledModel is GetModel restricted to providers that are not disabled.
+// Known (catalog) providers with `disable: true` stay in the providers
+// map, so GetModel alone would let a role select a model
+// the user has switched off. Role validation and the worker default
+// use this instead.
+func (c *Config) EnabledModel(provider, model string) *catwalk.Model {
+	if c.Providers == nil {
+		return nil
+	}
+	if providerConfig, ok := c.Providers.Get(provider); !ok || providerConfig.Disable {
+		return nil
+	}
+	return c.GetModel(provider, model)
+}
+
 func (c *Config) GetProviderForModel(modelType SelectedModelType) *ProviderConfig {
 	model, ok := c.Models[modelType]
 	if !ok {
@@ -824,6 +860,37 @@ func (c *Config) GetModelByType(modelType SelectedModelType) *catwalk.Model {
 		return nil
 	}
 	return c.GetModel(model.Provider, model.Model)
+}
+
+// WorkerModel returns the configured worker selection when it is set and
+// resolvable against the current enabled providers. ok is false when no
+// worker is configured or its provider/model is unknown or disabled, in
+// which case delegated work simply runs "large".
+func (c *Config) WorkerModel() (SelectedModel, bool) {
+	sel, ok := c.Models[SelectedModelTypeWorker]
+	if !ok || sel.Model == "" || sel.Provider == "" {
+		return SelectedModel{}, false
+	}
+	if c.EnabledModel(sel.Provider, sel.Model) == nil {
+		return SelectedModel{}, false
+	}
+	return sel, true
+}
+
+// ModelRoles returns the user-defined role names configured under
+// "models", sorted, excluding the built-in large/small/worker
+// slots. These are the names the tools' `model` parameter accepts in
+// addition to provider/model references.
+func (c *Config) ModelRoles() []SelectedModelType {
+	var roles []SelectedModelType
+	for t := range c.Models {
+		if IsBuiltinModelType(t) {
+			continue
+		}
+		roles = append(roles, t)
+	}
+	slices.Sort(roles)
+	return roles
 }
 
 func (c *Config) LargeModel() *catwalk.Model {

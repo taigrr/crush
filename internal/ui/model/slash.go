@@ -31,6 +31,12 @@ type slashCommand struct {
 	requiresSession bool
 	// run executes the command with the trimmed argument string.
 	run func(m *UI, args string) tea.Cmd
+	// argCompletions, when set, supplies completions for the next argument
+	// given the arguments typed so far (trimmed, possibly empty). The popup
+	// opens each time the user types a space after the verb or after a
+	// completed argument. nil means the command offers no argument
+	// completion.
+	argCompletions func(m *UI, args string) []completions.ArgCompletionValue
 }
 
 // builtinSlashCommands is the registry of inline slash commands. It is the
@@ -93,6 +99,18 @@ var builtinSlashCommands = []slashCommand{
 		},
 	},
 	{
+		name:            "model",
+		argHint:         "[role] [model [effort]]",
+		description:     "Switch the large model, or set a role (large, small, worker, custom) for the workspace",
+		requiresSession: false,
+		run: func(m *UI, args string) tea.Cmd {
+			return m.handleModelSlash(args)
+		},
+		argCompletions: func(m *UI, args string) []completions.ArgCompletionValue {
+			return m.modelArgCompletions(args)
+		},
+	},
+	{
 		name:            "review",
 		description:     "Run two adversarial reviewers in parallel on the current change",
 		requiresSession: true,
@@ -149,6 +167,24 @@ func slashCommandCompletions() []completions.CommandCompletionValue {
 		})
 	}
 	return out
+}
+
+// slashArgCompletions returns argument completions for the slash command
+// being typed in value, or nil when value is not a slash command with
+// argument completion. value is expected to end just after a space.
+func (m *UI) slashArgCompletions(value string) []completions.ArgCompletionValue {
+	if strings.ContainsAny(value, "\n") {
+		return nil
+	}
+	verb, args, ok := splitSlash(strings.TrimRight(value, " "))
+	if !ok {
+		return nil
+	}
+	c, found := lookupSlash(builtinSlashCommands, verb)
+	if !found || c.argCompletions == nil {
+		return nil
+	}
+	return c.argCompletions(m, args)
 }
 
 // dispatchSlash routes value to a builtin slash command. handled is false

@@ -87,6 +87,11 @@ type ReviewParams struct {
 	Command string `json:"command" description:"Shell command whose stdout is the change to review, e.g. 'git diff $(git merge-base HEAD main)'. The harness runs it and passes the output to the reviewers. For projects without git, write the files to a temp file and pass 'cat /tmp/review.txt'. Required."`
 	Goal    string `json:"goal,omitempty" description:"The original goal/intent of the change, for the reviewers' context. Optional."`
 	Focus   string `json:"focus,omitempty" description:"Specific areas or concerns the reviewers should focus on. Optional."`
+	// Model optionally picks the model both reviewers run on: a
+	// configured role name, 'provider/model', or a bare id. A reviewer
+	// from a different vendor than the writer catches a different class
+	// of mistakes. Empty means the configured worker role, else the large model.
+	Model string `json:"model,omitempty" description:"Optional model for the reviewers: a role name (large, small, worker, or a configured role), 'provider/model', or a bare model id. Defaults to the configured worker role, else the large model. Prefer a different vendor than the one that wrote the change."`
 }
 
 // reviewVariant describes a per-reviewer framing. Varying the input
@@ -258,6 +263,13 @@ func (c *coordinator) reviewTool(ctx context.Context) (fantasy.AgentTool, error)
 				return fantasy.ToolResponse{}, errors.New("agent message id missing from context")
 			}
 
+			// Resolve the optional model before running the command so
+			// a bad reference fails fast and cheaply.
+			model, err := c.optionalModelRef(params.Model)
+			if err != nil {
+				return fantasy.NewTextErrorResponse(err.Error()), nil
+			}
+
 			// Run the command in the coder's working directory and use
 			// its stdout as the change to review.
 			sh := shell.NewShell(&shell.Options{WorkingDir: c.workingDir(ctx)})
@@ -293,12 +305,14 @@ func (c *coordinator) reviewTool(ctx context.Context) (fantasy.AgentTool, error)
 			for i := range reviewerCount {
 				wg.Go(func() {
 					resp, err := c.runSubAgent(ctx, subAgentParams{
-						Agent:          agent,
-						SessionID:      sessionID,
-						AgentMessageID: agentMessageID,
-						ToolCallID:     reviewSubToolCallID(call.ID, i),
-						Prompt:         buildReviewPrompt(params, change, i),
-						SessionTitle:   fmt.Sprintf("Adversarial Review %d", i+1),
+						Agent:            agent,
+						SessionID:        sessionID,
+						AgentMessageID:   agentMessageID,
+						ToolCallID:       reviewSubToolCallID(call.ID, i),
+						Prompt:           buildReviewPrompt(params, change, i),
+						SessionTitle:     fmt.Sprintf("Adversarial Review %d", i+1),
+						Model:            model,
+						UseWorkerDefault: true,
 					})
 					switch {
 					case err != nil:

@@ -38,7 +38,11 @@ type SwarmBackend interface {
 	// CreateSessionInWorkspace creates a new session in an existing
 	// workspace and returns it (with color/animal assigned). Fails
 	// if the workspace is not currently running.
-	CreateSessionInWorkspace(ctx context.Context, workspaceID, title string) (session.Session, error)
+	// modelRef, when non-empty, is the model reference the new session
+	// runs on (a role name, provider/model, or bare id); it is validated
+	// against the target workspace's config. Empty runs the workspace's
+	// large model.
+	CreateSessionInWorkspace(ctx context.Context, workspaceID, title, modelRef string) (session.Session, error)
 	// ArchiveSessionInWorkspace archives a session that was created
 	// via CreateSessionInWorkspace but that we then failed to send
 	// the initial message to. Best-effort compensating cleanup so
@@ -49,7 +53,7 @@ type SwarmBackend interface {
 	// a detached one if needed), then creates a new session in it. It
 	// returns the resolved workspace id alongside the session so the
 	// caller can deliver the initial message.
-	CreateSessionInWorkspaceAtPath(ctx context.Context, path, title string) (workspaceID string, sess session.Session, err error)
+	CreateSessionInWorkspaceAtPath(ctx context.Context, path, title, modelRef string) (workspaceID string, sess session.Session, err error)
 	// ResolveWorkspaceByPath resolves a directory path to the ID of
 	// the running workspace rooted at that path. found is false (with
 	// no error) when no running workspace matches.
@@ -94,6 +98,12 @@ type SwarmParams struct {
 	// bringing it up if it isn't currently running. Takes precedence
 	// over WorkspaceID when both are set.
 	Path string `json:"path,omitempty" description:"With address='new': a directory path to spawn the session in, bringing up the workspace if it is not currently running. Alternative to workspace_id; takes precedence when both are set."`
+	// Model is optional when Address == "new": the model the new session
+	// runs on, as a configured role name (large, small, worker, or a
+	// user-defined role), 'provider/model', or a bare model id, resolved in
+	// the TARGET workspace's config on every turn. Omitted keeps today's
+	// default: the new session runs its workspace's large model.
+	Model string `json:"model,omitempty" description:"With address='new': the model for the new session, as a role name (large, small, worker, or a configured role), 'provider/model', or a bare model id, resolved in the target workspace's config. Omitted runs that workspace's large model. Rejected (tool error) for existing sessions, which keep their own model."`
 }
 
 // NewSwarmTool builds the fantasy tool wrapper. sessions is the
@@ -172,6 +182,9 @@ func runSwarm(
 	if strings.EqualFold(address, "new") {
 		return runSwarmNew(ctx, be, sender, params, btw)
 	}
+	if strings.TrimSpace(params.Model) != "" {
+		return fantasy.NewTextErrorResponse("swarm: 'model' only applies with address='new'; an existing session keeps its own model"), nil
+	}
 	return runSwarmDeliver(ctx, be, sender, address, params.Prompt, btw)
 }
 
@@ -245,7 +258,7 @@ func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, param
 	if path := strings.TrimSpace(params.Path); path != "" {
 		// Path-based: bring up the workspace for this directory
 		// (creating or attaching it) and create a session in it.
-		workspaceID, newSess, err = be.CreateSessionInWorkspaceAtPath(ctx, path, title)
+		workspaceID, newSess, err = be.CreateSessionInWorkspaceAtPath(ctx, path, title, strings.TrimSpace(params.Model))
 	} else {
 		workspaceID = params.WorkspaceID
 		if workspaceID == "" {
@@ -259,7 +272,7 @@ func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, param
 		if workspaceID == "" {
 			return fantasy.NewTextErrorResponse("swarm: address='new' requires workspace_id or path (sender workspace id unavailable)"), nil
 		}
-		newSess, err = be.CreateSessionInWorkspace(ctx, workspaceID, title)
+		newSess, err = be.CreateSessionInWorkspace(ctx, workspaceID, title, strings.TrimSpace(params.Model))
 	}
 	if err != nil {
 		if isContextErr(err) {
@@ -285,11 +298,15 @@ func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, param
 		_ = be.ArchiveSessionInWorkspace(context.Background(), workspaceID, newSess.ID)
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: failed to send initial message to new session (session archived): %s", softErr)), nil
 	}
+	modelNote := ""
+	if newSess.ModelRef != "" {
+		modelNote = " Runs on " + newSess.ModelRef + "."
+	}
 	return fantasy.NewTextResponse(fmt.Sprintf(
-		"Created and %s to %s (workspace=%s, session=%s).",
+		"Created and %s to %s (workspace=%s, session=%s).%s",
 		delivery,
 		swarm.FormatAddress(swarm.Identity{Color: newSess.Color, Animal: newSess.Animal}, newSess.ID),
-		workspaceID, newSess.ID,
+		workspaceID, newSess.ID, modelNote,
 	)), nil
 }
 

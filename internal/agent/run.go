@@ -34,7 +34,10 @@ func (a *sessionAgent) persistCanceledTurn(ctx context.Context, call SessionAgen
 			return err
 		}
 	}
-	largeModel := a.largeModel.Get()
+	largeModel, err := a.turnModel(ctx, call)
+	if err != nil {
+		return err
+	}
 	assistant, err := a.messages.Create(writeCtx, call.SessionID, message.CreateMessageParams{
 		Role:     message.Assistant,
 		Parts:    []message.ContentPart{},
@@ -205,7 +208,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// context (e.g. editor tools when the initiating client has no
 	// attached editor).
 	agentTools := tools.FilterAvailableTools(ctx, a.tools.Copy())
-	largeModel := a.largeModel.Get()
+	// The turn's model: the caller's per-call override when set, else the
+	// shared large model. Everything below (assistant message
+	// attribution, image limits, context window, usage/cost) reads this
+	// one value so the transcript always records what actually ran.
+	largeModel, err := a.turnModel(ctx, call)
+	if err != nil {
+		return nil, err
+	}
 	systemPrompt := a.systemPrompt.Get()
 	promptPrefix := a.systemPromptPrefix.Get()
 	var instructions strings.Builder
@@ -831,7 +841,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 
 	if shouldSummarize {
 		a.clearActiveRequest(call.SessionID)
-		if summarizeErr := a.Summarize(genCtx, call.SessionID, call.ProviderOptions); summarizeErr != nil {
+		if summarizeErr := a.Summarize(genCtx, call.SessionID, &largeModel, call.ProviderOptions); summarizeErr != nil {
 			return nil, summarizeErr
 		}
 		// If the agent wasn't done...

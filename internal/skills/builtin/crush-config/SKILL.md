@@ -109,6 +109,41 @@ reviewed.
 - Only `model` and `provider` are required.
 - Optional tuning: `reasoning_effort`, `think`, `max_tokens`, `temperature`, `top_p`, `top_k`, `frequency_penalty`, `presence_penalty`, `provider_options`.
 
+### Model roles and delegation
+
+The `models` map also accepts an optional `worker` role plus any number of
+custom role names (e.g. `scout`), each a full model selection:
+
+```json
+{
+  "models": {
+    "large": { "model": "claude-opus-4-20250514", "provider": "anthropic" },
+    "small": { "model": "claude-haiku-4-20250514", "provider": "anthropic" },
+    "worker": { "model": "claude-sonnet-4-20250514", "provider": "anthropic" },
+    "scout": { "model": "claude-haiku-4-20250514", "provider": "anthropic" }
+  }
+}
+```
+
+- `large` is always the model you talk to. When `worker` is set, work the
+  session delegates (`agent` and `review` tools) runs `worker` instead of
+  `large` unless the call names a model — so a strong model can drive and
+  hand mechanical sub-tasks to a cheaper one.
+- The `agent`, `review`, and `swarm` (`address: "new"`) tools accept a
+  `model` parameter: a role name (`large`, `small`, `worker`, or a custom
+  role), `provider/model`, or a bare model id (ambiguous bare ids error with
+  a hint). A swarm session spawned with `model` keeps that reference and
+  resolves it in its workspace's config on every turn; without `model` it
+  runs that workspace's large model, as before.
+- A role that names an unknown or disabled provider/model is dropped with a
+  warning (never silently substituted).
+- `/model` in the TUI edits these roles without opening the picker:
+  `/model` shows the current model and every role; `/model <model>
+  [effort]` sets `large`; `/model <role>` shows a role; `/model <role>
+  <model> [effort]` sets `large`, `small`, `worker`, or a custom role
+  (created if new). `<model>` may be `provider/id`, a bare id, or a
+  substring of an id / display name.
+
 ## Custom Providers
 
 ```json

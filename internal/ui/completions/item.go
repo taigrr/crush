@@ -33,6 +33,20 @@ type CommandCompletionValue struct {
 	Description string
 }
 
+// ArgCompletionValue represents a completion for a slash command argument
+// (e.g. a role or model name after "/model ").
+type ArgCompletionValue struct {
+	// Text is inserted into the prompt when selected.
+	Text string
+	// Description is a one-line summary shown next to the value.
+	Description string
+	// Continue asks the host to open completions for the next argument
+	// right after this one is inserted (e.g. a role is followed by a
+	// model). When false the popup stays closed until the user types a
+	// space.
+	Continue bool
+}
+
 // CompletionItem represents an item in the completions list.
 type CompletionItem struct {
 	*list.Versioned

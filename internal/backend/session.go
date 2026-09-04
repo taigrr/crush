@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"errors"
 
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/message"
@@ -9,6 +10,11 @@ import (
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/sessionimport"
 )
+
+// ErrInvalidSessionModel is returned when a swarm session is spawned with a
+// model reference the target workspace cannot resolve. The HTTP layer maps
+// it to 400.
+var ErrInvalidSessionModel = errors.New("invalid session model")
 
 // withWorkspaceSession resolves a workspace to a session-write path,
 // whether it is ATTACHED (running in this server) or merely DETACHED

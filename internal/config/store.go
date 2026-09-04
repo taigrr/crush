@@ -284,6 +284,12 @@ func (s *ConfigStore) RemoveConfigField(scope Scope, key string) error {
 // UpdatePreferredModel updates the preferred model for the given type and
 // persists it to the config file at the given scope.
 func (s *ConfigStore) UpdatePreferredModel(scope Scope, modelType SelectedModelType, model SelectedModel) error {
+	// Role names become a JSON key path segment ("models.<role>"), so
+	// reject anything that would be mis-parsed or nested by the path
+	// syntax, and never write an empty role.
+	if !validRoleName(string(modelType)) {
+		return fmt.Errorf("invalid model role name %q: use letters, digits, '-' or '_'", modelType)
+	}
 	s.config.Models[modelType] = model
 	if err := s.SetConfigField(scope, fmt.Sprintf("models.%s", modelType), model); err != nil {
 		return fmt.Errorf("failed to update preferred model: %w", err)
@@ -880,4 +886,20 @@ func (s *ConfigStore) autoReload(ctx context.Context) error {
 	}
 	defer s.reloadMu.Unlock()
 	return s.reloadFromDiskLocked(ctx)
+}
+
+// validRoleName restricts role names to characters that are safe as a
+// config JSON key path segment.
+func validRoleName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }

@@ -18,13 +18,18 @@ import (
 //go:embed templates/summary.md
 var summaryPrompt []byte
 
-func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fantasy.ProviderOptions) error {
+func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, model *Model, opts fantasy.ProviderOptions) error {
 	if a.IsSessionBusy(sessionID) {
 		return ErrSessionBusy
 	}
 
-	// Copy mutable fields under lock to avoid races with SetModels.
+	// Summarize on the model the turn ran on when the caller passes one
+	// (a per-call override), so the context window that triggered the
+	// summary and the model that writes it agree.
 	largeModel := a.largeModel.Get()
+	if model != nil && model.Model != nil {
+		largeModel = *model
+	}
 	systemPromptPrefix := a.systemPromptPrefix.Get()
 
 	currentSession, err := a.sessions.Get(ctx, sessionID)

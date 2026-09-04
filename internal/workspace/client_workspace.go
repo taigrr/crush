@@ -1712,6 +1712,7 @@ func protoToSession(s proto.Session) session.Session {
 		UpdatedAt:        s.UpdatedAt,
 		Color:            s.Color,
 		Animal:           s.Animal,
+		ModelRef:         s.ModelRef,
 	}
 }
 
@@ -1823,6 +1824,7 @@ func sessionToProto(s session.Session) proto.Session {
 		UpdatedAt:        s.UpdatedAt,
 		Color:            s.Color,
 		Animal:           s.Animal,
+		ModelRef:         s.ModelRef,
 	}
 }
 

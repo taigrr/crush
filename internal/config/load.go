@@ -427,6 +427,16 @@ func (c *Config) applyProviderSpecificConfig(store *ConfigStore, env env.Env, re
 		if prepared.APIKey == "" {
 			return skipMissing("Skipping Bedrock Mantle provider due to missing AWS_BEARER_TOKEN_BEDROCK")
 		}
+		// A corporate gateway fronting Bedrock (AWS_ENDPOINT_URL_BEDROCK,
+		// the same variable the native Bedrock provider consumes) can also
+		// front Mantle's OpenAI-compatible surface. Route to it unless the
+		// user pinned providers.bedrock-mantle.base_url, in which case the
+		// explicit pin wins. The raw user config.BaseURL is the true pin
+		// signal; prepared.BaseURL is always the catalog default here.
+		userPinnedMantle := configExists && config.BaseURL != ""
+		if gw := mantleGatewayURL(env.Get("AWS_ENDPOINT_URL_BEDROCK"), userPinnedMantle); gw != "" {
+			prepared.BaseURL = gw
+		}
 	case catwalk.InferenceProvider("hyper"):
 		if apiKey := env.Get("HYPER_API_KEY"); apiKey != "" {
 			prepared.APIKey = apiKey
@@ -445,6 +455,30 @@ func (c *Config) applyProviderSpecificConfig(store *ConfigStore, env env.Env, re
 		}
 	}
 	return false
+}
+
+// mantleGatewayURL returns the OpenAI-compatible base URL Bedrock Mantle
+// should use when a corporate gateway fronts Bedrock, or "" to leave the
+// configured base URL alone. gw is the value of AWS_ENDPOINT_URL_BEDROCK;
+// it is ignored (returns "") when blank or when the user pinned
+// providers.bedrock-mantle.base_url themselves.
+//
+// The gateway value is treated as an origin and the OpenAI base path "/v1"
+// is appended (the provider then posts to "<base>/responses"). The gateway
+// exposes the OpenAI Responses surface at "<gw>/v1/responses" — mapping it
+// to Bedrock's native "/openai/v1/responses" — so a bare origin, a "/v1"
+// suffix, and a direct-Bedrock "/openai/v1" suffix all resolve to a valid
+// base and are left idempotent.
+func mantleGatewayURL(gw string, userPinned bool) string {
+	gw = strings.TrimSpace(gw)
+	if gw == "" || userPinned {
+		return ""
+	}
+	gw = strings.TrimRight(gw, "/")
+	if strings.HasSuffix(gw, "/v1") {
+		return gw
+	}
+	return gw + "/v1"
 }
 
 func (c *Config) setDefaults(workingDir, dataDir string) {
@@ -779,6 +813,32 @@ func configureSelectedModels(store *ConfigStore, knownProviders []catwalk.Provid
 
 	c.Models[SelectedModelTypeLarge] = large
 	c.Models[SelectedModelTypeSmall] = small
+
+	// The worker slot and user-defined roles are optional and have
+	// no default. Unlike large/small we never substitute a fallback for
+	// an unresolvable selection: we drop it with a warning, so a typo
+	// degrades to "that role is unavailable" rather than silently
+	// running an arbitrary model under a name the user chose on purpose.
+	for typ, sel := range c.Models {
+		if typ == SelectedModelTypeLarge || typ == SelectedModelTypeSmall {
+			continue
+		}
+		if sel.Model == "" || sel.Provider == "" {
+			slog.Warn("Model role is incomplete; ignoring", "role", typ)
+			delete(c.Models, typ)
+			continue
+		}
+		model := c.EnabledModel(sel.Provider, sel.Model)
+		if model == nil {
+			slog.Warn("Model role points at a model no configured provider offers; ignoring",
+				"role", typ, "provider", sel.Provider, "model", sel.Model)
+			delete(c.Models, typ)
+			continue
+		}
+		resolved := sel
+		applyModelOverrides(&resolved, sel, model)
+		c.Models[typ] = resolved
+	}
 	return nil
 }
 

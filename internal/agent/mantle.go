@@ -23,6 +23,19 @@ type mantleErrorTransport struct {
 	base http.RoundTripper
 }
 
+// withMantleErrorTransport wraps client's transport so Bedrock Mantle's
+// HTTP-200 error envelopes are surfaced as real errors. It creates a client
+// when none is supplied. Callers gate this on the provider being Bedrock
+// Mantle; it is otherwise a no-op-shaped wrapper that only rewrites 200
+// responses whose body is an OpenAI error envelope.
+func withMantleErrorTransport(client *http.Client) *http.Client {
+	if client == nil {
+		client = &http.Client{}
+	}
+	client.Transport = &mantleErrorTransport{base: client.Transport}
+	return client
+}
+
 func (t *mantleErrorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	base := t.base
 	if base == nil {

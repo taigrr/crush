@@ -139,3 +139,31 @@ func (m *UI) landingRecentSessions(width, height int) string {
 
 	return lipgloss.JoinVertical(lipgloss.Left, lines...)
 }
+
+// effectiveModel returns the model the sidebar's session actually runs on:
+// its own model reference when it was spawned with one (swarm `new` with
+// `model`) and that reference still resolves, otherwise the workspace's
+// large model. Mirrors coordinator.sessionModel so the sidebar never
+// disagrees with what a turn uses.
+func (m *UI) effectiveModel() *workspace.AgentModel {
+	large := m.selectedLargeModel()
+	sess := m.sidebarSession()
+	cfg := m.com.Config()
+	// A previewed session may belong to another workspace whose roles this
+	// config knows nothing about; only resolve the committed session's ref.
+	if sess == nil || sess != m.session || sess.ModelRef == "" || cfg == nil {
+		return large
+	}
+	sel, err := cfg.ResolveModelRef(sess.ModelRef)
+	if err != nil {
+		return large
+	}
+	cw := cfg.GetModel(sel.Provider, sel.Model)
+	if cw == nil {
+		return large
+	}
+	if sel.MaxTokens == 0 {
+		sel.MaxTokens = cw.DefaultMaxTokens
+	}
+	return &workspace.AgentModel{CatwalkCfg: *cw, ModelCfg: sel}
+}
