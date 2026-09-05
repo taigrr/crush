@@ -11,9 +11,7 @@ jobs:
       golangci_path: .golangci.yml
       golangci_version: v2.13
       timeout: 10m
-      # ebitengine/oto (via gopxl/beep) links ALSA under cgo; golangci
-      # type-checks with cgo enabled, so Linux runners need the headers.
-      pre-run: |
-        if [ "$(uname -s)" = "Linux" ]; then
-          sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
-        fi
+      # The reusable workflow runs pre-run without a shell override, so on
+      # Windows it executes under PowerShell. Delegate to bash (available on
+      # every runner) so the script can branch on OS.
+      pre-run: bash .github/scripts/lint-prerun.sh
