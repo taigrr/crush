@@ -53,16 +53,23 @@ func (a *sessionAgent) BeginAccepted(sessionID string) *AcceptedRun {
 // covered by the same mark are serialized on the per-session dispatch
 // mutex and read the mark before they Close, so this never clears it out
 // from under a covered handle still waiting to enter Run.
+//
+// Reaching zero also wakes WaitForIdle waiters: IsBusy counts accepted
+// runs, so a run canceled on entry (or failing before it becomes active)
+// would otherwise leave a waiter asleep until some unrelated active run
+// ended or its context expired.
 func (a *sessionAgent) endAccepted(sessionID string) {
 	a.acceptedMu.Lock()
-	defer a.acceptedMu.Unlock()
 	count, ok := a.acceptedRuns.Get(sessionID)
 	if !ok || count <= 1 {
 		a.acceptedRuns.Del(sessionID)
 		a.cancelMark.Del(sessionID)
+		a.acceptedMu.Unlock()
+		a.signalIdle()
 		return
 	}
 	a.acceptedRuns.Set(sessionID, count-1)
+	a.acceptedMu.Unlock()
 }
 
 // sessionMu returns the per-session dispatch mutex, creating it on first
@@ -432,29 +439,67 @@ func (a *sessionAgent) IsSessionBusy(sessionID string) bool {
 	return busy
 }
 
+// IsSessionBusyOrAccepted is the observer-facing busy predicate: true when
+// sessionID has an active run OR an accepted-but-not-yet-active one. The
+// dispatch window between BeginAccepted and activeRequests.Set spans
+// readyWg, model resolution, and DB writes, and the AttentionBusy event
+// that makes clients refresh their session overviews fires at the start
+// of it — so a listing that consulted IsSessionBusy alone would read
+// false and show a live turn as idle until the next unrelated refresh.
+//
+// Run itself must keep using the strict IsSessionBusy so a prompt is
+// never queued behind its own accept reservation.
+func (a *sessionAgent) IsSessionBusyOrAccepted(sessionID string) bool {
+	if a.IsSessionBusy(sessionID) {
+		return true
+	}
+	if a.acceptedRuns == nil {
+		return false
+	}
+	a.acceptedMu.Lock()
+	defer a.acceptedMu.Unlock()
+	count, _ := a.acceptedRuns.Get(sessionID)
+	return count > 0
+}
+
 // clearActiveRequest removes the session's active request and signals any
 // WaitForIdle waiters. Every place that releases an active request must go
 // through here so the idle wakeup is never missed.
 func (a *sessionAgent) clearActiveRequest(sessionID string) {
 	a.activeRequests.Del(sessionID)
+	a.signalIdle()
+}
+
+// signalIdle wakes every WaitForIdle waiter so it re-checks IsBusy. It is
+// a broadcast, not a per-session signal: waiters re-evaluate the whole
+// agent, so a spurious wakeup is harmless. Callers must publish the state
+// change (activeRequests/acceptedRuns) BEFORE calling this; WaitForIdle
+// relies on that ordering to avoid a lost wakeup.
+func (a *sessionAgent) signalIdle() {
 	a.idleMu.Lock()
 	close(a.idleCh)
 	a.idleCh = make(chan struct{})
 	a.idleMu.Unlock()
 }
 
-// WaitForIdle blocks until the agent has no active requests or ctx is done.
-// It is event-driven: each cleared active request closes the current idle
-// channel, waking the waiter to re-check. Returns ctx.Err() if the context
-// is canceled first.
+// WaitForIdle blocks until the agent has no active or accepted runs, or
+// ctx is done. It is event-driven: each released run closes the current
+// idle channel, waking the waiter to re-check. Returns ctx.Err() if the
+// context is canceled first.
+//
+// The idle channel is captured BEFORE the busy check. A release that lands
+// between the two closes the captured channel (state is published before
+// signalIdle), so the waiter wakes and re-checks; capturing after the
+// check could grab the replacement channel and sleep through a release
+// that already happened.
 func (a *sessionAgent) WaitForIdle(ctx context.Context) error {
 	for {
-		if !a.IsBusy() {
-			return nil
-		}
 		a.idleMu.Lock()
 		ch := a.idleCh
 		a.idleMu.Unlock()
+		if !a.IsBusy() {
+			return nil
+		}
 		select {
 		case <-ch:
 		case <-ctx.Done():
