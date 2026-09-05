@@ -2,6 +2,7 @@
 
 <p align="center">
     <a href="https://stuff.charm.sh/crush/charm-crush.png"><img width="450" alt="Charm Crush Logo" src="https://github.com/user-attachments/assets/cf8ca3ce-8b02-43f0-9d0f-5a331488da4b" /></a><br />
+    <a href="https://github.com/taigrr/crush/releases"><img src="https://img.shields.io/github/release/taigrr/crush" alt="Latest Release"></a>
     <a href="https://github.com/taigrr/crush/actions"><img src="https://github.com/taigrr/crush/actions/workflows/build.yml/badge.svg" alt="Build Status"></a>
 </p>
 
@@ -10,14 +11,16 @@
 <p align="center"><img width="800" alt="Crush Demo" src="https://github.com/user-attachments/assets/58280caf-851b-470a-b6f7-d5c4ea8a1968" /></p>
 
 > [!NOTE]
-> This is a fork of [Charm Crush](https://github.com/charmbracelet/crush) by
-> taigrr, with additional changes. Install it with
+> This is a fork of [Charm Crush](https://github.com/charmbracelet/crush)
+> maintained by [taigrr](https://github.com/taigrr). It tracks upstream and
+> layers on a large set of features, a privacy-first stance, and a
+> multi-session, multi-workspace workflow. Grab a
+> [release](https://github.com/taigrr/crush/releases) or run
 > `go install github.com/taigrr/crush@latest`.
 
 ## Why This Fork?
 
-This fork tracks upstream Crush but adds a large set of features and a
-privacy-first stance. If you want more control over your workflow, editor
+If you want more control over your workflow, your sessions, your editor
 integration, and your data, here's what you get on top of upstream. For a
 deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 
@@ -29,12 +32,33 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 - **Self-contained.** Renamed to `github.com/taigrr/crush` and built on
   taigrr forks of `fantasy` and `catwalk`. Providers are compiled in from
   an embedded catalog, so there's no network provider fetching.
+- **Self-hosted releases.** Binaries and `deb`/`rpm`/`apk`/Arch packages
+  are built and published from this repo, with nightlies.
 
-### Editor Integration
+### Sessions & Workspaces
 
-- **Native Neovim bridge.** A direct Neovim integration (replacing the
-  older neocrush daemon) so Crush can open files and drive your editor
-  from inside a session.
+- **Session sidebar** (`ctrl+s`): a cross-workspace navigator with vim
+  keys, `/` text filter, `{`/`}` section jumps, resizable width, and a
+  grouped-by-workspace or flat **inbox** view (Running / Unread / Read /
+  Favorite). Multi-select for bulk archive and mark-as-read, click-to-open,
+  a live hot-preview of whatever you're hovering, and a Ready / Working /
+  Total summary block.
+- **Swarm**: every session gets a `color-animal` address. Sessions can
+  message each other, fold asides into a running turn (`btw`), or spawn
+  brand-new sessions in any directory — bringing that workspace up if
+  needed — optionally on a different model.
+- **Semantic search palette** (`ctrl+b`) over your entire history, with
+  hybrid vector + substring matching and `/g` cross-workspace fan-out.
+  Also available as `crush search` and `crush embeddings`.
+- **Session import** from Claude Code, Codex, Grok Build, and Pi via
+  `crush session import`, with idempotent re-sync.
+- **Attention plumbing**: per-session permission and question state, a
+  red/green window border when a background session needs you or is ready
+  for review, and a connection-status line with exponential reconnect
+  backoff.
+- Session read/unread state, favorites, per-session working directory,
+  `ctrl+x` archive-current, recent sessions on the landing screen, and
+  automatic re-titling.
 
 ### Checkpoints, Worktrees & Forking
 
@@ -47,44 +71,18 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 - **Conversation forking.** Fork a session from any message, optionally
   into its own worktree.
 
-### Context Management
+### Models & Context
 
+- **Model roles.** Beyond `large` and `small`, an optional `worker` role
+  is the default for delegated work, and any other key under `models`
+  defines a named role (`scout`, `reviewer`, …) that the `agent`, `review`,
+  and `swarm` tools accept as their `model` parameter. Switch roles live
+  with `/model`.
 - **Dynamic 1M-token context.** Per-model `standard` / `extended` /
   `dynamic` modes; `dynamic` auto-switches to a 1M window as you fill the
   standard one, then summarizes near the limit.
-
-### Sessions
-
-- Cross-workspace session navigator sidebar with runtime workspace
-  switching.
-- Session read/unread state, per-session working directory, and
-  archive/unarchive.
-- Recent sessions on the landing screen, animated title reveal, and
-  automatic re-titling.
-
-### Themes & UI
-
-- Named theme registry plus **user Lua themes** and a live-preview theme
-  picker.
-- Bundled community themes: Tokyo Night, Catppuccin, Dracula, Nord,
-  Gruvbox, Rosé Pine, Cyberpunk, and VS Code Dark.
-- Inline **image rendering** for attachments via the Kitty graphics
-  protocol.
-- **Low-bandwidth / reduced-motion** mode for slow links and SSH.
-- Milestones dialog, git branch and active-worktree indicators in the
-  header.
-
-### New Tools
-
-- `multi_view` for batched file reads.
-- LSP-powered `lsp_definition`, `lsp_references`, `lsp_rename`, and
-  `lsp_document_symbols`.
-- Native `context7` tool for up-to-date library docs.
-- `search_history` and `list_sessions` with hybrid embedding search
-  (`crush search` / `crush embeddings` CLIs).
-- `reload_config` tool and editor-bridge tools (open buffer context, jump
-  to locations in Neovim).
-- Diff view for denied tool calls.
+- Message queueing and deferred model/context changes while the agent is
+  busy.
 
 ### Agent Workflow
 
@@ -92,32 +90,78 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
   message role.
 - **Goal mode** (`/goal`): an autonomous, turn-budgeted loop that keeps
   working until a stated goal is met.
-- **Slash commands** at the prompt: `/goal`, `/export`, `/continue`,
-  `/rename`, `/cwd`, `/btw`.
-- **Session export** to Markdown, and smart paste (images, long text, and
-  file paths become attachments).
+- **Parallel adversarial review** (`/review` or the `review` tool): two
+  isolated reviewers, ideally from a different vendor, for a
+  write → review → fix loop.
+- **Question tool**: a restrained, structured agent-to-user round-trip
+  (single/multiple choice, yes/no, free text) that hard-fails headless
+  instead of hanging.
+- **Slash commands**: `/goal`, `/export`, `/continue`, `/rename`, `/cwd`,
+  `/model`, `/review`, `/mcp-auth`, `/btw`.
+- **Session export** to Markdown (including review findings), and smart
+  paste (images, long text, and file paths become attachments).
 - **Milestones**: auto-generated progress markers across a session.
 - **Procedures** injected into the system prompt for reusable workflows.
-- **Parallel adversarial review** agents for a write → review → fix loop.
 - Ephemeral **sysadmin mode** toggle to bypass the command filter.
 - Bundled **ripgrep** enforcement for fast content search.
-- Message queueing and deferred model/context changes while the agent is
-  busy.
 
-### CLI & Client/Server
+### New Tools
 
-- Extra subcommands: `crush search`, `crush embeddings`, `crush db`,
-  `crush reload`, `crush shutdown`.
-- Client/server mode by default, sharing one workspace per directory
-  across multiple clients with row-level DB sync and multi-client
-  permission coordination.
+- `multi_view` for batched file reads.
+- LSP-powered `lsp_definition`, `lsp_references`, `lsp_rename`,
+  `lsp_document_symbols`, and `lsp_replace_symbol` for whole-symbol edits.
+- Native `context7` tool for up-to-date library docs.
+- `search_history`, `list_sessions`, `rename_session`, `swarm`, and
+  `workspace_lookup` for cross-session work.
+- `question`, `review`, `reload_config`, `crush_info`, `crush_logs`, and
+  editor-bridge tools (open buffer context, jump to locations in Neovim).
+- Diff view for denied tool calls.
+
+### Editor Integration
+
+- **Native Neovim bridge.** A direct Neovim integration (replacing the
+  older neocrush daemon) so Crush can open files and drive your editor
+  from inside a session.
+
+### Themes & UI
+
+- Named theme registry with **adaptive light/dark variants** for every
+  theme, **user Lua themes**, and a live-preview theme picker.
+- Bundled community themes: Tokyo Night, Catppuccin, Dracula, Nord,
+  Gruvbox, Rosé Pine, Cyberpunk, VS Code Dark, and a **monochrome**
+  family (plain, green, blue, yellow, purple, red).
+- Inline **image rendering** for attachments via the Kitty graphics
+  protocol.
+- **Low-bandwidth / reduced-motion** mode for slow links and SSH.
+- Milestones dialog, git branch and active-worktree indicators in the
+  header.
+
+### Notifications
+
+- **Sound effects** for end of turn, swarm messages, blocked sessions,
+  tool errors, and queued messages — each individually configurable or
+  replaceable with your own WAV/MP3, mutable from the command palette.
 - Configurable notification backends, terminal bell support, and SSH
   terminal notifications.
 
+### CLI & Client/Server
+
+- Extra subcommands: `crush session {list,show,last,delete,rename,import}`,
+  `crush search`, `crush embeddings`, `crush db merge`, `crush reload`,
+  `crush shutdown`, `crush server`.
+- Client/server mode by default, sharing one workspace per directory
+  across multiple clients with row-level DB sync and multi-client
+  permission coordination.
+- Embedded Swagger UI for the server API at `/v1/docs/`.
+
 ### Providers
 
+- `crush login grok` for Grok subscription auth (alongside Hyper and
+  Copilot).
 - Amazon Bedrock Europe, Bedrock Mantle (GPT-5.5), and improved AWS
   credential detection.
+- Shell expansion in provider `base_url` and `api_key`, so
+  `"$MY_BASE_URL"` and `"$(op read ...)"` just work.
 
 ## Features
 
@@ -131,7 +175,12 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 
 ## Installation
 
-Install it with Go:
+Download a [release](https://github.com/taigrr/crush/releases): binaries
+are available for Linux, macOS, Windows, FreeBSD, OpenBSD, and NetBSD, and
+packages are available in `deb`, `rpm`, `apk`, and Arch formats. A rolling
+`nightly` pre-release tracks the `main` branch.
+
+Or install it with Go (1.27+):
 
 ```bash
 go install github.com/taigrr/crush@latest
@@ -199,7 +248,7 @@ Is there a provider you’d like to see in Crush? Is there an existing model tha
 
 This fork of Crush’s default model listing is managed in [Catwalk](https://github.com/taigrr/catwalk), a community-supported, open source repository of Crush-compatible models, and you’re welcome to contribute.
 
-<a href="https://github.com/charmbracelet/catwalk"><img width="174" height="174" alt="Catwalk Badge" src="https://github.com/user-attachments/assets/95b49515-fe82-4409-b10d-5beb0873787d" /></a>
+<a href="https://github.com/taigrr/catwalk"><img width="174" height="174" alt="Catwalk Badge" src="https://github.com/user-attachments/assets/95b49515-fe82-4409-b10d-5beb0873787d" /></a>
 
 ## Configuration
 
@@ -233,6 +282,78 @@ $HOME/.local/share/crush/crush.json
 >
 > - `CRUSH_GLOBAL_CONFIG`
 > - `CRUSH_GLOBAL_DATA`
+
+### Model Roles
+
+Models are configured by role. `large` is the model you talk to and `small`
+handles titles and summaries. The optional `worker` role is the default for
+delegated work (the `agent` and `review` tools) so a strong `large` model
+can hand mechanical sub-tasks to a cheaper one. Any other key defines a
+named role that those tools, and `swarm` when spawning a new session,
+accept as their `model` parameter:
+
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "models": {
+    "large": { "provider": "anthropic", "model": "claude-sonnet-4-6" },
+    "small": { "provider": "anthropic", "model": "claude-haiku-4-5-20251001" },
+    "worker": { "provider": "openai", "model": "gpt-5.4-mini" },
+    "scout": { "provider": "openai", "model": "gpt-5.4-nano" }
+  }
+}
+```
+
+Role names are matched case-insensitively. Use `/model [role] [model [effort]]`
+at the prompt to reassign a role mid-session.
+
+### Snapshots & Worktrees
+
+Every user message checkpoints the working tree into a private git repo
+under `.crush/git/`, separate from your own `.git`. Crush-managed git
+worktrees give each session an isolated directory when you want parallel
+work. Both are on by default:
+
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "snapshots": {
+    "enabled": true,
+    "exclude": ["node_modules", "dist"]
+  },
+  "worktree": {
+    "enabled": true,
+    "post_create": [
+      { "if_exists": "bun.lockb", "run": "bun i" },
+      { "if_exists": "go.mod", "run": "go mod download" }
+    ]
+  }
+}
+```
+
+See [docs/specs/WORKTREES_AND_SNAPSHOTS.md](./docs/specs/WORKTREES_AND_SNAPSHOTS.md)
+for the full design.
+
+### Themes
+
+Pick a theme with `options.theme` or the live-preview theme picker in the
+command palette. Every theme has a light and a dark variant, chosen from
+your terminal's background color. Builtin themes: `charmtone` (default),
+`hypercrush`, `tokyo-night`, `catppuccin-mocha`, `dracula`, `nord`,
+`gruvbox-dark`, `rose-pine`, `cyberpunk`, `vscode-dark`, `monochrome`,
+`monochrome-green`, `monochrome-blue`, `monochrome-yellow`,
+`monochrome-purple`, and `monochrome-red`. Drop your own Lua themes in
+`~/.config/crush/themes/*.lua`.
+
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "options": {
+    "theme": "tokyo-night",
+    "low_bandwidth": false
+  }
+}
+```
 
 ### LSPs
 
@@ -493,7 +614,7 @@ extending agent capabilities with reusable skill packages. Skills are folders
 containing a `SKILL.md` file with instructions that Crush can discover and
 activate on demand.
 
-The global paths we looks for skills are:
+The global paths we look for skills are:
 
 - `$CRUSH_SKILLS_DIR`
 - `$XDG_CONFIG_HOME/agents/skills` or `~/.config/agents/skills/`
@@ -604,6 +725,71 @@ To turn notifications off entirely, set `notification_style` to `disabled`.
 The older `disable_notifications` boolean is deprecated in favor of
 `notification_style`. On macOS, notifications currently lack icons due to
 platform limitations.
+
+### Sounds
+
+Crush plays a short sound when a turn finishes, when a swarm message is
+dispatched, when a session becomes blocked on a permission or question,
+when a tool call fails, and when a message is queued behind an active turn.
+Sounds are on by default and play from the server process. Mute them all
+from the command palette ("Mute/Unmute Sound Effects") or configure them
+per event, pointing at your own WAV or MP3 if you like:
+
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "options": {
+    "sound": {
+      "disabled": false,
+      "end_of_turn": { "path": "~/.config/crush/done.wav" },
+      "queued": { "disabled": true }
+    }
+  }
+}
+```
+
+If you've configured a hook for the same event, the built-in sound defers
+to it and stays quiet.
+
+### Swarm
+
+Every session has a `color-animal` address (for example `aliceblue-tiger`)
+derived from its id, shown in the sidebar and by `list_sessions`. The
+`swarm` tool lets one session send a user turn to another — in any running
+workspace — either queued for its next turn or folded into the current one
+with `btw`. `address: "new"` spawns a fresh session, optionally in another
+directory (bringing that workspace up if needed) and on a different model
+role. Sender identity is stamped server-side so it can't be spoofed.
+
+### Search & Embeddings
+
+`ctrl+b` opens the search palette over your conversation history. Matching
+is hybrid: an exact substring signal fused with a semantic vector signal
+when an embedding model is configured. Append `/g` to fan out across every
+workspace. The same search is available headless:
+
+```bash
+crush search "how did we deploy this" --all-workspaces
+crush embeddings set openai text-embedding-3-small
+crush embeddings backfill
+```
+
+The embedding model is configured globally under the top-level `embedding`
+key in `~/.config/crush/crush.json`; workspace overrides are ignored. See
+[docs/specs/EMBEDDINGS_AND_VECTOR_SEARCH.md](./docs/specs/EMBEDDINGS_AND_VECTOR_SEARCH.md).
+
+### Importing Sessions
+
+Bring conversations over from other coding agents:
+
+```bash
+crush session import ~/.claude/projects/.../session.jsonl
+crush session import --from codex path/to/rollout.jsonl
+```
+
+Claude Code, Codex, Grok Build, and Pi transcripts are auto-detected.
+Imports are idempotent, so re-running syncs new messages. The builtin
+`session-import` skill can walk you through it interactively.
 
 ### Initialization
 
@@ -818,6 +1004,13 @@ Local models can also be configured via OpenAI-compatible API. Here are two comm
   }
 }
 ```
+
+## Client/Server API
+
+Crush runs as a client/server pair by default. `crush server` starts a
+standalone backend; `crush reload` and `crush shutdown` control a running
+one. The HTTP API is documented by an embedded Swagger UI at `/v1/docs/`
+(spec at `/v1/docs/doc.json`).
 
 ## Logging
 
