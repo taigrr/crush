@@ -3,7 +3,7 @@
 <p align="center">
     <a href="https://stuff.charm.sh/crush/charm-crush.png"><img width="450" alt="Charm Crush Logo" src="https://github.com/user-attachments/assets/cf8ca3ce-8b02-43f0-9d0f-5a331488da4b" /></a><br />
     <a href="https://github.com/taigrr/crush/releases"><img src="https://img.shields.io/github/release/taigrr/crush" alt="Latest Release"></a>
-    <a href="https://github.com/taigrr/crush/actions"><img src="https://github.com/taigrr/crush/actions/workflows/build.yml/badge.svg" alt="Build Status"></a>
+    <a href="https://github.com/taigrr/crush/actions/workflows/build.yml?query=branch%3Afeature"><img src="https://github.com/taigrr/crush/actions/workflows/build.yml/badge.svg?branch=feature" alt="Build Status"></a>
 </p>
 
 <p align="center">Your new coding bestie, now available in your favourite terminal.<br />Your tools, your code, and your workflows, wired into your LLM of choice.</p>
