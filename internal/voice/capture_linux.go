@@ -3,6 +3,7 @@
 package voice
 
 import (
+	"encoding/binary"
 	"strings"
 	"sync"
 
@@ -53,14 +54,14 @@ func spawnPCMCapture(sampleRate uint32, deviceID string) (CaptureHandle, <-chan 
 		opts = append(opts, pulse.RecordSource(src))
 	}
 	stream := newPCMStream(captureBuffer)
-	rec, err := client.NewRecord(pulse.Uint8Writer(func(b []byte) (int, error) {
-		out := make([]byte, len(b))
-		copy(out, b)
+	rec, err := client.NewRecord(pulse.Int16Writer(func(samples []int16) (int, error) {
+		out := make([]byte, len(samples)*2)
+		for i, v := range samples {
+			binary.LittleEndian.PutUint16(out[i*2:], uint16(v))
+		}
 		stream.push(out)
-		return len(b), nil
-	}), append(opts, pulse.RecordRawOption(func(r *proto.CreateRecordStream) {
-		r.SampleSpec.Format = proto.FormatInt16LE
-	}))...)
+		return len(samples), nil
+	}), opts...)
 	if err != nil {
 		client.Close()
 		return nil, nil, captureErr("record stream: " + err.Error())
