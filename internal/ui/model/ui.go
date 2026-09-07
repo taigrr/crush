@@ -348,6 +348,12 @@ type UI struct {
 	frameSkipPut     bool
 	frameGCArmed     bool
 
+	// Wheel coalescing (see scroll.go). pendingScroll accumulates wheel
+	// deltas while scrollFlushPending marks an open coalesce window.
+	pendingScroll      int
+	scrollFlushPending bool
+	scrollFlushGen     int
+
 	// onboarding state
 	onboarding struct {
 		yesInitializeSelected bool
@@ -606,6 +612,11 @@ func (m *UI) setState(state uiState, focus uiFocusState) {
 	if state == uiLanding {
 		// Always turn off compact mode when going to landing
 		m.isCompact = false
+	}
+	if state != m.state {
+		// A different screen replaces the chat content the backlog was
+		// scrolling; a pure focus change does not.
+		m.resetChatScroll()
 	}
 	m.state = state
 	m.focus = focus

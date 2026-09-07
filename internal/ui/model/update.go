@@ -662,31 +662,15 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.markScrollOnly()
 			switch msg.Button {
-			case tea.MouseWheelUp:
-				if cmd := m.chat.ScrollByAndAnimate(-MouseScrollThreshold); cmd != nil {
+			case tea.MouseWheelUp, tea.MouseWheelDown:
+				if cmd := m.handleChatWheel(wheelLines(msg)); cmd != nil {
 					cmds = append(cmds, cmd)
-				}
-				if !m.chat.SelectedItemInView() {
-					m.chat.SelectPrev()
-					if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
-				}
-			case tea.MouseWheelDown:
-				if cmd := m.chat.ScrollByAndAnimate(MouseScrollThreshold); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-				if !m.chat.SelectedItemInView() {
-					if m.chat.AtBottom() {
-						m.chat.SelectLast()
-					} else {
-						m.chat.SelectNext()
-					}
-					if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
 				}
 			}
+		}
+	case chatScrollFlushMsg:
+		if cmd := m.handleChatScrollFlush(msg); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	case frameGCMsg:
 		m.handleFrameGC()

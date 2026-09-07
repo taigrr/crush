@@ -413,32 +413,19 @@ func TestUpdate_WheelScrollThroughUpdateHitsCache(t *testing.T) {
 
 	wheel := tea.MouseWheelMsg{Button: tea.MouseWheelDown, X: u.layout.main.Min.X + 1, Y: u.layout.main.Min.Y + 1}
 	_, cmd := u.Update(wheel)
-	require.NotNil(t, cmd, "first scroll-only update must return the GC arm")
+	require.NotNil(t, cmd, "leading wheel event must return commands")
 	require.True(t, u.frameGCArmed)
 	v := u.View()
 	require.Equal(t, 1, u.frames.hits, "clamped wheel scroll must be served from cache")
 	require.Equal(t, bottom.Content, v.Content)
 
+	// Subsequent events inside the coalesce window change nothing and hit.
 	_, _ = u.Update(wheel)
 	u.View()
 	require.Equal(t, 2, u.frames.hits)
-
-	// Scrolling up moves to a new position (and may move the selection):
-	// a miss. Scrolling back down and then overscrolling again must hit
-	// the frame rendered on the way back.
-	up := wheel
-	up.Button = tea.MouseWheelUp
-	_, _ = u.Update(up)
-	moved := u.View()
-	require.NotEqual(t, bottom.Content, moved.Content)
-	require.Equal(t, 2, u.frames.hits)
-	_, _ = u.Update(wheel)
-	back := u.View()
-	_, _ = u.Update(wheel)
-	again := u.View()
-	require.Equal(t, 3, u.frames.hits)
-	require.Equal(t, back.Content, again.Content)
-	require.True(t, u.chat.AtBottom())
+	_, _ = u.Update(flushMsg(u))
+	u.View()
+	require.Equal(t, 3, u.frames.hits, "flush of a clamped delta must hit")
 }
 
 func TestUpdate_FrameGCMsgReArmsThroughUpdate(t *testing.T) {

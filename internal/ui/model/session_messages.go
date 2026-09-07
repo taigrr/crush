@@ -186,6 +186,7 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 	// to make sure the animations are shown.
 	cmds = append(cmds, startItemAnimations(items...)...)
 
+	m.resetChatScroll()
 	m.chat.SetMessages(items...)
 	if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
 		cmds = append(cmds, cmd)
