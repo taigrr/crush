@@ -63,8 +63,6 @@ func (t *turn) markReleased() {
 	}
 }
 
-// A press during the previous turn's final-transcript drain is held until
-// that turn finishes so the two turns' events never interleave.
 func RunPipeline(ctx context.Context, cfg Config, bearerFn BearerFunc, cmdCh <-chan Command, eventCh chan<- Event) {
 	runPipeline(ctx, cfg, bearerFn, cmdCh, eventCh, defaultDeps)
 }
@@ -101,9 +99,6 @@ func runPipeline(ctx context.Context, cfg Config, bearerFn BearerFunc, cmdCh <-c
 			if err != nil && sessionCtx.Err() == nil {
 				out = Event{Kind: EventError, Turn: id, Message: err.Error()}
 			}
-			// A turn cancelled by a newer press still reports Stopped so
-			// the UI releases its interim; use the parent ctx since the
-			// session ctx is already done in that case.
 			select {
 			case eventCh <- out:
 			case <-ctx.Done():
@@ -138,8 +133,6 @@ func runPipeline(ctx context.Context, cfg Config, bearerFn BearerFunc, cmdCh <-c
 				startTurn(cmd.Turn)
 			case CmdRelease:
 				if pendingPress >= 0 {
-					// Released before it could start: report the turn as
-					// over so the UI does not wait on it.
 					emit(Event{Kind: EventStopped, Turn: pendingPress})
 					pendingPress = -1
 					continue
@@ -286,9 +279,6 @@ func connectWithAuth(ctx context.Context, cfg Config, bearerFn BearerFunc, tlsCf
 	return nil, lastErr
 }
 
-// bridgePCM is the sole closer of the audio channel: it closes it once the
-// mic stream ends and everything received (including the pre-connect
-// backlog) is delivered, which is what makes writeLoop send `audio.done`.
 func bridgePCM(ctx context.Context, mic <-chan []byte, audioReady <-chan chan<- []byte) {
 	var tx chan<- []byte
 	defer func() {
@@ -330,7 +320,6 @@ func bridgePCM(ctx context.Context, mic <-chan []byte, audioReady <-chan chan<- 
 		case chunk, ok := <-mic:
 			if !ok {
 				if tx == nil && audioReady != nil {
-					// The sender may be queued but not yet received.
 					select {
 					case t, ok := <-audioReady:
 						if ok {

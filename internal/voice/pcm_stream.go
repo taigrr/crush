@@ -2,8 +2,6 @@ package voice
 
 import "sync"
 
-// Pushes after close are dropped rather than panicking: OS callback
-// threads may fire once more after Stop.
 type pcmStream struct {
 	ch     chan []byte
 	mu     sync.Mutex

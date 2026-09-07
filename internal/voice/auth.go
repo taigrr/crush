@@ -20,8 +20,6 @@ type TokenRefresher interface {
 
 type BearerFunc func(ctx context.Context, forceRefresh bool) (string, error)
 
-// cfgFn is re-read on every resolve so a token refreshed elsewhere (agent
-// 401 retry, another crush process) is picked up.
 func NewBearerFunc(cfgFn func() *config.Config, refresher TokenRefresher, voice Config) BearerFunc {
 	return func(ctx context.Context, forceRefresh bool) (string, error) {
 		if key := strings.TrimSpace(voice.APIKey); key != "" {
@@ -74,9 +72,6 @@ func bearerFromProvider(pc config.ProviderConfig) (string, error) {
 	return "", authErr(notSignedInMsg)
 }
 
-// The grok provider's base_url is deliberately not inherited: the
-// subscription proxy only serves chat and 404s on /v1/stt, while api.x.ai
-// accepts the same OAuth bearer.
 func ResolveAPIBase(voice Config) string {
 	if base := strings.TrimSpace(voice.APIBase); base != "" {
 		return strings.TrimRight(base, "/")

@@ -6,8 +6,6 @@ import (
 )
 
 type InputDevice struct {
-	// ID is a CoreAudio UID, `pulse:<source>` / `alsa:<pcm>`, or a waveIn
-	// product name depending on the platform.
 	ID      string
 	Name    string
 	Default bool

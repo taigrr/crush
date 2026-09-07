@@ -14,7 +14,6 @@ const (
 )
 
 type Config struct {
-	// APIBase may end in `/v1`; the default STT path de-duplicates it.
 	APIBase          string
 	STTWSPath        string
 	Language         string

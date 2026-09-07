@@ -10,7 +10,6 @@ type Language struct {
 	Name string
 }
 
-// LanguageAuto is client-only; the STT API rejects it.
 const LanguageAuto = "auto"
 
 const LanguageDefault = "en"

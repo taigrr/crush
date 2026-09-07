@@ -66,7 +66,6 @@ func (h *darwinHandle) Stop() {
 	})
 }
 
-// One trampoline for all captures; the sink id travels in inUserData.
 var inputCallback = purego.NewCallback(func(inUserData uintptr, inAQ uintptr, buf *audioQueueBuffer, _, _, _ uintptr) {
 	stream, ok := lookupCaptureSink(inUserData)
 	if !ok {

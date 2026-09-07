@@ -14,6 +14,5 @@ const (
 	EventInterim EventKind = iota
 	EventFinal
 	EventError
-	// EventStopped follows a released turn's final (if any).
 	EventStopped
 )

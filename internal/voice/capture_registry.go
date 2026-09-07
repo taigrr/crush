@@ -5,8 +5,6 @@ import (
 	"sync/atomic"
 )
 
-// purego/syscall never free callbacks and cap their pool, so there is one
-// trampoline per process and captures register their stream here.
 var (
 	captureSinks   sync.Map // uintptr -> *pcmStream
 	captureSinkSeq atomic.Uintptr

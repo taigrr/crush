@@ -331,11 +331,9 @@ sends. Nothing is auto-sent.
   `XAI_API_KEY` or the grok provider's OAuth token / API key. An expired
   OAuth token is refreshed before connecting, and a 401/403 handshake
   forces one refresh and retry.
-- `options.voice.input_device`: microphone to capture from, as a
-  platform device ID (macOS CoreAudio UID, Linux `pulse:<source>` or
-  `alsa:<pcm>`, Windows device name). Empty uses the system default.
-  Normally set from the command palette (Ctrl+P → Select Microphone)
-  rather than by hand.
+- `options.voice.input_device`: microphone to capture from (macOS
+  CoreAudio UID or PulseAudio/PipeWire source name). Empty uses the system
+  default. Set from the command palette (Ctrl+P → Select Microphone).
 - `options.tui.voice_keybind_enabled`: off silences Ctrl+Space / F8
   without disabling `/voice`.
 - `options.tui.voice_capture_mode`: `hold` (default: record while
@@ -346,8 +344,8 @@ sends. Nothing is auto-sent.
   italic and dimmed until its final transcript lands.
 
 Auth is the grok provider: `crush login grok`, `XAI_API_KEY`, or a grok
-`api_key` in config. Linux capture shells out to `pw-record` / `parec` /
-`arecord` (no audio library is linked).
+`api_key` in config. Capture is macOS (CoreAudio) and Linux
+(PulseAudio/PipeWire) only.
 
 ## Themes
 

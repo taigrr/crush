@@ -56,8 +56,6 @@ type sttEvent struct {
 	Message     string
 }
 
-// audioCh is closed by its producer, never by the session; that close
-// triggers `audio.done`.
 type streamingSession struct {
 	conn    *websocket.Conn
 	audioCh chan []byte
@@ -135,8 +133,6 @@ func (s *streamingSession) close() {
 	})
 }
 
-// After a write failure writeLoop keeps draining audioCh (discarding) so
-// the producer can never block.
 func (s *streamingSession) writeLoop(conn *websocket.Conn) {
 	defer func() {
 		for range s.audioCh {
@@ -238,8 +234,6 @@ func isBenignDisconnect(err error) bool {
 	return err == io.EOF || strings.Contains(err.Error(), "use of closed network connection")
 }
 
-// gorilla reports every non-101 response as the opaque "bad handshake";
-// fold in the status and server body.
 func handshakeError(wsURL string, resp *http.Response, err error) *Error {
 	if resp == nil {
 		return wsErr(fmt.Sprintf("connect: %v", err))

@@ -10,7 +10,6 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-// FourCC constants from AudioHardware.h / AudioObject.h.
 const (
 	kAudioObjectSystemObject                 = 1
 	kAudioObjectPropertyScopeGlobal          = 0x676C6F62 // 'glob'
@@ -138,7 +137,6 @@ func cfStringToGo(cf uintptr) string {
 	return string(buf)
 }
 
-// Returns a retained CFStringRef; caller must cfRelease.
 func cfStringCreate(s string) uintptr {
 	cstr := append([]byte(s), 0)
 	return cfStringCreateWithCString(0, &cstr[0], kCFStringEncodingUTF8)

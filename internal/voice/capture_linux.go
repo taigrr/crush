@@ -3,252 +3,92 @@
 package voice
 
 import (
-	"fmt"
-	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
-	"time"
+
+	"github.com/jfreymuth/pulse"
+	"github.com/jfreymuth/pulse/proto"
 )
-
-const (
-	startGrace       = 300 * time.Millisecond
-	startPoll        = 15 * time.Millisecond
-	pwHelpTimeout    = 2 * time.Second
-	captureReadChunk = 2048
-)
-
-type recorder int
-
-const (
-	recPwRecord recorder = iota
-	recParec
-	recArecord
-)
-
-func (r recorder) program() string {
-	switch r {
-	case recPwRecord:
-		return "pw-record"
-	case recParec:
-		return "parec"
-	case recArecord:
-		return "arecord"
-	default:
-		return ""
-	}
-}
-
-func (r recorder) args(rate uint32, device linuxDevice) []string {
-	s := fmt.Sprintf("%d", rate)
-	switch r {
-	case recPwRecord:
-		out := []string{"--raw", "--rate", s, "--channels", "1", "--format", "s16"}
-		if device.name != "" {
-			out = append(out, "--target", device.name)
-		}
-		return append(out, "-")
-	case recParec:
-		out := []string{"--raw", "--format=s16le", "--rate=" + s, "--channels=1"}
-		if device.name != "" {
-			out = append(out, "--device="+device.name)
-		}
-		return out
-	case recArecord:
-		out := []string{"-q", "-t", "raw", "-f", "S16_LE", "-c", "1", "-r", s}
-		if device.name != "" {
-			out = append(out, "-D", device.name)
-		}
-		return append(out, "-")
-	default:
-		return nil
-	}
-}
-
-func (r recorder) accepts(device linuxDevice) bool {
-	if device.name == "" {
-		return true
-	}
-	switch r {
-	case recPwRecord, recParec:
-		return device.backend == linuxBackendPulse
-	case recArecord:
-		return device.backend == linuxBackendALSA
-	default:
-		return false
-	}
-}
 
 type linuxHandle struct {
-	once sync.Once
-	cmd  *exec.Cmd
+	once   sync.Once
+	client *pulse.Client
+	rec    *pulse.RecordStream
+	stream *pcmStream
 }
 
-// The stdout reader closes the stream once the pipe drains, so audio
-// recorded before the kill is still delivered.
 func (h *linuxHandle) Stop() {
-	if h == nil {
-		return
-	}
 	h.once.Do(func() {
-		if h.cmd != nil && h.cmd.Process != nil {
-			_ = h.cmd.Process.Kill()
-			go func() { _ = h.cmd.Wait() }()
-		}
+		h.rec.Stop()
+		h.rec.Close()
+		h.client.Close()
+		h.stream.close()
 	})
 }
 
-func spawnPCMCapture(sampleRate uint32, deviceID string) (CaptureHandle, <-chan []byte, error) {
-	device, err := parseLinuxDeviceID(deviceID)
+func pulseClient() (*pulse.Client, error) {
+	c, err := pulse.NewClient(pulse.ClientApplicationName("crush"))
 	if err != nil {
-		return nil, nil, err
+		return nil, captureErr("PulseAudio/PipeWire: " + err.Error())
 	}
-	recorders := candidateRecorders(binaryOnPath, pwRecordSupportsRaw)
-	if len(recorders) == 0 {
-		return nil, nil, captureErr("no microphone recorder found on PATH: install pipewire (pw-record), pulseaudio-utils (parec), or alsa-utils (arecord)")
-	}
-	var failures []string
-	tried := 0
-	for _, rec := range recorders {
-		if !rec.accepts(device) {
-			continue
-		}
-		tried++
-		handle, pcm, err := trySpawn(rec, sampleRate, device)
-		if err == nil {
-			return handle, pcm, nil
-		}
-		failures = append(failures, err.Error())
-	}
-	if tried == 0 {
-		return nil, nil, deviceUnavailableErr(deviceID)
-	}
-	if device.name != "" {
-		err := deviceUnavailableErr(deviceID)
-		err.Msg += ": " + strings.Join(failures, "; ")
-		return nil, nil, err
-	}
-	return nil, nil, captureErr("could not start a microphone recorder: " + strings.Join(failures, "; "))
+	return c, nil
 }
 
-func trySpawn(rec recorder, sampleRate uint32, device linuxDevice) (CaptureHandle, <-chan []byte, error) {
-	cmd := exec.Command(rec.program(), rec.args(sampleRate, device)...)
-	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	stdout, err := cmd.StdoutPipe()
+func spawnPCMCapture(sampleRate uint32, deviceID string) (CaptureHandle, <-chan []byte, error) {
+	client, err := pulseClient()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to start %s: %w", rec.program(), err)
+		return nil, nil, err
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to start %s: %w", rec.program(), err)
+	opts := []pulse.RecordOption{
+		pulse.RecordSampleRate(int(sampleRate)),
+		pulse.RecordChannels(proto.ChannelMap{proto.ChannelMono}),
+		pulse.RecordLatency(0.05),
 	}
-	if err := cmd.Start(); err != nil {
-		return nil, nil, fmt.Errorf("failed to start %s: %w", rec.program(), err)
-	}
-	deadline := time.Now().Add(startGrace)
-	for time.Now().Before(deadline) {
-		var status syscall.WaitStatus
-		wpid, werr := syscall.Wait4(cmd.Process.Pid, &status, syscall.WNOHANG, nil)
-		if werr == nil && wpid == cmd.Process.Pid {
-			msg, _ := io.ReadAll(stderr)
-			s := strings.TrimSpace(string(msg))
-			if s != "" {
-				s = ": " + s
-			}
-			return nil, nil, fmt.Errorf("%s exited immediately (%v)%s", rec.program(), status, s)
+	if deviceID != "" {
+		src, err := client.SourceByID(deviceID)
+		if err != nil {
+			client.Close()
+			return nil, nil, deviceUnavailableErr(deviceID)
 		}
-		time.Sleep(startPoll)
+		opts = append(opts, pulse.RecordSource(src))
 	}
 	stream := newPCMStream(captureBuffer)
-	go io.Copy(io.Discard, stderr)
-	go forwardPCM(stdout, stream)
-	return &linuxHandle{cmd: cmd}, stream.C(), nil
+	rec, err := client.NewRecord(pulse.Uint8Writer(func(b []byte) (int, error) {
+		out := make([]byte, len(b))
+		copy(out, b)
+		stream.push(out)
+		return len(b), nil
+	}), append(opts, pulse.RecordRawOption(func(r *proto.CreateRecordStream) {
+		r.SampleSpec.Format = proto.FormatInt16LE
+	}))...)
+	if err != nil {
+		client.Close()
+		return nil, nil, captureErr("record stream: " + err.Error())
+	}
+	rec.Start()
+	return &linuxHandle{client: client, rec: rec, stream: stream}, stream.C(), nil
 }
 
-func candidateRecorders(available func(string) bool, pwRaw func() bool) []recorder {
-	pwAvailable := available("pw-record")
-	pwLeads := pwAvailable && pwRaw()
-	var out []recorder
-	if pwLeads {
-		out = append(out, recPwRecord)
+func listInputDevices() ([]InputDevice, error) {
+	client, err := pulseClient()
+	if err != nil {
+		return nil, err
 	}
-	if available("parec") {
-		out = append(out, recParec)
+	defer client.Close()
+	sources, err := client.ListSources()
+	if err != nil {
+		return nil, captureErr("list sources: " + err.Error())
 	}
-	if available("arecord") {
-		out = append(out, recArecord)
+	defaultID := ""
+	if def, err := client.DefaultSource(); err == nil {
+		defaultID = def.ID()
 	}
-	if pwAvailable && !pwLeads {
-		out = append(out, recPwRecord)
-	}
-	return out
-}
-
-func binaryOnPath(name string) bool {
-	path := os.Getenv("PATH")
-	if path == "" {
-		return false
-	}
-	for _, dir := range strings.Split(path, string(os.PathListSeparator)) {
-		p := filepath.Join(dir, name)
-		info, err := os.Stat(p)
-		if err != nil || info.IsDir() {
+	out := make([]InputDevice, 0, len(sources))
+	for _, s := range sources {
+		if strings.HasSuffix(s.ID(), ".monitor") {
 			continue
 		}
-		if info.Mode()&0o111 != 0 {
-			return true
-		}
+		out = append(out, InputDevice{ID: s.ID(), Name: s.Name(), Default: s.ID() == defaultID})
 	}
-	return false
-}
-
-func pwRecordSupportsRaw() bool {
-	cmd := exec.Command("pw-record", "--help")
-	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	out, err := combinedOutputTimeout(cmd, pwHelpTimeout)
-	if err != nil && len(out) == 0 {
-		return false
-	}
-	return strings.Contains(string(out), "--raw")
-}
-
-func combinedOutputTimeout(cmd *exec.Cmd, d time.Duration) ([]byte, error) {
-	done := make(chan struct{})
-	var out []byte
-	var err error
-	go func() {
-		out, err = cmd.CombinedOutput()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return out, err
-	case <-time.After(d):
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		<-done
-		return out, fmt.Errorf("timeout")
-	}
-}
-
-func forwardPCM(r io.Reader, stream *pcmStream) {
-	defer stream.close()
-	buf := make([]byte, captureReadChunk)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, buf[:n])
-			stream.push(chunk)
-		}
-		if err != nil {
-			return
-		}
-	}
+	return out, nil
 }

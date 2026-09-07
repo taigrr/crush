@@ -24,10 +24,6 @@ type phrase struct {
 	start, end int
 }
 
-// Events are applied only for live turns (pressed, not yet Stopped), so a
-// turn reset away is ignored while a predecessor still draining its final
-// settles its phrase. Phrase offsets survive the user's own edits by
-// diffing the buffer against the last snapshot before each event/render.
 type dictation struct {
 	ta    *textarea.Model
 	style lipgloss.Style
@@ -121,8 +117,6 @@ func (d *dictation) finish(turn int) {
 	}
 }
 
-// Phrase starts have right gravity (typing at the start stays outside the
-// phrase) and ends left gravity.
 func (d *dictation) sync() {
 	cur := []rune(d.ta.Value())
 	if slices.Equal(cur, d.last) {
@@ -205,8 +199,6 @@ func (d *dictation) setPhrase(turn int, text string) {
 	d.setCaret(caret)
 }
 
-// A turn released before any partial lands before the next newer turn's
-// phrase so spoken order is kept.
 func (d *dictation) anchorFor(turn int) int {
 	for _, id := range slices.Sorted(maps.Keys(d.phrases)) {
 		if id > turn {
@@ -216,8 +208,6 @@ func (d *dictation) anchorFor(turn int) int {
 	return d.caretOffset()
 }
 
-// The highlight is drawn on a copy of the textarea through its selection
-// machinery so wrapping and scrolling stay native.
 func (d *dictation) view() string {
 	d.sync()
 	p, ok := d.phrases[d.turn]
@@ -243,8 +233,6 @@ func (d *dictation) view() string {
 	return copyTA.View()
 }
 
-// screenCoords inverts PositionAt; positions scrolled out of view clamp to
-// the first/last visible cell.
 func screenCoords(ta *textarea.Model, pos textarea.Position) (x, y int) {
 	xMax := ta.Width() + screenCoordGutter
 	height := ta.Height()
@@ -270,8 +258,6 @@ func screenCoords(ta *textarea.Model, pos textarea.Position) (x, y int) {
 	return xMax, height - 1
 }
 
-// screenCoordGutter over-estimates the prompt/line-number gutter so the x
-// scan covers the whole row; PositionAt clamps columns past the text.
 const screenCoordGutter = 8
 
 func posBefore(p, q textarea.Position) bool {
@@ -336,8 +322,6 @@ func (d *dictation) setCaret(off int) {
 		}
 	}
 	d.ta.SetCursorColumn(pos.Col)
-	// SetCursorColumn does not scroll; SetHeight with the current height
-	// is the public way to bring the caret's visual line into view.
 	d.ta.SetHeight(d.ta.Height())
 }
 

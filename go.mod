@@ -45,6 +45,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/invopop/jsonschema v0.14.0
 	github.com/itchyny/gojq v0.12.19
+	github.com/jfreymuth/pulse v0.1.3
 	github.com/joho/godotenv v1.5.1
 	github.com/jordanella/go-ansi-paintbrush v0.0.0-20240728195301-b7ad996ecf3d
 	github.com/klauspost/compress v1.20.0

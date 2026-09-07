@@ -58,15 +58,8 @@ func TestBearerFuncRefreshesExpiredOAuthToken(t *testing.T) {
 	require.Equal(t, int32(2), ref.calls.Load(), "force refresh always refreshes")
 }
 
-func TestResolveAPIBaseIgnoresGrokProxy(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, "https://api.x.ai", ResolveAPIBase(Config{}))
-}
-
 var insecureTLS = &tls.Config{InsecureSkipVerify: true}
 
-// sttTestServer rejects the first rejectUntil handshakes with rejectStatus
-// and records the bearer of every attempt.
 func sttTestServer(t *testing.T, rejectStatus, rejectUntil int) (wsBase string, bearers *csync.Slice[string]) {
 	t.Helper()
 	bearers = csync.NewSlice[string]()

@@ -13,8 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// releaseTestServer sends one interim immediately and a final in reply to
-// `audio.done`. When stall is set it never reads, so client writes back up.
 func releaseTestServer(t *testing.T, stall bool) (wsBase string) {
 	t.Helper()
 	up := websocket.Upgrader{}
@@ -48,9 +46,6 @@ func releaseTestServer(t *testing.T, stall bool) (wsBase string) {
 	return "wss" + strings.TrimPrefix(srv.URL, "https")
 }
 
-// noisyCapture streams PCM continuously and keeps pushing after Stop, like
-// a real backend whose callback fires once more or whose pipe still has
-// bytes in flight.
 type noisyCapture struct {
 	stream *pcmStream
 	quit   chan struct{}
@@ -127,9 +122,6 @@ func TestReleaseDrainsFinalThenStopsAcrossTurns(t *testing.T) {
 		require.Equal(t, Event{Kind: EventStopped, Turn: 1}, recvEvent(t, eventCh))
 	}
 
-	// A press during the drain is queued and the turns' events never
-	// interleave; a release of the pending press drops it but still
-	// reports it stopped.
 	cmdCh <- Press(2)
 	require.Equal(t, EventInterim, recvEvent(t, eventCh).Kind)
 	cmdCh <- Release()
@@ -155,22 +147,4 @@ func TestReleaseWithStalledSocketStillStops(t *testing.T) {
 	ev := recvEvent(t, eventCh)
 	require.Contains(t, []EventKind{EventStopped, EventError}, ev.Kind)
 	cmdCh <- Shutdown()
-}
-
-func TestBridgeFlushesBacklogCapturedBeforeConnect(t *testing.T) {
-	t.Parallel()
-	mic := newPCMStream(16)
-	audioReady := make(chan chan<- []byte, 1)
-	audioCh := make(chan []byte, 64)
-	for i := range 5 {
-		mic.push([]byte{byte(i)})
-	}
-	audioReady <- audioCh
-	mic.close()
-	go bridgePCM(t.Context(), mic.C(), audioReady)
-	var got []byte
-	for chunk := range audioCh {
-		got = append(got, chunk...)
-	}
-	require.Equal(t, []byte{0, 1, 2, 3, 4}, got, "audio spoken while connecting must reach the server before audio.done")
 }

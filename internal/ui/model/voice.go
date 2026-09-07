@@ -11,11 +11,9 @@ import (
 type voiceSession struct {
 	dict *dictation
 
-	cmdCh  chan voice.Command
-	cancel context.CancelFunc
-	events chan voice.Event
-	// Exactly one waitVoiceEvent reader is ever outstanding so event order
-	// is preserved.
+	cmdCh   chan voice.Command
+	cancel  context.CancelFunc
+	events  chan voice.Event
 	waiting bool
 
 	pulseOn  bool
