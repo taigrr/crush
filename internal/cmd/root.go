@@ -620,14 +620,14 @@ func startDetachedServer(hostURL *url.URL) error {
 	stderrPath := filepath.Join(chDir, "stderr.log")
 	detachProcess(c)
 
-	stdout, err := os.Create(stdoutPath)
+	stdout, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to create stdout log file: %v", err)
 	}
 	defer stdout.Close()
 	c.Stdout = stdout
 
-	stderr, err := os.Create(stderrPath)
+	stderr, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to create stderr log file: %v", err)
 	}
