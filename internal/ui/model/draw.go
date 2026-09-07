@@ -181,9 +181,19 @@ func (m *UI) View() tea.View {
 	v.ReportFocus = m.caps.ReportFocusEvents
 	v.WindowTitle = "crush " + home.Short(m.com.Workspace.WorkingDir())
 
+	key, cacheable := m.currentFrameKey()
 	if m.versionMismatch {
 		v.Content = m.renderVersionMismatchBanner()
 		return v
+	}
+
+	if cacheable {
+		if content, cursor, ok := m.frames.get(key); ok {
+			v.Content = content
+			v.Cursor = cursor
+			m.applyProgressBar(&v)
+			return v
+		}
 	}
 
 	canvas := uv.NewScreenBuffer(m.width, m.height)
@@ -199,13 +209,22 @@ func (m *UI) View() tea.View {
 	content = strings.Join(contentLines, "\n")
 
 	v.Content = content
+	if cacheable {
+		m.storeFrame(key, content, v.Cursor)
+	}
+	m.applyProgressBar(&v)
+
+	return v
+}
+
+// applyProgressBar attaches the terminal progress bar while the agent is
+// busy. Kept outside the frame cache so the randomized value stays fresh.
+func (m *UI) applyProgressBar(v *tea.View) {
 	if m.progressBarEnabled && m.sendProgressBar && m.isAgentBusy() {
 		// HACK: use a random percentage to prevent ghostty from hiding it
 		// after a timeout.
 		v.ProgressBar = tea.NewProgressBar(tea.ProgressBarIndeterminate, rand.IntN(100))
 	}
-
-	return v
 }
 
 // renderVersionMismatchBanner renders a full-screen notice shown when the

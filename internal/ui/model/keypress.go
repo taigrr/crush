@@ -475,6 +475,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			case key.Matches(msg, m.keyMap.Chat.Expand):
 				m.chat.ToggleExpandedSelectedItem()
 			case key.Matches(msg, m.keyMap.Chat.Up):
+				m.markScrollOnly()
 				if cmd := m.chat.ScrollByAndAnimate(-1); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
@@ -485,6 +486,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					}
 				}
 			case key.Matches(msg, m.keyMap.Chat.Down):
+				m.markScrollOnly()
 				if cmd := m.chat.ScrollByAndAnimate(1); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
@@ -515,21 +517,25 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					cmds = append(cmds, cmd)
 				}
 			case key.Matches(msg, m.keyMap.Chat.HalfPageUp):
+				m.markScrollOnly()
 				if cmd := m.chat.ScrollByAndAnimate(-m.chat.Height() / 2); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				m.chat.SelectFirstInView()
 			case key.Matches(msg, m.keyMap.Chat.HalfPageDown):
+				m.markScrollOnly()
 				if cmd := m.chat.ScrollByAndAnimate(m.chat.Height() / 2); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				m.chat.SelectLastInView()
 			case key.Matches(msg, m.keyMap.Chat.PageUp):
+				m.markScrollOnly()
 				if cmd := m.chat.ScrollByAndAnimate(-m.chat.Height()); cmd != nil {
 					cmds = append(cmds, cmd)
 				}
 				m.chat.SelectFirstInView()
 			case key.Matches(msg, m.keyMap.Chat.PageDown):
+				m.markScrollOnly()
 				if cmd := m.chat.ScrollByAndAnimate(m.chat.Height()); cmd != nil {
 					cmds = append(cmds, cmd)
 				}

@@ -97,3 +97,11 @@ func (w *testWorkspace) Config() *config.Config {
 func (w *testWorkspace) ConnectionState() workspace.ConnectionState {
 	return workspace.ConnectionStateConnected
 }
+
+func (w *testWorkspace) WorkingDir() string {
+	return "/tmp/crush-test"
+}
+
+func (w *testWorkspace) AgentIsReady() bool {
+	return false
+}

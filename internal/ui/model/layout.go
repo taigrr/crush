@@ -129,6 +129,8 @@ func (m *UI) updateTextareaWithPrevHeight(msg tea.Msg, prevHeight int) tea.Cmd {
 
 // updateSize updates the sizes of UI components based on the current layout.
 func (m *UI) updateSize() {
+	m.invalidateFrames()
+
 	// Set status width
 	m.status.SetWidth(m.layout.status.Dx())
 

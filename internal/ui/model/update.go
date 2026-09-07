@@ -40,6 +40,7 @@ import (
 // Update handles updates to the UI model.
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	m.beginFrameUpdate()
 	if m.hasSession() && m.isAgentBusy() {
 		queueSize := m.com.Workspace.AgentQueuedPrompts(m.session.ID)
 		if queueSize != m.promptQueue {
@@ -659,6 +660,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				break
 			}
+			m.markScrollOnly()
 			switch msg.Button {
 			case tea.MouseWheelUp:
 				if cmd := m.chat.ScrollByAndAnimate(-MouseScrollThreshold); cmd != nil {
@@ -686,6 +688,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+	case frameGCMsg:
+		m.handleFrameGC()
 	case shellCommandFinishedMsg:
 		if m.shellCancel != nil {
 			m.shellCancel = nil
@@ -823,6 +827,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// This logic gets triggered on any message type, but should it?
+	prevPlaceholder := m.textarea.Placeholder
 	switch m.focus {
 	case uiFocusMain:
 	case uiFocusEditor:
@@ -836,9 +841,17 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textarea.Placeholder = "Yolo mode!"
 		}
 	}
+	if m.textarea.Placeholder != prevPlaceholder {
+		m.invalidateFrames()
+	}
 
 	// at this point this can only handle [message.Attachment] message, and we
 	// should return all cmds anyway.
-	_ = m.attachments.Update(msg)
+	if m.attachments.Update(msg) {
+		m.invalidateFrames()
+	}
+	if cmd := m.endFrameUpdate(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	return m, tea.Batch(cmds...)
 }

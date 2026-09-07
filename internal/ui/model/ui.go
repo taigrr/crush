@@ -339,6 +339,15 @@ type UI struct {
 	// sidebar so the chat uses the full width (toggled with ctrl+f).
 	chatFullscreen bool
 
+	// Frame memoization (see framecache.go). scrollOnlyUpdate is set by
+	// handlers that change nothing but the chat scroll position; frameDirty
+	// overrides it when a layout change happens in the same update.
+	frames           *frameCache
+	scrollOnlyUpdate bool
+	frameDirty       bool
+	frameSkipPut     bool
+	frameGCArmed     bool
+
 	// onboarding state
 	onboarding struct {
 		yesInitializeSelected bool
@@ -490,6 +499,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		completions:         comp,
 		attachments:         attachments,
 		todoSpinner:         todoSpinner,
+		frames:              newFrameCache(frameCacheTTL, frameCacheMaxEntries),
 		lspStates:           make(map[string]workspace.LSPClientInfo),
 		mcpStates:           make(map[string]mcp.ClientInfo),
 		notifyBackend:       notification.NoopBackend{},

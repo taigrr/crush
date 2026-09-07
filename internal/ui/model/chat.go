@@ -382,6 +382,22 @@ func (m *Chat) Blur() {
 	m.list.Blur()
 }
 
+// ScrollPosition returns the list's first visible item index and the line
+// offset into it.
+func (m *Chat) ScrollPosition() (offsetIdx, offsetLine int) {
+	return m.list.ScrollPosition()
+}
+
+// Selected returns the index of the selected item.
+func (m *Chat) Selected() int {
+	return m.list.Selected()
+}
+
+// Focused returns whether the chat list is focused.
+func (m *Chat) Focused() bool {
+	return m.list.Focused()
+}
+
 // AtBottom returns whether the chat list is currently scrolled to the bottom.
 func (m *Chat) AtBottom() bool {
 	return m.list.AtBottom()
