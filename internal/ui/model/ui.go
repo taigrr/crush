@@ -504,7 +504,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		pendingQuestions:    make(map[string]*question.Request),
 		attentionPending:    make(map[string]bool),
 	}
-	ui.voice = newVoiceSession(newDictation(&ui.textarea, com.Styles.Editor.VoiceInterim))
+	ui.voice = newVoiceSession(newDictation(&ui.textarea))
 
 	status := NewStatus(com, ui)
 

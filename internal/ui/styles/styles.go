@@ -138,8 +138,6 @@ type Styles struct {
 		PromptYoloDotsFocused lipgloss.Style
 		PromptYoloDotsBlurred lipgloss.Style
 
-		VoiceInterim lipgloss.Style
-
 		VoiceRecordingLabel  lipgloss.Style
 		VoiceRecordingDotOn  lipgloss.Style
 		VoiceRecordingDotOff lipgloss.Style

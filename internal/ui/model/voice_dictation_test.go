@@ -5,7 +5,6 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/taigrr/crush/internal/voice"
@@ -19,7 +18,7 @@ func newDictationFixture(value string) (*dictation, *textarea.Model) {
 	ta.SetVirtualCursor(false)
 	ta.Focus()
 	ta.SetValue(value)
-	d := newDictation(&ta, lipgloss.NewStyle().Italic(true))
+	d := newDictation(&ta)
 	return d, &ta
 }
 

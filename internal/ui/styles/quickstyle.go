@@ -785,7 +785,6 @@ func QuickStyle(o QuickStyleOpts) Styles {
 	s.Editor.PromptYoloIconBlurred = s.Editor.PromptYoloIconFocused.Foreground(o.BgBase).Background(o.FgMoreSubtle)
 	s.Editor.PromptYoloDotsFocused = lipgloss.NewStyle().MarginRight(1).Foreground(o.WarningSubtle).SetString(":::")
 	s.Editor.PromptYoloDotsBlurred = s.Editor.PromptYoloDotsFocused.Foreground(o.FgMoreSubtle)
-	s.Editor.VoiceInterim = lipgloss.NewStyle().Foreground(o.FgSubtle).Italic(true)
 	voiceRec := orColor(o.VoiceRecording, defaultVoiceRecording)
 	voiceRecDim := lipgloss.Blend1D(3, voiceRec, o.BgBase)[1]
 	s.Editor.VoiceRecordingLabel = lipgloss.NewStyle().Foreground(voiceRec).Bold(true)

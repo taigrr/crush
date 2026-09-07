@@ -7,7 +7,6 @@ import (
 	"unicode"
 
 	"charm.land/bubbles/v2/textarea"
-	"charm.land/lipgloss/v2"
 
 	"github.com/taigrr/crush/internal/voice"
 )
@@ -25,8 +24,7 @@ type phrase struct {
 }
 
 type dictation struct {
-	ta    *textarea.Model
-	style lipgloss.Style
+	ta *textarea.Model
 
 	turn      int
 	state     dictationState
@@ -36,10 +34,9 @@ type dictation struct {
 	last      []rune
 }
 
-func newDictation(ta *textarea.Model, style lipgloss.Style) *dictation {
+func newDictation(ta *textarea.Model) *dictation {
 	return &dictation{
 		ta:      ta,
-		style:   style,
 		live:    map[int]bool{},
 		phrases: map[int]phrase{},
 	}
@@ -206,65 +203,6 @@ func (d *dictation) anchorFor(turn int) int {
 		}
 	}
 	return d.caretOffset()
-}
-
-func (d *dictation) view() string {
-	d.sync()
-	p, ok := d.phrases[d.turn]
-	if !ok {
-		for _, id := range slices.Sorted(maps.Keys(d.phrases)) {
-			p, ok = d.phrases[id], true
-			break
-		}
-	}
-	if !ok || p.start == p.end || d.ta.HasSelection() || !d.ta.Focused() {
-		return d.ta.View()
-	}
-	copyTA := *d.ta
-	styles := copyTA.Styles()
-	styles.Focused.Selection = d.style
-	styles.Blurred.Selection = d.style
-	copyTA.SetStyles(styles)
-	sx, sy := screenCoords(&copyTA, d.positionOf(p.start))
-	ex, ey := screenCoords(&copyTA, d.positionOf(p.end))
-	copyTA.BeginSelection(sx, sy)
-	copyTA.ExtendSelection(ex, ey)
-	copyTA.EndSelection()
-	return copyTA.View()
-}
-
-func screenCoords(ta *textarea.Model, pos textarea.Position) (x, y int) {
-	xMax := ta.Width() + screenCoordGutter
-	height := ta.Height()
-	if posBefore(pos, ta.PositionAt(0, 0)) {
-		return 0, 0
-	}
-	for y = range height {
-		first, last := ta.PositionAt(0, y), ta.PositionAt(xMax, y)
-		if posBefore(pos, first) || posBefore(last, pos) {
-			continue
-		}
-		lo, hi := 0, xMax
-		for lo < hi {
-			mid := (lo + hi) / 2
-			if posBefore(ta.PositionAt(mid, y), pos) {
-				lo = mid + 1
-			} else {
-				hi = mid
-			}
-		}
-		return lo, y
-	}
-	return xMax, height - 1
-}
-
-const screenCoordGutter = 8
-
-func posBefore(p, q textarea.Position) bool {
-	if p.Row != q.Row {
-		return p.Row < q.Row
-	}
-	return p.Col < q.Col
 }
 
 func (d *dictation) caretOffset() int {

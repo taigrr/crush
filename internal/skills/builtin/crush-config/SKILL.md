@@ -299,10 +299,9 @@ resize and pins the width for that project.
 
 ## Voice dictation
 
-Hold or tap `Ctrl+Space` (or `F8`) to dictate into the prompt. Live
-partial transcripts paint as highlighted italic overlay text; finalized
-utterances append to the editor. Esc or Enter stops capture; Enter also
-sends. Nothing is auto-sent.
+Hold `Ctrl+Space` (or `F8`) to dictate into the prompt at the caret; live
+partial transcripts are replaced in place by the final. Esc or Enter stops
+capture; Enter also sends. Nothing is auto-sent.
 
 ```json
 {
@@ -340,8 +339,6 @@ sends. Nothing is auto-sent.
   Ctrl+Space is held, stop on release) or `toggle` (press to start,
   press again to stop). Hold needs a terminal that reports key releases
   (Kitty keyboard protocol) and falls back to toggle elsewhere.
-  Dictated text is inserted at the caret; the in-flight phrase renders
-  italic and dimmed until its final transcript lands.
 
 Auth is the grok provider: `crush login grok`, `XAI_API_KEY`, or a grok
 `api_key` in config. Capture is macOS (CoreAudio) and Linux

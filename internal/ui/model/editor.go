@@ -172,9 +172,6 @@ func (m *UI) handleAttachmentClick(msg tea.MouseClickMsg) bool {
 func (m *UI) renderEditorView(width int) string {
 	topRow := m.joinVoiceIndicatorRow(width)
 	ta := m.textarea.View()
-	if m.voice != nil {
-		ta = m.voice.dict.view()
-	}
 	return strings.Join([]string{
 		topRow,
 		ta,
