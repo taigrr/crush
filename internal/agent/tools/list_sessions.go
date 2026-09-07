@@ -29,11 +29,16 @@ type ListSessionsParams struct {
 	Offset          int  `json:"offset,omitempty" description:"Number of sessions to skip for pagination (default 0)"`
 }
 
+// SessionBusyFunc reports whether a session has an in-flight agent turn.
+// It may be nil, in which case no session is reported as running.
+type SessionBusyFunc func(sessionID string) bool
+
 // NewListSessionsTool returns the list_sessions tool. It lists past
-// conversations (id, title, message count, last activity) so the agent
-// can find a session id to pass to search_history. The active session
-// is marked so the agent can correlate "current" without a second call.
-func NewListSessionsTool(sessions session.Service) fantasy.AgentTool {
+// conversations (id, status, title, message count, last activity) so the
+// agent can find a session id to pass to search_history or swarm. The
+// active session is marked so the agent can correlate "current" without
+// a second call.
+func NewListSessionsTool(sessions session.Service, isBusy SessionBusyFunc) fantasy.AgentTool {
 	return fantasy.NewParallelAgentTool(
 		ListSessionsToolName,
 		listSessionsDescription,
@@ -74,15 +79,30 @@ func NewListSessionsTool(sessions session.Service) fantasy.AgentTool {
 			}
 			end := min(offset+limit, total)
 			page := all[offset:end]
-			return fantasy.NewTextResponse(formatSessions(page, current, offset, total)), nil
+			return fantasy.NewTextResponse(formatSessions(page, current, offset, total, isBusy)), nil
 		},
 	)
 }
 
+// sessionStatus mirrors the sidebar inbox tiers: Running (in-flight turn),
+// Unread (finished work nobody has looked at), Archived, else Read.
+func sessionStatus(s session.Session, isBusy SessionBusyFunc) string {
+	switch {
+	case isBusy != nil && isBusy(s.ID):
+		return "Running"
+	case s.ArchivedAt > 0:
+		return "Archived"
+	case s.Unread():
+		return "Unread"
+	default:
+		return "Read"
+	}
+}
+
 // formatSessions renders one session per line, marking the active one
-// and noting archived state. Full session ids are shown so they line up
+// and showing its status. Full session ids are shown so they line up
 // with search_history output and can be passed straight back in.
-func formatSessions(sessions []session.Session, current string, offset, total int) string {
+func formatSessions(sessions []session.Session, current string, offset, total int, isBusy SessionBusyFunc) string {
 	var b strings.Builder
 	first := offset + 1
 	last := offset + len(sessions)
@@ -96,21 +116,17 @@ func formatSessions(sessions []session.Session, current string, offset, total in
 		if title == "" {
 			title = "(untitled)"
 		}
-		archived := ""
-		if s.ArchivedAt > 0 {
-			archived = " [archived]"
-		}
 		address := ""
 		if s.Color != "" && s.Animal != "" {
 			address = swarm.FormatAddress(swarm.Identity{Color: s.Color, Animal: s.Animal}, s.ID) + "  "
 		}
-		fmt.Fprintf(&b, "%s %s  %s%q  (%d msgs, updated %s)%s\n",
-			marker, s.ID, address, title, s.MessageCount,
-			time.Unix(s.UpdatedAt, 0).Format(time.RFC3339), archived)
+		fmt.Fprintf(&b, "%s %s  %-8s %s%q  (%d msgs, updated %s)\n",
+			marker, s.ID, sessionStatus(s, isBusy), address, title, s.MessageCount,
+			time.Unix(s.UpdatedAt, 0).Format(time.RFC3339))
 	}
 	if last < total {
 		fmt.Fprintf(&b, "\n%d more session(s). Pass offset=%d to see the next page.", total-last, last)
 	}
-	b.WriteString("\n(* = current session; pass the id, or 'current', to search_history)")
+	b.WriteString("\n(* = current session; status: Running = agent turn in flight, Unread = finished work not yet viewed, Read = idle, Archived; pass the id, or 'current', to search_history)")
 	return b.String()
 }

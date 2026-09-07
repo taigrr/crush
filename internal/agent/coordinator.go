@@ -1054,7 +1054,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewSourcegraphTool(nil),
 		tools.NewContext7Tool(nil),
 		tools.NewSearchHistoryTool(c.messages, c.sessions, c.embeddings, historySearcher, swarmWorkspaceID),
-		tools.NewListSessionsTool(c.sessions),
+		tools.NewListSessionsTool(c.sessions, c.IsSessionBusy),
 		tools.NewTodosTool(c.sessions),
 	)
 

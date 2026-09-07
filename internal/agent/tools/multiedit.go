@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/taigrr/crush/internal/diff"
 	"github.com/taigrr/crush/internal/filepathext"
@@ -232,7 +231,7 @@ func processMultiEditWithCreation(edit editContext, params MultiEditParams, call
 
 	var message string
 	if len(failedEdits) > 0 {
-		message = fmt.Sprintf("File created with %d of %d edits: %s (%d edit(s) failed)", editsApplied, len(params.Edits), params.FilePath, len(failedEdits))
+		message = fmt.Sprintf("File created with %d of %d edits: %s (%d edit(s) failed)\n\n%s", editsApplied, len(params.Edits), params.FilePath, len(failedEdits), describeFailedEdits(failedEdits))
 	} else {
 		message = fmt.Sprintf("File created with %d edits: %s", len(params.Edits), params.FilePath)
 	}
@@ -269,23 +268,6 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 		return fantasy.NewTextErrorResponse("session ID is required for editing file"), nil
 	}
 
-	// Check if file was read before editing
-	lastRead := edit.filetracker.LastReadTime(edit.ctx, sessionID, params.FilePath)
-	if lastRead.IsZero() {
-		return fantasy.NewTextErrorResponse("you must read the file before editing it. Use the View tool first"), nil
-	}
-
-	// Check if file was modified since last read.
-	modTime := fileInfo.ModTime().Truncate(time.Second)
-	if modTime.After(lastRead) {
-		return fantasy.NewTextErrorResponse(
-			fmt.Sprintf(
-				"file %s has been modified since it was last read (mod time: %s, last read: %s)",
-				params.FilePath, modTime.Format(time.RFC3339), lastRead.Format(time.RFC3339),
-			),
-		), nil
-	}
-
 	// Read current file content
 	content, err := os.ReadFile(params.FilePath)
 	if err != nil {
@@ -297,8 +279,11 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 
 	// Apply all edits sequentially, tracking failures
 	var failedEdits []FailedEdit
+	previouslyRead := !edit.filetracker.LastReadTime(edit.ctx, sessionID, params.FilePath).IsZero()
+	var regions []lineRange
+	var notes []string
 	for i, edit := range params.Edits {
-		newContent, err := applyEditToContent(currentContent, edit)
+		newContent, editRegions, note, err := applyEdit(currentContent, edit.OldString, edit.NewString, edit.ReplaceAll)
 		if err != nil {
 			failedEdits = append(failedEdits, FailedEdit{
 				Index: i + 1,
@@ -306,6 +291,13 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 				Edit:  edit,
 			})
 			continue
+		}
+		if note != "" {
+			notes = append(notes, fmt.Sprintf("Edit %d: %s", i+1, note))
+		}
+		oldLines := spanLines(edit.OldString)
+		for _, r := range editRegions {
+			regions = shiftRegions(regions, r, oldLines)
 		}
 		currentContent = newContent
 	}
@@ -315,7 +307,7 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 		// If we have failed edits, report them
 		if len(failedEdits) > 0 {
 			return fantasy.WithResponseMetadata(
-				fantasy.NewTextErrorResponse(fmt.Sprintf("no changes made - all %d edit(s) failed", len(failedEdits))),
+				fantasy.NewTextErrorResponse(fmt.Sprintf("no changes made - all %d edit(s) failed\n\n%s", len(failedEdits), describeFailedEdits(failedEdits))),
 				MultiEditResponseMetadata{
 					EditsApplied: 0,
 					EditsFailed:  failedEdits,
@@ -364,6 +356,7 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 		return resp, nil
 	}
 
+	unixContent := currentContent
 	if isCrlf {
 		currentContent, _ = fsext.ToWindowsLineEndings(currentContent)
 	}
@@ -402,10 +395,12 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 
 	var message string
 	if len(failedEdits) > 0 {
-		message = fmt.Sprintf("Applied %d of %d edits to file: %s (%d edit(s) failed)", editsApplied, len(params.Edits), params.FilePath, len(failedEdits))
+		message = fmt.Sprintf("Applied %d of %d edits to file: %s (%d edit(s) failed)\n\n%s", editsApplied, len(params.Edits), params.FilePath, len(failedEdits), describeFailedEdits(failedEdits))
 	} else {
 		message = fmt.Sprintf("Applied %d edits to file: %s", len(params.Edits), params.FilePath)
 	}
+	joinedNotes := strings.Join(notes, "\n")
+	message = editSuccessText(message, unixContent, snippetRegions(regions, previouslyRead, joinedNotes), joinedNotes)
 
 	return fantasy.WithResponseMetadata(
 		fantasy.NewTextResponse(message),
@@ -424,27 +419,14 @@ func applyEditToContent(content string, edit MultiEditOperation) (string, error)
 	if edit.OldString == "" && edit.NewString == "" {
 		return content, nil
 	}
+	newContent, _, _, err := applyEdit(content, edit.OldString, edit.NewString, edit.ReplaceAll)
+	return newContent, err
+}
 
-	if edit.OldString == "" {
-		return "", fmt.Errorf("old_string cannot be empty for content replacement")
+func describeFailedEdits(failed []FailedEdit) string {
+	parts := make([]string, 0, len(failed))
+	for _, f := range failed {
+		parts = append(parts, fmt.Sprintf("Edit %d failed: %s", f.Index, f.Error))
 	}
-
-	if edit.ReplaceAll {
-		if !strings.Contains(content, edit.OldString) {
-			return "", fmt.Errorf("old_string not found in content. Make sure it matches exactly, including whitespace and line breaks")
-		}
-		return strings.ReplaceAll(content, edit.OldString, edit.NewString), nil
-	}
-
-	index := strings.Index(content, edit.OldString)
-	if index == -1 {
-		return "", fmt.Errorf("old_string not found in content. Make sure it matches exactly, including whitespace and line breaks")
-	}
-
-	lastIndex := strings.LastIndex(content, edit.OldString)
-	if index != lastIndex {
-		return "", fmt.Errorf("old_string appears multiple times in the content. Please provide more context to ensure a unique match, or set replace_all to true")
-	}
-
-	return content[:index] + edit.NewString + content[index+len(edit.OldString):], nil
+	return strings.Join(parts, "\n\n")
 }

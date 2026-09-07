@@ -1,4 +1,4 @@
-List past conversation sessions, most recent first. Returns each session's full id, title, message count, and last-activity time, with the active session marked `*`.
+List past conversation sessions, most recent first. Returns each session's full id, title, message count, and last-activity time, with the active session marked `*`. Each row carries a status column: `Running` (agent turn in flight), `Unread` (finished work not yet viewed), `Read` (idle), or `Archived`.
 
 Use this to find a session id to pass to `search_history`'s `session_id`. To search the current conversation you do not need this tool — pass `session_id: "current"` to `search_history` directly.
 

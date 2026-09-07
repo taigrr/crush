@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/taigrr/crush/internal/diff"
 	"github.com/taigrr/crush/internal/filepathext"
@@ -42,11 +41,6 @@ type EditResponseMetadata struct {
 }
 
 const EditToolName = "edit"
-
-var (
-	oldStringNotFoundErr        = fantasy.NewTextErrorResponse("old_string not found in file. Make sure it matches exactly, including whitespace and line breaks.")
-	oldStringMultipleMatchesErr = fantasy.NewTextErrorResponse("old_string appears multiple times in the file. Please provide more context to ensure a unique match, or set replace_all to true")
-)
 
 //go:embed edit.md
 var editDescription string
@@ -217,21 +211,6 @@ func deleteContent(edit editContext, filePath, oldString string, replaceAll bool
 		return fantasy.NewTextErrorResponse("session ID is required for deleting content"), nil
 	}
 
-	lastRead := edit.filetracker.LastReadTime(edit.ctx, sessionID, filePath)
-	if lastRead.IsZero() {
-		return fantasy.NewTextErrorResponse("you must read the file before editing it. Use the View tool first"), nil
-	}
-
-	modTime := fileInfo.ModTime().Truncate(time.Second)
-	if modTime.After(lastRead) {
-		return fantasy.NewTextErrorResponse(
-			fmt.Sprintf(
-				"file %s has been modified since it was last read (mod time: %s, last read: %s)",
-				filePath, modTime.Format(time.RFC3339), lastRead.Format(time.RFC3339),
-			),
-		), nil
-	}
-
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to read file: %s", err)), nil
@@ -239,25 +218,10 @@ func deleteContent(edit editContext, filePath, oldString string, replaceAll bool
 
 	oldContent, isCrlf := fsext.ToUnixLineEndings(string(content))
 
-	var newContent string
-
-	if replaceAll {
-		newContent = strings.ReplaceAll(oldContent, oldString, "")
-		if newContent == oldContent {
-			return oldStringNotFoundErr, nil
-		}
-	} else {
-		index := strings.Index(oldContent, oldString)
-		if index == -1 {
-			return oldStringNotFoundErr, nil
-		}
-
-		lastIndex := strings.LastIndex(oldContent, oldString)
-		if index != lastIndex {
-			return fantasy.NewTextErrorResponse("old_string appears multiple times in the file. Please provide more context to ensure a unique match, or set replace_all to true"), nil
-		}
-
-		newContent = oldContent[:index] + oldContent[index+len(oldString):]
+	previouslyRead := !edit.filetracker.LastReadTime(edit.ctx, sessionID, filePath).IsZero()
+	newContent, regions, note, matchErr := applyEdit(oldContent, oldString, "", replaceAll)
+	if matchErr != nil {
+		return fantasy.NewTextErrorResponse(matchErr.Error()), nil
 	}
 
 	_, additions, removals := diff.GenerateDiff(
@@ -332,7 +296,7 @@ func deleteContent(edit editContext, filePath, oldString string, replaceAll bool
 	notifyEditor(edit.ctx, filePath, oldContent, newContent)
 
 	return fantasy.WithResponseMetadata(
-		fantasy.NewTextResponse("Content deleted from file: "+filePath),
+		fantasy.NewTextResponse(editSuccessText("Content deleted from file: "+filePath, newContent, snippetRegions(regions, previouslyRead, note), note)),
 		EditResponseMetadata{
 			OldContent: oldContent,
 			NewContent: newContent,
@@ -360,21 +324,6 @@ func replaceContent(edit editContext, filePath, oldString, newString string, rep
 		return fantasy.NewTextErrorResponse("session ID is required for editing a file"), nil
 	}
 
-	lastRead := edit.filetracker.LastReadTime(edit.ctx, sessionID, filePath)
-	if lastRead.IsZero() {
-		return fantasy.NewTextErrorResponse("you must read the file before editing it. Use the View tool first"), nil
-	}
-
-	modTime := fileInfo.ModTime().Truncate(time.Second)
-	if modTime.After(lastRead) {
-		return fantasy.NewTextErrorResponse(
-			fmt.Sprintf(
-				"file %s has been modified since it was last read (mod time: %s, last read: %s)",
-				filePath, modTime.Format(time.RFC3339), lastRead.Format(time.RFC3339),
-			),
-		), nil
-	}
-
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to read file: %s", err)), nil
@@ -382,22 +331,10 @@ func replaceContent(edit editContext, filePath, oldString, newString string, rep
 
 	oldContent, isCrlf := fsext.ToUnixLineEndings(string(content))
 
-	var newContent string
-
-	if replaceAll {
-		newContent = strings.ReplaceAll(oldContent, oldString, newString)
-	} else {
-		index := strings.Index(oldContent, oldString)
-		if index == -1 {
-			return oldStringNotFoundErr, nil
-		}
-
-		lastIndex := strings.LastIndex(oldContent, oldString)
-		if index != lastIndex {
-			return oldStringMultipleMatchesErr, nil
-		}
-
-		newContent = oldContent[:index] + newString + oldContent[index+len(oldString):]
+	previouslyRead := !edit.filetracker.LastReadTime(edit.ctx, sessionID, filePath).IsZero()
+	newContent, regions, note, matchErr := applyEdit(oldContent, oldString, newString, replaceAll)
+	if matchErr != nil {
+		return fantasy.NewTextErrorResponse(matchErr.Error()), nil
 	}
 
 	if oldContent == newContent {
@@ -475,7 +412,7 @@ func replaceContent(edit editContext, filePath, oldString, newString string, rep
 	notifyEditor(edit.ctx, filePath, oldContent, newContent)
 
 	return fantasy.WithResponseMetadata(
-		fantasy.NewTextResponse("Content replaced in file: "+filePath),
+		fantasy.NewTextResponse(editSuccessText("Content replaced in file: "+filePath, newContent, snippetRegions(regions, previouslyRead, note), note)),
 		EditResponseMetadata{
 			OldContent: oldContent,
 			NewContent: newContent,
