@@ -73,16 +73,15 @@ func (m *UI) handleChatWheel(lines int) tea.Cmd {
 	if m.absorbChatWheel(lines) {
 		return nil
 	}
-	var cmds []tea.Cmd
 	if m.pendingScroll != 0 {
-		cmds = append(cmds, m.applyChatScroll(m.pendingScroll))
+		m.applyChatScroll(m.pendingScroll)
 		m.pendingScroll = 0
 	}
-	cmds = append(cmds, m.applyChatScroll(lines))
+	m.applyChatScroll(lines)
 	if !m.scrollFlushPending {
-		cmds = append(cmds, m.openScrollWindow())
+		return m.openScrollWindow()
 	}
-	return tea.Batch(cmds...)
+	return nil
 }
 
 // handleChatScrollFlush applies any pending wheel delta and keeps the
@@ -104,7 +103,8 @@ func (m *UI) handleChatScrollFlush(msg chatScrollFlushMsg) tea.Cmd {
 		m.resetChatScroll()
 		return nil
 	}
-	return tea.Batch(m.applyChatScroll(lines), m.openScrollWindow())
+	m.applyChatScroll(lines)
+	return m.openScrollWindow()
 }
 
 // openScrollWindow starts a coalesce window and returns the tick that
@@ -132,15 +132,14 @@ func (m *UI) resetChatScroll() {
 // outside the viewport, moves it to the nearest visible edge. The
 // selection is moved rather than scrolled to so a large coalesced delta is
 // applied in full instead of being rewound to the selected item.
-func (m *UI) applyChatScroll(lines int) tea.Cmd {
-	cmd := m.chat.ScrollByAndAnimate(lines)
+func (m *UI) applyChatScroll(lines int) {
+	m.chat.ScrollBy(lines)
 	if m.chat.SelectedItemInView() {
-		return cmd
+		return
 	}
 	if lines > 0 && m.chat.AtBottom() {
 		m.chat.SelectLast()
-		return cmd
+		return
 	}
 	m.chat.SelectNearestInView(lines < 0)
-	return cmd
 }

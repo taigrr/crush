@@ -137,9 +137,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			idx = m.chat.Len() - 1
 		}
 		m.chat.SetSelected(idx)
-		if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		m.chat.ScrollToSelected()
 
 	// Open dialog message.
 	case dialog.ActionOpenDialog:
@@ -314,7 +312,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 
 			status := "disabled"
 			if newValue {
-				status = "enabled"
+				status = "enabled. Restart Crush to also lower the renderer FPS."
 			}
 			return util.NewInfoMsg("Transparent background " + status)
 		})
@@ -329,15 +327,14 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "options.tui.low_bandwidth", newValue); err != nil {
 				return util.ReportError(err)()
 			}
-			// Update the package-level flag so any new spinners
-			// (assistant message, tool call) created after this point
-			// pick up the change. Existing spinners keep their original
-			// mode until the next message.
+			// Update the package-level flag: the shared animation clock
+			// reads it on every frame, so running spinners downshift (or
+			// speed back up) immediately.
 			anim.SetDefaultLowBandwidth(newValue)
 
 			status := "disabled"
 			if newValue {
-				status = "enabled. Restart Crush for the FPS change to take effect."
+				status = "enabled"
 			}
 			return util.NewInfoMsg("Low-bandwidth mode " + status)
 		})

@@ -28,7 +28,6 @@ import (
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/skills"
-	"github.com/taigrr/crush/internal/ui/anim"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/completions"
 	"github.com/taigrr/crush/internal/ui/dialog"
@@ -518,9 +517,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.updateLayoutAndSize()
 		if m.state == uiChat && m.chat.Follow() {
-			if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+			m.chat.ScrollToBottom()
 		}
 	case tea.KeyboardEnhancementsMsg:
 		m.keyenh = msg
@@ -589,24 +586,16 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case uiChat:
 			if msg.Y <= 0 {
-				if cmd := m.chat.ScrollByAndAnimate(-1); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
+				m.chat.ScrollBy(-1)
 				if !m.chat.SelectedItemInView() {
 					m.chat.SelectPrev()
-					if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
+					m.chat.ScrollToSelected()
 				}
 			} else if msg.Y >= m.chat.Height()-1 {
-				if cmd := m.chat.ScrollByAndAnimate(1); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
+				m.chat.ScrollBy(1)
 				if !m.chat.SelectedItemInView() {
 					m.chat.SelectNext()
-					if cmd := m.chat.ScrollToSelectedAndAnimate(); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
+					m.chat.ScrollToSelected()
 				}
 			}
 
@@ -684,16 +673,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
 			cmds = append(cmds, util.ReportError(fmt.Errorf("shell: %w", msg.err)))
 		}
-	case anim.StepMsg:
-		if m.state == uiChat {
-			if cmd := m.chat.Animate(msg); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-			if m.chat.Follow() {
-				if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-			}
+	case animTickMsg:
+		if cmd := m.handleAnimTick(msg); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	case titleAnimTickMsg:
 		if cmd := m.handleTitleAnimTick(msg); cmd != nil {
@@ -834,8 +816,38 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.attachments.Update(msg) {
 		m.invalidateFrames()
 	}
+	// Any update may have put a spinner on screen (new message, tool
+	// update, scroll, session load); make sure the clock is running. This
+	// is the sole place the clock is armed so a tick never sits inside a
+	// caller's tea.Sequence.
+	if m.state == uiChat {
+		if cmd := m.chat.EnsureAnimating(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
 	if cmd := m.endFrameUpdate(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	return m, tea.Batch(cmds...)
+}
+
+// handleAnimTick advances every visible spinner by one frame. A tick that
+// changed nothing visible is scroll-only so the frame cache survives; one
+// that did keeps the view pinned to the bottom while following, since
+// animated items can change height.
+func (m *UI) handleAnimTick(msg animTickMsg) tea.Cmd {
+	if m.state != uiChat {
+		m.chat.stopAnimating(msg)
+		m.markScrollOnly()
+		return nil
+	}
+	changed, cmd := m.chat.Tick(msg)
+	if !changed {
+		m.markScrollOnly()
+		return cmd
+	}
+	if m.chat.Follow() {
+		m.chat.ScrollToBottom()
+	}
+	return cmd
 }

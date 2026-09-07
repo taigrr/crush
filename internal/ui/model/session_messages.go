@@ -182,15 +182,9 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 	nestedCmds := m.loadNestedToolCalls(items)
 	cmds = append(cmds, nestedCmds...)
 
-	// If the user switches between sessions while the agent is working we want
-	// to make sure the animations are shown.
-	cmds = append(cmds, startItemAnimations(items...)...)
-
 	m.resetChatScroll()
 	m.chat.SetMessages(items...)
-	if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
+	m.chat.ScrollToBottom()
 	m.chat.SelectLast()
 	return tea.Sequence(cmds...)
 }
@@ -328,41 +322,26 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 					cmds = append(cmds, cmd)
 				}
 			}
-			if animatable, ok := item.(chat.Animatable); ok {
-				if cmd := animatable.StartAnimation(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
-			}
 		}
 		m.chat.AppendMessages(items...)
-		if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		m.chat.ScrollToBottom()
 	case message.Assistant:
 		items := chat.ExtractMessageItems(m.com.Styles, &msg, nil)
-		cmds = append(cmds, startItemAnimations(items...)...)
 		m.chat.AppendMessages(items...)
 		if m.chat.Follow() {
-			if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
+			m.chat.ScrollToBottom()
 		}
 		if msg.FinishPart() != nil && msg.FinishPart().Reason == message.FinishReasonEndTurn {
 			infoItem := chat.NewAssistantInfoItem(m.com.Styles, &msg, m.com.Config(), time.Unix(m.lastUserMessageTime, 0))
 			m.chat.AppendMessages(infoItem)
 			if m.chat.Follow() {
-				if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
-					cmds = append(cmds, cmd)
-				}
+				m.chat.ScrollToBottom()
 			}
 		}
 	case message.Shell:
 		items := chat.ExtractMessageItems(m.com.Styles, &msg, nil)
-		cmds = append(cmds, startItemAnimations(items...)...)
 		m.chat.AppendMessages(items...)
-		if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		m.chat.ScrollToBottom()
 	case message.Tool:
 		for _, tr := range msg.ToolResults() {
 			toolItem := m.chat.MessageItem(tr.ToolCallID)
@@ -376,30 +355,12 @@ func (m *UI) appendSessionMessage(msg message.Message) tea.Cmd {
 					cmds = append(cmds, cmd)
 				}
 				if m.chat.Follow() {
-					if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
-						cmds = append(cmds, cmd)
-					}
+					m.chat.ScrollToBottom()
 				}
 			}
 		}
 	}
 	return tea.Sequence(cmds...)
-}
-
-// startItemAnimations starts the animation for every animatable item and
-// returns the non-nil commands. It is the shared form of the loop used where
-// items are added to the chat so animations show even when switching sessions
-// mid-stream.
-func startItemAnimations(items ...chat.MessageItem) []tea.Cmd {
-	var cmds []tea.Cmd
-	for _, item := range items {
-		if animatable, ok := item.(chat.Animatable); ok {
-			if cmd := animatable.StartAnimation(); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
-	}
-	return cmds
 }
 
 // exitLeftSidebarSearchOnBlur leaves the "/" filter when a focus transition
@@ -497,13 +458,9 @@ func (m *UI) updateSessionMessage(msg message.Message) tea.Cmd {
 		}
 	}
 
-	cmds = append(cmds, startItemAnimations(items...)...)
-
 	m.chat.AppendMessages(items...)
 	if m.chat.Follow() {
-		if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		m.chat.ScrollToBottom()
 		m.chat.SelectLast()
 	}
 
@@ -585,7 +542,6 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 			if simplifiable, ok := nestedItem.(chat.Compactable); ok {
 				simplifiable.SetCompact(true)
 			}
-			cmds = append(cmds, startItemAnimations(nestedItem)...)
 			nestedTools = append(nestedTools, nestedItem)
 		}
 	}
@@ -610,13 +566,12 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 		agentItem.SetNestedTools(nestedTools)
 	}
 
-	// Update the chat so it updates the index map for animations to work as expected
+	// Re-register nested tool IDs so MessageItem lookups by nested tool
+	// call ID keep resolving to this container.
 	m.chat.UpdateNestedToolIDs(toolCallID)
 
 	if m.chat.Follow() {
-		if cmd := m.chat.ScrollToBottomAndAnimate(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
+		m.chat.ScrollToBottom()
 		m.chat.SelectLast()
 	}
 

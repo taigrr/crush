@@ -3,6 +3,7 @@ package anim
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
@@ -57,7 +58,7 @@ func TestLowBandwidthRender(t *testing.T) {
 			t.Parallel()
 			a := New(Settings{Label: tt.label, LowBandwidth: true})
 			for range tt.ticks {
-				a.Animate(StepMsg{ID: a.id})
+				advanceLowBandwidthFrame(a)
 			}
 			require.Equal(t, tt.wantPlain, ansi.Strip(a.Render()))
 		})
@@ -101,8 +102,51 @@ func TestLowBandwidthLabelStaysVisible(t *testing.T) {
 	for i := range 12 {
 		plain := ansi.Strip(a.Render())
 		require.True(t, strings.Contains(plain, "."), "tick %d had no dot: %q", i, plain)
-		a.Animate(StepMsg{ID: a.id})
+		advanceLowBandwidthFrame(a)
 	}
+}
+
+// advanceLowBandwidthFrame feeds a per-instance low-bandwidth Anim enough
+// fast-clock frames to advance one dot frame while the process-wide flag
+// is off, mirroring what the shared UI clock delivers.
+func advanceLowBandwidthFrame(a *Anim) {
+	for range lowBandwidthDivider {
+		a.Advance()
+	}
+}
+
+// TestLowBandwidthInstanceDividesFastClock covers the per-instance case:
+// an Anim built in low-bandwidth mode while the process-wide flag is off
+// is driven by the 20 Hz shared clock and must only change its dot frame
+// once per lowBandwidthFrameInterval, not on every tick.
+func TestLowBandwidthInstanceDividesFastClock(t *testing.T) {
+	t.Parallel()
+	a := New(Settings{Label: "Generating", LowBandwidth: true})
+	require.Equal(t, "Generating .", ansi.Strip(a.Render()))
+	for range lowBandwidthDivider - 1 {
+		a.Advance()
+		require.Equal(t, "Generating .", ansi.Strip(a.Render()), "dot frame must hold across fast-clock frames")
+	}
+	a.Advance()
+	require.Equal(t, "Generating ..", ansi.Strip(a.Render()))
+}
+
+// TestLowBandwidthGlobalUsesSlowClock covers the process-wide case: when
+// the flag is on the shared clock already ticks at the slow interval and
+// every Advance must be a dot frame.
+func TestLowBandwidthGlobalUsesSlowClock(t *testing.T) {
+	// Cannot t.Parallel: mutates package state.
+	t.Cleanup(func() { SetDefaultLowBandwidth(false) })
+	SetDefaultLowBandwidth(true)
+	require.Equal(t, lowBandwidthFrameInterval, FrameInterval())
+
+	a := New(Settings{Label: "Generating"})
+	require.Equal(t, "Generating .", ansi.Strip(a.Render()))
+	a.Advance()
+	require.Equal(t, "Generating ..", ansi.Strip(a.Render()))
+
+	SetDefaultLowBandwidth(false)
+	require.Equal(t, time.Second/fps, FrameInterval())
 }
 
 // TestLowBandwidthLiveToggleDownshiftsExistingAnim is the regression

@@ -11,7 +11,6 @@ import (
 
 	"github.com/zeebo/xxh3"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/lucasb-eyer/go-colorful"
 
@@ -69,8 +68,8 @@ var (
 	lowBandwidthFrames = []string{".", "..", "..."}
 )
 
-// Internal ID management. Used during animating to ensure that frame messages
-// are received only by spinner components that sent them.
+// Internal ID management. The ID seeds the deterministic birth schedule so
+// two spinners built from the same settings do not animate in lockstep.
 var lastID atomic.Int64
 
 // defaultLowBandwidth is the process-wide reduced-motion flag. New
@@ -80,8 +79,10 @@ var lastID atomic.Int64
 var defaultLowBandwidth atomic.Bool
 
 // SetDefaultLowBandwidth flips the package-level reduced-motion flag.
-// Affects only Anim instances created after the call; existing ones
-// keep the mode they were built with. Safe for concurrent callers.
+// Existing instances downshift immediately (isLowBandwidth re-reads the
+// flag); instances that were built in low-bandwidth mode stay there since
+// their cycling frames were never prerendered. Safe for concurrent
+// callers.
 func SetDefaultLowBandwidth(v bool) {
 	defaultLowBandwidth.Store(v)
 }
@@ -110,8 +111,21 @@ func settingsHash(opts Settings) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-// StepMsg is a message type used to trigger the next step in the animation.
-type StepMsg struct{ ID string }
+// FrameInterval returns how long each animation frame stays on screen under
+// the current process-wide reduced-motion setting. The UI drives every Anim
+// from one clock ticking at this interval; Anim instances never schedule
+// themselves. An instance that is in low-bandwidth mode while the process
+// is not divides the fast clock down itself (see Advance).
+func FrameInterval() time.Duration {
+	if defaultLowBandwidth.Load() {
+		return lowBandwidthFrameInterval
+	}
+	return time.Second / time.Duration(fps)
+}
+
+// lowBandwidthDivider is how many fast-clock frames make up one
+// low-bandwidth frame.
+const lowBandwidthDivider = int(lowBandwidthFrameInterval / (time.Second / fps))
 
 // Settings defines settings for the animation.
 type Settings struct {
@@ -143,8 +157,9 @@ type Anim struct {
 	initialized      atomic.Bool
 	cyclingFrames    [][]string           // frames for the cycling characters
 	step             atomic.Int64         // current main frame step (wraps)
-	framesSinceStart atomic.Int64         // total Animate ticks (does not wrap)
+	framesSinceStart atomic.Int64         // total Advance frames (does not wrap)
 	ellipsisStep     atomic.Int64         // current ellipsis frame step
+	fastFrames       atomic.Int64         // fast-clock frames seen by a low-bandwidth instance
 	ellipsisFrames   *csync.Slice[string] // ellipsis animation frames
 	id               string
 
@@ -188,8 +203,8 @@ func New(opts Settings) *Anim {
 
 	// Low-bandwidth mode: skip every prerender + gradient step. We only
 	// need the label, the colour, and the three ellipsis frames. Render
-	// stays trivially cheap and the tick rate (set in Step) is much
-	// slower so this also reduces redraws downstream.
+	// stays trivially cheap and the frame rate (see FrameInterval) is
+	// much slower so this also reduces redraws downstream.
 	if opts.LowBandwidth {
 		a.lowBandwidth = true
 		a.rawLabel = opts.Label
@@ -398,31 +413,29 @@ func (a *Anim) Width() (w int) {
 	return w
 }
 
-// Start starts the animation.
-func (a *Anim) Start() tea.Cmd {
-	return a.Step()
-}
-
-// isLowBandwidth reports whether this Anim should render and tick in
-// reduced-motion mode at the moment of the call. We re-check the
-// process-wide flag on every call so toggling the palette option
-// downshifts already-running spinners immediately, not just newly
-// constructed ones.
+// isLowBandwidth reports whether this Anim should render in reduced-motion
+// mode at the moment of the call. We re-check the process-wide flag on
+// every call so toggling the palette option downshifts already-running
+// spinners immediately, not just newly constructed ones.
 func (a *Anim) isLowBandwidth() bool {
 	return a.lowBandwidth || defaultLowBandwidth.Load()
 }
 
-// Animate advances the animation to the next step.
-func (a *Anim) Animate(msg StepMsg) tea.Cmd {
-	if msg.ID != a.id {
-		return nil
-	}
-
+// Advance moves the animation forward by one frame and reports whether
+// the rendered output changed. It is called by the UI's shared animation
+// clock for every visible spinner; the Anim itself never schedules ticks.
+func (a *Anim) Advance() bool {
 	if a.isLowBandwidth() {
+		// When the process-wide flag is off the shared clock runs at the
+		// full rate; divide it so a reduced-motion instance still shows
+		// one dot frame per lowBandwidthFrameInterval.
+		if !defaultLowBandwidth.Load() && int(a.fastFrames.Add(1))%lowBandwidthDivider != 0 {
+			return false
+		}
 		// Single counter is enough; we use it as both ellipsis frame and
 		// monotonic step. Wraps modulo len(lowBandwidthFrames) at render.
 		a.ellipsisStep.Add(1)
-		return a.Step()
+		return true
 	}
 
 	step := a.step.Add(1)
@@ -440,7 +453,7 @@ func (a *Anim) Animate(msg StepMsg) tea.Cmd {
 	} else if !a.initialized.Load() && int(frames) >= maxBirthSteps {
 		a.initialized.Store(true)
 	}
-	return a.Step()
+	return true
 }
 
 // Render renders the current state of the animation.
@@ -493,18 +506,6 @@ func (a *Anim) renderLowBandwidth() string {
 		return style.Render(dots)
 	}
 	return style.Render(a.rawLabel + labelGap + dots)
-}
-
-// Step is a command that triggers the next step in the animation.
-func (a *Anim) Step() tea.Cmd {
-	if a.isLowBandwidth() {
-		return tea.Tick(lowBandwidthFrameInterval, func(time.Time) tea.Msg {
-			return StepMsg{ID: a.id}
-		})
-	}
-	return tea.Tick(time.Second/time.Duration(fps), func(t time.Time) tea.Msg {
-		return StepMsg{ID: a.id}
-	})
 }
 
 // makeGradientRamp() returns a slice of colors blended between the given keys.

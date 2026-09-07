@@ -130,8 +130,8 @@ crush --continue
 			tea.WithFilter(ui.MouseEventFilter),
 		}
 		// In low-bandwidth mode halve the renderer FPS (default 60 -> 30)
-		// to cut wire traffic over slow links. Animations on top still
-		// drive their own ticks; this caps the global redraw rate.
+		// to cut wire traffic over slow links. The spinner clock follows
+		// the flag live; this renderer cap is fixed at startup.
 		if com.Config().LowBandwidthEnabled() {
 			opts = append(opts, tea.WithFPS(30))
 		}

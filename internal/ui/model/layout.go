@@ -102,7 +102,7 @@ func (m *UI) handleTextareaHeightChange(prevHeight int) tea.Cmd {
 	}
 	m.updateLayoutAndSize()
 	if m.state == uiChat && m.chat.Follow() {
-		return m.chat.ScrollToBottomAndAnimate()
+		m.chat.ScrollToBottom()
 	}
 	return nil
 }
