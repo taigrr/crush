@@ -47,6 +47,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openNotificationsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.MicrophoneID:
+		if cmd := m.openMicrophoneDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.EmbeddingsID:
 		if cmd := m.openEmbeddingsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)

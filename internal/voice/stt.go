@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,7 @@ import (
 const (
 	sttConnectTimeout = 15 * time.Second
 	sttReadyTimeout   = 10 * time.Second
+	sttWriteTimeout   = 5 * time.Second
 	audioDoneJSON     = `{"type":"audio.done"}`
 )
 
@@ -55,15 +57,20 @@ type sttEvent struct {
 	Message     string
 }
 
-// streamingSession is a live `wss://…/v1/stt` connection.
+// streamingSession is a live `wss://…/v1/stt` connection. audioCh is
+// closed by its producer (the PCM forwarder), never by the session; that
+// close is what triggers `audio.done`. writeLoop always consumes audioCh
+// until it is closed — discarding once it can no longer write — so the
+// producer's flush can never block.
 type streamingSession struct {
+	conn    *websocket.Conn
 	audioCh chan []byte
 	eventCh chan sttEvent
 	done    chan struct{}
 	once    sync.Once
 }
 
-func connectSTT(ctx context.Context, cfg Config, bearer string) (*streamingSession, error) {
+func connectSTT(ctx context.Context, cfg Config, bearer string, tlsCfg *tls.Config) (*streamingSession, error) {
 	wsURL, err := buildSTTWSURL(cfg)
 	if err != nil {
 		return nil, err
@@ -75,6 +82,7 @@ func connectSTT(ctx context.Context, cfg Config, bearer string) (*streamingSessi
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: sttConnectTimeout,
+		TLSClientConfig:  tlsCfg,
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, sttConnectTimeout)
 	defer cancel()
@@ -83,10 +91,11 @@ func connectSTT(ctx context.Context, cfg Config, bearer string) (*streamingSessi
 		defer resp.Body.Close()
 	}
 	if err != nil {
-		return nil, wsErr(fmt.Sprintf("connect: %v", err))
+		return nil, handshakeError(wsURL, resp, err)
 	}
 
 	s := &streamingSession{
+		conn:    conn,
 		audioCh: make(chan []byte, 64),
 		eventCh: make(chan sttEvent, 64),
 		done:    make(chan struct{}),
@@ -119,47 +128,48 @@ func (s *streamingSession) waitReady() error {
 	}
 }
 
-func (s *streamingSession) recv(ctx context.Context) (sttEvent, bool) {
-	select {
-	case ev, ok := <-s.eventCh:
-		return ev, ok
-	case <-ctx.Done():
-		return sttEvent{}, false
-	}
-}
-
 func (s *streamingSession) audioSender() chan<- []byte {
 	return s.audioCh
 }
 
-func (s *streamingSession) finishAudio() {
+// close tears the connection down, unblocking any stalled read or write.
+// Safe to call more than once.
+func (s *streamingSession) close() {
 	s.once.Do(func() {
-		close(s.audioCh)
+		close(s.done)
+		_ = s.conn.Close()
 	})
 }
 
-func (s *streamingSession) close() {
-	s.finishAudio()
-	select {
-	case <-s.done:
-	default:
-		close(s.done)
-	}
-}
-
+// writeLoop streams PCM until the audio channel closes, then sends
+// `audio.done` and keeps the socket open so readLoop can collect the
+// server's final transcript. After a write failure or close it keeps
+// draining audioCh (discarding) until the producer closes it.
 func (s *streamingSession) writeLoop(conn *websocket.Conn) {
-	defer conn.Close()
+	defer func() {
+		for range s.audioCh {
+		}
+	}()
+	writable := true
 	for {
 		select {
 		case <-s.done:
 			return
 		case chunk, ok := <-s.audioCh:
 			if !ok {
-				_ = conn.WriteMessage(websocket.TextMessage, []byte(audioDoneJSON))
+				if writable {
+					_ = conn.SetWriteDeadline(time.Now().Add(sttWriteTimeout))
+					_ = conn.WriteMessage(websocket.TextMessage, []byte(audioDoneJSON))
+				}
 				return
 			}
+			if !writable {
+				continue
+			}
+			_ = conn.SetWriteDeadline(time.Now().Add(sttWriteTimeout))
 			if err := conn.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
-				return
+				writable = false
+				_ = conn.Close()
 			}
 		}
 	}
@@ -234,6 +244,73 @@ func isBenignDisconnect(err error) bool {
 		return strings.Contains(msg, "reset") || strings.Contains(msg, "EOF")
 	}
 	return err == io.EOF || strings.Contains(err.Error(), "use of closed network connection")
+}
+
+// handshakeError turns a failed dial into a [Error]. gorilla reports
+// every non-101 response as the opaque "bad handshake", so the HTTP
+// status and the server's error body are folded in, and [HTTPStatus] is
+// preserved so callers can retry 401/403 with a fresh bearer.
+func handshakeError(wsURL string, resp *http.Response, err error) *Error {
+	if resp == nil {
+		return wsErr(fmt.Sprintf("connect: %v", err))
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, handshakeBodyLimit))
+	detail := serverErrorDetail(body)
+	msg := fmt.Sprintf("connect to %s: HTTP %d", redactQuery(wsURL), resp.StatusCode)
+	if detail != "" {
+		msg += ": " + detail
+	}
+	switch resp.StatusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return &Error{Kind: ErrAuth, Msg: msg, HTTPStatus: resp.StatusCode}
+	default:
+		return &Error{Kind: ErrWebSocket, Msg: msg, HTTPStatus: resp.StatusCode}
+	}
+}
+
+const handshakeBodyLimit = 4096
+
+// serverErrorDetail extracts a human-readable message from an error
+// body: the `error` / `message` / `code` field of a JSON object, or the
+// first line of plain text. HTML bodies (proxy 404 pages) yield "".
+func serverErrorDetail(body []byte) string {
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "" {
+		return ""
+	}
+	var obj map[string]any
+	if json.Unmarshal(body, &obj) == nil {
+		for _, key := range []string{"error", "message", "code", "detail"} {
+			switch v := obj[key].(type) {
+			case string:
+				if strings.TrimSpace(v) != "" {
+					return strings.TrimSpace(v)
+				}
+			case map[string]any:
+				if s, ok := v["message"].(string); ok && strings.TrimSpace(s) != "" {
+					return strings.TrimSpace(s)
+				}
+			}
+		}
+		return ""
+	}
+	if strings.HasPrefix(trimmed, "<") {
+		return ""
+	}
+	line, _, _ := strings.Cut(trimmed, "\n")
+	if len(line) > 200 {
+		line = line[:200] + "…"
+	}
+	return line
+}
+
+func redactQuery(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	u.RawQuery = ""
+	return u.String()
 }
 
 func insertOptionalHeader(h http.Header, name, value string) {

@@ -5,12 +5,12 @@ import (
 
 	"charm.land/bubbles/v2/filepicker"
 	"charm.land/bubbles/v2/help"
-	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/glamour/v2/ansi"
 	"charm.land/lipgloss/v2"
 	"github.com/taigrr/crush/internal/ui/diffview"
+	"github.com/taigrr/crush/internal/ui/textarea"
 )
 
 // quickStyleOpts is the palette of colors used by quickStyle to simplify the
@@ -109,7 +109,15 @@ type QuickStyleOpts struct {
 	LogoGradTo      color.Color
 	WorkingGradFrom color.Color
 	WorkingGradTo   color.Color
+
+	// VoiceRecording colors the dictation "Recording" indicator and its
+	// pulsing dot. Optional; defaults to burgundy.
+	VoiceRecording color.Color
 }
+
+// defaultVoiceRecording is the burgundy used for the recording indicator
+// when a theme does not override it.
+var defaultVoiceRecording = lipgloss.Color("#800020")
 
 // orColor returns a if non-nil, otherwise b. Used to cascade optional brand
 // tokens to their default brand pair.
@@ -782,6 +790,12 @@ func QuickStyle(o QuickStyleOpts) Styles {
 	s.Editor.PromptYoloDotsFocused = lipgloss.NewStyle().MarginRight(1).Foreground(o.WarningSubtle).SetString(":::")
 	s.Editor.PromptYoloDotsBlurred = s.Editor.PromptYoloDotsFocused.Foreground(o.FgMoreSubtle)
 	s.Editor.VoiceInterim = lipgloss.NewStyle().Foreground(o.FgSubtle).Italic(true)
+	voiceRec := orColor(o.VoiceRecording, defaultVoiceRecording)
+	voiceRecDim := lipgloss.Blend1D(3, voiceRec, o.BgBase)[1]
+	s.Editor.VoiceRecordingLabel = lipgloss.NewStyle().Foreground(voiceRec).Bold(true)
+	s.Editor.VoiceRecordingDotOn = lipgloss.NewStyle().Foreground(voiceRec).SetString(VoiceRecordingIcon)
+	s.Editor.VoiceRecordingDotOff = lipgloss.NewStyle().Foreground(voiceRecDim).SetString(VoiceRecordingIcon)
+	s.Editor.VoiceRecordingHint = muted
 
 	s.Radio.On = lipgloss.NewStyle().Foreground(o.FgSubtle).SetString(RadioOn)
 	s.Radio.Off = lipgloss.NewStyle().Foreground(o.FgSubtle).SetString(RadioOff)

@@ -5,13 +5,13 @@ import (
 	"errors"
 	"testing"
 
-	"charm.land/bubbles/v2/textarea"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/ui/attachments"
 	"github.com/taigrr/crush/internal/ui/common"
+	"github.com/taigrr/crush/internal/ui/textarea"
 	"github.com/taigrr/crush/internal/version"
 	"github.com/taigrr/crush/internal/workspace"
 )

@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"charm.land/bubbles/v2/textarea"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/question"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/attachments"
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/common"
+	"github.com/taigrr/crush/internal/ui/textarea"
 )
 
 // testMessageItem is a minimal chat item used to populate the chat list
@@ -69,6 +69,8 @@ func newTestUI() *UI {
 		pendingPermissions: make(map[string]*permission.PermissionRequest),
 		pendingQuestions:   make(map[string]*question.Request),
 	}
+
+	u.voice = newVoiceSession(newDictation(&u.textarea, com.Styles.Editor.VoiceInterim))
 
 	// The UI itself is the help keymap, so the status bar can only be built
 	// once the model exists.

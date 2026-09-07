@@ -314,25 +314,36 @@ sends. Nothing is auto-sent.
     },
     "tui": {
       "voice_keybind_enabled": true,
-      "voice_capture_mode": "toggle"
+      "voice_capture_mode": "hold"
     }
   }
 }
 ```
 
 - `options.voice.disabled`: hide `/voice` and the chord entirely.
-- `options.voice.api_base`: HTTPS STT root. Empty inherits the grok
-  provider `base_url`, then `https://api.x.ai`. `wss://` is derived;
-  plaintext `http://` / `ws://` is rejected.
+- `options.voice.api_base`: HTTPS STT root, default `https://api.x.ai`.
+  The grok provider `base_url` is not inherited: the subscription proxy
+  only serves chat and 404s on `/v1/stt`. `wss://` is derived; plaintext
+  `http://` / `ws://` is rejected.
 - `options.voice.language`: catalog code (`en`, `ja`, …) or `auto`
   (resolve from locale). The STT API does not accept `auto` on the wire.
 - `options.voice.api_key`: optional dedicated STT bearer. Empty uses
-  `XAI_API_KEY` or the grok provider's API key / OAuth token.
+  `XAI_API_KEY` or the grok provider's OAuth token / API key. An expired
+  OAuth token is refreshed before connecting, and a 401/403 handshake
+  forces one refresh and retry.
+- `options.voice.input_device`: microphone to capture from, as a
+  platform device ID (macOS CoreAudio UID, Linux `pulse:<source>` or
+  `alsa:<pcm>`, Windows device name). Empty uses the system default.
+  Normally set from the command palette (Ctrl+P → Select Microphone)
+  rather than by hand.
 - `options.tui.voice_keybind_enabled`: off silences Ctrl+Space / F8
   without disabling `/voice`.
-- `options.tui.voice_capture_mode`: `toggle` (default) or `hold`. Hold
-  needs a terminal that reports key releases (Kitty protocol) and falls
-  back to toggle elsewhere.
+- `options.tui.voice_capture_mode`: `hold` (default: record while
+  Ctrl+Space is held, stop on release) or `toggle` (press to start,
+  press again to stop). Hold needs a terminal that reports key releases
+  (Kitty keyboard protocol) and falls back to toggle elsewhere.
+  Dictated text is inserted at the caret; the in-flight phrase renders
+  italic and dimmed until its final transcript lands.
 
 Auth is the grok provider: `crush login grok`, `XAI_API_KEY`, or a grok
 `api_key` in config. Linux capture shells out to `pw-record` / `parec` /

@@ -94,6 +94,10 @@ type Palette struct {
 	LogoGradTo      string
 	WorkingGradFrom string
 	WorkingGradTo   string
+
+	// VoiceRecording colors the dictation "Recording" indicator
+	// (optional; defaults to burgundy).
+	VoiceRecording string
 }
 
 // toStyles builds a Styles from the palette. Empty fields fall back to the
@@ -164,6 +168,7 @@ func (p Palette) toStyles() styles.Styles {
 		LogoGradTo:      optColor(p.LogoGradTo),
 		WorkingGradFrom: optColor(p.WorkingGradFrom),
 		WorkingGradTo:   optColor(p.WorkingGradTo),
+		VoiceRecording:  optColor(p.VoiceRecording),
 	})
 }
 
@@ -404,6 +409,7 @@ func LoadThemeFile(path string) (UserTheme, error) {
 		LogoGradTo:      str("logo_grad_to"),
 		WorkingGradFrom: str("working_grad_from"),
 		WorkingGradTo:   str("working_grad_to"),
+		VoiceRecording:  str("voice_recording"),
 	}
 
 	return UserTheme{

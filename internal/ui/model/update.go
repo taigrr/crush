@@ -529,7 +529,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.keyMap.Editor.Newline.SetHelp("shift+enter", "newline")
 		}
 		if m.voiceEnabled() && msg.SupportsEventTypes() && m.voiceHoldMode() {
-			m.keyMap.Voice.SetHelp("ctrl+space", "hold to talk")
+			m.keyMap.Voice.SetHelp("ctrl+space/f8", "hold to talk")
 		}
 	case copyChatHighlightMsg:
 		cmds = append(cmds, m.copyChatHighlight())
@@ -749,6 +749,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case voiceEventMsg:
 		if cmd := m.handleVoiceEvent(voice.Event(msg)); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case voicePulseTickMsg:
+		if cmd := m.handleVoicePulseTick(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case micDevicesMsg:
+		if cmd := m.handleMicDevices(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	case tea.PasteMsg:

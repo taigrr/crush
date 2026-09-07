@@ -6,9 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/editor"
+	"github.com/taigrr/crush/internal/ui/textarea"
 	"github.com/taigrr/crush/internal/ui/util"
 )
 
@@ -157,19 +157,23 @@ func (m *UI) handleAttachmentClick(msg tea.MouseClickMsg) bool {
 	if !image.Pt(msg.X, msg.Y).In(m.layout.editor) {
 		return false
 	}
-	x := msg.X - m.layout.editor.Min.X
-	return m.attachments.HandleMouseClick(x, m.editorContentWidth())
+	offset, chipWidth, ok := m.attachmentChipArea(m.editorContentWidth())
+	if !ok {
+		return false
+	}
+	x := msg.X - m.layout.editor.Min.X - offset
+	if x < 0 {
+		return false
+	}
+	return m.attachments.HandleMouseClick(x, chipWidth)
 }
 
 // renderEditorView renders the editor view with attachments if any.
 func (m *UI) renderEditorView(width int) string {
-	var attachmentsView string
-	if len(m.attachments.List()) > 0 {
-		attachmentsView = m.attachments.Render(width)
-	}
-	ta := m.overlayVoiceInterim(m.textarea.View(), width)
+	topRow := m.joinVoiceIndicatorRow(width)
+	ta := m.textarea.View()
 	return strings.Join([]string{
-		attachmentsView,
+		topRow,
 		ta,
 		"", // margin at bottom of editor
 	}, "\n")

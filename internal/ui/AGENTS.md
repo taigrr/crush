@@ -42,10 +42,13 @@ The `UI` struct is the top-level Bubble Tea model. Key fields:
 - `state uiState` — `uiOnboarding | uiInitialize | uiLanding | uiChat`
 - `focus uiFocusState` — `uiFocusNone | uiFocusEditor | uiFocusMain`
 - `chat *Chat` — wraps `list.List` for the message view
-- `textarea textarea.Model` — the input editor
+- `textarea textarea.Model` — the input editor (`internal/ui/textarea`, a
+  fork of bubbles' textarea with marks, highlights, and range edits)
 - `dialog *dialog.Overlay` — stacked dialog system
 - `completions`, `attachments` — sub-components
-- `voice *voiceSession` — dictation overlay and pipeline handle
+- `voice *voiceSession` — pipeline handle and recording indicator; turn
+  bookkeeping and prompt edits live in `dictation` (`model/voice_dictation.go`),
+  which drives the in-tree `ui/textarea` fork's marks and highlights
   (Ctrl+Space / F8)
 
 Keep most logic and state here. This is where:

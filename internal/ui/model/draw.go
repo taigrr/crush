@@ -151,9 +151,6 @@ func (m *UI) editorCaret() *tea.Cursor {
 		// Don't show cursor if editor is not visible
 		return nil
 	}
-	if m.voice != nil && m.voice.listening() && strings.TrimSpace(m.textarea.Value()) == "" && strings.TrimSpace(m.voice.interim) != "" {
-		return nil
-	}
 	if m.detailsOpen && m.isCompact {
 		// Don't show cursor if details overlay is open
 		return nil

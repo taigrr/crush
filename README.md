@@ -144,6 +144,19 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 - Configurable notification backends, terminal bell support, and SSH
   terminal notifications.
 
+### Voice Dictation
+
+- **Hold-to-talk dictation** into the prompt with `Ctrl+Space` / `F8`:
+  speech is inserted at the caret, shown italic and dimmed while it is
+  still being transcribed, then settles into normal text. Nothing is
+  auto-sent.
+- Streams to xAI's speech-to-text with your existing `crush login grok`
+  session (or `XAI_API_KEY`); a pulsing recording indicator sits above
+  the prompt while the mic is open.
+- **Microphone picker** in the command palette (`Ctrl+P` → Select
+  Microphone, or `/mic`) on macOS, Linux (PipeWire / PulseAudio / ALSA),
+  and Windows.
+
 ### CLI & Client/Server
 
 - Extra subcommands: `crush session {list,show,last,delete,rename,import}`,
@@ -750,6 +763,57 @@ per event, pointing at your own WAV or MP3 if you like:
 
 If you've configured a hook for the same event, the built-in sound defers
 to it and stays quiet.
+
+### Voice Dictation
+
+Hold `Ctrl+Space` (or `F8`) and talk; let go to stop. A burgundy
+`■ Recording` indicator pulses above the editor while the microphone is
+open. Speech is inserted at the caret — put the cursor anywhere in the
+prompt and dictate into the middle of what you've typed without
+disturbing the rest. The phrase currently being transcribed renders
+italic and dimmed; once its final transcript arrives it takes the normal
+prompt style. `Esc` and `Enter` also stop (`Enter` sends the prompt).
+Nothing is ever sent to the agent automatically. `Ctrl+G` lists the
+shortcut in the help overlay.
+
+Hold-to-talk needs a terminal that reports key releases (the Kitty
+keyboard protocol: Ghostty, Kitty, WezTerm, foot, recent iTerm2 and
+Alacritty). Elsewhere the chord falls back to toggle: press once to
+start, again to stop.
+
+Audio streams to xAI's speech-to-text endpoint using the same OAuth
+session as `crush login grok` (or `XAI_API_KEY` if set), so it bills
+against your Grok subscription / xAI account.
+
+| Action              | Where                                             |
+| ------------------- | ------------------------------------------------- |
+| Hold to talk        | hold `Ctrl+Space` or `F8` (default)               |
+| Toggle instead      | `options.tui.voice_capture_mode: "toggle"`, `/voice`, `Ctrl+P` → Start Dictation |
+| Choose a microphone | `Ctrl+P` → Select Microphone, or `/mic`           |
+
+The microphone picker works across platforms: CoreAudio on macOS,
+`pactl` / `arecord` device lists on Linux (captured with `pw-record`,
+`parec`, or `arecord`), and waveIn devices on Windows. The choice is
+saved to `options.voice.input_device`.
+
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "options": {
+    "voice": {
+      "language": "en",
+      "input_device": "BuiltInMicrophoneDevice"
+    },
+    "tui": {
+      "voice_capture_mode": "hold"
+    }
+  }
+}
+```
+
+Set `options.voice.disabled: true` to hide the feature, or
+`options.tui.voice_keybind_enabled: false` to keep `/voice` while
+freeing the `Ctrl+Space` / `F8` chord.
 
 ### Swarm
 

@@ -4,7 +4,7 @@ package voice
 
 import (
 	"fmt"
-	"sync/atomic"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -28,6 +28,8 @@ var (
 	procWaveInReset   = winmm.NewProc("waveInReset")
 	procWaveInUnprep  = winmm.NewProc("waveInUnprepareHeader")
 	procWaveInClose   = winmm.NewProc("waveInClose")
+	procWaveInNumDevs = winmm.NewProc("waveInGetNumDevs")
+	procWaveInDevCaps = winmm.NewProc("waveInGetDevCapsW")
 )
 
 type waveFormatEx struct {
@@ -52,26 +54,65 @@ type waveHdr struct {
 }
 
 type windowsHandle struct {
-	stop    *atomic.Bool
+	once    sync.Once
 	hwi     uintptr
 	headers []waveHdr
 	bufs    [][]byte
+	sink    uintptr
+	stream  *pcmStream
 }
 
 func (h *windowsHandle) Stop() {
 	if h == nil {
 		return
 	}
-	h.stop.Store(true)
-	procWaveInStop.Call(h.hwi)
-	procWaveInReset.Call(h.hwi)
-	for i := range h.headers {
-		procWaveInUnprep.Call(h.hwi, uintptr(unsafe.Pointer(&h.headers[i])), unsafe.Sizeof(h.headers[i]))
-	}
-	procWaveInClose.Call(h.hwi)
+	h.once.Do(func() {
+		procWaveInStop.Call(h.hwi)
+		procWaveInReset.Call(h.hwi)
+		for i := range h.headers {
+			procWaveInUnprep.Call(h.hwi, uintptr(unsafe.Pointer(&h.headers[i])), unsafe.Sizeof(h.headers[i]))
+		}
+		procWaveInClose.Call(h.hwi)
+		unregisterCaptureSink(h.sink)
+		h.stream.close()
+	})
 }
 
-func spawnPCMCapture(sampleRate uint32, pcmCh chan<- []byte) (CaptureHandle, error) {
+// waveInCallback is the single waveIn trampoline shared by all captures;
+// the sink id travels in dwInstance. dwParam1 stays a raw uintptr because
+// WIM_OPEN/WIM_CLOSE deliver a non-pointer value in that slot.
+var waveInCallback = syscall.NewCallback(func(hwi, uMsg, dwInstance, dwParam1, _ uintptr) uintptr {
+	if uMsg != wimData {
+		return 0
+	}
+	stream, ok := lookupCaptureSink(dwInstance)
+	if !ok {
+		return 0
+	}
+	// go vet's unsafeptr check flags this uintptr→pointer conversion; it
+	// is the documented Win32 contract for WIM_DATA and cannot be typed
+	// in the callback signature (see comment above).
+	hdr := (*waveHdr)(unsafe.Pointer(dwParam1))
+	if hdr != nil && hdr.BytesRecorded > 0 {
+		n := int(hdr.BytesRecorded)
+		chunk := unsafe.Slice(hdr.Data, n)
+		out := make([]byte, n)
+		copy(out, chunk)
+		stream.push(out)
+		procWaveInAdd.Call(hwi, dwParam1, unsafe.Sizeof(*hdr))
+	}
+	return 0
+})
+
+func spawnPCMCapture(sampleRate uint32, deviceID string) (CaptureHandle, <-chan []byte, error) {
+	deviceIndex := uintptr(waveMapper)
+	if deviceID != "" {
+		idx, ok := findWaveInDevice(deviceID)
+		if !ok {
+			return nil, nil, deviceUnavailableErr(deviceID)
+		}
+		deviceIndex = idx
+	}
 	format := waveFormatEx{
 		FormatTag:      waveFormatPCM,
 		Channels:       1,
@@ -80,39 +121,29 @@ func spawnPCMCapture(sampleRate uint32, pcmCh chan<- []byte) (CaptureHandle, err
 		BlockAlign:     2,
 		AvgBytesPerSec: sampleRate * 2,
 	}
-	stop := &atomic.Bool{}
+	stream := newPCMStream(captureBuffer)
+	sink := registerCaptureSink(stream)
 	handle := &windowsHandle{
-		stop:    stop,
 		headers: make([]waveHdr, winBufferCount),
 		bufs:    make([][]byte, winBufferCount),
+		sink:    sink,
+		stream:  stream,
 	}
-	cb := syscall.NewCallback(func(_, uMsg, _, dwParam1, _ uintptr) uintptr {
-		if stop.Load() {
-			return 0
-		}
-		if uMsg == wimData {
-			hdr := (*waveHdr)(unsafe.Pointer(dwParam1))
-			if hdr != nil && hdr.BytesRecorded > 0 {
-				n := int(hdr.BytesRecorded)
-				chunk := unsafe.Slice(hdr.Data, n)
-				out := make([]byte, n)
-				copy(out, chunk)
-				trySendPCM(pcmCh, out, nil)
-				procWaveInAdd.Call(handle.hwi, uintptr(unsafe.Pointer(hdr)), unsafe.Sizeof(*hdr))
-			}
-		}
-		return 0
-	})
 	r, _, err := procWaveInOpen.Call(
 		uintptr(unsafe.Pointer(&handle.hwi)),
-		uintptr(waveMapper),
+		deviceIndex,
 		uintptr(unsafe.Pointer(&format)),
-		cb,
-		0,
+		waveInCallback,
+		sink,
 		callbackFunction,
 	)
 	if r != 0 {
-		return nil, captureErr(fmt.Sprintf("waveInOpen: %v", err))
+		unregisterCaptureSink(sink)
+		stream.close()
+		if deviceID != "" {
+			return nil, nil, deviceUnavailableErr(deviceID)
+		}
+		return nil, nil, captureErr(fmt.Sprintf("waveInOpen: %v", err))
 	}
 	for i := range handle.headers {
 		handle.bufs[i] = make([]byte, winBufferBytes)
@@ -123,7 +154,7 @@ func spawnPCMCapture(sampleRate uint32, pcmCh chan<- []byte) (CaptureHandle, err
 	}
 	if r, _, err := procWaveInStart.Call(handle.hwi); r != 0 {
 		handle.Stop()
-		return nil, captureErr(fmt.Sprintf("waveInStart: %v", err))
+		return nil, nil, captureErr(fmt.Sprintf("waveInStart: %v", err))
 	}
-	return handle, nil
+	return handle, stream.C(), nil
 }

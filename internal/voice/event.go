@@ -3,6 +3,9 @@ package voice
 // Event is emitted by the capture/STT pipeline to the TUI event loop.
 type Event struct {
 	Kind EventKind
+	// Turn is the id passed to [Press] for the turn that produced this
+	// event.
+	Turn int
 	// Text is the transcript for Interim and Final events.
 	Text string
 	// Message is a short error description for Error events.
@@ -21,4 +24,7 @@ const (
 	EventFinal
 	// EventError is a non-fatal or fatal capture/STT failure.
 	EventError
+	// EventStopped marks the end of a released turn: the final transcript
+	// (if any) has already been delivered and the microphone is closed.
+	EventStopped
 )

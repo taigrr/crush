@@ -154,7 +154,7 @@ func DefaultKeyMap() KeyMap {
 		),
 		Voice: key.NewBinding(
 			key.WithKeys("ctrl+space", "f8"),
-			key.WithHelp("ctrl+space", "dictate"),
+			key.WithHelp("ctrl+space/f8", "dictate"),
 		),
 	}
 

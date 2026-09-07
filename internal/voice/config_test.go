@@ -84,11 +84,3 @@ func TestSTTURLPassesThroughCatalogLanguage(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, url, "language=ja")
 }
-
-func TestCaptureModeNormalize(t *testing.T) {
-	t.Parallel()
-	cfg := Config{CaptureMode: "HOLD"}
-	require.Equal(t, CaptureHold, cfg.Normalize().CaptureMode)
-	cfg.CaptureMode = "nope"
-	require.Equal(t, CaptureToggle, cfg.Normalize().CaptureMode)
-}

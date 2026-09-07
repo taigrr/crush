@@ -295,10 +295,11 @@ type TUIOptions struct {
 	// VoiceKeybindEnabled, when false, silences the Ctrl+Space / F8
 	// chord without disabling `/voice`. Nil means enabled.
 	VoiceKeybindEnabled *bool `json:"voice_keybind_enabled,omitempty" jsonschema:"description=Enable the Ctrl+Space / F8 shortcut for voice dictation. /voice still works when this is off.,default=true"`
-	// VoiceCaptureMode is how the voice chord behaves: "toggle" (press
-	// starts, press again stops) or "hold" (hold to record, release to
-	// stop). Hold requires a terminal that reports key releases.
-	VoiceCaptureMode string `json:"voice_capture_mode,omitempty" jsonschema:"description=How the voice chord (Ctrl+Space / F8) behaves,enum=toggle,enum=hold,default=toggle"`
+	// VoiceCaptureMode is how the voice chord behaves: "hold" (default:
+	// hold to record, release to stop) or "toggle" (press starts, press
+	// again stops). Hold needs a terminal that reports key releases and
+	// silently falls back to toggle elsewhere.
+	VoiceCaptureMode string `json:"voice_capture_mode,omitempty" jsonschema:"description=How the voice chord (Ctrl+Space / F8) behaves. hold records while the key is down (falls back to toggle in terminals without key-release events),enum=hold,enum=toggle,default=hold"`
 }
 
 // Completions defines options for the completions UI.
@@ -372,16 +373,23 @@ type Options struct {
 type VoiceOptions struct {
 	// Disabled hides `/voice` and the Ctrl+Space / F8 chord.
 	Disabled bool `json:"disabled,omitempty" jsonschema:"description=Disable voice dictation entirely,default=false"`
-	// APIBase is the HTTPS API root for STT. Empty inherits the grok
-	// provider base_url, then https://api.x.ai.
+	// APIBase is the HTTPS API root for STT. Default https://api.x.ai.
+	// The grok provider base_url is not inherited: the subscription
+	// proxy only serves chat and 404s on /v1/stt.
 	APIBase string `json:"api_base,omitempty" jsonschema:"description=HTTPS API root for streaming STT (wss:// is derived),format=uri,example=https://api.x.ai"`
 	// STTWSPath is appended to APIBase. Default `/v1/stt`.
 	STTWSPath string `json:"stt_ws_path,omitempty" jsonschema:"description=WebSocket path for streaming STT,default=/v1/stt,example=/v1/stt"`
 	// Language is a catalog code or "auto" (resolve from locale).
 	Language string `json:"language,omitempty" jsonschema:"description=Preferred STT language code or auto,default=en,example=en,example=auto"`
 	// APIKey is an optional dedicated STT bearer. Empty uses XAI_API_KEY
-	// or the grok provider's API key / OAuth token.
+	// or the grok provider's OAuth token (refreshed when expired) / API
+	// key.
 	APIKey string `json:"api_key,omitempty" jsonschema:"description=Optional dedicated STT API key. Empty inherits grok / XAI_API_KEY."`
+	// InputDevice selects the microphone. Empty uses the system default.
+	// Set from the command palette (Select Microphone); the value is a
+	// platform device ID (CoreAudio UID, pulse:<source> / alsa:<pcm>, or
+	// the Windows device name).
+	InputDevice string `json:"input_device,omitempty" jsonschema:"description=Microphone to capture from (platform device ID). Empty uses the system default. Pick one via Ctrl+P → Select Microphone."`
 }
 
 // SoundOptions controls the server-side notification sounds. Sounds are
@@ -952,6 +960,15 @@ func (c *Config) VoiceDisabled() bool {
 	return c != nil && c.Options != nil && c.Options.Voice != nil && c.Options.Voice.Disabled
 }
 
+// VoiceInputDevice returns the configured microphone ID, or "" for the
+// system default.
+func (c *Config) VoiceInputDevice() string {
+	if c == nil || c.Options == nil || c.Options.Voice == nil {
+		return ""
+	}
+	return c.Options.Voice.InputDevice
+}
+
 // VoiceKeybindEnabled reports whether the Ctrl+Space / F8 chord is
 // active. Defaults to true.
 func (c *Config) VoiceKeybindEnabled() bool {
@@ -961,15 +978,15 @@ func (c *Config) VoiceKeybindEnabled() bool {
 	return *c.Options.TUI.VoiceKeybindEnabled
 }
 
-// VoiceCaptureMode returns "hold" or "toggle". Defaults to toggle.
+// VoiceCaptureMode returns "hold" or "toggle". Defaults to hold.
 func (c *Config) VoiceCaptureMode() string {
 	if c == nil || c.Options == nil || c.Options.TUI == nil {
-		return "toggle"
-	}
-	if c.Options.TUI.VoiceCaptureMode == "hold" {
 		return "hold"
 	}
-	return "toggle"
+	if c.Options.TUI.VoiceCaptureMode == "toggle" {
+		return "toggle"
+	}
+	return "hold"
 }
 
 const maxRecentModelsPerType = 5

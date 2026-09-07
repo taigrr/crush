@@ -1,31 +1,21 @@
 package voice
 
-import (
-	"sync/atomic"
-)
+// captureBuffer is how many PCM chunks a capture may queue before the
+// consumer falls behind and chunks are dropped.
+const captureBuffer = 64
 
-const captureReadChunk = 2048
-
-// CaptureHandle stops an in-flight microphone capture.
+// CaptureHandle stops an in-flight microphone capture. After Stop returns
+// the capture's PCM channel is closed once any audio already recorded has
+// been delivered.
 type CaptureHandle interface {
 	Stop()
 }
 
-// SpawnPCMCapture opens the default input device and forwards 16-bit
-// little-endian mono PCM at sampleRate to pcmCh. The caller must Stop
-// the returned handle to release the microphone.
-func SpawnPCMCapture(sampleRate uint32, pcmCh chan<- []byte) (CaptureHandle, error) {
-	return spawnPCMCapture(sampleRate, pcmCh)
-}
-
-func trySendPCM(pcmCh chan<- []byte, chunk []byte, dropped *atomic.Uint64) bool {
-	select {
-	case pcmCh <- chunk:
-		return true
-	default:
-		if dropped != nil {
-			dropped.Add(1)
-		}
-		return true
-	}
+// SpawnPCMCapture opens an input device and returns a channel of 16-bit
+// little-endian mono PCM at sampleRate. deviceID is an [InputDevice.ID]
+// from [ListInputDevices]; empty selects the system default. The capture
+// owns the channel and closes it when stopped, so the caller must Stop
+// the handle to release the microphone and end the stream.
+func SpawnPCMCapture(sampleRate uint32, deviceID string) (CaptureHandle, <-chan []byte, error) {
+	return spawnPCMCapture(sampleRate, deviceID)
 }

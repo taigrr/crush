@@ -112,7 +112,16 @@ type (
 	ActionToggleLowBandwidth          struct{}
 	ActionToggleSound                 struct{}
 	ActionToggleVoice                 struct{}
-	ActionInitializeProject           struct{}
+	// ActionOpenMicrophonePicker asks the UI to enumerate input devices
+	// (off the update loop) and open the microphone picker.
+	ActionOpenMicrophonePicker struct{}
+	// ActionSelectMicrophone is emitted when the user picks a dictation
+	// input device. DeviceID "" selects the system default.
+	ActionSelectMicrophone struct {
+		DeviceID string
+		Name     string
+	}
+	ActionInitializeProject struct{}
 	// ActionArchiveSession is emitted when the user confirms archiving the
 	// current (active) session in the archive-confirmation dialog.
 	ActionArchiveSession struct{}

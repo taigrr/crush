@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
@@ -25,6 +24,7 @@ import (
 	"github.com/taigrr/crush/internal/ui/dialog"
 	"github.com/taigrr/crush/internal/ui/notification"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/ui/textarea"
 	"github.com/taigrr/crush/internal/version"
 	"github.com/taigrr/crush/internal/workspace"
 	"github.com/taigrr/crush/internal/worktree"
@@ -503,8 +503,8 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		pendingPermissions:  make(map[string]*permission.PermissionRequest),
 		pendingQuestions:    make(map[string]*question.Request),
 		attentionPending:    make(map[string]bool),
-		voice:               newVoiceSession(),
 	}
+	ui.voice = newVoiceSession(newDictation(&ui.textarea, com.Styles.Editor.VoiceInterim))
 
 	status := NewStatus(com, ui)
 

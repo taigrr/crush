@@ -366,6 +366,16 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		if cmd := m.toggleVoice(false); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.ActionOpenMicrophonePicker:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		if cmd := m.openMicrophoneDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case dialog.ActionSelectMicrophone:
+		m.dialog.CloseDialog(dialog.MicrophoneID)
+		if cmd := m.selectMicrophone(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case dialog.ActionQuit:
 		cmds = append(cmds, tea.Quit)
 	case dialog.ActionEnableDockerMCP:
