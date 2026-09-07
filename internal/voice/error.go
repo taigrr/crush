@@ -1,11 +1,18 @@
 package voice
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"net/http"
+)
 
 // Error is a typed failure from config, auth, capture, or STT.
 type Error struct {
 	Kind ErrorKind
 	Msg  string
+	// HTTPStatus is the rejected handshake's status code, or 0 when the
+	// failure happened before an HTTP response was received.
+	HTTPStatus int
 }
 
 // ErrorKind classifies a [Error].
@@ -37,6 +44,16 @@ func (e *Error) Error() string {
 		prefix = "capture"
 	}
 	return fmt.Sprintf("%s: %s", prefix, e.Msg)
+}
+
+// isAuthRejection reports whether err is a handshake refused with 401 or
+// 403, i.e. the bearer was stale or invalid.
+func isAuthRejection(err error) bool {
+	var ve *Error
+	if !errors.As(err, &ve) {
+		return false
+	}
+	return ve.HTTPStatus == http.StatusUnauthorized || ve.HTTPStatus == http.StatusForbidden
 }
 
 func configErr(msg string) *Error  { return &Error{Kind: ErrConfig, Msg: msg} }
