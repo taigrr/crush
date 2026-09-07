@@ -8,22 +8,16 @@ import (
 	"github.com/taigrr/crush/internal/voice"
 )
 
-// voiceSession is the TUI's handle on the capture pipeline: the command
-// and event channels, the single outstanding event reader, and the
-// recording-indicator pulse. Turn bookkeeping and prompt edits live in
-// [dictation].
 type voiceSession struct {
 	dict *dictation
 
 	cmdCh  chan voice.Command
 	cancel context.CancelFunc
 	events chan voice.Event
-	// waiting is true while a waitVoiceEvent command is outstanding, so
-	// exactly one reader ever drains events and ordering is preserved.
+	// Exactly one waitVoiceEvent reader is ever outstanding so event order
+	// is preserved.
 	waiting bool
 
-	// pulseOn is the current phase of the recording-dot pulse; pulseGen
-	// invalidates ticks from a previous recording.
 	pulseOn  bool
 	pulseGen int
 }
@@ -35,7 +29,6 @@ func newVoiceSession(dict *dictation) *voiceSession {
 	}
 }
 
-// reset tears down the pipeline and forgets every turn.
 func (s *voiceSession) reset() {
 	if s == nil {
 		return
@@ -101,8 +94,6 @@ func (m *UI) voiceConfig() voice.Config {
 	return cfg.Normalize()
 }
 
-// ensureVoicePipeline starts the capture pipeline on first use and
-// returns the command that begins draining its events.
 func (m *UI) ensureVoicePipeline() tea.Cmd {
 	if m.voice.cmdCh != nil {
 		return m.waitVoiceEvent()
@@ -131,8 +122,6 @@ func (m *UI) ensureVoicePipeline() tea.Cmd {
 	return m.waitVoiceEvent()
 }
 
-// waitVoiceEvent arms the single event reader. It returns nil when one
-// is already outstanding.
 func (m *UI) waitVoiceEvent() tea.Cmd {
 	if m.voice.waiting {
 		return nil
@@ -165,8 +154,6 @@ func (m *UI) beginVoiceRecording(fromHold bool) tea.Cmd {
 	return tea.Batch(wait, m.startVoicePulse())
 }
 
-// stopVoiceKeepingFinal releases the current turn. Its final transcript
-// (or EventStopped) still arrives and settles the phrase.
 func (m *UI) stopVoiceKeepingFinal() tea.Cmd {
 	m.sendVoiceCmd(voice.Release())
 	m.voice.dict.release()
@@ -194,8 +181,6 @@ func (m *UI) holdReleaseVoice() tea.Cmd {
 	return nil
 }
 
-// handleVoiceEvent applies a pipeline event to the dictation state and
-// reconciles the editor layout for any text it inserted.
 func (m *UI) handleVoiceEvent(ev voice.Event) tea.Cmd {
 	m.voice.waiting = false
 	var cmds []tea.Cmd

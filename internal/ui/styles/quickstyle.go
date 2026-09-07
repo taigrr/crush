@@ -110,13 +110,9 @@ type QuickStyleOpts struct {
 	WorkingGradFrom color.Color
 	WorkingGradTo   color.Color
 
-	// VoiceRecording colors the dictation "Recording" indicator and its
-	// pulsing dot. Optional; defaults to burgundy.
 	VoiceRecording color.Color
 }
 
-// defaultVoiceRecording is the burgundy used for the recording indicator
-// when a theme does not override it.
 var defaultVoiceRecording = lipgloss.Color("#800020")
 
 // orColor returns a if non-nil, otherwise b. Used to cascade optional brand

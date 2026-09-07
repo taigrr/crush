@@ -42,8 +42,6 @@ func (r recorder) program() string {
 	}
 }
 
-// args builds the recorder command line. device is a parsed
-// [InputDevice.ID]; an empty name means the recorder's default source.
 func (r recorder) args(rate uint32, device linuxDevice) []string {
 	s := fmt.Sprintf("%d", rate)
 	switch r {
@@ -70,9 +68,6 @@ func (r recorder) args(rate uint32, device linuxDevice) []string {
 	}
 }
 
-// accepts reports whether the recorder can open a device of the given
-// backend: PipeWire and PulseAudio recorders take Pulse source names,
-// arecord takes ALSA PCM names.
 func (r recorder) accepts(device linuxDevice) bool {
 	if device.name == "" {
 		return true
@@ -92,8 +87,8 @@ type linuxHandle struct {
 	cmd  *exec.Cmd
 }
 
-// Stop kills the recorder. The stdout reader closes the PCM stream once
-// the pipe drains, so audio recorded before the kill is still delivered.
+// The stdout reader closes the stream once the pipe drains, so audio
+// recorded before the kill is still delivered.
 func (h *linuxHandle) Stop() {
 	if h == nil {
 		return
@@ -242,8 +237,6 @@ func combinedOutputTimeout(cmd *exec.Cmd, d time.Duration) ([]byte, error) {
 	}
 }
 
-// forwardPCM copies recorder stdout into the stream until the pipe
-// closes, then ends the stream.
 func forwardPCM(r io.Reader, stream *pcmStream) {
 	defer stream.close()
 	buf := make([]byte, captureReadChunk)

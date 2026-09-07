@@ -17,8 +17,6 @@ const (
 	darwinBufferCount           = 4
 	darwinBufferFrames          = 1024
 
-	// kAudioQueueProperty_CurrentDevice ('aqcd') selects the input device
-	// for a queue by CoreAudio device UID.
 	kAudioQueueProperty_CurrentDevice = 0x61716364
 )
 
@@ -68,8 +66,7 @@ func (h *darwinHandle) Stop() {
 	})
 }
 
-// inputCallback is the single AudioQueue input trampoline shared by all
-// captures; the sink id travels in inUserData.
+// One trampoline for all captures; the sink id travels in inUserData.
 var inputCallback = purego.NewCallback(func(inUserData uintptr, inAQ uintptr, buf *audioQueueBuffer, _, _, _ uintptr) {
 	stream, ok := lookupCaptureSink(inUserData)
 	if !ok {

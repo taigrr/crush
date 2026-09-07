@@ -95,8 +95,6 @@ type Palette struct {
 	WorkingGradFrom string
 	WorkingGradTo   string
 
-	// VoiceRecording colors the dictation "Recording" indicator
-	// (optional; defaults to burgundy).
 	VoiceRecording string
 }
 

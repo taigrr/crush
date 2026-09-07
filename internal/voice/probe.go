@@ -2,9 +2,6 @@ package voice
 
 import "runtime"
 
-// MicFixHelp is platform-specific fix text for a mic that isn't being
-// picked up. On macOS the grant is for the terminal app and only
-// applies after that app restarts.
 func MicFixHelp() string {
 	switch runtime.GOOS {
 	case "darwin":

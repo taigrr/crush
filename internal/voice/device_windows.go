@@ -8,7 +8,6 @@ import (
 	"unsafe"
 )
 
-// waveInCapsW mirrors WAVEINCAPSW from mmeapi.h.
 type waveInCapsW struct {
 	Mid           uint16
 	Pid           uint16
@@ -19,11 +18,8 @@ type waveInCapsW struct {
 	Reserved1     uint16
 }
 
-// listInputDevices enumerates waveIn devices. Device indices are not
-// stable across reboots or hot-plugs, so the product name is used as the
-// ID and resolved back to an index at open time; a repeated name gets an
-// ordinal suffix (`Name #2`) so identical devices stay distinct.
-// WAVE_MAPPER picks the Windows default, so no entry is flagged Default.
+// waveIn indices are not stable across hot-plugs, so the product name is
+// the ID (`Name #2` for duplicates) and is resolved to an index at open.
 func listInputDevices() ([]InputDevice, error) {
 	names := waveInDeviceNames()
 	devices := make([]InputDevice, 0, len(names))
@@ -45,8 +41,6 @@ func waveInDeviceNames() []string {
 	return names
 }
 
-// waveInDeviceID returns the ID for names[i]: the name itself for the
-// first occurrence, `name #n` for the nth duplicate.
 func waveInDeviceID(names []string, i int) string {
 	dup := 0
 	for j := 0; j <= i; j++ {
@@ -69,7 +63,6 @@ func waveInDeviceName(index uintptr) (string, bool) {
 	return syscall.UTF16ToString(caps.Pname[:]), true
 }
 
-// findWaveInDevice resolves a device ID back to its current waveIn index.
 func findWaveInDevice(id string) (uintptr, bool) {
 	names := waveInDeviceNames()
 	for i := range names {

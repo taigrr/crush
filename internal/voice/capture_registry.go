@@ -5,9 +5,8 @@ import (
 	"sync/atomic"
 )
 
-// Native callbacks are created once per process (purego/syscall never free
-// them, and their pool is bounded), so each capture registers its stream
-// here and passes the id through the callback's user-data slot.
+// purego/syscall never free callbacks and cap their pool, so there is one
+// trampoline per process and captures register their stream here.
 var (
 	captureSinks   sync.Map // uintptr -> *pcmStream
 	captureSinkSeq atomic.Uintptr

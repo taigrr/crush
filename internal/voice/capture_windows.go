@@ -78,9 +78,9 @@ func (h *windowsHandle) Stop() {
 	})
 }
 
-// waveInCallback is the single waveIn trampoline shared by all captures;
-// the sink id travels in dwInstance. dwParam1 stays a raw uintptr because
-// WIM_OPEN/WIM_CLOSE deliver a non-pointer value in that slot.
+// One trampoline for all captures; the sink id travels in dwInstance.
+// dwParam1 stays uintptr because WIM_OPEN/WIM_CLOSE put a non-pointer
+// there.
 var waveInCallback = syscall.NewCallback(func(hwi, uMsg, dwInstance, dwParam1, _ uintptr) uintptr {
 	if uMsg != wimData {
 		return 0
@@ -89,9 +89,7 @@ var waveInCallback = syscall.NewCallback(func(hwi, uMsg, dwInstance, dwParam1, _
 	if !ok {
 		return 0
 	}
-	// go vet's unsafeptr check flags this uintptr→pointer conversion; it
-	// is the documented Win32 contract for WIM_DATA and cannot be typed
-	// in the callback signature (see comment above).
+	// vet flags this conversion; it is the documented WIM_DATA contract.
 	hdr := (*waveHdr)(unsafe.Pointer(dwParam1))
 	if hdr != nil && hdr.BytesRecorded > 0 {
 		n := int(hdr.BytesRecorded)

@@ -23,7 +23,6 @@ const (
 	audioDoneJSON     = `{"type":"audio.done"}`
 )
 
-// sttServerEvent is a parsed server-to-client STT WebSocket event.
 type sttServerEvent struct {
 	Type        string  `json:"type"`
 	Text        string  `json:"text"`
@@ -57,11 +56,8 @@ type sttEvent struct {
 	Message     string
 }
 
-// streamingSession is a live `wss://…/v1/stt` connection. audioCh is
-// closed by its producer (the PCM forwarder), never by the session; that
-// close is what triggers `audio.done`. writeLoop always consumes audioCh
-// until it is closed — discarding once it can no longer write — so the
-// producer's flush can never block.
+// audioCh is closed by its producer, never by the session; that close
+// triggers `audio.done`.
 type streamingSession struct {
 	conn    *websocket.Conn
 	audioCh chan []byte
@@ -132,8 +128,6 @@ func (s *streamingSession) audioSender() chan<- []byte {
 	return s.audioCh
 }
 
-// close tears the connection down, unblocking any stalled read or write.
-// Safe to call more than once.
 func (s *streamingSession) close() {
 	s.once.Do(func() {
 		close(s.done)
@@ -141,10 +135,8 @@ func (s *streamingSession) close() {
 	})
 }
 
-// writeLoop streams PCM until the audio channel closes, then sends
-// `audio.done` and keeps the socket open so readLoop can collect the
-// server's final transcript. After a write failure or close it keeps
-// draining audioCh (discarding) until the producer closes it.
+// After a write failure writeLoop keeps draining audioCh (discarding) so
+// the producer can never block.
 func (s *streamingSession) writeLoop(conn *websocket.Conn) {
 	defer func() {
 		for range s.audioCh {
@@ -246,10 +238,8 @@ func isBenignDisconnect(err error) bool {
 	return err == io.EOF || strings.Contains(err.Error(), "use of closed network connection")
 }
 
-// handshakeError turns a failed dial into a [Error]. gorilla reports
-// every non-101 response as the opaque "bad handshake", so the HTTP
-// status and the server's error body are folded in, and [HTTPStatus] is
-// preserved so callers can retry 401/403 with a fresh bearer.
+// gorilla reports every non-101 response as the opaque "bad handshake";
+// fold in the status and server body.
 func handshakeError(wsURL string, resp *http.Response, err error) *Error {
 	if resp == nil {
 		return wsErr(fmt.Sprintf("connect: %v", err))
@@ -270,9 +260,6 @@ func handshakeError(wsURL string, resp *http.Response, err error) *Error {
 
 const handshakeBodyLimit = 4096
 
-// serverErrorDetail extracts a human-readable message from an error
-// body: the `error` / `message` / `code` field of a JSON object, or the
-// first line of plain text. HTML bodies (proxy 404 pages) yield "".
 func serverErrorDetail(body []byte) string {
 	trimmed := strings.TrimSpace(string(body))
 	if trimmed == "" {

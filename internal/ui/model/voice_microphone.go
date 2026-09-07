@@ -10,14 +10,11 @@ import (
 	"github.com/taigrr/crush/internal/voice"
 )
 
-// micDevicesMsg carries the result of enumerating input devices so the
-// picker can open with a populated list.
 type micDevicesMsg struct {
 	devices []voice.InputDevice
 	err     error
 }
 
-// listMicrophones enumerates input devices off the update loop.
 func (m *UI) listMicrophones() tea.Cmd {
 	return func() tea.Msg {
 		devices, err := voice.ListInputDevices()
@@ -25,8 +22,6 @@ func (m *UI) listMicrophones() tea.Cmd {
 	}
 }
 
-// openMicrophoneDialog kicks off device enumeration; the dialog itself
-// opens when micDevicesMsg arrives.
 func (m *UI) openMicrophoneDialog() tea.Cmd {
 	if m.dialog.ContainsDialog(dialog.MicrophoneID) {
 		m.dialog.BringToFront(dialog.MicrophoneID)
@@ -47,9 +42,6 @@ func (m *UI) handleMicDevices(msg micDevicesMsg) tea.Cmd {
 	return nil
 }
 
-// selectMicrophone persists the chosen device and restarts the voice
-// pipeline so the next recording opens it. An in-flight recording is
-// stopped first; its interim text is committed to the prompt.
 func (m *UI) selectMicrophone(msg dialog.ActionSelectMicrophone) tea.Cmd {
 	cfg := m.com.Config()
 	if cfg == nil {

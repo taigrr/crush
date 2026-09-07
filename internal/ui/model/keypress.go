@@ -174,7 +174,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 	// Handle cancel key when agent is busy.
 	if key.Matches(msg, m.keyMap.Chat.Cancel) {
 		if m.voice != nil && m.voice.dict.listening() {
-			// The turn's final (or EventStopped) settles the phrase.
 			m.stopVoiceKeepingFinal()
 			return tea.Batch(cmds...)
 		}
@@ -272,8 +271,6 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				prevHeight := m.textarea.Height()
 				value := m.textarea.Value()
 				if m.voice != nil && m.voice.dict.pending() {
-					// Keep whatever has been transcribed so far and drop
-					// the session; late transcripts are stale once reset.
 					m.voice.dict.commit()
 					m.voice.reset()
 					value = m.textarea.Value()

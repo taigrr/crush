@@ -5,21 +5,16 @@ import (
 	"strings"
 )
 
-// Language is one supported STT language from the public xAI catalog.
 type Language struct {
 	Code string
 	Name string
 }
 
-// LanguageAuto is the client-only sentinel meaning “resolve from the
-// process locale at connect time”. Never send this value to the STT API.
+// LanguageAuto is client-only; the STT API rejects it.
 const LanguageAuto = "auto"
 
-// LanguageDefault is used when unset or unrecognized.
 const LanguageDefault = "en"
 
-// Languages is the official Grok STT catalog (docs.x.ai), sorted by
-// English name.
 var Languages = []Language{
 	{Code: "ar", Name: "Arabic"},
 	{Code: "cs", Name: "Czech"},
@@ -48,8 +43,6 @@ var Languages = []Language{
 	{Code: "vi", Name: "Vietnamese"},
 }
 
-// CanonicalizeLanguage maps a user/config string to a catalog code or
-// [LanguageAuto].
 func CanonicalizeLanguage(value string) string {
 	raw := strings.TrimSpace(value)
 	if raw == "" {
@@ -71,9 +64,6 @@ func CanonicalizeLanguage(value string) string {
 	return LanguageDefault
 }
 
-// LanguageForAPI returns the concrete language code to send on the STT
-// wire. Resolves [LanguageAuto] from the process locale; never returns
-// "auto".
 func LanguageForAPI(stored string) string {
 	canonical := CanonicalizeLanguage(stored)
 	if canonical == LanguageAuto {

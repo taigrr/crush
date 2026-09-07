@@ -14,21 +14,14 @@ const grokProviderID = "grok"
 
 const notSignedInMsg = "not signed in — run `crush login grok`, set XAI_API_KEY, or set a grok provider api_key"
 
-// TokenRefresher refreshes a provider's OAuth token and persists it.
-// Satisfied by workspace.Workspace.
 type TokenRefresher interface {
 	RefreshOAuthToken(ctx context.Context, scope config.Scope, providerID string) error
 }
 
-// BearerFunc resolves the STT bearer for one connection attempt. When
-// forceRefresh is set the caller has just received a 401/403 with the
-// previous token and wants a freshly minted one.
 type BearerFunc func(ctx context.Context, forceRefresh bool) (string, error)
 
-// NewBearerFunc builds a [BearerFunc] that follows a rotating grok OAuth
-// token. cfgFn is called on every resolve so a token refreshed elsewhere
-// (agent 401 retry, another crush process) is picked up; refresher may
-// be nil, in which case expired tokens are returned as-is.
+// cfgFn is re-read on every resolve so a token refreshed elsewhere (agent
+// 401 retry, another crush process) is picked up.
 func NewBearerFunc(cfgFn func() *config.Config, refresher TokenRefresher, voice Config) BearerFunc {
 	return func(ctx context.Context, forceRefresh bool) (string, error) {
 		if key := strings.TrimSpace(voice.APIKey); key != "" {
@@ -81,11 +74,9 @@ func bearerFromProvider(pc config.ProviderConfig) (string, error) {
 	return "", authErr(notSignedInMsg)
 }
 
-// ResolveAPIBase returns the STT API base: the dedicated voice api_base
-// when set, else the default. The grok provider's base_url is
-// deliberately not inherited: the subscription proxy
-// (cli-chat-proxy.grok.com) only serves chat and 404s on /v1/stt, while
-// api.x.ai accepts the same OAuth bearer directly.
+// The grok provider's base_url is deliberately not inherited: the
+// subscription proxy only serves chat and 404s on /v1/stt, while api.x.ai
+// accepts the same OAuth bearer.
 func ResolveAPIBase(voice Config) string {
 	if base := strings.TrimSpace(voice.APIBase); base != "" {
 		return strings.TrimRight(base, "/")

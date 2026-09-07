@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// DefaultSampleRate is the STT capture rate (Hz).
 const DefaultSampleRate uint32 = 16_000
 
 const (
@@ -14,31 +13,20 @@ const (
 	defaultEndpointing = uint32(400)
 )
 
-// Config is the STT transport and UI settings for voice dictation.
 type Config struct {
-	// APIBase is the HTTPS API root (or bare host). Bases may end in
-	// `/v1` or `/xai/v1`; the default STT path de-duplicates a leading
-	// `v1/` so both become `…/v1/stt`.
-	APIBase   string
-	STTWSPath string
-	// Language is a catalog code or "auto".
-	Language       string
-	SampleRate     uint32
-	EndpointingMS  uint32
-	InterimResults bool
-	// APIKey is an optional dedicated STT bearer. Empty means inherit
-	// from the grok provider / XAI_API_KEY.
-	APIKey string
-	// InputDevice is the microphone to capture from, as an
-	// [InputDevice.ID]. Empty uses the system default.
-	InputDevice string
-	// ClientIdentifier and UserAgent are stamped on the handshake for
-	// server-side attribution; empty omits the headers.
+	// APIBase may end in `/v1`; the default STT path de-duplicates it.
+	APIBase          string
+	STTWSPath        string
+	Language         string
+	SampleRate       uint32
+	EndpointingMS    uint32
+	InterimResults   bool
+	APIKey           string
+	InputDevice      string
 	ClientIdentifier string
 	UserAgent        string
 }
 
-// DefaultConfig returns production defaults matching grok-build.
 func DefaultConfig() Config {
 	return Config{
 		APIBase:          defaultAPIBase,
@@ -52,8 +40,6 @@ func DefaultConfig() Config {
 	}
 }
 
-// Normalize fills empty fields with defaults and canonicalizes language
-// and capture mode.
 func (c Config) Normalize() Config {
 	d := DefaultConfig()
 	if strings.TrimSpace(c.APIBase) == "" {
@@ -80,8 +66,6 @@ func (c Config) Normalize() Config {
 	return c
 }
 
-// STTWSURL derives the streaming STT WebSocket URL. Rejects plaintext
-// `http://` / `ws://`.
 func (c Config) STTWSURL() (string, error) {
 	return wsURL(c.APIBase, c.STTWSPath)
 }

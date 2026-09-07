@@ -20,25 +20,14 @@ const (
 	dictationStopping
 )
 
-// phrase is a turn's in-progress transcript inside the prompt, as flat
-// rune offsets into the buffer (rows joined by '\n').
 type phrase struct {
 	start, end int
 }
 
-// dictation maps pipeline events onto edits of the prompt. It owns all
-// per-turn bookkeeping: which turns are live, each live turn's phrase,
-// and whether the current turn is recording, draining, or done.
-//
-// A turn's events are applied only while it is live (pressed and not yet
-// reported Stopped/Error), so anything from a turn that was reset away is
-// ignored. Only the current turn drives the recording state; a
-// predecessor still draining its final just settles its phrase.
-//
-// Phrases follow the text through the user's own edits: before every
-// event and every render the buffer is diffed against the last snapshot
-// and phrase offsets are shifted through the changed region, so the
-// textarea itself needs no hooks.
+// Events are applied only for live turns (pressed, not yet Stopped), so a
+// turn reset away is ignored while a predecessor still draining its final
+// settles its phrase. Phrase offsets survive the user's own edits by
+// diffing the buffer against the last snapshot before each event/render.
 type dictation struct {
 	ta    *textarea.Model
 	style lipgloss.Style
@@ -48,8 +37,7 @@ type dictation struct {
 	holdOwned bool
 	live      map[int]bool
 	phrases   map[int]phrase
-	// last is the buffer as of the most recent reconcile.
-	last []rune
+	last      []rune
 }
 
 func newDictation(ta *textarea.Model, style lipgloss.Style) *dictation {
@@ -65,16 +53,12 @@ func (d *dictation) listening() bool { return d.state == dictationListening }
 
 func (d *dictation) active() bool { return d.state != dictationIdle }
 
-// holdOwnedNow reports whether the chord is being held for the current
-// (recording or draining) turn.
 func (d *dictation) holdOwnedNow() bool { return d.holdOwned && d.active() }
 
-// pending reports whether any turn still has events outstanding.
 func (d *dictation) pending() bool {
 	return d.active() || len(d.live) > 0 || len(d.phrases) > 0
 }
 
-// begin starts a new turn and returns its id.
 func (d *dictation) begin(fromHold bool) int {
 	d.turn++
 	d.live[d.turn] = true
@@ -83,7 +67,6 @@ func (d *dictation) begin(fromHold bool) int {
 	return d.turn
 }
 
-// release ends the current turn's recording; its final is still awaited.
 func (d *dictation) release() {
 	if d.state == dictationListening {
 		d.state = dictationStopping
@@ -91,8 +74,6 @@ func (d *dictation) release() {
 	d.holdOwned = false
 }
 
-// reset forgets every turn. Text already in the prompt keeps its normal
-// styling.
 func (d *dictation) reset() {
 	d.state = dictationIdle
 	d.holdOwned = false
@@ -100,12 +81,8 @@ func (d *dictation) reset() {
 	clear(d.phrases)
 }
 
-// commit releases every phrase to normal styling without waiting for
-// finals; used when the prompt is consumed.
 func (d *dictation) commit() { clear(d.phrases) }
 
-// apply handles one pipeline event. It returns the event when the current
-// turn failed and the caller must tear the session down.
 func (d *dictation) apply(ev voice.Event) (failure *voice.Event) {
 	if !d.live[ev.Turn] {
 		return nil
@@ -135,7 +112,6 @@ func (d *dictation) apply(ev voice.Event) (failure *voice.Event) {
 	return nil
 }
 
-// finish marks a turn over. Only the current turn changes the state.
 func (d *dictation) finish(turn int) {
 	delete(d.live, turn)
 	delete(d.phrases, turn)
@@ -145,10 +121,8 @@ func (d *dictation) finish(turn int) {
 	}
 }
 
-// sync reconciles phrase offsets with edits made to the buffer since the
-// last call, by mapping them through the single replaced region found by
-// a common prefix/suffix diff. Phrase starts have right gravity (typing
-// at the start stays outside the phrase) and ends left gravity.
+// Phrase starts have right gravity (typing at the start stays outside the
+// phrase) and ends left gravity.
 func (d *dictation) sync() {
 	cur := []rune(d.ta.Value())
 	if slices.Equal(cur, d.last) {
@@ -168,8 +142,6 @@ func (d *dictation) sync() {
 	d.last = cur
 }
 
-// shiftPhrases maps every phrase except skip through the replacement of
-// flat range [start, oldEnd) by [start, newEnd).
 func (d *dictation) shiftPhrases(start, oldEnd, newEnd, skip int) {
 	for id, p := range d.phrases {
 		if id == skip {
@@ -184,9 +156,6 @@ func (d *dictation) shiftPhrases(start, oldEnd, newEnd, skip int) {
 	}
 }
 
-// shiftOffset maps one offset through an edit. Offsets strictly inside
-// the replaced range collapse to its start; for a pure insertion at the
-// offset, right gravity moves it past the inserted text.
 func shiftOffset(p, start, oldEnd, newEnd int, rightGravity bool) int {
 	switch {
 	case p < start:
@@ -203,9 +172,6 @@ func shiftOffset(p, start, oldEnd, newEnd int, rightGravity bool) int {
 	}
 }
 
-// setPhrase replaces turn's phrase text in the prompt, or inserts it when
-// the turn has none yet. The caret follows the phrase when it sat at the
-// phrase's end; otherwise it stays on the same character.
 func (d *dictation) setPhrase(turn int, text string) {
 	text = strings.Join(strings.Fields(text), " ")
 	cur := d.last
@@ -239,9 +205,8 @@ func (d *dictation) setPhrase(turn int, text string) {
 	d.setCaret(caret)
 }
 
-// anchorFor is where a turn's first text goes: at the caret, except that
-// a turn which never produced an interim (released before any partial)
-// lands before the next newer turn's phrase so spoken order is kept.
+// A turn released before any partial lands before the next newer turn's
+// phrase so spoken order is kept.
 func (d *dictation) anchorFor(turn int) int {
 	for _, id := range slices.Sorted(maps.Keys(d.phrases)) {
 		if id > turn {
@@ -251,10 +216,8 @@ func (d *dictation) anchorFor(turn int) int {
 	return d.caretOffset()
 }
 
-// view renders the prompt with the current turn's in-progress phrase in
-// the dictation style. The highlight is drawn on a copy of the textarea
-// through its selection machinery, so wrapping and scrolling stay native;
-// a user selection takes precedence and disables the highlight.
+// The highlight is drawn on a copy of the textarea through its selection
+// machinery so wrapping and scrolling stay native.
 func (d *dictation) view() string {
 	d.sync()
 	p, ok := d.phrases[d.turn]
@@ -280,10 +243,8 @@ func (d *dictation) view() string {
 	return copyTA.View()
 }
 
-// screenCoords inverts [textarea.Model.PositionAt]: the textarea-relative
-// cell at which pos is drawn. Positions scrolled out of view clamp to the
-// first or last visible cell, which is what a highlight spanning the
-// viewport edge needs.
+// screenCoords inverts PositionAt; positions scrolled out of view clamp to
+// the first/last visible cell.
 func screenCoords(ta *textarea.Model, pos textarea.Position) (x, y int) {
 	xMax := ta.Width() + screenCoordGutter
 	height := ta.Height()
@@ -324,7 +285,6 @@ func (d *dictation) caretOffset() int {
 	return d.offsetOf(textarea.Position{Row: d.ta.Line(), Col: d.ta.Column()})
 }
 
-// offsetOf converts a buffer position to a flat offset into d.last.
 func (d *dictation) offsetOf(pos textarea.Position) int {
 	start, row := 0, 0
 	for i, r := range d.last {
@@ -351,7 +311,6 @@ func lineLen(rs []rune) int {
 	return len(rs)
 }
 
-// positionOf converts a flat offset into d.last to a buffer position.
 func (d *dictation) positionOf(off int) textarea.Position {
 	off = max(0, min(off, len(d.last)))
 	pos := textarea.Position{}
@@ -366,8 +325,6 @@ func (d *dictation) positionOf(off int) textarea.Position {
 	return pos
 }
 
-// setCaret moves the real caret to a flat offset using the public cursor
-// API and scrolls it into view.
 func (d *dictation) setCaret(off int) {
 	pos := d.positionOf(off)
 	d.ta.MoveToBegin()
@@ -384,12 +341,8 @@ func (d *dictation) setCaret(off int) {
 	d.ta.SetHeight(d.ta.Height())
 }
 
-// maxCursorSteps bounds the visual-line walk in setCaret.
 const maxCursorSteps = 100_000
 
-// padVoiceText adds a leading space when the insertion point follows a
-// non-space rune and a trailing space when it precedes one, so speech
-// never fuses with neighbouring words.
 func padVoiceText(before, text, after string) string {
 	if text == "" {
 		return ""

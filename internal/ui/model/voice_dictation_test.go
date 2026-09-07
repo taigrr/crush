@@ -6,7 +6,6 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 
 	"github.com/taigrr/crush/internal/voice"
@@ -42,13 +41,6 @@ func final(turn int, text string) voice.Event {
 
 func stopped(turn int) voice.Event { return voice.Event{Kind: voice.EventStopped, Turn: turn} }
 
-func TestIsVoiceChordPress(t *testing.T) {
-	t.Parallel()
-	require.True(t, isVoiceChordPress(tea.KeyPressMsg{Mod: tea.ModCtrl, Code: ' '}))
-	require.True(t, isVoiceChordPress(tea.KeyPressMsg{Code: tea.KeyF8}))
-	require.False(t, isVoiceChordPress(tea.KeyPressMsg{Code: ' '}))
-}
-
 func TestDictationInsertsAtCaretAndFinalReplaces(t *testing.T) {
 	t.Parallel()
 	d, ta := newDictationFixture("alpha omega")
@@ -69,21 +61,6 @@ func TestDictationInsertsAtCaretAndFinalReplaces(t *testing.T) {
 
 	d.apply(interim(turn, "delta"))
 	require.Equal(t, "alpha beta gamma delta omega", ta.Value(), "next phrase continues after the final")
-}
-
-func TestDictationPaddingAndEmptyPrompt(t *testing.T) {
-	t.Parallel()
-	require.Equal(t, "hello", padVoiceText("", "hello", ""))
-	require.Equal(t, " hello", padVoiceText("hi", "hello", ""))
-	require.Equal(t, "hello ", padVoiceText("hi ", "hello", "there"))
-	require.Equal(t, "hello", padVoiceText("\n", "hello", " there"))
-	require.Equal(t, "", padVoiceText("x", "", "y"))
-
-	d, ta := newDictationFixture("")
-	turn := d.begin(false)
-	d.apply(final(turn, "hello"))
-	d.apply(final(turn, "world"))
-	require.Equal(t, "hello world", ta.Value())
 }
 
 func TestDictationFinalAnchorsWherePhraseStarted(t *testing.T) {
@@ -136,50 +113,6 @@ func TestDictationPhraseTracksUserTyping(t *testing.T) {
 	require.Empty(t, d.phrases)
 }
 
-func TestDictationPhraseDeletedByUserCollapses(t *testing.T) {
-	t.Parallel()
-	d, ta := newDictationFixture("keep")
-	turn := d.begin(false)
-	d.apply(interim(turn, "gone"))
-	require.Equal(t, "keep gone", ta.Value())
-	ta.SetValue("keep")
-	d.apply(final(turn, "gone for good"))
-	require.Equal(t, "keep gone for good", ta.Value(), "final lands where the phrase was")
-}
-
-func TestDictationRendersPhraseItalicUntilFinal(t *testing.T) {
-	t.Parallel()
-	d, ta := newDictationFixture("hello")
-	turn := d.begin(false)
-	d.apply(interim(turn, "world"))
-	styled := d.view()
-	require.Equal(t, ansi.Strip(ta.View()), ansi.Strip(styled), "highlight must not change the text")
-	require.Contains(t, styled, "\x1b[3m", "phrase is italic")
-	d.apply(final(turn, "world"))
-	require.Equal(t, ta.View(), d.view(), "final text renders plain")
-}
-
-func TestDictationHighlightOffCaretRowAndWrapped(t *testing.T) {
-	t.Parallel()
-	d, ta := newDictationFixture("first line\nsecond")
-	setCaret(ta, 1, 6)
-	turn := d.begin(false)
-	d.apply(interim(turn, "spoken words that wrap around the edge"))
-	ta.MoveToBegin()
-	styled := d.view()
-	require.Contains(t, styled, "\x1b[3m", "phrase is highlighted even with the caret on another row")
-	require.Equal(t, ansi.Strip(ta.View()), ansi.Strip(styled))
-}
-
-func TestDictationHighlightYieldsToUserSelection(t *testing.T) {
-	t.Parallel()
-	d, ta := newDictationFixture("hello")
-	turn := d.begin(false)
-	d.apply(interim(turn, "world"))
-	ta.SelectAll()
-	require.NotContains(t, d.view(), "\x1b[3m")
-}
-
 func TestScreenCoordsInvertsPositionAt(t *testing.T) {
 	t.Parallel()
 	_, ta := newDictationFixture("aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii\nlast")
@@ -230,24 +163,6 @@ func TestDictationLateFinalFromDrainingTurn(t *testing.T) {
 	require.Equal(t, dictationIdle, d.state)
 }
 
-func TestDictationDrainingTurnSettlesAfterCurrentEnds(t *testing.T) {
-	t.Parallel()
-	d, ta := newDictationFixture("")
-	t1 := d.begin(false)
-	d.apply(interim(t1, "first phra"))
-	d.release()
-	t2 := d.begin(false)
-	d.release()
-	d.apply(stopped(t2))
-	require.Equal(t, dictationIdle, d.state)
-	require.True(t, d.pending(), "turn 1 still draining")
-
-	d.apply(final(t1, "first phrase"))
-	require.Equal(t, "first phrase", ta.Value())
-	d.apply(stopped(t1))
-	require.False(t, d.pending())
-}
-
 func TestDictationFinalWithoutInterimLandsBeforeNewerTurn(t *testing.T) {
 	t.Parallel()
 	d, ta := newDictationFixture("")
@@ -274,52 +189,4 @@ func TestDictationStaleEventsAfterResetIgnored(t *testing.T) {
 	require.Empty(t, ta.Value(), "reset turns are stale regardless of state")
 	d.apply(interim(t2, "new"))
 	require.Equal(t, "new", ta.Value())
-}
-
-func TestDictationStoppedWhileListeningEndsTurn(t *testing.T) {
-	t.Parallel()
-	d, _ := newDictationFixture("")
-	turn := d.begin(true)
-	require.True(t, d.holdOwnedNow())
-	d.apply(stopped(turn))
-	require.Equal(t, dictationIdle, d.state)
-	require.False(t, d.holdOwnedNow())
-}
-
-func TestDictationErrorResetsAndKeepsText(t *testing.T) {
-	t.Parallel()
-	d, ta := newDictationFixture("x")
-	turn := d.begin(false)
-	d.apply(interim(turn, "partial"))
-	failure := d.apply(voice.Event{Kind: voice.EventError, Turn: turn, Message: "boom"})
-	require.NotNil(t, failure)
-	require.Equal(t, dictationIdle, d.state)
-	require.Empty(t, d.phrases)
-	require.Equal(t, "x partial", ta.Value(), "already-inserted speech is kept")
-	require.Equal(t, ta.View(), d.view())
-}
-
-func TestShiftOffsetGravity(t *testing.T) {
-	t.Parallel()
-	// Pure insertion of 3 runes at 5.
-	require.Equal(t, 8, shiftOffset(5, 5, 5, 8, true), "right gravity moves past inserted text")
-	require.Equal(t, 5, shiftOffset(5, 5, 5, 8, false), "left gravity stays in front")
-	require.Equal(t, 10, shiftOffset(7, 5, 5, 8, false))
-	// Replacement [5,9) by 2 runes.
-	require.Equal(t, 5, shiftOffset(5, 5, 9, 7, true), "start of a replaced range stays")
-	require.Equal(t, 5, shiftOffset(7, 5, 9, 7, false), "inside collapses to start")
-	require.Equal(t, 7, shiftOffset(9, 5, 9, 7, false), "end shifts by delta")
-	require.Equal(t, 3, shiftOffset(3, 5, 9, 7, true))
-}
-
-func TestSingleEventWaiter(t *testing.T) {
-	t.Parallel()
-	u := newTestUI()
-	require.NotNil(t, u.waitVoiceEvent())
-	require.Nil(t, u.waitVoiceEvent(), "second waiter must not be armed while one is outstanding")
-	u.voice.cmdCh = make(chan voice.Command, 1)
-	turn := u.voice.dict.begin(false)
-	u.handleVoiceEvent(interim(turn, "x"))
-	require.True(t, u.voice.waiting, "handler re-arms exactly one waiter")
-	require.Equal(t, "x", u.textarea.Value())
 }

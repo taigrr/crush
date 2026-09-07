@@ -112,12 +112,8 @@ type (
 	ActionToggleLowBandwidth          struct{}
 	ActionToggleSound                 struct{}
 	ActionToggleVoice                 struct{}
-	// ActionOpenMicrophonePicker asks the UI to enumerate input devices
-	// (off the update loop) and open the microphone picker.
-	ActionOpenMicrophonePicker struct{}
-	// ActionSelectMicrophone is emitted when the user picks a dictation
-	// input device. DeviceID "" selects the system default.
-	ActionSelectMicrophone struct {
+	ActionOpenMicrophonePicker        struct{}
+	ActionSelectMicrophone            struct {
 		DeviceID string
 		Name     string
 	}

@@ -10,21 +10,14 @@ import (
 const (
 	backlogMaxChunks = 1024
 	noSpeechTimeout  = 10 * time.Second
-	// drainTimeout bounds how long a released session waits for the
-	// server's final transcript after `audio.done` is sent.
-	drainTimeout = 5 * time.Second
+	drainTimeout     = 5 * time.Second
 )
 
-// Command is a control signal from the TUI event loop.
 type Command struct {
 	Kind CommandKind
-	// Turn identifies the dictation turn a Press starts. It is echoed on
-	// every [Event] the turn produces so the UI can tell a draining
-	// turn's late final apart from the current turn's events.
 	Turn int
 }
 
-// CommandKind is the type of a [Command].
 type CommandKind int
 
 const (
@@ -33,21 +26,14 @@ const (
 	CmdShutdown
 )
 
-// Press starts dictation turn id.
 func Press(id int) Command { return Command{Kind: CmdPress, Turn: id} }
 
-// Release ends the current turn, keeping its final transcript.
 func Release() Command { return Command{Kind: CmdRelease} }
 
-// Shutdown stops the pipeline.
 func Shutdown() Command { return Command{Kind: CmdShutdown} }
 
-// captureFunc opens a microphone; see [SpawnPCMCapture].
 type captureFunc func(sampleRate uint32, deviceID string) (CaptureHandle, <-chan []byte, error)
 
-// deps are the pipeline's external effects. Production uses
-// defaultDeps; tests substitute a fake microphone and a dialer that
-// trusts a local test server.
 type deps struct {
 	capture captureFunc
 	tls     *tls.Config
@@ -55,7 +41,6 @@ type deps struct {
 
 var defaultDeps = deps{capture: SpawnPCMCapture}
 
-// turn is one in-flight dictation session.
 type turn struct {
 	id      int
 	cancel  context.CancelFunc
@@ -78,15 +63,8 @@ func (t *turn) markReleased() {
 	}
 }
 
-// RunPipeline consumes commands until CmdShutdown. Events are delivered
-// on eventCh. bearerFn is resolved at each connect so rotating OAuth
-// tokens stay valid; a 401/403 handshake triggers one forced refresh.
-//
-// A press that arrives while the previous turn is still draining its
-// final transcript is held until that turn finishes (bounded by
-// drainTimeout) so the two turns' events never interleave; the loop keeps
-// servicing commands meanwhile, so a shutdown or an early release of the
-// pending press is honoured immediately.
+// A press during the previous turn's final-transcript drain is held until
+// that turn finishes so the two turns' events never interleave.
 func RunPipeline(ctx context.Context, cfg Config, bearerFn BearerFunc, cmdCh <-chan Command, eventCh chan<- Event) {
 	runPipeline(ctx, cfg, bearerFn, cmdCh, eventCh, defaultDeps)
 }
@@ -174,10 +152,6 @@ func runPipeline(ctx context.Context, cfg Config, bearerFn BearerFunc, cmdCh <-c
 	}
 }
 
-// runCaptureSession streams one dictation turn. Closing release stops the
-// microphone; once its stream drains the bridge closes the audio channel,
-// which makes writeLoop send `audio.done`, and the session lingers up to
-// drainTimeout for the server's final transcript before returning.
 func runCaptureSession(ctx context.Context, cfg Config, bearerFn BearerFunc, turnID int, release <-chan struct{}, eventCh chan<- Event, d deps) error {
 	capture, mic, err := d.capture(cfg.SampleRate, cfg.InputDevice)
 	if err != nil {
@@ -286,10 +260,6 @@ func runCaptureSession(ctx context.Context, cfg Config, bearerFn BearerFunc, tur
 	}
 }
 
-// connectWithAuth resolves a bearer and opens the STT socket. A 401/403
-// on the handshake means the token went stale between the pre-check and
-// the dial (or was revoked), so the bearer is force-refreshed and the
-// dial retried once.
 func connectWithAuth(ctx context.Context, cfg Config, bearerFn BearerFunc, tlsCfg *tls.Config) (*streamingSession, error) {
 	var lastErr error
 	for attempt, force := range []bool{false, true} {
@@ -316,14 +286,9 @@ func connectWithAuth(ctx context.Context, cfg Config, bearerFn BearerFunc, tlsCf
 	return nil, lastErr
 }
 
-// bridgePCM forwards microphone PCM to the STT audio channel. Audio that
-// arrives before the socket is up is held in a bounded backlog and
-// flushed once the sender is handed over. The bridge is the sole closer
-// of the audio channel: it closes it when the microphone stream ends
-// (the capture was stopped) after delivering everything it received, and
-// that close is what makes writeLoop send `audio.done`. Sends can never
-// block indefinitely because writeLoop always drains the channel; only
-// ctx cancellation abandons audio.
+// bridgePCM is the sole closer of the audio channel: it closes it once the
+// mic stream ends and everything received (including the pre-connect
+// backlog) is delivered, which is what makes writeLoop send `audio.done`.
 func bridgePCM(ctx context.Context, mic <-chan []byte, audioReady <-chan chan<- []byte) {
 	var tx chan<- []byte
 	defer func() {

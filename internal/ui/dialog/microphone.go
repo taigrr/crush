@@ -14,13 +14,11 @@ import (
 )
 
 const (
-	// MicrophoneID is the identifier for the microphone picker dialog.
 	MicrophoneID              = "microphone"
 	microphoneDialogMaxWidth  = 64
 	microphoneDialogMaxHeight = 14
 )
 
-// Microphone is a dialog for choosing the dictation input device.
 type Microphone struct {
 	com   *common.Common
 	help  help.Model
@@ -36,8 +34,6 @@ type Microphone struct {
 	}
 }
 
-// MicrophoneItem is one input device in the picker. An empty device ID
-// is the synthetic "System Default" entry.
 type MicrophoneItem struct {
 	*list.Versioned
 	device    voice.InputDevice
@@ -48,7 +44,6 @@ type MicrophoneItem struct {
 	focused   bool
 }
 
-// Finished implements list.Item.
 func (i *MicrophoneItem) Finished() bool { return true }
 
 var (
@@ -56,9 +51,6 @@ var (
 	_ ListItem = (*MicrophoneItem)(nil)
 )
 
-// NewMicrophone builds the picker from an already-enumerated device
-// list. current is the configured [voice.InputDevice.ID] ("" for the
-// system default).
 func NewMicrophone(com *common.Common, devices []voice.InputDevice, current string) *Microphone {
 	d := &Microphone{com: com}
 
@@ -97,10 +89,8 @@ func NewMicrophone(com *common.Common, devices []voice.InputDevice, current stri
 	return d
 }
 
-// ID implements Dialog.
 func (d *Microphone) ID() string { return MicrophoneID }
 
-// HandleMsg implements [Dialog].
 func (d *Microphone) HandleMsg(msg tea.Msg) Action {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
@@ -147,12 +137,10 @@ func (d *Microphone) HandleMsg(msg tea.Msg) Action {
 	return nil
 }
 
-// Cursor returns the cursor position relative to the dialog.
 func (d *Microphone) Cursor() *tea.Cursor {
 	return InputCursor(d.com.Styles, d.input.Cursor())
 }
 
-// Draw implements [Dialog].
 func (d *Microphone) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	t := d.com.Styles
 	width := max(0, min(microphoneDialogMaxWidth, area.Dx()))
@@ -187,12 +175,10 @@ func (d *Microphone) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	return cur
 }
 
-// ShortHelp implements [help.KeyMap].
 func (d *Microphone) ShortHelp() []key.Binding {
 	return []key.Binding{d.keyMap.UpDown, d.keyMap.Select, d.keyMap.Close}
 }
 
-// FullHelp implements [help.KeyMap].
 func (d *Microphone) FullHelp() [][]key.Binding {
 	return [][]key.Binding{{d.keyMap.Select, d.keyMap.Next, d.keyMap.Previous, d.keyMap.Close}}
 }
@@ -221,10 +207,8 @@ func (d *Microphone) setItems(devices []voice.InputDevice, current string) {
 	d.list.ScrollToSelected()
 }
 
-// Filter implements list.FilterableItem.
 func (i *MicrophoneItem) Filter() string { return i.device.Name }
 
-// ID implements list.Item.
 func (i *MicrophoneItem) ID() string {
 	if i.device.ID == "" {
 		return "__default__"
@@ -232,7 +216,6 @@ func (i *MicrophoneItem) ID() string {
 	return i.device.ID
 }
 
-// SetFocused implements ListItem.
 func (i *MicrophoneItem) SetFocused(focused bool) {
 	if i.focused == focused {
 		return
@@ -244,7 +227,6 @@ func (i *MicrophoneItem) SetFocused(focused bool) {
 	}
 }
 
-// SetMatch implements ListItem.
 func (i *MicrophoneItem) SetMatch(m fuzzy.Match) {
 	if sameFuzzyMatch(i.m, m) {
 		return
@@ -256,7 +238,6 @@ func (i *MicrophoneItem) SetMatch(m fuzzy.Match) {
 	}
 }
 
-// Render implements list.Item.
 func (i *MicrophoneItem) Render(width int) string {
 	var info string
 	switch {

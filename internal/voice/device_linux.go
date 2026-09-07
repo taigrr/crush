@@ -27,8 +27,6 @@ const (
 	linuxALSAPrefix  = "alsa:"
 )
 
-// linuxDevice is a parsed [InputDevice.ID]: `pulse:<source-name>` for
-// PipeWire / PulseAudio sources or `alsa:<pcm>` for ALSA PCMs.
 type linuxDevice struct {
 	backend linuxBackend
 	name    string
@@ -69,7 +67,6 @@ func listInputDevices() ([]InputDevice, error) {
 	return out, nil
 }
 
-// runForOutput runs an audio tool and returns its stdout.
 func runForOutput(name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), deviceListTimeout)
 	defer cancel()
@@ -79,9 +76,7 @@ func runForOutput(name string, args ...string) ([]byte, error) {
 	return cmd.Output()
 }
 
-// pactlSource is the subset of `pactl --format=json list sources` used
-// here. The JSON output is a stable machine format and, unlike the text
-// output, is not localised.
+// pactl's text output is gettext-localised; the JSON format is not.
 type pactlSource struct {
 	Name          string `json:"name"`
 	Description   string `json:"description"`
@@ -91,13 +86,10 @@ type pactlSource struct {
 	} `json:"properties"`
 }
 
-// pactlInfo is the subset of `pactl --format=json info` used here.
 type pactlInfo struct {
 	DefaultSourceName string `json:"default_source_name"`
 }
 
-// pactlSources lists PulseAudio / PipeWire input sources, skipping sink
-// monitors, with the server default flagged.
 func pactlSources() ([]InputDevice, error) {
 	raw, err := runForOutput("pactl", "--format=json", "list", "sources")
 	if err != nil {
@@ -132,9 +124,8 @@ func parsePactlSourcesJSON(raw []byte, defaultName string) ([]InputDevice, error
 	return out, nil
 }
 
-// parseArecordPCMs parses `arecord -L`: unindented lines are PCM names,
-// the indented line that follows is the description. Only hardware and
-// sysdefault PCMs are kept; virtual playback-oriented PCMs are skipped.
+// `arecord -L`: unindented lines are PCM names, the indented line after
+// each is its description.
 func parseArecordPCMs(raw string) []InputDevice {
 	var out []InputDevice
 	var cur *InputDevice

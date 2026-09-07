@@ -47,8 +47,6 @@ const (
 	TextIcon  string = "≡"
 	SkillIcon string = "▲"
 
-	// VoiceRecordingIcon is the square dot that pulses next to the
-	// dictation "Recording" label.
 	VoiceRecordingIcon string = "■"
 
 	ScrollbarThumb string = "┃"
@@ -140,13 +138,8 @@ type Styles struct {
 		PromptYoloDotsFocused lipgloss.Style
 		PromptYoloDotsBlurred lipgloss.Style
 
-		// VoiceInterim styles the phrase still being transcribed inside the
-		// prompt (italic, dimmed) until its final transcript replaces it.
 		VoiceInterim lipgloss.Style
 
-		// VoiceRecording* style the "Recording" indicator drawn above the
-		// prompt while dictating: the label, the pulsing dot in its bright
-		// and dim phases, and the trailing stop hint.
 		VoiceRecordingLabel  lipgloss.Style
 		VoiceRecordingDotOn  lipgloss.Style
 		VoiceRecordingDotOff lipgloss.Style
