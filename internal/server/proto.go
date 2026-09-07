@@ -1710,6 +1710,8 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
 		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrPathRequired):
 		status = http.StatusBadRequest
+	case errors.Is(err, backend.ErrSwarmPathNotDir):
+		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrInvalidPermissionAction):
 		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrUnknownCommand):

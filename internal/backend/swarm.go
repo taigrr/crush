@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/db"
+	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
@@ -25,6 +27,7 @@ var (
 	ErrSwarmTargetIsSubagent  = errors.New("swarm target is a sub-agent session (not addressable)")
 	ErrSwarmSelfAddressed     = errors.New("swarm target is the sender's own session")
 	ErrSwarmWorkspaceNotFound = errors.New("swarm target workspace not found")
+	ErrSwarmPathNotDir        = errors.New("swarm path does not exist or is not a directory")
 )
 
 // SwarmLookupResult describes a resolved swarm address across all
@@ -505,6 +508,15 @@ func (b *Backend) CreateSwarmSession(ctx context.Context, workspaceID, title, mo
 func (b *Backend) CreateSwarmSessionAtPath(ctx context.Context, path, title, modelRef string) (string, session.Session, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", session.Session{}, ErrPathRequired
+	}
+
+	// Refuse to bring up a workspace for a directory that does not
+	// exist. Without this, a typo'd nested path inside a git repo would
+	// be created as an empty directory, resolve to its own distinct
+	// workspace, and orphan the session when that workspace is torn
+	// down.
+	if info, err := os.Stat(home.Expand(path)); err != nil || !info.IsDir() {
+		return "", session.Session{}, fmt.Errorf("%w: %q", ErrSwarmPathNotDir, path)
 	}
 
 	// Fast path: a workspace is already running for this path.

@@ -95,6 +95,29 @@ func TestCreateSwarmSessionAtPath_CreateNew(t *testing.T) {
 	require.NotNil(t, ws)
 }
 
+// TestCreateSwarmSessionAtPath_RejectsMissingDir guards against a
+// typo'd path being mkdir'd into a brand-new, distinct workspace whose
+// sessions vanish when that workspace is torn down.
+func TestCreateSwarmSessionAtPath_RejectsMissingDir(t *testing.T) {
+	isolateConfigHome(t)
+
+	base := t.TempDir()
+	srvCfg, err := config.Init(base, "", false)
+	require.NoError(t, err)
+	b := backend.New(t.Context(), srvCfg, nil)
+	t.Cleanup(b.Shutdown)
+
+	missing := filepath.Join(t.TempDir(), "does", "not", "exist")
+	_, _, err = b.CreateSwarmSessionAtPath(t.Context(), missing, "hello", "")
+	require.ErrorIs(t, err, backend.ErrSwarmPathNotDir)
+	require.NoDirExists(t, missing, "must not create the missing directory")
+
+	file := filepath.Join(t.TempDir(), "file.txt")
+	require.NoError(t, os.WriteFile(file, []byte("x"), 0o644))
+	_, _, err = b.CreateSwarmSessionAtPath(t.Context(), file, "hello", "")
+	require.ErrorIs(t, err, backend.ErrSwarmPathNotDir)
+}
+
 // TestLookupSwarmAddress_ReattachesTornDownWorkspace guards the
 // regression where a workspace spawned via CreateSwarmSessionAtPath
 // (address:"new" + path) became permanently unaddressable the moment
