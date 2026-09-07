@@ -297,6 +297,47 @@ session navigator (ctrl+s). Valid range is 20-80; omit it for the default of
 data config, so a value set in a project or workspace config outranks the
 resize and pins the width for that project.
 
+## Voice dictation
+
+Hold or tap `Ctrl+Space` (or `F8`) to dictate into the prompt. Live
+partial transcripts paint as highlighted italic overlay text; finalized
+utterances append to the editor. Esc or Enter stops capture; Enter also
+sends. Nothing is auto-sent.
+
+```json
+{
+  "options": {
+    "voice": {
+      "disabled": false,
+      "api_base": "https://api.x.ai",
+      "language": "en"
+    },
+    "tui": {
+      "voice_keybind_enabled": true,
+      "voice_capture_mode": "toggle"
+    }
+  }
+}
+```
+
+- `options.voice.disabled`: hide `/voice` and the chord entirely.
+- `options.voice.api_base`: HTTPS STT root. Empty inherits the grok
+  provider `base_url`, then `https://api.x.ai`. `wss://` is derived;
+  plaintext `http://` / `ws://` is rejected.
+- `options.voice.language`: catalog code (`en`, `ja`, …) or `auto`
+  (resolve from locale). The STT API does not accept `auto` on the wire.
+- `options.voice.api_key`: optional dedicated STT bearer. Empty uses
+  `XAI_API_KEY` or the grok provider's API key / OAuth token.
+- `options.tui.voice_keybind_enabled`: off silences Ctrl+Space / F8
+  without disabling `/voice`.
+- `options.tui.voice_capture_mode`: `toggle` (default) or `hold`. Hold
+  needs a terminal that reports key releases (Kitty protocol) and falls
+  back to toggle elsewhere.
+
+Auth is the grok provider: `crush login grok`, `XAI_API_KEY`, or a grok
+`api_key` in config. Linux capture shells out to `pw-record` / `parec` /
+`arecord` (no audio library is linked).
+
 ## Themes
 
 `options.tui.theme` selects the UI color theme by name. Because local config

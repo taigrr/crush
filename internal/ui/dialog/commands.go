@@ -586,6 +586,11 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	}
 	commands = append(commands, NewCommandItem(c.com.Styles, "toggle_sound", soundLabel, "", ActionToggleSound{}))
 
+	if cfg != nil && !cfg.VoiceDisabled() {
+		voiceLabel := "Start Dictation"
+		commands = append(commands, NewCommandItem(c.com.Styles, "toggle_voice", voiceLabel, "ctrl+space", ActionToggleVoice{}).WithDescription("Ctrl+Space/F8; Esc/Enter to stop"))
+	}
+
 	commands = append(
 		commands,
 		NewCommandItem(c.com.Styles, "quit", "Quit", "ctrl+c", tea.QuitMsg{}).WithAliases("exit"),

@@ -135,6 +135,9 @@ type Styles struct {
 		PromptYoloIconBlurred lipgloss.Style
 		PromptYoloDotsFocused lipgloss.Style
 		PromptYoloDotsBlurred lipgloss.Style
+
+		// VoiceInterim is the live STT overlay (muted italic ghost text).
+		VoiceInterim lipgloss.Style
 	}
 
 	// Radio

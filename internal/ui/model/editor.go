@@ -167,9 +167,10 @@ func (m *UI) renderEditorView(width int) string {
 	if len(m.attachments.List()) > 0 {
 		attachmentsView = m.attachments.Render(width)
 	}
+	ta := m.overlayVoiceInterim(m.textarea.View(), width)
 	return strings.Join([]string{
 		attachmentsView,
-		m.textarea.View(),
+		ta,
 		"", // margin at bottom of editor
 	}, "\n")
 }

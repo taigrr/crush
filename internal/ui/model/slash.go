@@ -129,6 +129,16 @@ var builtinSlashCommands = []slashCommand{
 			return m.handleMCPAuth(args)
 		},
 	},
+	{
+		name:        "voice",
+		description: "Toggle dictation (Ctrl+Space/F8; Esc/Enter to stop)",
+		run: func(m *UI, _ string) tea.Cmd {
+			if !m.voiceEnabled() {
+				return util.ReportError(fmt.Errorf("voice dictation is disabled"))
+			}
+			return m.toggleVoice(false)
+		},
+	},
 }
 
 // splitSlash splits a trimmed prompt value into a slash verb and its

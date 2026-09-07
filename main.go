@@ -20,9 +20,13 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/taigrr/crush/internal/cmd"
 	_ "github.com/taigrr/crush/internal/dns"
+	"github.com/taigrr/crush/internal/voice"
 )
 
 func main() {
+	if code := voice.MaybeRunCaptureSubprocess(); code != nil {
+		os.Exit(*code)
+	}
 	if os.Getenv("CRUSH_PROFILE") != "" {
 		// Default to :6060 for the client; set CRUSH_PROFILE_PORT to use a
 		// different port (the server subprocess should use 6061).

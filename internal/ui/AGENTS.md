@@ -45,6 +45,8 @@ The `UI` struct is the top-level Bubble Tea model. Key fields:
 - `textarea textarea.Model` — the input editor
 - `dialog *dialog.Overlay` — stacked dialog system
 - `completions`, `attachments` — sub-components
+- `voice *voiceSession` — dictation overlay and pipeline handle
+  (Ctrl+Space / F8)
 
 Keep most logic and state here. This is where:
 
