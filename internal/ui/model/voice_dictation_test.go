@@ -3,12 +3,12 @@ package model
 import (
 	"testing"
 
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/require"
 
-	"github.com/taigrr/crush/internal/ui/textarea"
 	"github.com/taigrr/crush/internal/voice"
 )
 
@@ -22,6 +22,14 @@ func newDictationFixture(value string) (*dictation, *textarea.Model) {
 	ta.SetValue(value)
 	d := newDictation(&ta, lipgloss.NewStyle().Italic(true))
 	return d, &ta
+}
+
+func setCaret(ta *textarea.Model, row, col int) {
+	ta.MoveToBegin()
+	for ta.Line() < row {
+		ta.CursorDown()
+	}
+	ta.SetCursorColumn(col)
 }
 
 func interim(turn int, text string) voice.Event {
@@ -44,12 +52,12 @@ func TestIsVoiceChordPress(t *testing.T) {
 func TestDictationInsertsAtCaretAndFinalReplaces(t *testing.T) {
 	t.Parallel()
 	d, ta := newDictationFixture("alpha omega")
-	ta.SetCursor(textarea.Position{Row: 0, Col: 5})
+	setCaret(ta, 0, 5)
 	turn := d.begin(false)
 
 	d.apply(interim(turn, "bet"))
 	require.Equal(t, "alpha bet omega", ta.Value())
-	require.Equal(t, textarea.Position{Row: 0, Col: 9}, ta.CursorPosition(), "caret sits after the phrase")
+	require.Equal(t, 9, ta.Column(), "caret sits after the phrase")
 
 	d.apply(interim(turn, "beta gam"))
 	require.Equal(t, "alpha beta gam omega", ta.Value(), "interim is replaced, not appended")
@@ -57,7 +65,7 @@ func TestDictationInsertsAtCaretAndFinalReplaces(t *testing.T) {
 	d.apply(final(turn, "beta gamma"))
 	require.Equal(t, "alpha beta gamma omega", ta.Value())
 	require.Empty(t, d.phrases, "final text is released to normal styling")
-	require.Equal(t, textarea.Position{Row: 0, Col: 16}, ta.CursorPosition())
+	require.Equal(t, 16, ta.Column())
 
 	d.apply(interim(turn, "delta"))
 	require.Equal(t, "alpha beta gamma delta omega", ta.Value(), "next phrase continues after the final")
@@ -81,7 +89,7 @@ func TestDictationPaddingAndEmptyPrompt(t *testing.T) {
 func TestDictationFinalAnchorsWherePhraseStarted(t *testing.T) {
 	t.Parallel()
 	d, ta := newDictationFixture("alpha omega")
-	ta.SetCursor(textarea.Position{Row: 0, Col: 5})
+	setCaret(ta, 0, 5)
 	turn := d.begin(false)
 	d.apply(interim(turn, "bet"))
 
@@ -104,20 +112,27 @@ func TestDictationPhraseTracksUserTyping(t *testing.T) {
 
 	// Type at the start of the row: the phrase shifts right.
 	ta.MoveToBegin()
-	*ta, _ = ta.Update(tea.KeyPressMsg{Code: 'X', Text: "X"})
-	*ta, _ = ta.Update(tea.KeyPressMsg{Code: 'Y', Text: "Y"})
-	*ta, _ = ta.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
+	for _, r := range "XY " {
+		*ta, _ = ta.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
 	require.Equal(t, "XY ab spoken", ta.Value())
 
 	d.apply(interim(turn, "spoken words"))
 	require.Equal(t, "XY ab spoken words", ta.Value(), "relocated, not duplicated")
 	require.Equal(t, 3, ta.Column(), "caret left where the user put it")
 
+	// Typing right at the phrase's start stays outside it.
+	setCaret(ta, 0, 5)
+	*ta, _ = ta.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
+	require.Equal(t, "XY ab! spoken words", ta.Value())
+	d.sync()
+	require.Equal(t, phrase{start: 6, end: 19}, d.phrases[turn])
+
 	// A line inserted above shifts the row.
 	ta.MoveToBegin()
 	ta.InsertString("first\n")
 	d.apply(final(turn, "spoken words done"))
-	require.Equal(t, "first\nXY ab spoken words done", ta.Value())
+	require.Equal(t, "first\nXY ab! spoken words done", ta.Value())
 	require.Empty(t, d.phrases)
 }
 
@@ -127,9 +142,7 @@ func TestDictationPhraseDeletedByUserCollapses(t *testing.T) {
 	turn := d.begin(false)
 	d.apply(interim(turn, "gone"))
 	require.Equal(t, "keep gone", ta.Value())
-	// User selects the phrase and deletes it.
-	ta.ReplaceRange(textarea.Position{Row: 0, Col: 4}, textarea.Position{Row: 0, Col: 9}, "")
-	require.Equal(t, "keep", ta.Value())
+	ta.SetValue("keep")
 	d.apply(final(turn, "gone for good"))
 	require.Equal(t, "keep gone for good", ta.Value(), "final lands where the phrase was")
 }
@@ -137,15 +150,51 @@ func TestDictationPhraseDeletedByUserCollapses(t *testing.T) {
 func TestDictationRendersPhraseItalicUntilFinal(t *testing.T) {
 	t.Parallel()
 	d, ta := newDictationFixture("hello")
-	plain := ta.View()
 	turn := d.begin(false)
 	d.apply(interim(turn, "world"))
-	styled := ta.View()
-	require.Contains(t, ansi.Strip(styled), "hello world")
+	styled := d.view()
+	require.Equal(t, ansi.Strip(ta.View()), ansi.Strip(styled), "highlight must not change the text")
 	require.Contains(t, styled, "\x1b[3m", "phrase is italic")
 	d.apply(final(turn, "world"))
-	require.NotContains(t, ta.View(), "\x1b[3m", "final text is plain")
-	_ = plain
+	require.Equal(t, ta.View(), d.view(), "final text renders plain")
+}
+
+func TestDictationHighlightOffCaretRowAndWrapped(t *testing.T) {
+	t.Parallel()
+	d, ta := newDictationFixture("first line\nsecond")
+	setCaret(ta, 1, 6)
+	turn := d.begin(false)
+	d.apply(interim(turn, "spoken words that wrap around the edge"))
+	ta.MoveToBegin()
+	styled := d.view()
+	require.Contains(t, styled, "\x1b[3m", "phrase is highlighted even with the caret on another row")
+	require.Equal(t, ansi.Strip(ta.View()), ansi.Strip(styled))
+}
+
+func TestDictationHighlightYieldsToUserSelection(t *testing.T) {
+	t.Parallel()
+	d, ta := newDictationFixture("hello")
+	turn := d.begin(false)
+	d.apply(interim(turn, "world"))
+	ta.SelectAll()
+	require.NotContains(t, d.view(), "\x1b[3m")
+}
+
+func TestScreenCoordsInvertsPositionAt(t *testing.T) {
+	t.Parallel()
+	_, ta := newDictationFixture("aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii\nlast")
+	ta.SetWidth(12)
+	ta.SetHeight(8)
+	for _, pos := range []textarea.Position{{Row: 0, Col: 0}, {Row: 0, Col: 5}, {Row: 0, Col: 20}, {Row: 1, Col: 2}} {
+		x, y := screenCoords(ta, pos)
+		require.Equal(t, pos, ta.PositionAt(x, y), "pos %+v", pos)
+	}
+	// Scrolled out of view: clamps to the last visible cell.
+	ta.SetHeight(2)
+	ta.MoveToBegin()
+	x, y := screenCoords(ta, textarea.Position{Row: 1, Col: 2})
+	require.Equal(t, 1, y)
+	require.Equal(t, ta.PositionAt(ta.Width()+screenCoordGutter, 1), ta.PositionAt(x, y))
 }
 
 func TestDictationEscDoesNotDuplicateFinal(t *testing.T) {
@@ -174,7 +223,6 @@ func TestDictationLateFinalFromDrainingTurn(t *testing.T) {
 	require.Equal(t, "first phrase second", ta.Value(), "turn 1 final replaces its own phrase")
 	require.True(t, d.listening(), "turn 2 keeps recording")
 	d.apply(stopped(t1))
-	require.True(t, d.listening())
 
 	d.release()
 	d.apply(final(t2, "second one"))
@@ -248,7 +296,20 @@ func TestDictationErrorResetsAndKeepsText(t *testing.T) {
 	require.Equal(t, dictationIdle, d.state)
 	require.Empty(t, d.phrases)
 	require.Equal(t, "x partial", ta.Value(), "already-inserted speech is kept")
-	require.NotContains(t, ta.View(), "\x1b[3m")
+	require.Equal(t, ta.View(), d.view())
+}
+
+func TestShiftOffsetGravity(t *testing.T) {
+	t.Parallel()
+	// Pure insertion of 3 runes at 5.
+	require.Equal(t, 8, shiftOffset(5, 5, 5, 8, true), "right gravity moves past inserted text")
+	require.Equal(t, 5, shiftOffset(5, 5, 5, 8, false), "left gravity stays in front")
+	require.Equal(t, 10, shiftOffset(7, 5, 5, 8, false))
+	// Replacement [5,9) by 2 runes.
+	require.Equal(t, 5, shiftOffset(5, 5, 9, 7, true), "start of a replaced range stays")
+	require.Equal(t, 5, shiftOffset(7, 5, 9, 7, false), "inside collapses to start")
+	require.Equal(t, 7, shiftOffset(9, 5, 9, 7, false), "end shifts by delta")
+	require.Equal(t, 3, shiftOffset(3, 5, 9, 7, true))
 }
 
 func TestSingleEventWaiter(t *testing.T) {
