@@ -76,8 +76,27 @@ func TestAffectedPaths_DedupesAndSorts(t *testing.T) {
 
 func TestFormatRenameResult(t *testing.T) {
 	t.Parallel()
-	got := formatRenameResult("Foo", "Bar", []string{"/tmp/a.go", "/tmp/b.go"})
+	got := formatRenameResult("Foo", "Bar", []string{"/tmp/a.go", "/tmp/b.go"}, nil)
 	require.True(t, strings.Contains(got, "Renamed 'Foo' -> 'Bar' in 2 file(s):"), "got: %s", got)
 	require.Contains(t, got, "/tmp/a.go")
 	require.Contains(t, got, "/tmp/b.go")
+	require.NotContains(t, got, "WARNING")
+
+	got = formatRenameResult("Foo", "Bar", []string{"/tmp/a.go"}, []string{"/tmp/c.go"})
+	require.Contains(t, got, "WARNING: 1 other file(s) still contain 'Foo'")
+	require.Contains(t, got, "/tmp/c.go")
+}
+
+func TestMissedFiles(t *testing.T) {
+	t.Parallel()
+	got := missedFiles([]string{"/a", "/b", "/c"}, []string{"/b"})
+	require.Equal(t, []string{"/a", "/c"}, got)
+	require.Nil(t, missedFiles([]string{"/a"}, []string{"/a"}))
+}
+
+func TestSymbolPattern(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, `\bfolderName\b`, symbolPattern("folderName"))
+	require.Equal(t, `\bBar\b`, symbolPattern("foo.Bar"))
+	require.Equal(t, `\bbaz\b`, symbolPattern("ns::baz"))
 }

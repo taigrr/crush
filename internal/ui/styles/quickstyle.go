@@ -814,6 +814,7 @@ func QuickStyle(o QuickStyleOpts) Styles {
 	s.Resource.OfflineIcon = lipgloss.NewStyle().Foreground(o.BgMostVisible).SetString("●")
 	s.Resource.BusyIcon = s.Resource.OfflineIcon.Foreground(o.Busy)
 	s.Resource.ErrorIcon = s.Resource.OfflineIcon.Foreground(o.Destructive)
+	s.Resource.WarningIcon = s.Resource.OfflineIcon.Foreground(o.Warning)
 	s.Resource.OnlineIcon = s.Resource.OfflineIcon.Foreground(o.SuccessMostSubtle)
 	s.Resource.DisabledIcon = lipgloss.NewStyle().Foreground(o.FgMoreSubtle).SetString("●")
 	s.Resource.AdditionalText = lipgloss.NewStyle().Foreground(o.FgMostSubtle)

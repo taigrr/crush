@@ -542,6 +542,8 @@ func lspStateString(state lsp.ServerState) string {
 		return "starting"
 	case lsp.StateReady:
 		return "ready"
+	case lsp.StateWarn:
+		return "ready (warning: no root marker at workspace root)"
 	case lsp.StateError:
 		return "error"
 	case lsp.StateStopped:

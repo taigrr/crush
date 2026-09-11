@@ -161,7 +161,7 @@ func (s *Manager) startServer(ctx context.Context, name, filepath string, server
 
 	if client, ok := s.clients.Get(name); ok {
 		switch client.GetServerState() {
-		case StateReady, StateStarting, StateDisabled:
+		case StateReady, StateWarn, StateStarting, StateDisabled:
 			s.callback(name, client)
 			// already done, return
 			return
@@ -193,7 +193,7 @@ func (s *Manager) startServer(ctx context.Context, name, filepath string, server
 	// Check again in case another goroutine started it in the meantime.
 	if client, ok := s.clients.Get(name); ok {
 		switch client.GetServerState() {
-		case StateReady, StateStarting, StateDisabled:
+		case StateReady, StateWarn, StateStarting, StateDisabled:
 			s.callback(name, client)
 			return
 		}
@@ -214,7 +214,7 @@ func (s *Manager) startServer(ctx context.Context, name, filepath string, server
 	// prefer the already-stored client.
 	if existing, ok := s.clients.Get(name); ok {
 		switch existing.GetServerState() {
-		case StateReady, StateStarting, StateDisabled:
+		case StateReady, StateWarn, StateStarting, StateDisabled:
 			_ = client.Close(ctx)
 			s.callback(name, existing)
 			return
@@ -226,7 +226,7 @@ func (s *Manager) startServer(ctx context.Context, name, filepath string, server
 	}()
 
 	switch client.GetServerState() {
-	case StateReady, StateStarting, StateDisabled:
+	case StateReady, StateWarn, StateStarting, StateDisabled:
 		// already done, return
 		return
 	}
@@ -247,7 +247,7 @@ func (s *Manager) startServer(ctx context.Context, name, filepath string, server
 		slog.Warn("LSP server not fully ready, continuing anyway", "name", name, "error", err)
 		client.SetServerState(StateError)
 	} else {
-		client.SetServerState(StateReady)
+		client.SetServerState(readyState(client))
 	}
 
 	slog.Debug("LSP client started", "name", name)

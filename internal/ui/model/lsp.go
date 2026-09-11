@@ -96,6 +96,13 @@ func lspList(t *styles.Styles, lsps []LSPInfo, width, maxItems int) string {
 		case lsp.StateReady:
 			icon = t.Resource.OnlineIcon.String()
 			diagnostics = lspDiagnostics(t, l.Diagnostics)
+		case lsp.StateWarn:
+			icon = t.Resource.WarningIcon.String()
+			description = t.Resource.StatusText.Render("no root marker")
+			if l.Error != nil {
+				description = t.Resource.StatusText.Render(l.Error.Error())
+			}
+			diagnostics = lspDiagnostics(t, l.Diagnostics)
 		case lsp.StateError:
 			icon = t.Resource.ErrorIcon.String()
 			description = t.Resource.StatusText.Render("error")

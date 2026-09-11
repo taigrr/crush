@@ -1,1 +1,3 @@
 Apply multiple find-and-replace edits to a single file in one operation; edits run sequentially against the result of the previous one. Prefer over edit for multiple changes to the same file. Same matching rules as edit apply (exact, then whitespace-tolerant), and no prior view is required. Failed edits do not block the others; each failure's error includes a line-numbered view of the closest region, and the response shows every edited region with line numbers.
+
+Each edit may set `regex: true` (Go RE2 pattern in old_string, `$1`/`${name}` template in new_string, `replace_all` for every match; no lookaround). The top-level `verify` runs a shell command after the write and appends its output, so edit-and-check happens in one call.

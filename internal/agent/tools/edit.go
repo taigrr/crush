@@ -25,6 +25,8 @@ type EditParams struct {
 	OldString  string `json:"old_string" description:"The text to replace"`
 	NewString  string `json:"new_string" description:"The text to replace it with"`
 	ReplaceAll bool   `json:"replace_all,omitempty" description:"Replace all occurrences of old_string (default false)"`
+	Regex      bool   `json:"regex,omitempty" description:"Treat old_string as a Go RE2 regex and new_string as its replacement template ($1, ${name}). Requires a unique match unless replace_all is set. No lookahead/lookbehind."`
+	Verify     string `json:"verify,omitempty" description:"Optional shell command to run after a successful edit (e.g. 'go vet ./...' or 'tsc --noEmit'); its output is appended to the result. Same permission rules as the bash tool."`
 }
 
 type EditPermissionsParams struct {
@@ -76,11 +78,14 @@ func NewEditTool(
 
 			editCtx := editContext{ctx, permissions, files, filetracker, wd}
 
-			if params.OldString == "" {
+			switch {
+			case params.OldString == "":
 				response, err = createNewFile(editCtx, params.FilePath, params.NewString, call)
-			} else if params.NewString == "" {
+			case params.Regex:
+				response, err = replaceContentRegex(editCtx, params.FilePath, params.OldString, params.NewString, params.ReplaceAll, call)
+			case params.NewString == "":
 				response, err = deleteContent(editCtx, params.FilePath, params.OldString, params.ReplaceAll, call)
-			} else {
+			default:
 				response, err = replaceContent(editCtx, params.FilePath, params.OldString, params.NewString, params.ReplaceAll, call)
 			}
 
@@ -97,6 +102,7 @@ func NewEditTool(
 
 			text := fmt.Sprintf("<result>\n%s\n</result>\n", response.Content)
 			text += getDiagnostics(params.FilePath, lspManager)
+			text += runVerify(ctx, permissions, wd, params.Verify, call.ID)
 			response.Content = text
 			return response, nil
 		},
@@ -307,6 +313,24 @@ func deleteContent(edit editContext, filePath, oldString string, replaceAll bool
 }
 
 func replaceContent(edit editContext, filePath, oldString, newString string, replaceAll bool, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+	return replaceWith(edit, filePath, call, func(content string) (string, []lineRange, string, error) {
+		return applyEdit(content, oldString, newString, replaceAll)
+	})
+}
+
+func replaceContentRegex(edit editContext, filePath, pattern, replacement string, replaceAll bool, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+	return replaceWith(edit, filePath, call, func(content string) (string, []lineRange, string, error) {
+		newContent, spans, err := applyRegexEdit(content, pattern, replacement, replaceAll)
+		if err != nil {
+			return "", nil, "", err
+		}
+		return newContent, spanRegions(spans), fmt.Sprintf("Regex replaced %d match(es).", len(spans)), nil
+	})
+}
+
+// replaceWith runs the shared read/permission/write/history pipeline for a
+// content transformation produced by apply.
+func replaceWith(edit editContext, filePath string, call fantasy.ToolCall, apply func(content string) (string, []lineRange, string, error)) (fantasy.ToolResponse, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -332,7 +356,7 @@ func replaceContent(edit editContext, filePath, oldString, newString string, rep
 	oldContent, isCrlf := fsext.ToUnixLineEndings(string(content))
 
 	previouslyRead := !edit.filetracker.LastReadTime(edit.ctx, sessionID, filePath).IsZero()
-	newContent, regions, note, matchErr := applyEdit(oldContent, oldString, newString, replaceAll)
+	newContent, regions, note, matchErr := apply(oldContent)
 	if matchErr != nil {
 		return fantasy.NewTextErrorResponse(matchErr.Error()), nil
 	}

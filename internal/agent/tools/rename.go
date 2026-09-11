@@ -66,13 +66,18 @@ func NewRenameTool(lspManager *lsp.Manager, permissions permission.Service, work
 
 			searchDir := cmp.Or(params.Path, ".")
 
-			matches, _, err := searchFiles(ctx, regexp.QuoteMeta(params.Symbol), searchDir, "", 50)
+			matches, _, err := searchFiles(ctx, symbolPattern(params.Symbol), searchDir, "", 200)
 			if err != nil {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("failed to locate symbol: %s", err)), nil
 			}
 			if len(matches) == 0 {
 				return fantasy.NewTextResponse(fmt.Sprintf("Symbol '%s' not found", params.Symbol)), nil
 			}
+
+			// Some servers (notably tsserver) only resolve references
+			// project-wide for files they have been told about. Open every
+			// candidate file up front so the rename can reach all of them.
+			candidateFiles := openCandidateFiles(ctx, lspManager, matches)
 
 			// Try each match in turn until an LSP server gives us back a
 			// non-empty WorkspaceEdit. Some hits may be in comments or
@@ -149,9 +154,72 @@ func NewRenameTool(lspManager *lsp.Manager, permissions permission.Service, work
 				}
 			}
 
-			return fantasy.NewTextResponse(formatRenameResult(params.Symbol, params.NewName, files)), nil
+			// The edits were written straight to disk; push the new
+			// contents to the servers so diagnostics aren't stale.
+			for _, p := range files {
+				notifyLSPs(ctx, lspManager, p)
+			}
+
+			missed := missedFiles(candidateFiles, files)
+			text := formatRenameResult(params.Symbol, params.NewName, files, missed)
+			text += getDiagnostics(files[0], lspManager)
+			return fantasy.NewTextResponse(text), nil
 		},
 	)
+}
+
+// symbolPattern builds a word-bounded regex for the last identifier
+// segment of symbol so that grep candidates line up with what the LSP
+// server considers a reference (e.g. `foo.bar` matches `\bbar\b`).
+func symbolPattern(symbol string) string {
+	ident := symbol[getSymbolOffset(symbol):]
+	if ident == "" {
+		ident = symbol
+	}
+	return `\b` + regexp.QuoteMeta(ident) + `\b`
+}
+
+// openCandidateFiles opens every distinct file among matches in the LSP
+// client that handles it and returns the sorted, deduplicated absolute
+// paths. Files no client handles are skipped.
+func openCandidateFiles(ctx context.Context, lspManager *lsp.Manager, matches []grepMatch) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, match := range matches {
+		absPath, err := filepath.Abs(match.path)
+		if err != nil {
+			continue
+		}
+		if _, ok := seen[absPath]; ok {
+			continue
+		}
+		seen[absPath] = struct{}{}
+		for c := range lspManager.Clients().Seq() {
+			if !c.HandlesFile(absPath) {
+				continue
+			}
+			if err := c.OpenFileOnDemand(ctx, absPath); err != nil {
+				slog.Debug("Failed to open rename candidate", "path", absPath, "error", err)
+				continue
+			}
+			out = append(out, absPath)
+			break
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// missedFiles returns candidate files the LSP server did not touch. These
+// are surfaced as a warning so a partial rename is never silent.
+func missedFiles(candidates, touched []string) []string {
+	var out []string
+	for _, p := range candidates {
+		if !slices.Contains(touched, p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // requestRename runs through the same client-resolution logic as
@@ -216,11 +284,17 @@ func affectedPaths(edit *protocol.WorkspaceEdit) []string {
 	return out
 }
 
-func formatRenameResult(symbol, newName string, files []string) string {
+func formatRenameResult(symbol, newName string, files, missed []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Renamed '%s' -> '%s' in %d file(s):\n", symbol, newName, len(files))
 	for _, p := range files {
 		fmt.Fprintf(&b, "  %s\n", p)
+	}
+	if len(missed) > 0 {
+		fmt.Fprintf(&b, "\nWARNING: %d other file(s) still contain '%s' and were NOT modified by the LSP server. Verify them (they may be unrelated identifiers, comments, or files outside the server's project):\n", len(missed), symbol)
+		for _, p := range missed {
+			fmt.Fprintf(&b, "  %s\n", p)
+		}
 	}
 	return b.String()
 }

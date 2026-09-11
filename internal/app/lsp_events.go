@@ -60,7 +60,7 @@ func updateLSPState(name string, state lsp.ServerState, err error, client *lsp.C
 		Client:          client,
 		DiagnosticCount: diagnosticCount,
 	}
-	if state == lsp.StateReady {
+	if state == lsp.StateReady || state == lsp.StateWarn {
 		info.ConnectedAt = time.Now()
 	} else if existing, ok := lspStates.Get(name); ok {
 		info.ConnectedAt = existing.ConnectedAt

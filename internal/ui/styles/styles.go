@@ -219,6 +219,7 @@ type Styles struct {
 		DisabledIcon    lipgloss.Style // Disabled status icon
 		BusyIcon        lipgloss.Style // Busy/starting status icon
 		ErrorIcon       lipgloss.Style // Error status icon
+		WarningIcon     lipgloss.Style // Warning status icon
 		OnlineIcon      lipgloss.Style // Online/ready status icon
 		AdditionalText  lipgloss.Style // "None" and "…and N more" text
 		CapabilityCount lipgloss.Style // "N tools" / "N prompts" / "N resources"

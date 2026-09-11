@@ -23,11 +23,13 @@ type MultiEditOperation struct {
 	OldString  string `json:"old_string" description:"The text to replace"`
 	NewString  string `json:"new_string" description:"The text to replace it with"`
 	ReplaceAll bool   `json:"replace_all,omitempty" description:"Replace all occurrences of old_string (default false)."`
+	Regex      bool   `json:"regex,omitempty" description:"Treat old_string as a Go RE2 regex and new_string as its replacement template ($1, ${name}). Requires a unique match unless replace_all is set. No lookahead/lookbehind."`
 }
 
 type MultiEditParams struct {
 	FilePath string               `json:"file_path" description:"The absolute path to the file to modify"`
 	Edits    []MultiEditOperation `json:"edits" description:"Array of edit operations to perform sequentially on the file"`
+	Verify   string               `json:"verify,omitempty" description:"Optional shell command to run after a successful edit (e.g. 'go vet ./...' or 'tsc --noEmit'); its output is appended to the result. Same permission rules as the bash tool."`
 }
 
 type MultiEditPermissionsParams struct {
@@ -108,6 +110,7 @@ func NewMultiEditTool(
 			// Wait for LSP diagnostics and add them to the response
 			text := fmt.Sprintf("<result>\n%s\n</result>\n", response.Content)
 			text += getDiagnostics(params.FilePath, lspManager)
+			text += runVerify(ctx, permissions, wd, params.Verify, call.ID)
 			response.Content = text
 			return response, nil
 		},
@@ -283,7 +286,7 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 	var regions []lineRange
 	var notes []string
 	for i, edit := range params.Edits {
-		newContent, editRegions, note, err := applyEdit(currentContent, edit.OldString, edit.NewString, edit.ReplaceAll)
+		newContent, spans, note, err := applyOperation(currentContent, edit)
 		if err != nil {
 			failedEdits = append(failedEdits, FailedEdit{
 				Index: i + 1,
@@ -295,9 +298,8 @@ func processMultiEditExistingFile(edit editContext, params MultiEditParams, call
 		if note != "" {
 			notes = append(notes, fmt.Sprintf("Edit %d: %s", i+1, note))
 		}
-		oldLines := spanLines(edit.OldString)
-		for _, r := range editRegions {
-			regions = shiftRegions(regions, r, oldLines)
+		for _, s := range spans {
+			regions = shiftRegions(regions, s.region, s.oldLines)
 		}
 		currentContent = newContent
 	}
@@ -419,8 +421,30 @@ func applyEditToContent(content string, edit MultiEditOperation) (string, error)
 	if edit.OldString == "" && edit.NewString == "" {
 		return content, nil
 	}
-	newContent, _, _, err := applyEdit(content, edit.OldString, edit.NewString, edit.ReplaceAll)
+	newContent, _, _, err := applyOperation(content, edit)
 	return newContent, err
+}
+
+// applyOperation dispatches a single multiedit operation to the literal or
+// regex engine and normalizes the result into spans.
+func applyOperation(content string, edit MultiEditOperation) (string, []editSpan, string, error) {
+	if edit.Regex {
+		newContent, spans, err := applyRegexEdit(content, edit.OldString, edit.NewString, edit.ReplaceAll)
+		if err != nil {
+			return "", nil, "", err
+		}
+		return newContent, spans, fmt.Sprintf("regex replaced %d match(es)", len(spans)), nil
+	}
+	newContent, regions, note, err := applyEdit(content, edit.OldString, edit.NewString, edit.ReplaceAll)
+	if err != nil {
+		return "", nil, "", err
+	}
+	oldLines := spanLines(edit.OldString)
+	spans := make([]editSpan, 0, len(regions))
+	for _, r := range regions {
+		spans = append(spans, editSpan{region: r, oldLines: oldLines})
+	}
+	return newContent, spans, note, nil
 }
 
 func describeFailedEdits(failed []FailedEdit) string {

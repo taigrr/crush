@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -262,6 +263,7 @@ func (c *Client) Restart() error {
 		c.SetServerState(StateError)
 		return err
 	}
+	c.SetServerState(readyState(c))
 
 	for _, uri := range openFiles {
 		if err := c.OpenFile(initCtx, uri); err != nil {
@@ -281,6 +283,10 @@ const (
 	StateError
 	StateStopped
 	StateDisabled
+	// StateWarn means the server is running but none of its configured
+	// root markers exist at the workspace root, so project-wide results
+	// (rename, references) may be incomplete.
+	StateWarn
 )
 
 // GetServerState returns the current state of the LSP server
@@ -526,6 +532,30 @@ func (c *Client) RegisterNotificationHandler(method string, handler transport.No
 // RegisterServerRequestHandler handles server requests.
 func (c *Client) RegisterServerRequestHandler(method string, handler transport.Handler) {
 	c.client.RegisterHandler(method, handler)
+}
+
+// readyState is StateWarn when the client is running without any of its
+// root markers at the workspace root, otherwise StateReady.
+func readyState(c *Client) ServerState {
+	if c.RootWarning() != "" {
+		return StateWarn
+	}
+	return StateReady
+}
+
+// RootWarning returns a human-readable warning when none of the configured
+// root markers exist at the workspace root, or "" when the root looks fine
+// (or no markers are configured).
+func (c *Client) RootWarning() string {
+	if c == nil || len(c.config.RootMarkers) == 0 {
+		return ""
+	}
+	for _, file := range c.config.RootMarkers {
+		if _, err := os.Stat(filepath.Join(c.cwd, file)); err == nil {
+			return ""
+		}
+	}
+	return fmt.Sprintf("no %s at workspace root; cross-file results may be incomplete", strings.Join(c.config.RootMarkers, "/"))
 }
 
 // openKeyConfigFiles opens important configuration files that help initialize the server.

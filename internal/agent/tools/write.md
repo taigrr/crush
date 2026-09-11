@@ -1,1 +1,1 @@
-Create or overwrite a file with given content; auto-creates parent dirs. Cannot append. Read the file first to avoid conflicts. For surgical changes use edit or multiedit.
+Create or overwrite a file with given content; auto-creates parent dirs. Cannot append. Read the file first to avoid conflicts. For surgical changes use edit or multiedit. Optional `verify` runs a shell command after the write and appends its output (e.g. a compiler or test run).

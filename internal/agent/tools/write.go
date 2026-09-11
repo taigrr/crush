@@ -27,6 +27,7 @@ var writeDescription string
 type WriteParams struct {
 	FilePath string `json:"file_path" description:"The path to the file to write"`
 	Content  string `json:"content" description:"The content to write to the file"`
+	Verify   string `json:"verify,omitempty" description:"Optional shell command to run after a successful write (e.g. 'go vet ./...' or 'tsc --noEmit'); its output is appended to the result. Same permission rules as the bash tool."`
 }
 
 type WritePermissionsParams struct {
@@ -170,6 +171,7 @@ func NewWriteTool(
 			result := fmt.Sprintf("File successfully written: %s", filePath)
 			result = fmt.Sprintf("<result>\n%s\n</result>", result)
 			result += getDiagnostics(filePath, lspManager)
+			result += runVerify(ctx, permissions, wd, params.Verify, call.ID)
 			return fantasy.WithResponseMetadata(
 				fantasy.NewTextResponse(result),
 				WriteResponseMetadata{

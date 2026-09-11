@@ -1,1 +1,3 @@
 Rename a symbol across the workspace via LSP. Returns the list of files that were modified. Use this for refactors that touch multiple files (e.g. renaming a function, type, or variable) — far safer than sed/grep because the LSP server understands scope, imports, and shadowing. Requires user permission since it can edit many files at once.
+
+Every file that greps for the identifier is opened in the language server before the rename so project-wide references are found. If any of those files still contain the identifier afterward, the result carries a WARNING listing them — check those before assuming the rename is complete. Post-rename diagnostics are appended.

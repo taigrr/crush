@@ -272,7 +272,11 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 			return
 		}
 		client.SetDiagnosticsCallback(updateLSPDiagnostics)
-		updateLSPState(name, client.GetServerState(), nil, client, 0)
+		var warn error
+		if client.GetServerState() == lsp.StateWarn {
+			warn = errors.New(client.RootWarning())
+		}
+		updateLSPState(name, client.GetServerState(), warn, client, 0)
 	})
 	go app.LSPManager.TrackConfigured()
 
