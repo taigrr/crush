@@ -72,6 +72,12 @@ const (
 	// connected, the stream dropped, and it is now retrying with
 	// backoff.
 	ConnectionStateReconnecting
+	// ConnectionStateUpdating is Reconnecting with a known cause: the
+	// server refused a prompt because it is draining for a binary
+	// update, so the drop that follows is the old server exiting and
+	// the retry will land on its replacement. Prompts sent meanwhile
+	// are held client-side and delivered once reconnected.
+	ConnectionStateUpdating
 )
 
 // String returns a short human-readable label for the state.
@@ -81,9 +87,34 @@ func (s ConnectionState) String() string {
 		return "connected"
 	case ConnectionStateReconnecting:
 		return "reconnecting"
+	case ConnectionStateUpdating:
+		return "updating"
 	default:
 		return "connecting"
 	}
+}
+
+// HeldPromptsEvent is pushed to the TUI after a reconnect when prompts
+// held during a server update have been (re)delivered. Sent counts the
+// prompts accepted by the new server. Failed lists prompts the new
+// server rejected for a reason other than draining, with their text so
+// the UI can put them back in the editor; Err is the first such error.
+type HeldPromptsEvent struct {
+	Sent   int
+	Failed []FailedPrompt
+	Err    error
+	// KeptElsewhere counts prompts still held for a workspace other
+	// than the one this client is attached to; they are delivered if
+	// the client switches back.
+	KeptElsewhere int
+}
+
+// FailedPrompt is a held prompt that could not be redelivered.
+type FailedPrompt struct {
+	SessionID   string
+	Prompt      string
+	Attachments []message.Attachment
+	Err         error
 }
 
 // ConnectionEvent is pushed to the TUI whenever the client's
@@ -182,7 +213,24 @@ type Workspace interface {
 
 	// Agent
 	AgentRun(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) error
+	// AgentRunBTW sends a mid-turn steer: the message is folded into the
+	// active turn at the next step and long-running tools are asked to
+	// wrap up early so it lands sooner. On an idle session it is a
+	// normal prompt.
 	AgentRunBTW(ctx context.Context, sessionID, prompt string) error
+	// AgentRunAside folds a message into the active turn at the next
+	// step boundary without hurrying the current step along. Use it for
+	// low-urgency notices (e.g. "the working directory changed") that
+	// should not cut a running command short.
+	AgentRunAside(ctx context.Context, sessionID, prompt string) error
+	// AgentSoftInterrupt asks the tools running in the session's current
+	// step to wrap up early without cancelling them (a running shell
+	// command becomes a background job) and lets the turn continue.
+	AgentSoftInterrupt(sessionID string)
+	// AgentBackgroundTool asks one in-flight tool call to hand its work
+	// back as a background job so the turn continues. Errors when the
+	// call is unknown, finished, or cannot be backgrounded.
+	AgentBackgroundTool(ctx context.Context, sessionID, toolCallID string) error
 	AgentRunShellCommand(ctx context.Context, sessionID, command string) (proto.ShellCommandResponse, error)
 	AgentCancel(sessionID string)
 	// AgentCancelAll cancels every in-flight agent run in the workspace,

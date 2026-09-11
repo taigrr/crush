@@ -41,15 +41,51 @@ Special addresses:
   workspace's config on every turn. Omitted, the new session runs its
   workspace's large model (the default). `model` is rejected for
   existing addresses.
-  The new session is picked up by any attached client's sidebar; the
-  agent runs immediately.
+  Optionally pass `working_dir` (absolute) to pin the directory the new
+  session's tools run in; it must be inside the target workspace's
+  project (a subdirectory or a linked git worktree of it). When `path`
+  is given, `working_dir` defaults to `path`, so a worker spawned into
+  a sibling worktree of an already-running workspace runs there rather
+  than in the tree that attached first.
+  The new session records the sender as its spawner
+  (`spawned_by_session_id`), which UIs use to nest it under this
+  session; it stays a normal, addressable top-level session. The new
+  session is picked up by any attached client's sidebar; the agent
+  runs immediately.
+
+Guaranteed replies:
+
+- `require_reply: true` (any address, including `new`) makes the target
+  owe this session a reply. The delivered text gains a
+  `[reply required: ...]` trailer naming your address, so the target
+  knows up front. When the target tries to end its turn without having
+  sent you a swarm message, it is given a continuation turn reminding
+  it to reply (up to two nudges). If it still does not, its final
+  assistant message is forwarded to you automatically, prefixed
+  `[auto-forwarded: ...]`; if its turn fails or is canceled, you are
+  told that instead. Either way you will hear back. Use this when
+  spawning workers whose outcome you need to act on.
+- Any swarm message from the target to you satisfies the obligation
+  (mode does not matter). The result metadata reports
+  `fulfilled_reply: true` when a send you make settles a reply you
+  owed.
 
 The receiving session sees the message as a user turn prefixed with
 `message from <color-animal>:`. The sender's color/animal and workspace
 are also stored as structured metadata on the delivered message so
 the target's UI can render a colored header.
 
+Every successful call also returns structured metadata
+(`workspace_id`, `session_id`, `color`, `animal`, `address`,
+`working_dir`, `delivery`, `btw`, `created`, `reply_required`,
+`fulfilled_reply`) alongside the prose result, so callers never need
+to parse the text to find the target.
+
 Restrictions:
+
+- `model` and `working_dir` only apply with `address = "new"`. Messages
+  to an existing session never change that session's model or working
+  directory.
 
 - Sub-agent sessions (task tool children, title/summary sessions) are
   not addressable.

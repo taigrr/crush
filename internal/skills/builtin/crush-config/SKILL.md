@@ -297,6 +297,17 @@ session navigator (ctrl+s). Valid range is 20-80; omit it for the default of
 data config, so a value set in a project or workspace config outranks the
 resize and pins the width for that project.
 
+## Sessions sidebar pin
+
+`options.tui.sessions_sidebar_pinned: true` keeps the navigator open across
+session switches: activating a session, `esc`, and `h` return focus to the
+editor instead of collapsing it, and `ctrl+s` toggles focus between the
+navigator and the editor. Toggle it in the UI with `alt+s` anywhere, `p`
+while the navigator is focused, or "Pin/Unpin Sessions Sidebar" in the
+command palette; the toggle writes this key to the global data config.
+(`alt+s` rather than `ctrl+shift+s`: without the Kitty keyboard protocol
+terminals cannot tell the shifted form apart from `ctrl+s`.)
+
 ## Themes
 
 `options.tui.theme` selects the UI color theme by name. Because local config
@@ -697,10 +708,18 @@ When multiple hooks match, their decisions are aggregated:
 ```json
 {
   "permissions": {
-    "allowed_tools": ["view", "ls", "grep", "edit"]
+    "allowed_tools": ["view", "ls", "grep", "edit"],
+    "sysadmin": false
   }
 }
 ```
+
+- `allowed_tools`: tools that never prompt for permission.
+- `sysadmin` (default `false`): start every workspace with sysadmin mode
+  on, so the bash tool's sysadmin command filter (package managers,
+  `sudo`, `systemctl`, network tools, ...) is bypassed from the first
+  turn. The command-palette toggle ("Enable/Disable Sysadmin Mode")
+  still works and overrides this for the running process.
 
 ## Environment Variables
 
@@ -709,6 +728,25 @@ When multiple hooks match, their decisions are aggregated:
 - `CRUSH_SKILLS_DIR` - Override default skills directory
 - `CRUSH_DISABLE_PROVIDER_AUTO_UPDATE` - Disable automatic provider updates
 - `CRUSH_DISABLE_DEFAULT_PROVIDERS` - Disable default provider configurations
+- `CONTEXT7_API_KEY` - API key for the `context7` docs tool (`ctx7sk-...`); optional, raises rate limits. Not read from `crush.json`; export it in the shell that launches Crush.
+- `CRUSH_STALE_SERVER_WAIT` - How long a newer TUI waits for an older
+  background server to drain (finish in-flight runs) before force-restarting
+  it. Go duration; default `30s`; `0` waits forever.
+- `CRUSH_SERVER_TAKEOVER_WAIT` - How long a starting server waits for a
+  draining predecessor on the same socket to exit. Default `10m`.
+- `CRUSH_SERVER_READY_TIMEOUT` - How long a client waits for a freshly
+  spawned server to answer `/v1/health`. Default `10s`.
+
+## Updating the Server Without Losing Work
+
+The background server is replaced with `crush update --graceful` after the
+binary has been swapped on disk (`crush update` alone only reports whether a
+newer release exists). The old server drains: no new prompts, in-flight
+turns finish (turns blocked on a permission/question prompt count — they must
+be answered), TUIs stay connected, and it exits by itself. Queued prompts and
+swarm `require_reply` obligations are journaled in the workspace database and
+replayed by the new server. `--timeout 5m` falls back to a forced restart.
+`crush --reset` is the forced path (cancels runs, drops queued prompts).
 
 ## Procedures
 

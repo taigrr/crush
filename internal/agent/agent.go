@@ -21,6 +21,7 @@ import (
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/csync"
+	"github.com/taigrr/crush/internal/journal"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/milestone"
 	"github.com/taigrr/crush/internal/pubsub"
@@ -62,6 +63,16 @@ type SessionAgentCall struct {
 	// ambiguous when concurrent turns share the same session.
 	RunID  string
 	Prompt string
+	// Steer marks a mid-turn steering message. It only has an effect when
+	// the session is busy and the call is enqueued: in addition to the
+	// usual fold-at-next-step behavior of a call without a RunID, the
+	// agent raises the session's soft interrupt so tools that opt in
+	// (see tools.SoftInterrupt) wrap up the current step early and the
+	// steer is delivered sooner. It never cancels a tool or a turn. A
+	// steer should carry an empty RunID so it folds rather than waiting
+	// for its own turn; callers that set a RunID get the queued-turn
+	// behavior plus the early wrap-up.
+	Steer bool
 	// ResolveModel, when non-nil, returns the model this turn runs on
 	// instead of the agent's large model. The coordinator sets it for
 	// sub-agent runs from the tool's per-call `model` parameter or the
@@ -123,6 +134,10 @@ type SessionAgentCall struct {
 	// paths treat as covered by any present mark, preserving the
 	// pre-sequence behavior.
 	acceptSeq uint64
+	// aside marks a system-originated notice (a finished background job)
+	// parked in pendingAsides rather than a user prompt, so a failed fold
+	// can put it back where it came from.
+	aside bool
 }
 
 type SessionAgent interface {
@@ -133,7 +148,14 @@ type SessionAgent interface {
 	SetSystemPrompt(systemPrompt string)
 	Cancel(sessionID string)
 	CancelAll()
+	// SoftInterrupt asks the tools running in the session's current step
+	// to wrap up early without cancelling them (see tools.SoftInterrupt).
+	// The model then sees their (complete) results and continues the
+	// turn. It is a no-op for an idle session and idempotent within a
+	// step; the next step re-arms it.
+	SoftInterrupt(sessionID string)
 	IsSessionBusy(sessionID string) bool
+	IsSessionBusyOrAccepted(sessionID string) bool
 	IsBusy() bool
 	WaitForIdle(ctx context.Context) error
 	QueuedPrompts(sessionID string) int
@@ -183,6 +205,36 @@ type sessionAgent struct {
 	messageQueue   *csync.Map[string, []SessionAgentCall]
 	activeRequests *csync.Map[string, context.CancelFunc]
 	goals          *csync.Map[string, *goalState] // active /goal state per session
+	// softInterrupts holds, per busy session, the channel handed to the
+	// current step's tools via tools.WithSoftInterrupt. It is re-armed
+	// (replaced with a fresh open channel) at every PrepareStep under the
+	// session's dispatch mutex, atomically with the queue drain, and
+	// closed by SoftInterrupt / a Steer enqueue under the same mutex.
+	// That ordering guarantees a steer is either folded into the step
+	// being prepared or interrupts the step that was just armed — never
+	// lost between the two.
+	softInterrupts *csync.Map[string, chan struct{}]
+	// pendingAsides holds system-originated notices (a background job
+	// finished) waiting to be folded into a session's conversation. They
+	// are drained alongside the message queue at every PrepareStep but,
+	// unlike queued prompts, never start a turn on their own: a notice
+	// for an idle session waits for the next user-initiated turn. They
+	// are not user prompts, so they are not counted by QueuedPrompts.
+	pendingAsides *csync.Map[string, []SessionAgentCall]
+
+	// queueJournal, when non-nil, receives a snapshot of a session's
+	// queue after every mutation so the queue survives a server swap.
+	// journalMu serializes snapshot+write pairs: each write reads the
+	// live queue under the lock, so however concurrent mutations
+	// interleave, the last write always reflects the newest state.
+	queueJournal    QueueJournal
+	journalMu       sync.Mutex
+	onQueueDrop     func(SessionAgentCall)
+	onQueueDispatch func(SessionAgentCall)
+	// dispatchPaused, once set, stops a finished turn from handing off
+	// to the next queued prompt. The queue stays in memory (and in the
+	// journal) for the next server to run. Set by a draining server.
+	dispatchPaused atomic.Bool
 
 	// dispatchMu holds a per-session mutex that serializes the
 	// accepted -> (cancel-on-entry | queued | active) transition in
@@ -247,6 +299,59 @@ type SessionAgentOptions struct {
 	// (worktree-aware). Used to tell the model its cwd; when nil the
 	// environment note is omitted.
 	WorkingDir tools.WorkingDirFunc
+	// QueueJournal, when non-nil, persists the per-session prompt queue.
+	// Only the top-level coder agent should carry one; sub-agent
+	// sessions are hidden children that do not survive a restart.
+	QueueJournal QueueJournal
+	// OnQueueDrop, when non-nil, is called for every queued call that is
+	// discarded without running (cancelled, cleared, dead context). The
+	// coordinator uses it to release swarm reply obligations registered
+	// when the call was accepted, which would otherwise outlive the
+	// message they belong to.
+	OnQueueDrop func(SessionAgentCall)
+	// OnQueueDispatch, when non-nil, is called for every queued call as
+	// it leaves the queue to run — as its own turn, or folded into the
+	// active one. The coordinator uses it to mark the swarm reply
+	// obligations the call carries as delivered, so they become
+	// enforceable only once the agent has actually seen the message.
+	OnQueueDispatch func(SessionAgentCall)
+}
+
+// QueueJournal persists a session's queued prompts so a server that
+// drains and exits for an update leaves them for its successor. It is
+// satisfied by *journal.Store. SaveQueue is called with the session's
+// full current queue after every mutation; an empty slice deletes.
+type QueueJournal interface {
+	SaveQueue(ctx context.Context, sessionID string, entries []journal.QueuedPrompt) error
+}
+
+// Drainable is implemented by coordinators (and session agents) that
+// can participate in a graceful server drain. Like SwarmConfigurable it
+// is a side-channel interface so Coordinator test mocks need not know
+// about draining.
+type Drainable interface {
+	// PauseQueueDispatch stops finished turns from handing off to
+	// queued prompts. Already-queued prompts stay in memory and in the
+	// journal for the next server to run.
+	PauseQueueDispatch()
+	// DetachJournals stops writing queue and reply-obligation changes
+	// through to the database. Called right before a drained server
+	// tears its workspaces down so the teardown-time clears do not
+	// erase the persisted state the next server should rehydrate.
+	DetachJournals()
+	// BusySessions lists the sessions with an active or accepted run.
+	BusySessions() []string
+	// DeferPrompt appends a prompt to a session's queue without
+	// dispatching it. Used for swarm messages that arrive while
+	// draining (journaled for the next server) and for the tail of a
+	// replayed queue (run in order once the head's turn ends). runID,
+	// when non-empty, makes the entry run as its own turn instead of
+	// being folded into the active step.
+	DeferPrompt(sessionID, runID, prompt string, attachments []message.Attachment, parts []message.SwarmMessage)
+	// RequeueFront is DeferPrompt at the head of the queue. Used when a
+	// replayed queue head could not be dispatched: it goes back in
+	// front of the tail that was already re-queued behind it.
+	RequeueFront(sessionID, runID, prompt string, attachments []message.Attachment, parts []message.SwarmMessage)
 }
 
 func NewSessionAgent(
@@ -268,12 +373,17 @@ func NewSessionAgent(
 		notify:               opts.Notify,
 		runComplete:          opts.RunComplete,
 		workingDir:           opts.WorkingDir,
+		queueJournal:         opts.QueueJournal,
+		onQueueDrop:          opts.OnQueueDrop,
+		onQueueDispatch:      opts.OnQueueDispatch,
 		messageQueue:         csync.NewMap[string, []SessionAgentCall](),
 		activeRequests:       csync.NewMap[string, context.CancelFunc](),
 		dispatchMu:           csync.NewMap[string, *sync.Mutex](),
 		acceptedRuns:         csync.NewMap[string, int](),
 		cancelMark:           csync.NewMap[string, uint64](),
 		goals:                csync.NewMap[string, *goalState](),
+		softInterrupts:       csync.NewMap[string, chan struct{}](),
+		pendingAsides:        csync.NewMap[string, []SessionAgentCall](),
 		idleCh:               make(chan struct{}),
 	}
 }

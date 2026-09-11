@@ -1,6 +1,7 @@
 package fsext
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -86,15 +87,28 @@ func (w *FastGlobWalker) ShouldSkipDir(path string) bool {
 //
 // Does not respect gitignore.
 func Glob(pattern string, cwd string, limit int) ([]string, bool, error) {
-	return globWithDoubleStar(pattern, cwd, limit, false)
+	return GlobContext(context.Background(), pattern, cwd, limit)
+}
+
+// GlobContext is Glob with cancellation. When ctx is done the walk stops
+// and the matches found so far are returned along with ctx.Err().
+func GlobContext(ctx context.Context, pattern string, cwd string, limit int) ([]string, bool, error) {
+	return globWithDoubleStar(ctx, pattern, cwd, limit, false)
 }
 
 // GlobGitignoreAware globs files respecting gitignore.
 func GlobGitignoreAware(pattern string, cwd string, limit int) ([]string, bool, error) {
-	return globWithDoubleStar(pattern, cwd, limit, true)
+	return GlobGitignoreAwareContext(context.Background(), pattern, cwd, limit)
 }
 
-func globWithDoubleStar(pattern, searchPath string, limit int, gitignore bool) ([]string, bool, error) {
+// GlobGitignoreAwareContext is GlobGitignoreAware with cancellation. When
+// ctx is done the walk stops and the matches found so far are returned
+// along with ctx.Err().
+func GlobGitignoreAwareContext(ctx context.Context, pattern string, cwd string, limit int) ([]string, bool, error) {
+	return globWithDoubleStar(ctx, pattern, cwd, limit, true)
+}
+
+func globWithDoubleStar(ctx context.Context, pattern, searchPath string, limit int, gitignore bool) ([]string, bool, error) {
 	// Normalize pattern to forward slashes on Windows so their config can use
 	// backslashes
 	pattern = filepath.ToSlash(pattern)
@@ -102,11 +116,17 @@ func globWithDoubleStar(pattern, searchPath string, limit int, gitignore bool) (
 	walker := NewFastGlobWalker(searchPath)
 	found := csync.NewSlice[FileInfo]()
 	conf := fastwalk.Config{
-		Follow:  true,
+		// Following symlinks makes a walk from a broad root (e.g. $HOME)
+		// unbounded and can loop; matching ripgrep's default of not
+		// following is the safer choice.
+		Follow:  false,
 		ToSlash: fastwalk.DefaultToSlash(),
 		Sort:    fastwalk.SortFilesFirst,
 	}
 	err := fastwalk.Walk(&conf, searchPath, func(path string, d os.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return filepath.SkipAll
+		}
 		if err != nil {
 			return nil // Skip files we can't access
 		}
@@ -159,6 +179,9 @@ func globWithDoubleStar(pattern, searchPath string, limit int, gitignore bool) (
 	results := make([]string, len(matches))
 	for i, m := range matches {
 		results[i] = m.Path
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return results, true, ctxErr
 	}
 	return results, truncated || errors.Is(err, filepath.SkipAll), nil
 }

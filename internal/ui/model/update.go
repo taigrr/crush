@@ -293,6 +293,22 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// source of truth, read live by the header and sidebar). This
 		// event just wakes the UI so those surfaces re-render with the
 		// new state.
+	case pubsub.Event[workspace.HeldPromptsEvent]:
+		// Prompts parked during a server update have been redelivered
+		// to the replacement server (or failed to be). A failed one is
+		// handed back to the editor so the text is not lost.
+		var cmds []tea.Cmd
+		if msg.Payload.Sent > 0 {
+			cmds = append(cmds, util.ReportInfo(fmt.Sprintf("Server updated; sent %d held message(s).", msg.Payload.Sent)))
+		}
+		for _, f := range msg.Payload.Failed {
+			cmds = append(cmds, m.restoreUnsentPrompt(f.Prompt, f.Attachments,
+				fmt.Errorf("failed to resend a message held during the server update: %w", f.Err)))
+		}
+		if n := msg.Payload.KeptElsewhere; n > 0 {
+			cmds = append(cmds, util.ReportInfo(fmt.Sprintf("%d held message(s) belong to another workspace and will be sent when you switch back.", n)))
+		}
+		return m, tea.Batch(cmds...)
 	case pubsub.Event[skills.Event]:
 		m.skillStates = msg.Payload.States
 	case pubsub.Event[mcp.Event]:
@@ -471,11 +487,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// place would show the wrong state (e.g. still "on" after
 		// switching into a workspace that never had yolo enabled).
 		m.setEditorPrompt(msg.yolo)
-		if msg.openPicker {
-			cmds = append(cmds, m.openSessionsDialog())
-		} else {
-			cmds = append(cmds, m.loadSession(msg.sessionID))
-		}
+		cmds = append(cmds, m.loadSession(msg.sessionID))
 	case backfillCountMsg:
 		if msg.err != nil {
 			cmds = append(cmds, util.ReportError(msg.err))
@@ -632,6 +644,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Pass mouse events to dialogs first if any are open.
 		if m.dialog.HasDialogs() {
 			m.dialog.Update(msg)
+			return m, tea.Batch(cmds...)
+		}
+
+		// Scroll the left session navigator when the pointer is over it,
+		// regardless of focus, so a long list can be browsed without
+		// moving the cursor row by row.
+		if m.handleLeftSidebarWheel(msg) {
 			return m, tea.Batch(cmds...)
 		}
 

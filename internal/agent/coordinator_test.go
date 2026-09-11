@@ -39,13 +39,15 @@ func (m *mockSessionAgent) SetSystemPrompt(systemPrompt string) {}
 func (m *mockSessionAgent) Cancel(sessionID string) {
 	m.cancelled = append(m.cancelled, sessionID)
 }
-func (m *mockSessionAgent) CancelAll()                                  {}
-func (m *mockSessionAgent) IsSessionBusy(sessionID string) bool         { return false }
-func (m *mockSessionAgent) IsBusy() bool                                { return false }
-func (m *mockSessionAgent) WaitForIdle(ctx context.Context) error       { return nil }
-func (m *mockSessionAgent) QueuedPrompts(sessionID string) int          { return 0 }
-func (m *mockSessionAgent) QueuedPromptsList(sessionID string) []string { return nil }
-func (m *mockSessionAgent) ClearQueue(sessionID string)                 {}
+func (m *mockSessionAgent) CancelAll()                                    {}
+func (m *mockSessionAgent) SoftInterrupt(sessionID string)                {}
+func (m *mockSessionAgent) IsSessionBusy(sessionID string) bool           { return false }
+func (m *mockSessionAgent) IsSessionBusyOrAccepted(sessionID string) bool { return false }
+func (m *mockSessionAgent) IsBusy() bool                                  { return false }
+func (m *mockSessionAgent) WaitForIdle(ctx context.Context) error         { return nil }
+func (m *mockSessionAgent) QueuedPrompts(sessionID string) int            { return 0 }
+func (m *mockSessionAgent) QueuedPromptsList(sessionID string) []string   { return nil }
+func (m *mockSessionAgent) ClearQueue(sessionID string)                   {}
 func (m *mockSessionAgent) Summarize(context.Context, string, *Model, fantasy.ProviderOptions) error {
 	return nil
 }

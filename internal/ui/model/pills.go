@@ -119,7 +119,15 @@ func todoList(sessionTodos []session.Todo, spinnerView string, t *styles.Styles,
 	return chat.FormatTodosList(t, sessionTodos, spinnerView, width)
 }
 
-// queueList renders the expanded queue items list.
+// steerQueuePrefix marks a queued prompt that will be folded into the
+// active turn at the next step boundary (a /btw or alt+enter steer)
+// rather than run as its own turn once the current one ends. It matches
+// the prefix the workspace client stamps on steer messages.
+const steerQueuePrefix = "[btw] "
+
+// queueList renders the expanded queue items list. Steer asides are
+// labeled so the user can tell which entries interject into the running
+// turn and which wait for their own.
 func queueList(queueItems []string, t *styles.Styles) string {
 	if len(queueItems) == 0 {
 		return ""
@@ -128,11 +136,16 @@ func queueList(queueItems []string, t *styles.Styles) string {
 	var lines []string
 	for _, item := range queueItems {
 		text := item
+		var tag string
+		if rest, ok := strings.CutPrefix(text, steerQueuePrefix); ok {
+			text = rest
+			tag = t.Pills.QueueSteerTag.Render("steer") + " "
+		}
 		if len(text) > maxQueueDisplayLength {
 			text = text[:maxQueueDisplayLength-1] + "…"
 		}
 		prefix := t.Pills.QueueItemPrefix.Render() + " "
-		lines = append(lines, prefix+t.Pills.QueueItemText.Render(text))
+		lines = append(lines, prefix+tag+t.Pills.QueueItemText.Render(text))
 	}
 
 	return strings.Join(lines, "\n")
@@ -225,7 +238,9 @@ func (m *UI) switchPillSection(dir int) tea.Cmd {
 
 // pillsAreaHeight calculates the total height needed for the pills area.
 func (m *UI) pillsAreaHeight() int {
-	if !m.hasSession() {
+	// Pills describe the committed session's todos and queue; while the
+	// chat is previewing another session they would be misattributed.
+	if !m.hasSession() || m.previewing() {
 		return 0
 	}
 	hasIncomplete := hasIncompleteTodos(m.session.Todos)
@@ -249,7 +264,7 @@ func (m *UI) pillsAreaHeight() int {
 // renderPills renders the pills panel and stores it in m.pillsView.
 func (m *UI) renderPills() {
 	m.pillsView = ""
-	if !m.hasSession() {
+	if !m.hasSession() || m.previewing() {
 		return
 	}
 

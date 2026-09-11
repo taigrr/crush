@@ -48,7 +48,7 @@ func (m *UI) newSession() tea.Cmd {
 	// or another, all continuing on the server) could have its in-flight
 	// LSP tool calls disrupted. LSP restarts on demand for the new
 	// session either way.
-	busy := m.isAgentBusy()
+	busy := m.isWorkspaceBusy()
 	return tea.Batch(
 		func() tea.Msg {
 			if !busy {

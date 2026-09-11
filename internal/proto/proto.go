@@ -32,6 +32,9 @@ type Workspace struct {
 // Error represents an error response.
 type Error struct {
 	Message string `json:"message"`
+	// Code, when set, identifies the condition machine-readably. See
+	// the ErrorCode* constants.
+	Code string `json:"code,omitempty"`
 }
 
 // RunComplete is the authoritative end-of-run signal for a session,
@@ -160,6 +163,15 @@ type AgentMessage struct {
 	RunID       string       `json:"run_id,omitempty"`
 	Prompt      string       `json:"prompt"`
 	Attachments []Attachment `json:"attachments,omitempty"`
+	// Steer marks a mid-turn steering message. On a busy session the
+	// prompt is queued as usual and the session's soft interrupt is
+	// raised so long-running tools that opt in (bash, job_output) wrap
+	// up early — returning their work as a background job rather than
+	// being cancelled — and the queued prompt is folded into the turn
+	// at the next step. Combine with an empty RunID to fold rather than
+	// wait for a dedicated turn. On an idle session it is a normal
+	// prompt.
+	Steer bool `json:"steer,omitempty"`
 	// SwarmParts, when set, replaces the default TextContent user
 	// message with one or more [SwarmMessage] parts. Used by
 	// [Backend.SwarmSend] so the receiving session records
@@ -224,6 +236,11 @@ type SessionOverview struct {
 	// sessions blocked on a permission prompt). It is read from the
 	// session's database (attached or detached) so it persists.
 	Favorite bool `json:"favorite,omitempty"`
+	// SpawnedBySessionID is the swarm lineage of the session (see
+	// [session.Session.SpawnedBySessionID]): the session that created
+	// it via `swarm new`. Empty for human/client-opened sessions. The
+	// sidebar uses it to nest workers under their spawner.
+	SpawnedBySessionID string `json:"spawned_by_session_id,omitempty"`
 }
 
 // WorkspaceOverview groups a workspace's sessions for the picker. Attached

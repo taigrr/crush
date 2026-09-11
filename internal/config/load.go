@@ -854,6 +854,7 @@ func lookupConfigs(cwd string) []string {
 		GlobalConfig(),
 		GlobalConfigData(),
 	}
+	configPaths = append(configPaths, scopedIncludes(GlobalConfig(), cwd)...)
 
 	configNames := []string{appName + ".json", "." + appName + ".json"}
 
@@ -867,6 +868,72 @@ func lookupConfigs(cwd string) []string {
 	slices.Reverse(foundConfigs)
 
 	return append(configPaths, foundConfigs...)
+}
+
+// scopedIncludes returns the include files declared in the global config
+// at globalPath whose dir contains cwd, in declaration order. Only the
+// global config is consulted: includes declared in an included file, a
+// project config, or a workspace config are ignored, so a checked-out
+// repository can never widen its own config search. Unreadable or
+// malformed input yields no includes; the full config load reports the
+// JSON error with the right file name.
+func scopedIncludes(globalPath, cwd string) []string {
+	data, err := os.ReadFile(globalPath)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	var global struct {
+		Includes []ConfigInclude `json:"includes"`
+	}
+	if err := json.Unmarshal(data, &global); err != nil {
+		return nil
+	}
+	if len(global.Includes) == 0 {
+		return nil
+	}
+
+	cwd = canonicalDir(cwd)
+	var paths []string
+	for _, inc := range global.Includes {
+		if inc.Dir == "" || inc.Path == "" {
+			continue
+		}
+		dir := canonicalDir(os.ExpandEnv(home.Long(inc.Dir)))
+		if !isWithin(dir, cwd) {
+			continue
+		}
+		path := os.ExpandEnv(home.Long(inc.Path))
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(filepath.Dir(globalPath), path)
+		}
+		if !slices.Contains(paths, path) {
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+// canonicalDir returns dir as an absolute path with symlinks resolved
+// when possible, so a macOS /var vs /private/var mismatch or a symlinked
+// code directory still compares equal.
+func canonicalDir(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return abs
+}
+
+// isWithin reports whether child is parent itself or a descendant of it.
+func isWithin(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func loadFromConfigPaths(configPaths []string) (*Config, []string, error) {

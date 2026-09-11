@@ -38,14 +38,16 @@ func (s *stubCoordinator) RunAccepted(ctx context.Context, accept *agent.Accepte
 func (s *stubCoordinator) BeginAccepted(sessionID string) *agent.AcceptedRun {
 	return nil
 }
-func (s *stubCoordinator) Cancel(string) {}
-func (s *stubCoordinator) CancelAll()    {}
-func (s *stubCoordinator) IsBusy() bool  { return false }
+func (s *stubCoordinator) Cancel(string)                  {}
+func (s *stubCoordinator) CancelAll()                     {}
+func (s *stubCoordinator) SoftInterrupt(sessionID string) {}
+func (s *stubCoordinator) IsBusy() bool                   { return false }
 func (s *stubCoordinator) IsSessionBusy(id string) bool {
 	return s.busy[id]
 }
-func (s *stubCoordinator) SetGoal(string, string) {}
-func (s *stubCoordinator) ClearGoal(string)       {}
+func (s *stubCoordinator) IsSessionBusyOrAccepted(id string) bool { return s.busy[id] }
+func (s *stubCoordinator) SetGoal(string, string)                 {}
+func (s *stubCoordinator) ClearGoal(string)                       {}
 func (s *stubCoordinator) GoalStatus(string) (string, int, int, bool) {
 	return "", 0, 0, false
 }

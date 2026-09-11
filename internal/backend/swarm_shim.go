@@ -49,6 +49,7 @@ func (s *swarmShim) Send(ctx context.Context, senderSessionID string, target too
 		SenderAnimal:      part.SenderAnimal,
 		SenderWorkspaceID: part.SenderWorkspaceID,
 		BTW:               part.BTW,
+		RequireReply:      part.RequireReply,
 	})
 	if err != nil {
 		return "", err
@@ -56,8 +57,19 @@ func (s *swarmShim) Send(ctx context.Context, senderSessionID string, target too
 	return res.Delivery, nil
 }
 
-func (s *swarmShim) CreateSessionInWorkspace(ctx context.Context, workspaceID, title, modelRef string) (session.Session, error) {
-	return s.b.CreateSwarmSession(ctx, workspaceID, title, modelRef)
+func (s *swarmShim) CreateSessionInWorkspace(ctx context.Context, workspaceID string, opts tools.SwarmNewOptions) (session.Session, error) {
+	return s.b.CreateSwarmSession(ctx, workspaceID, spawnOptions(opts))
+}
+
+// spawnOptions maps the tool-facing options onto the backend type.
+func spawnOptions(opts tools.SwarmNewOptions) SwarmSpawnOptions {
+	return SwarmSpawnOptions{
+		Title:                opts.Title,
+		ModelRef:             opts.ModelRef,
+		SpawnedBySessionID:   opts.SpawnedBySessionID,
+		SpawnedByWorkspaceID: opts.SpawnedByWorkspaceID,
+		WorkingDir:           opts.WorkingDir,
+	}
 }
 
 func (s *swarmShim) ArchiveSessionInWorkspace(ctx context.Context, workspaceID, sessionID string) error {
@@ -79,8 +91,8 @@ func (s *swarmShim) RenameSession(ctx context.Context, target tools.SwarmLookupR
 	}, title)
 }
 
-func (s *swarmShim) CreateSessionInWorkspaceAtPath(ctx context.Context, path, title, modelRef string) (string, session.Session, error) {
-	return s.b.CreateSwarmSessionAtPath(ctx, path, title, modelRef)
+func (s *swarmShim) CreateSessionInWorkspaceAtPath(ctx context.Context, path string, opts tools.SwarmNewOptions) (string, session.Session, error) {
+	return s.b.CreateSwarmSessionAtPath(ctx, path, spawnOptions(opts))
 }
 
 // SearchAllWorkspaces fans a history query out over every known

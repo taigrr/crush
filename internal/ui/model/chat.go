@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/clipperhouse/displaywidth"
 	"github.com/clipperhouse/uax29/v2/words"
+	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/anim"
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/common"
@@ -223,6 +224,18 @@ func (m *Chat) SetSize(width, height int) {
 // Len returns the number of items in the chat list.
 func (m *Chat) Len() int {
 	return m.list.Len()
+}
+
+// UserMessages returns the user-role messages currently shown, oldest
+// first. These are the valid fork points for the session.
+func (m *Chat) UserMessages() []*message.Message {
+	var out []*message.Message
+	for i := range m.list.Len() {
+		if item, ok := m.list.ItemAt(i).(*chat.UserMessageItem); ok {
+			out = append(out, item.Message())
+		}
+	}
+	return out
 }
 
 // InvalidateRenderCaches drops cached rendered output on every message
@@ -687,6 +700,27 @@ func (m *Chat) RemoveMessage(id string) {
 			m.idInxMap[item.ID()] = i
 		}
 	}
+}
+
+// RunningToolCall returns the most recent tool call with the given tool
+// name that is currently executing (input fully streamed, no result yet,
+// not canceled). It scans from the bottom because the in-flight call is
+// always at the tail of the transcript, and stops at the last user
+// message since nothing above it can still be running. This keeps the
+// lookup cheap even though it runs on every help render.
+func (m *Chat) RunningToolCall(toolName string) (message.ToolCall, bool) {
+	for i := m.list.Len() - 1; i >= 0; i-- {
+		switch item := m.list.ItemAt(i).(type) {
+		case *chat.UserMessageItem:
+			return message.ToolCall{}, false
+		case chat.ToolMessageItem:
+			tc := item.ToolCall()
+			if tc.Name == toolName && item.IsRunning() {
+				return tc, true
+			}
+		}
+	}
+	return message.ToolCall{}, false
 }
 
 // MessageItem returns the message item with the given ID, or nil if not found.

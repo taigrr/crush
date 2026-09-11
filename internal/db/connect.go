@@ -167,6 +167,17 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 		return nil, fmt.Errorf("failed to apply migrations: %w", err)
 	}
 
+	// local/daily and the port used the same goose version id for
+	// different columns, so SQL ALTERs are not a reliable source of
+	// truth on existing databases. Fill any holes the migrations
+	// skipped or no-op'd.
+	if err := ensureSessionsColumns(ctx, conn); err != nil {
+		conn.Close()
+		releaseLock()
+		slog.Error("Failed to ensure session columns", "error", err)
+		return nil, fmt.Errorf("failed to ensure session columns: %w", err)
+	}
+
 	pool[absPath] = &connEntry{db: conn, refCount: 1, lock: lock}
 	return conn, nil
 }

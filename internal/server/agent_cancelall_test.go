@@ -27,8 +27,10 @@ func (c *cancelRecordingCoordinator) Run(ctx context.Context, sessionID, prompt 
 func (c *cancelRecordingCoordinator) RunAccepted(ctx context.Context, accept *agent.AcceptedRun, sessionID, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
 	return nil, nil
 }
-func (c *cancelRecordingCoordinator) Cancel(sessionID string) { c.cancelSession.Store(sessionID) }
-func (c *cancelRecordingCoordinator) CancelAll()              { c.cancelAllHits.Add(1) }
+
+func (c *cancelRecordingCoordinator) Cancel(sessionID string)        { c.cancelSession.Store(sessionID) }
+func (c *cancelRecordingCoordinator) CancelAll()                     { c.cancelAllHits.Add(1) }
+func (c *cancelRecordingCoordinator) SoftInterrupt(sessionID string) {}
 
 // TestHandlePostWorkspaceAgentCancel_CancelsAll verifies the
 // workspace-wide cancel route reaches coordinator.CancelAll and returns

@@ -96,6 +96,12 @@ type SwarmMessage struct {
 	// the receiver's current turn) rather than the default queued
 	// mode.
 	BTW bool `json:"btw,omitempty"`
+	// RequireReply is true when the sender asked for a guaranteed
+	// reply: the receiving session may not end its turn until it has
+	// sent a swarm message back to SenderSessionID. The coordinator
+	// enforces this by nudging the agent and, as a last resort,
+	// replying on its behalf.
+	RequireReply bool `json:"require_reply,omitempty"`
 }
 
 func (sm SwarmMessage) String() string {
@@ -191,6 +197,17 @@ func (m *Message) Content() TextContent {
 		}
 	}
 	return TextContent{}
+}
+
+// IsSwarmMessage reports whether this user-role message was injected by
+// another session via the swarm tool rather than typed by the user.
+func (m *Message) IsSwarmMessage() bool {
+	for _, part := range m.Parts {
+		if _, ok := part.(SwarmMessage); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Message) ReasoningContent() ReasoningContent {

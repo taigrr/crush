@@ -33,6 +33,13 @@ func (m *UI) loadPromptHistory() tea.Cmd {
 
 		texts := make([]string, 0, len(messages))
 		for _, msg := range messages {
+			// Swarm messages from other sessions are stored with the
+			// user role so the model sees them as user turns, but the
+			// user never typed them; recalling one with ↑ would look
+			// like a prompt about to be sent.
+			if msg.IsSwarmMessage() {
+				continue
+			}
 			text := msg.Content().Text
 			if text == "" {
 				continue

@@ -152,6 +152,8 @@ func renderHeaderDetails(
 		parts = append(parts, t.Resource.BusyIcon.String()+" connecting")
 	case workspace.ConnectionStateReconnecting:
 		parts = append(parts, t.Resource.ErrorIcon.String()+" reconnecting")
+	case workspace.ConnectionStateUpdating:
+		parts = append(parts, t.Resource.BusyIcon.String()+" server updating")
 	}
 
 	if lspErrorCount > 0 {

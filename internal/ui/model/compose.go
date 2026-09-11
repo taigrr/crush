@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,10 +10,12 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/ui/util"
 	"github.com/taigrr/crush/internal/version"
+	"github.com/taigrr/crush/internal/workspace"
 )
 
 // attachSkill reads a skill's content by ID and returns it as a markdown
@@ -44,8 +47,15 @@ func (m *UI) attachSkill(skillID, name string) tea.Cmd {
 // attachments, then reports the error that prevented sending.
 func (m *UI) restoreUnsentPrompt(content string, attachments []message.Attachment, err error) tea.Cmd {
 	prevHeight := m.textarea.Height()
-	if m.textarea.Value() == "" {
+	content = strings.TrimPrefix(content, "[btw] ")
+	switch existing := m.textarea.Value(); {
+	case existing == "":
 		m.textarea.SetValue(content)
+	case content != "" && !strings.Contains(existing, content):
+		// Several prompts can come back at once (held during a server
+		// update and rejected on redelivery); keep them all rather than
+		// the first only.
+		m.textarea.SetValue(existing + "\n\n" + content)
 	}
 	for _, att := range attachments {
 		m.attachments.Update(att)
@@ -124,6 +134,15 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 		// or transport error. Run failures and cancellation surface
 		// through SSE-derived events, not this return value.
 		err := m.com.Workspace.AgentRun(context.Background(), sessionID, content, attachments...)
+		if errors.Is(err, workspace.ErrServerUpdating) {
+			// Not a failure: the server is being swapped for a newer
+			// build and the workspace is holding the prompt until it
+			// reconnects. Say so instead of alarming the user.
+			return util.InfoMsg{
+				Type: util.InfoTypeInfo,
+				Msg:  "Server is updating — your message is held and will be sent when it reconnects (keep this window open).",
+			}
+		}
 		if err != nil {
 			return util.InfoMsg{
 				Type: util.InfoTypeError,
@@ -175,11 +194,12 @@ func (m *UI) handleCwd(args string) tea.Cmd {
 		},
 		func() tea.Msg {
 			// Inform the model only when it is mid-turn; the aside folds
-			// into the active step. When idle, the next turn's system
-			// prompt carries the new cwd (see run.go environment block),
-			// so no wasteful turn is triggered here.
+			// into the active step without hurrying it (a cwd change is
+			// not worth backgrounding a running command). When idle, the
+			// next turn's system prompt carries the new cwd (see run.go
+			// environment block), so no wasteful turn is triggered here.
 			if busy {
-				_ = m.com.Workspace.AgentRunBTW(context.Background(), sessionID,
+				_ = m.com.Workspace.AgentRunAside(context.Background(), sessionID,
 					"The working directory is now "+target+". Treat relative paths as relative to it; do not cd into it.")
 			}
 			return nil
@@ -232,6 +252,74 @@ func (m *UI) sendBTWMessage(content string) tea.Cmd {
 			}
 		}
 		return nil
+	}
+}
+
+// steerOrSend routes a prompt submitted with the steer key. While the
+// agent is busy the prompt is folded into the active turn as an aside;
+// otherwise there is nothing to steer and it is sent as a normal turn.
+// Steers are text-only: a prompt carrying attachments is queued as its
+// own turn instead, and the user is told why.
+func (m *UI) steerOrSend(content string, attachments ...message.Attachment) tea.Cmd {
+	if !m.hasSession() || !m.isAgentBusy() {
+		return m.sendMessage(content, attachments...)
+	}
+	if len(attachments) > 0 {
+		return tea.Batch(
+			util.ReportWarn("Steering does not support attachments; queued as a new turn instead"),
+			m.sendMessage(content, attachments...),
+		)
+	}
+	if content == "" {
+		return nil
+	}
+	return m.sendBTWMessage(content)
+}
+
+// backgroundRunningBash asks the server to move the session's in-flight
+// bash command to the background. The tool returns a job id and the turn
+// carries on; the UI re-renders the call as a job once the result lands.
+// Returns nil when no bash command is running, so the caller can let the
+// key fall through to whatever else is bound to it.
+func (m *UI) backgroundRunningBash() tea.Cmd {
+	if !m.hasSession() || !m.isAgentBusy() {
+		return nil
+	}
+	tc, ok := m.chat.RunningToolCall(tools.BashToolName)
+	if !ok {
+		return nil
+	}
+	sessionID := m.session.ID
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := m.com.Workspace.AgentBackgroundTool(ctx, sessionID, tc.ID); err != nil {
+			return util.InfoMsg{
+				Type: util.InfoTypeError,
+				Msg:  fmt.Sprintf("could not background command: %v", err),
+			}
+		}
+		return util.InfoMsg{
+			Type: util.InfoTypeInfo,
+			Msg:  "Command moved to the background",
+		}
+	}
+}
+
+// softInterruptTurn asks every long-running tool in the session's current
+// step to wrap up early (backgrounding shells, returning partial output)
+// without cancelling the turn. Used by /bg.
+func (m *UI) softInterruptTurn() tea.Cmd {
+	if !m.isAgentBusy() {
+		return util.ReportWarn("Agent is idle; nothing to background")
+	}
+	sessionID := m.session.ID
+	return func() tea.Msg {
+		m.com.Workspace.AgentSoftInterrupt(sessionID)
+		return util.InfoMsg{
+			Type: util.InfoTypeInfo,
+			Msg:  "Asked running tools to wrap up and continue in the background",
+		}
 	}
 }
 
