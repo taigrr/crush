@@ -109,7 +109,11 @@ type QuickStyleOpts struct {
 	LogoGradTo      color.Color
 	WorkingGradFrom color.Color
 	WorkingGradTo   color.Color
+
+	VoiceRecording color.Color
 }
+
+var defaultVoiceRecording = lipgloss.Color("#800020")
 
 // orColor returns a if non-nil, otherwise b. Used to cascade optional brand
 // tokens to their default brand pair.
@@ -781,6 +785,12 @@ func QuickStyle(o QuickStyleOpts) Styles {
 	s.Editor.PromptYoloIconBlurred = s.Editor.PromptYoloIconFocused.Foreground(o.BgBase).Background(o.FgMoreSubtle)
 	s.Editor.PromptYoloDotsFocused = lipgloss.NewStyle().MarginRight(1).Foreground(o.WarningSubtle).SetString(":::")
 	s.Editor.PromptYoloDotsBlurred = s.Editor.PromptYoloDotsFocused.Foreground(o.FgMoreSubtle)
+	voiceRec := orColor(o.VoiceRecording, defaultVoiceRecording)
+	voiceRecDim := lipgloss.Blend1D(3, voiceRec, o.BgBase)[1]
+	s.Editor.VoiceRecordingLabel = lipgloss.NewStyle().Foreground(voiceRec).Bold(true)
+	s.Editor.VoiceRecordingDotOn = lipgloss.NewStyle().Foreground(voiceRec).SetString(VoiceRecordingIcon)
+	s.Editor.VoiceRecordingDotOff = lipgloss.NewStyle().Foreground(voiceRecDim).SetString(VoiceRecordingIcon)
+	s.Editor.VoiceRecordingHint = muted
 
 	s.Radio.On = lipgloss.NewStyle().Foreground(o.FgSubtle).SetString(RadioOn)
 	s.Radio.Off = lipgloss.NewStyle().Foreground(o.FgSubtle).SetString(RadioOff)

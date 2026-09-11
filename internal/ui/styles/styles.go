@@ -47,6 +47,8 @@ const (
 	TextIcon  string = "≡"
 	SkillIcon string = "▲"
 
+	VoiceRecordingIcon string = "■"
+
 	ScrollbarThumb string = "┃"
 	ScrollbarTrack string = "│"
 
@@ -135,6 +137,11 @@ type Styles struct {
 		PromptYoloIconBlurred lipgloss.Style
 		PromptYoloDotsFocused lipgloss.Style
 		PromptYoloDotsBlurred lipgloss.Style
+
+		VoiceRecordingLabel  lipgloss.Style
+		VoiceRecordingDotOn  lipgloss.Style
+		VoiceRecordingDotOff lipgloss.Style
+		VoiceRecordingHint   lipgloss.Style
 	}
 
 	// Radio

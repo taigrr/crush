@@ -445,6 +445,9 @@ type UI struct {
 	// keystroke bumps it; the debounce tick and the eventual RPC carry the
 	// generation they were scheduled under and are dropped if stale.
 	searchGen int
+
+	// Voice dictation (Ctrl+Space / F8). See voice.go.
+	voice *voiceSession
 }
 
 // New creates a new instance of the [UI] model.
@@ -517,6 +520,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 		pendingQuestions:    make(map[string]*question.Request),
 		attentionPending:    make(map[string]bool),
 	}
+	ui.voice = newVoiceSession(newDictation(&ui.textarea))
 
 	status := NewStatus(com, ui)
 
