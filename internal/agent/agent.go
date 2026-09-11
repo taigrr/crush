@@ -134,6 +134,7 @@ type SessionAgent interface {
 	Cancel(sessionID string)
 	CancelAll()
 	IsSessionBusy(sessionID string) bool
+	IsSessionBusyOrAccepted(sessionID string) bool
 	IsBusy() bool
 	WaitForIdle(ctx context.Context) error
 	QueuedPrompts(sessionID string) int
