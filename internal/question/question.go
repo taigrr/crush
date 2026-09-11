@@ -100,6 +100,9 @@ type Service interface {
 	// question in the given session so a client that just switched to (or
 	// re-attached to) the workspace surfaces the prompt (switch-to-grant).
 	RepublishPending(sessionID string)
+	// PendingSessions lists the sessions that currently have a question
+	// blocked waiting for a client to answer it.
+	PendingSessions() []string
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[Notification]
 }
 
@@ -228,6 +231,19 @@ func (s *questionService) CancelAll() {
 	for id := range s.pendingRequests.Seq2() {
 		s.resolve(id, nil, true)
 	}
+}
+
+// PendingSessions lists the sessions with a still-pending question.
+func (s *questionService) PendingSessions() []string {
+	seen := make(map[string]struct{})
+	for _, p := range s.pendingRequests.Seq2() {
+		seen[p.req.SessionID] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	return out
 }
 
 // RepublishPending re-emits the request event for every still-pending

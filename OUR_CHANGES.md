@@ -158,6 +158,13 @@ Legend: readme = should document in README · uniq = unique to us
 - `cc4d2d8f` harden parallel review fan-out
 - `deedc0bb` review slash command
 
+## Swarm lineage + per-session working dir for spawned sessions — uniq, readme
+- `sessions.spawned_by_session_id` / `spawned_by_workspace_id` (migration `20260904010000`); stamped from the trusted sender on `swarm new`, never model-supplied; separate from `parent_session_id` so workers stay listed and addressable
+- `working_dir` param on `swarm new` (defaults to `path`); validated to resolve to the target workspace (subdir or linked git worktree), persisted via `session.CreateOptions`
+- `coordinator.workingDir`: on worktree-enabled workspaces a turn with no client cwd (swarm/API) falls back to the session's recorded working dir, so a worker pinned to a sibling worktree runs there
+- structured swarm tool metadata (`workspace_id`, `session_id`, `address`, `working_dir`, `delivery`, `created`)
+- proto `Session`/`SessionOverview` carry `working_dir` + lineage; sidebar nests workers under their spawner; session picker shows `by <color-animal>`
+
 ## Notifications — overlaps upstream (terminal-notifier)
 - `79293d97` ssh terminal notifications
 - `9227a9bf` configurable backend + bell support
@@ -204,6 +211,8 @@ Legend: readme = should document in README · uniq = unique to us
 - `46944776` don't apply stale session files across switch
 - `9f5e48d2` cancellation bug fix
 - `6431cb37`/`0d74ea7e` client cancel doesn't 500 others
+- bash `description` optional (defaults to first line of command); deterministic `RepairToolCall` hook repairs truncated argument JSON and fills omitted descriptive params instead of failing the call
+- glob tool is cancellable and bounded: fastwalk fallback honors ctx, stops following symlinks (rg `-L` dropped to match), and a 30s budget returns partial results instead of hanging the turn when `**` is rooted at a broad dir like `$HOME`
 
 ## Perf / refactor / hygiene — mostly internal
 - `27569d1f` remove hot-path slog from SSE delivery
@@ -267,6 +276,7 @@ Compare implementations; likely keep ours, cherry-pick upstream fixes.
 - **Ephemeral sysadmin mode** toggle
 - **Low-bandwidth / reduced-motion** mode
 - **Review flow** (parallel adversarial reviewers + slash command)
+- **Swarm lineage** (`spawned_by_*`), `working_dir` on `swarm new`, structured swarm tool metadata, nested sidebar
 - **Bedrock Mantle** (GPT-5.5 via mantle) + Bedrock Europe
 - De-charmed: taigrr module path, no PostHog telemetry, own update checker
 

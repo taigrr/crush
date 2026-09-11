@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
@@ -101,7 +102,60 @@ type ClientWorkspace struct {
 	cachedWorktree      *worktree.Worktree
 	cachedWorktreeValid bool
 	cachedWorktreeTime  time.Time
+
+	// agentState memoizes the agent/session status RPCs the TUI polls on
+	// every Update and View; see agentStateCache.
+	agentState agentStateCache
+
+	// heldMu guards held and updating. held is the list of prompts
+	// that could not be handed to a server (refused as draining, or
+	// sent while the stream was down); they are redelivered, in order,
+	// once the event stream reconnects. updating is set only when a
+	// server actually reported draining, so the reconnect state says
+	// "updating" for an update and plain "reconnecting" for a crash.
+	heldMu   sync.Mutex
+	held     []heldPrompt
+	updating bool
+
+	// creationArgs is the exact POST /v1/workspaces body this client
+	// used to attach, kept so a re-attach after a server swap carries
+	// the same data dir, yolo/debug flags, env (editor bridge), and
+	// launch cwd instead of the server's resolved snapshot. Guarded by
+	// mu. Zero until SetCreationArgs; reattachByPath then derives what
+	// it can from the snapshot. SwitchWorkspace rewrites Path to the
+	// switched-to root so a later re-attach follows the switch.
+	creationArgs proto.Workspace
+
+	// createWorkspaceFn is normally client.CreateWorkspace; overridable
+	// in tests to simulate a server swap that hands out a fresh
+	// workspace id for the same path.
+	createWorkspaceFn func(ctx context.Context, ws proto.Workspace) (*proto.Workspace, error)
+	// sendMessageFn is normally client.SendMessage; overridable in
+	// tests to simulate a draining server.
+	sendMessageFn func(ctx context.Context, id, sessionID, runID, prompt string, attachments ...message.Attachment) error
 }
+
+// heldPrompt is a prompt the client is holding until the server that
+// refused it (draining for an update) has been replaced.
+type heldPrompt struct {
+	// path is the workspace root the prompt was addressed to. A held
+	// prompt is delivered only while the client is still attached to a
+	// workspace at that path; if the user switched workspaces during
+	// the update it is dropped rather than sent to the wrong one.
+	path        string
+	sessionID   string
+	runID       string
+	prompt      string
+	attachments []message.Attachment
+}
+
+// ErrServerUpdating is returned by AgentRun/AgentRunBTW when the prompt
+// could not be handed to a server right now — it refused the prompt
+// because it is draining for an update, or the event stream is down (the
+// old server has exited and its replacement is not up yet). The prompt
+// has NOT been lost: it is held and delivered automatically once the
+// client reconnects.
+var ErrServerUpdating = errors.New("server is updating; your message is held and will be sent when it reconnects")
 
 // NewClientWorkspace creates a new ClientWorkspace that proxies all
 // operations through the given client SDK. The ws parameter is the
@@ -118,7 +172,17 @@ func NewClientWorkspace(c *client.Client, ws proto.Workspace) *ClientWorkspace {
 	}
 	w.subscribeEventsFn = c.SubscribeEvents
 	w.subscribeGlobalEventsFn = c.SubscribeGlobalEvents
+	w.createWorkspaceFn = c.CreateWorkspace
+	w.sendMessageFn = c.SendMessage
 	return w
+}
+
+// SetCreationArgs records the request this client attached with so a
+// re-attach after a server swap can replay it verbatim.
+func (w *ClientWorkspace) SetCreationArgs(args proto.Workspace) {
+	w.mu.Lock()
+	w.creationArgs = args
+	w.mu.Unlock()
 }
 
 // refreshWorkspace re-fetches the workspace from the server, updating
@@ -352,7 +416,14 @@ func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string
 	// does not consume notify.RunComplete for completion detection
 	// (it observes message events directly), so the RunComplete
 	// event that fires is harmlessly ignored.
-	return w.client.SendMessage(ctx, w.workspaceID(), sessionID, uuid.New().String(), prompt, attachments...)
+	w.agentState.invalidate()
+	return w.sendOrHold(ctx, heldPrompt{
+		path:        w.workspacePath(),
+		sessionID:   sessionID,
+		runID:       uuid.New().String(),
+		prompt:      prompt,
+		attachments: attachments,
+	})
 }
 
 // AgentRunBTW sends a "by the way" aside message that is folded into the
@@ -362,7 +433,189 @@ func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string
 // the message at the next step boundary without waiting for the turn to
 // finish.
 func (w *ClientWorkspace) AgentRunBTW(ctx context.Context, sessionID, prompt string) error {
-	return w.client.SendMessage(ctx, w.workspaceID(), sessionID, "", "[btw] "+prompt)
+	w.agentState.invalidate()
+	return w.sendOrHold(ctx, heldPrompt{path: w.workspacePath(), sessionID: sessionID, prompt: "[btw] " + prompt})
+}
+
+// workspacePath returns the root of the workspace this client is
+// currently attached to.
+func (w *ClientWorkspace) workspacePath() string {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.ws.Path
+}
+
+// sendOrHold sends p, or — when the server refuses it because it is
+// draining for an update — holds it for redelivery after the reconnect
+// and returns ErrServerUpdating so the caller can tell the user the
+// message is parked rather than failed. Holding is the only correct
+// response: the server has not accepted the prompt, and the turn it
+// would have run cannot start until the replacement server is up.
+//
+// The same holds during the gap between the old server exiting and the
+// new one answering: the event stream is down (connState != Connected),
+// a send fails at the transport, and the editor has already been
+// cleared, so the only way not to lose the text is to hold it.
+func (w *ClientWorkspace) sendOrHold(ctx context.Context, p heldPrompt) error {
+	if w.ConnectionState() != ConnectionStateConnected && w.heldFor(p.path) > 0 {
+		// Already holding for this workspace: preserve order rather
+		// than racing the reconnect with a send that would land ahead
+		// of earlier ones.
+		return w.hold(p, false)
+	}
+	err := w.sendMessageFn(ctx, w.workspaceID(), p.sessionID, p.runID, p.prompt, p.attachments...)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, client.ErrServerDraining):
+		return w.hold(p, true)
+	case w.ConnectionState() != ConnectionStateConnected:
+		slog.Info("Send failed while the event stream is down; holding prompt", "session_id", p.sessionID, "error", err)
+		return w.hold(p, false)
+	}
+	return err
+}
+
+// hold parks p for redelivery after the next reconnect. draining marks
+// that a server explicitly reported an update in progress.
+func (w *ClientWorkspace) hold(p heldPrompt, draining bool) error {
+	w.heldMu.Lock()
+	w.held = append(w.held, p)
+	w.updating = w.updating || draining
+	n := len(w.held)
+	w.heldMu.Unlock()
+	slog.Info("Holding prompt for redelivery after reconnect", "draining", draining, "session_id", p.sessionID, "held", n)
+	return ErrServerUpdating
+}
+
+// HeldPrompts reports how many prompts are parked awaiting redelivery,
+// for any workspace.
+func (w *ClientWorkspace) HeldPrompts() int {
+	w.heldMu.Lock()
+	defer w.heldMu.Unlock()
+	return len(w.held)
+}
+
+// heldFor reports how many prompts are parked for the workspace at path.
+func (w *ClientWorkspace) heldFor(path string) int {
+	w.heldMu.Lock()
+	defer w.heldMu.Unlock()
+	n := 0
+	for _, p := range w.held {
+		if p.path == path {
+			n++
+		}
+	}
+	return n
+}
+
+// flushHeldPrompts redelivers prompts held during a server update, in
+// order, against the (re)connected server. Prompts held for a workspace
+// other than the one this client is attached to now (the user switched
+// meanwhile) stay held until the client returns there. A prompt the new
+// server also refuses as draining (a second update in quick succession)
+// is kept, along with everything queued behind it for the same
+// workspace; any other failure is returned with the prompt's text so the
+// UI can hand it back to the user, and the prompt is dropped so a
+// permanently bad one cannot wedge the queue.
+func (w *ClientWorkspace) flushHeldPrompts(ctx context.Context) (sent int, failed []FailedPrompt, keptElsewhere int) {
+	w.heldMu.Lock()
+	pending := w.held
+	w.held = nil
+	w.updating = false
+	w.heldMu.Unlock()
+	if len(pending) == 0 {
+		return 0, nil, 0
+	}
+	wsID, wsPath := w.workspaceID(), w.workspacePath()
+	var keep []heldPrompt
+	draining := false
+	for _, p := range pending {
+		if p.path != wsPath {
+			keep = append(keep, p)
+			keptElsewhere++
+			continue
+		}
+		if draining {
+			keep = append(keep, p)
+			continue
+		}
+		err := w.sendMessageFn(ctx, wsID, p.sessionID, p.runID, p.prompt, p.attachments...)
+		switch {
+		case err == nil:
+			sent++
+		case errors.Is(err, client.ErrServerDraining):
+			draining = true
+			keep = append(keep, p)
+		default:
+			slog.Error("Failed to redeliver held prompt after server update", "session_id", p.sessionID, "error", err)
+			failed = append(failed, FailedPrompt{SessionID: p.sessionID, Prompt: p.prompt, Attachments: p.attachments, Err: err})
+		}
+	}
+	if len(keep) > 0 {
+		w.heldMu.Lock()
+		w.held = append(keep, w.held...)
+		w.updating = w.updating || draining
+		w.heldMu.Unlock()
+	}
+	return sent, failed, keptElsewhere
+}
+
+// reattachByPath re-creates this client's claim on the workspace rooted
+// at the same path. After a server swap the replacement server knows
+// nothing of the old workspace id, so subscribing to it 404s forever;
+// CreateWorkspace is first-wins by resolved path and hands back the id
+// the new server assigned (or the same id, if the old server is in fact
+// still there). Sessions live in the workspace database and keep their
+// ids, so the active session is preserved.
+//
+// The request replays the client's original creation args (data dir,
+// yolo/debug, env, launch cwd) so the re-attached workspace is
+// configured identically; a client that has since SwitchWorkspace'd
+// re-attaches to the switched-to root instead. If a switch lands while
+// the request is in flight, the result is discarded so it cannot
+// clobber the switch (the loop reconnects to the switched-to workspace
+// on its own).
+func (w *ClientWorkspace) reattachByPath(ctx context.Context) error {
+	w.mu.RLock()
+	req := w.creationArgs
+	snapshot := w.ws
+	w.mu.RUnlock()
+	if req.Path == "" {
+		// No recorded args (a caller other than the CLI built this
+		// workspace): fall back to the server's resolved root with the
+		// per-process flags its snapshot reports.
+		req = proto.Workspace{Path: snapshot.Path, DataDir: snapshot.DataDir, Debug: snapshot.Debug, YOLO: snapshot.YOLO}
+	}
+	if req.Path == "" {
+		return errors.New("workspace has no path to re-attach by")
+	}
+	created, err := w.createWorkspaceFn(ctx, req)
+	if err != nil {
+		return err
+	}
+	if created.Config != nil {
+		created.Config.SetupAgents()
+	}
+	w.subMu.Lock()
+	switched := w.switchRequested
+	w.subMu.Unlock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if switched || w.ws.Path != snapshot.Path {
+		// A SwitchWorkspace landed while the request was in flight;
+		// its result must not be clobbered. The loop reconnects to the
+		// switched-to workspace on its own.
+		return errors.New("workspace switched during re-attach; deferring to the switch")
+	}
+	changed := w.ws.ID != created.ID
+	w.ws = *created
+	w.cachedWorktree = nil
+	w.cachedWorktreeValid = false
+	if changed {
+		slog.Info("Re-attached to workspace on replacement server", "path", created.Path, "workspace_id", created.ID)
+	}
+	return nil
 }
 
 func (w *ClientWorkspace) AgentRunShellCommand(ctx context.Context, sessionID, command string) (proto.ShellCommandResponse, error) {
@@ -370,27 +623,22 @@ func (w *ClientWorkspace) AgentRunShellCommand(ctx context.Context, sessionID, c
 }
 
 func (w *ClientWorkspace) AgentCancel(sessionID string) {
+	w.agentState.invalidate()
 	_ = w.client.CancelAgentSession(context.Background(), w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentCancelAll() {
+	w.agentState.invalidate()
 	_ = w.client.CancelAgent(context.Background(), w.workspaceID())
 }
 
 func (w *ClientWorkspace) AgentIsBusy() bool {
-	info, err := w.client.GetAgentInfo(context.Background(), w.workspaceID())
-	if err != nil {
-		return false
-	}
-	return info.IsBusy
+	info := w.agentInfo(context.Background())
+	return info != nil && info.IsBusy
 }
 
 func (w *ClientWorkspace) AgentIsSessionBusy(sessionID string) bool {
-	info, err := w.client.GetAgentSessionInfo(context.Background(), w.workspaceID(), sessionID)
-	if err != nil {
-		return false
-	}
-	return info.IsBusy
+	return w.sessionBusy(context.Background(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentModel() AgentModel {
@@ -405,11 +653,8 @@ func (w *ClientWorkspace) AgentModel() AgentModel {
 }
 
 func (w *ClientWorkspace) AgentIsReady() bool {
-	info, err := w.client.GetAgentInfo(context.Background(), w.workspaceID())
-	if err != nil {
-		return false
-	}
-	return info.IsReady
+	info := w.agentInfo(context.Background())
+	return info != nil && info.IsReady
 }
 
 func (w *ClientWorkspace) AgentReadiness(ctx context.Context) (bool, error) {
@@ -421,11 +666,7 @@ func (w *ClientWorkspace) AgentReadiness(ctx context.Context) (bool, error) {
 }
 
 func (w *ClientWorkspace) AgentQueuedPrompts(sessionID string) int {
-	count, err := w.client.GetAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
-	if err != nil {
-		return 0
-	}
-	return count
+	return w.sessionQueued(context.Background(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentQueuedPromptsList(sessionID string) []string {
@@ -437,6 +678,7 @@ func (w *ClientWorkspace) AgentQueuedPromptsList(sessionID string) []string {
 }
 
 func (w *ClientWorkspace) AgentClearQueue(sessionID string) {
+	w.agentState.invalidate()
 	_ = w.client.ClearAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
 }
 
@@ -1227,6 +1469,21 @@ func (w *ClientWorkspace) subscribeLoop(send func(tea.Msg)) {
 		if err != nil {
 			cancel()
 			slog.Error("Failed to subscribe to events", "error", err)
+			if everConnected && !w.isStopped() {
+				// The server may have been replaced (graceful update):
+				// the new one does not know our workspace id. Re-attach
+				// by path; if that works, retry the subscribe at once
+				// against the new id instead of backing off on a 404.
+				// Bounded well below the server's data-dir lock wait so
+				// a request the server is still honouring is not
+				// abandoned midway by a departed client.
+				reCtx, reCancel := context.WithTimeout(context.Background(), 20*time.Second)
+				reErr := w.reattachByPath(reCtx)
+				reCancel()
+				if reErr == nil && w.workspaceID() != wsID {
+					continue
+				}
+			}
 			action, changed := w.prepReconnect(w.stateAfterDrop(everConnected))
 			switch action {
 			case reconnectStop:
@@ -1259,6 +1516,12 @@ func (w *ClientWorkspace) subscribeLoop(send func(tea.Msg)) {
 		}
 
 		w.setConnState(send, ConnectionStateConnected, nil)
+		if everConnected {
+			// Off the loop goroutine so consumeEvents starts draining
+			// the fresh stream immediately; the reconnect chores make
+			// their own HTTP calls and must not back the SSE buffer up.
+			go w.afterReconnect(send)
+		}
 		everConnected = true
 		backoff = w.initialBackoff()
 
@@ -1284,7 +1547,8 @@ func (w *ClientWorkspace) subscribeLoop(send func(tea.Msg)) {
 		// subMu across the stop/switch check and the connState update
 		// closes the window where Shutdown/SwitchWorkspace could
 		// otherwise race a spurious "Reconnecting" flash.
-		action, changed := w.prepReconnect(ConnectionStateReconnecting)
+		dropState := w.stateAfterDrop(true)
+		action, changed := w.prepReconnect(dropState)
 		switch action {
 		case reconnectStop:
 			return
@@ -1300,7 +1564,7 @@ func (w *ClientWorkspace) subscribeLoop(send func(tea.Msg)) {
 		if changed && send != nil {
 			send(pubsub.Event[ConnectionEvent]{
 				Type:    pubsub.UpdatedEvent,
-				Payload: ConnectionEvent{State: ConnectionStateReconnecting},
+				Payload: ConnectionEvent{State: dropState},
 			})
 		}
 		switch w.waitBackoff(backoff) {
@@ -1314,6 +1578,16 @@ func (w *ClientWorkspace) subscribeLoop(send func(tea.Msg)) {
 		default:
 			backoff = nextBackoff(backoff)
 		}
+	}
+}
+
+// isStopped reports whether Shutdown has been called.
+func (w *ClientWorkspace) isStopped() bool {
+	select {
+	case <-w.stopped:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1356,12 +1630,54 @@ func (w *ClientWorkspace) prepReconnect(state ConnectionState) (action reconnect
 
 // stateAfterDrop returns the ConnectionState to report when a
 // connection attempt fails, depending on whether the client had ever
-// successfully connected before.
+// successfully connected before. A drop that follows the server
+// refusing a prompt as draining is reported as Updating so the UI can
+// say why.
 func (w *ClientWorkspace) stateAfterDrop(everConnected bool) ConnectionState {
-	if everConnected {
-		return ConnectionStateReconnecting
+	if !everConnected {
+		return ConnectionStateConnecting
 	}
-	return ConnectionStateConnecting
+	w.heldMu.Lock()
+	updating := w.updating
+	w.heldMu.Unlock()
+	if updating {
+		return ConnectionStateUpdating
+	}
+	return ConnectionStateReconnecting
+}
+
+// afterReconnect runs once a dropped event stream is back up: it
+// re-announces the session this client is viewing (presence is
+// per-server and the replacement server has never heard from us; it
+// also drives RepublishPending, so a blocked permission prompt would
+// stay invisible without it) and redelivers any prompts held while the
+// server was updating. Runs on its own goroutine with its own deadlines.
+func (w *ClientWorkspace) afterReconnect(send func(tea.Msg)) {
+	// Whatever busy/queue status was cached belongs to the old stream
+	// (possibly the old server); the UI must re-read it.
+	w.agentState.invalidate()
+	if sid := w.ActiveSessionID(); sid != "" && w.client != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := w.client.SetCurrentSession(ctx, w.workspaceID(), sid)
+		cancel()
+		if err != nil {
+			slog.Warn("Failed to re-report current session after reconnect; a pending prompt for it may not resurface until the session is reopened",
+				"session_id", sid, "error", err)
+		}
+	}
+	if w.HeldPrompts() == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	sent, failed, kept := w.flushHeldPrompts(ctx)
+	if send != nil && (sent > 0 || len(failed) > 0 || kept > 0) {
+		ev := HeldPromptsEvent{Sent: sent, Failed: failed, KeptElsewhere: kept}
+		if len(failed) > 0 {
+			ev.Err = failed[0].Err
+		}
+		send(pubsub.Event[HeldPromptsEvent]{Type: pubsub.UpdatedEvent, Payload: ev})
+	}
 }
 
 // setConnState updates the cached connection state and, if a send
@@ -1438,7 +1754,15 @@ func (w *ClientWorkspace) waitBackoff(d time.Duration) backoffResult {
 // The previously attached workspace is left running on the server (its
 // runs continue); only this client's view moves.
 func (w *ClientWorkspace) SwitchWorkspace(ctx context.Context, path string) error {
-	created, err := w.client.CreateWorkspace(ctx, proto.Workspace{Path: path})
+	// Replay this client's flags (data dir, yolo, debug, env) for the
+	// new root so the switched-to workspace — and any later re-attach
+	// to it after a server swap — is configured the way this client was
+	// launched, not with server defaults.
+	w.mu.RLock()
+	req := w.creationArgs
+	w.mu.RUnlock()
+	req.Path = path
+	created, err := w.client.CreateWorkspace(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to attach workspace %q: %w", path, err)
 	}
@@ -1452,7 +1776,10 @@ func (w *ClientWorkspace) SwitchWorkspace(ctx context.Context, path string) erro
 	w.activeSessionID = ""
 	w.cachedWorktree = nil
 	w.cachedWorktreeValid = false
+	// A later re-attach (server swap) must follow the switch.
+	w.creationArgs = req
 	w.mu.Unlock()
+	w.agentState.invalidate()
 
 	if sameWorkspace {
 		// Already viewing this workspace; nothing to reconnect.
@@ -1500,6 +1827,11 @@ func (w *ClientWorkspace) consumeEvents(evc <-chan any, send func(tea.Msg)) {
 		if _, ok := ev.(pubsub.Event[proto.ConfigChanged]); ok {
 			w.refreshWorkspace()
 			continue
+		}
+		// Drop cached agent status before the UI sees the event, so the
+		// Update that handles it re-reads fresh state.
+		if invalidatesAgentState(ev) {
+			w.agentState.invalidate()
 		}
 		translated := translateEvent(ev)
 		if translated != nil && send != nil {
@@ -1713,6 +2045,10 @@ func protoToSession(s proto.Session) session.Session {
 		Color:            s.Color,
 		Animal:           s.Animal,
 		ModelRef:         s.ModelRef,
+		WorkingDir:       s.WorkingDir,
+
+		SpawnedBySessionID:   s.SpawnedBySessionID,
+		SpawnedByWorkspaceID: s.SpawnedByWorkspaceID,
 	}
 }
 
@@ -1752,6 +2088,7 @@ func protoToMessage(m proto.Message) message.Message {
 				SenderAnimal:      v.SenderAnimal,
 				SenderWorkspaceID: v.SenderWorkspaceID,
 				BTW:               v.BTW,
+				RequireReply:      v.RequireReply,
 			})
 		case proto.ReasoningContent:
 			msg.Parts = append(msg.Parts, message.ReasoningContent{
@@ -1825,6 +2162,10 @@ func sessionToProto(s session.Session) proto.Session {
 		Color:            s.Color,
 		Animal:           s.Animal,
 		ModelRef:         s.ModelRef,
+		WorkingDir:       s.WorkingDir,
+
+		SpawnedBySessionID:   s.SpawnedBySessionID,
+		SpawnedByWorkspaceID: s.SpawnedByWorkspaceID,
 	}
 }
 

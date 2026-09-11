@@ -3,11 +3,107 @@ package agent
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/taigrr/crush/internal/agent/notify"
+	"github.com/taigrr/crush/internal/journal"
 )
+
+// journalQueue writes the session's current queue through to the
+// journal, if one is attached. It reads the live queue under journalMu
+// so concurrent mutations can interleave with each other freely: every
+// write sees a state at least as new as the mutation that triggered it,
+// and the last write always reflects the final state. Callers invoke it
+// after every mutation of messageQueue. Failures are logged; the
+// in-memory queue remains authoritative.
+func (a *sessionAgent) journalQueue(sessionID string) {
+	a.journalMu.Lock()
+	defer a.journalMu.Unlock()
+	if a.queueJournal == nil {
+		return
+	}
+	queued, _ := a.messageQueue.Get(sessionID)
+	entries := make([]journal.QueuedPrompt, 0, len(queued))
+	for _, call := range queued {
+		entries = append(entries, journal.QueuedPrompt{
+			SessionID:   call.SessionID,
+			RunID:       call.RunID,
+			Prompt:      call.Prompt,
+			Attachments: call.Attachments,
+			SwarmParts:  call.SwarmParts,
+		})
+	}
+	if err := a.queueJournal.SaveQueue(context.Background(), sessionID, entries); err != nil {
+		slog.Warn("Failed to journal session queue", "session_id", sessionID, "error", err)
+	}
+}
+
+// notifyDispatched runs the dispatch hook for calls leaving the queue.
+// Callers must not hold the session's dispatch mutex.
+func (a *sessionAgent) notifyDispatched(calls ...SessionAgentCall) {
+	if a.onQueueDispatch == nil {
+		return
+	}
+	for _, c := range calls {
+		a.onQueueDispatch(c)
+	}
+}
+
+// DetachQueueJournal stops writing queue changes through to the
+// journal. See Drainable.DetachJournals.
+func (a *sessionAgent) DetachQueueJournal() {
+	a.journalMu.Lock()
+	defer a.journalMu.Unlock()
+	a.queueJournal = nil
+}
+
+// PauseQueueDispatch stops finished turns from handing off to queued
+// prompts. See Drainable.PauseQueueDispatch.
+func (a *sessionAgent) PauseQueueDispatch() {
+	a.dispatchPaused.Store(true)
+}
+
+// BusySessions lists every session that has an active request or an
+// accepted-but-not-yet-active run. Summarize requests are attributed to
+// their session. While dispatch is NOT paused, a session with queued
+// prompts also counts: a finished turn hands off to its queue through a
+// window in which the session is neither active nor accepted (between
+// releaseActiveOnce and the BeginAccepted in dispatchNextQueued), and a
+// drain waiter observing that instant must not conclude the agent is
+// idle. Once paused, queued prompts stay put and are journaled, so they
+// no longer hold the drain open.
+func (a *sessionAgent) BusySessions() []string {
+	seen := make(map[string]struct{})
+	for key, cancel := range a.activeRequests.Seq2() {
+		if cancel == nil {
+			continue
+		}
+		seen[strings.TrimSuffix(key, "-summarize")] = struct{}{}
+	}
+	if !a.dispatchPaused.Load() {
+		for sessionID, queued := range a.messageQueue.Seq2() {
+			if len(queued) > 0 {
+				seen[sessionID] = struct{}{}
+			}
+		}
+	}
+	if a.acceptedRuns != nil {
+		a.acceptedMu.Lock()
+		for sessionID, count := range a.acceptedRuns.Seq2() {
+			if count > 0 {
+				seen[sessionID] = struct{}{}
+			}
+		}
+		a.acceptedMu.Unlock()
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	return out
+}
 
 func (r *AcceptedRun) Close() {
 	if r == nil {
@@ -53,16 +149,23 @@ func (a *sessionAgent) BeginAccepted(sessionID string) *AcceptedRun {
 // covered by the same mark are serialized on the per-session dispatch
 // mutex and read the mark before they Close, so this never clears it out
 // from under a covered handle still waiting to enter Run.
+//
+// Reaching zero also wakes WaitForIdle waiters: IsBusy counts accepted
+// runs, so a run canceled on entry (or failing before it becomes active)
+// would otherwise leave a waiter asleep until some unrelated active run
+// ended or its context expired.
 func (a *sessionAgent) endAccepted(sessionID string) {
 	a.acceptedMu.Lock()
-	defer a.acceptedMu.Unlock()
 	count, ok := a.acceptedRuns.Get(sessionID)
 	if !ok || count <= 1 {
 		a.acceptedRuns.Del(sessionID)
 		a.cancelMark.Del(sessionID)
+		a.acceptedMu.Unlock()
+		a.signalIdle()
 		return
 	}
 	a.acceptedRuns.Set(sessionID, count-1)
+	a.acceptedMu.Unlock()
 }
 
 // sessionMu returns the per-session dispatch mutex, creating it on first
@@ -89,6 +192,10 @@ func (a *sessionAgent) sessionMu(sessionID string) *sync.Mutex {
 // buffered terminal event. The recursive Run falls back to the default
 // broker publish, which is what existing subscribers expect for queued
 // turns.
+//
+// Callers journal the queue (journalQueue) after releasing the session's
+// dispatch mutex; the write is a SQLite transaction and must not run
+// under a lock that Cancel needs.
 func (a *sessionAgent) enqueueCall(call SessionAgentCall) {
 	existing, ok := a.messageQueue.Get(call.SessionID)
 	if !ok {
@@ -114,10 +221,10 @@ func (a *sessionAgent) enqueueCall(call SessionAgentCall) {
 // prevents a cancel recorded between the drain and the check from being
 // observed inconsistently.
 //
-// Calls covered by a pending cancel are dropped; the dropped ones that
-// carry a RunID are returned in canceledWithRunID so the caller can
-// publish their terminal cancelled RunComplete (a caller waiting on that
-// RunID, e.g. `crush run`, would otherwise hang). Uncanceled calls without
+// Calls covered by a pending cancel are dropped and returned in canceled
+// so the caller can publish the terminal cancelled RunComplete for those
+// that carry a RunID (a caller waiting on that RunID, e.g. `crush run`,
+// would otherwise hang) and release anything they carried. Uncanceled calls without
 // a RunID are returned in fold to be folded into the active turn,
 // preserving the existing follow-up behavior. Uncanceled calls that carry
 // a RunID are left in the queue so each runs as its own turn via the
@@ -125,17 +232,19 @@ func (a *sessionAgent) enqueueCall(call SessionAgentCall) {
 // RunID-bearing prompt an explicit lifecycle instead of being silently
 // absorbed into another turn. fold is processed by the caller without the
 // lock held.
-func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceledWithRunID []SessionAgentCall) {
+func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceled []SessionAgentCall) {
 	dispatchLock := a.sessionMu(sessionID)
 	dispatchLock.Lock()
-	defer dispatchLock.Unlock()
 	queuedCalls, _ := a.messageQueue.Get(sessionID)
 	var keep []SessionAgentCall
 	for _, queued := range queuedCalls {
 		if a.canceledBySeq(sessionID, queued.acceptSeq) {
-			if queued.RunID != "" {
-				canceledWithRunID = append(canceledWithRunID, queued)
-			}
+			// Every dropped call is returned, not just RunID-bearing
+			// ones: publishCanceledQueueDrops filters for the terminal
+			// event itself, and the drop hook must see all of them (a
+			// dropped swarm message has no RunID but does carry a reply
+			// obligation to release).
+			canceled = append(canceled, queued)
 			continue
 		}
 		if queued.RunID != "" {
@@ -149,7 +258,12 @@ func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceledWithRu
 	} else {
 		a.messageQueue.Set(sessionID, keep)
 	}
-	return fold, canceledWithRunID
+	dispatchLock.Unlock()
+	if len(keep) != len(queuedCalls) {
+		a.journalQueue(sessionID)
+	}
+	a.notifyDispatched(fold...)
+	return fold, canceled
 }
 
 // publishCanceledQueueDrops emits a terminal cancelled RunComplete for
@@ -162,6 +276,21 @@ func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceledWithRu
 // must-deliver publish alive even when the run context that triggered the
 // drop is already canceled.
 func (a *sessionAgent) publishCanceledQueueDrops(drops []SessionAgentCall) {
+	// Release whatever the dropped calls carried (swarm reply
+	// obligations). Skipped only once the journal has been detached:
+	// at that point the queue is being handed off to the next server,
+	// not discarded, and its obligations travel with it. A drop that
+	// happens earlier — even mid-drain, e.g. the user hits Esc — is a
+	// real discard and must release them. Callers must NOT hold the
+	// session's dispatch mutex: the hook may send a swarm message.
+	a.journalMu.Lock()
+	handedOff := a.queueJournal == nil && a.dispatchPaused.Load()
+	a.journalMu.Unlock()
+	if a.onQueueDrop != nil && !handedOff {
+		for _, d := range drops {
+			a.onQueueDrop(d)
+		}
+	}
 	var hasRunID bool
 	for _, d := range drops {
 		if d.RunID != "" {
@@ -196,6 +325,7 @@ func (a *sessionAgent) clearQueueAndNotify(sessionID string) {
 	if !ok {
 		return
 	}
+	a.journalQueue(sessionID)
 	a.publishCanceledQueueDrops(queued)
 }
 
@@ -249,6 +379,10 @@ func (a *sessionAgent) popQueuedCall(sessionID string) (SessionAgentCall, bool) 
 		}
 		return rest, true
 	})
+	if got {
+		a.journalQueue(sessionID)
+		a.notifyDispatched(head)
+	}
 	return head, got
 }
 
@@ -346,6 +480,9 @@ func (a *sessionAgent) cancelAndClearQueue(sessionID string) {
 	queued, _ := a.messageQueue.Get(sessionID)
 	a.messageQueue.Del(sessionID)
 	mu.Unlock()
+	if len(queued) > 0 {
+		a.journalQueue(sessionID)
+	}
 	a.publishCanceledQueueDrops(queued)
 }
 
@@ -432,29 +569,67 @@ func (a *sessionAgent) IsSessionBusy(sessionID string) bool {
 	return busy
 }
 
+// IsSessionBusyOrAccepted is the observer-facing busy predicate: true when
+// sessionID has an active run OR an accepted-but-not-yet-active one. The
+// dispatch window between BeginAccepted and activeRequests.Set spans
+// readyWg, model resolution, and DB writes, and the AttentionBusy event
+// that makes clients refresh their session overviews fires at the start
+// of it — so a listing that consulted IsSessionBusy alone would read
+// false and show a live turn as idle until the next unrelated refresh.
+//
+// Run itself must keep using the strict IsSessionBusy so a prompt is
+// never queued behind its own accept reservation.
+func (a *sessionAgent) IsSessionBusyOrAccepted(sessionID string) bool {
+	if a.IsSessionBusy(sessionID) {
+		return true
+	}
+	if a.acceptedRuns == nil {
+		return false
+	}
+	a.acceptedMu.Lock()
+	defer a.acceptedMu.Unlock()
+	count, _ := a.acceptedRuns.Get(sessionID)
+	return count > 0
+}
+
 // clearActiveRequest removes the session's active request and signals any
 // WaitForIdle waiters. Every place that releases an active request must go
 // through here so the idle wakeup is never missed.
 func (a *sessionAgent) clearActiveRequest(sessionID string) {
 	a.activeRequests.Del(sessionID)
+	a.signalIdle()
+}
+
+// signalIdle wakes every WaitForIdle waiter so it re-checks IsBusy. It is
+// a broadcast, not a per-session signal: waiters re-evaluate the whole
+// agent, so a spurious wakeup is harmless. Callers must publish the state
+// change (activeRequests/acceptedRuns) BEFORE calling this; WaitForIdle
+// relies on that ordering to avoid a lost wakeup.
+func (a *sessionAgent) signalIdle() {
 	a.idleMu.Lock()
 	close(a.idleCh)
 	a.idleCh = make(chan struct{})
 	a.idleMu.Unlock()
 }
 
-// WaitForIdle blocks until the agent has no active requests or ctx is done.
-// It is event-driven: each cleared active request closes the current idle
-// channel, waking the waiter to re-check. Returns ctx.Err() if the context
-// is canceled first.
+// WaitForIdle blocks until the agent has no active or accepted runs, or
+// ctx is done. It is event-driven: each released run closes the current
+// idle channel, waking the waiter to re-check. Returns ctx.Err() if the
+// context is canceled first.
+//
+// The idle channel is captured BEFORE the busy check. A release that lands
+// between the two closes the captured channel (state is published before
+// signalIdle), so the waiter wakes and re-checks; capturing after the
+// check could grab the replacement channel and sleep through a release
+// that already happened.
 func (a *sessionAgent) WaitForIdle(ctx context.Context) error {
 	for {
-		if !a.IsBusy() {
-			return nil
-		}
 		a.idleMu.Lock()
 		ch := a.idleCh
 		a.idleMu.Unlock()
+		if !a.IsBusy() {
+			return nil
+		}
 		select {
 		case <-ch:
 		case <-ctx.Done():
@@ -481,4 +656,36 @@ func (a *sessionAgent) QueuedPromptsList(sessionID string) []string {
 		prompts[i] = call.Prompt
 	}
 	return prompts
+}
+
+// deferCall appends call to the session's queue without ever dispatching
+// it from this process. It is used while the server drains for an
+// update: the entry is journaled by the normal write-through and left
+// for the next server to rehydrate. Taking the session's dispatch mutex
+// serializes the append against a concurrent hand-off or fold on the
+// same session, so the journal snapshot written here can neither be
+// overwritten by, nor overwrite, that turn's own snapshot. The
+// call's OnComplete is stripped like any queued call. The entry is
+// stamped with a fresh accept sequence (reserved and released around the
+// append) so a later Cancel of the active turn treats it like a prompt
+// queued through the normal path — dropped only if it predates the
+// cancel — rather than as an untracked entry every mark covers.
+func (a *sessionAgent) deferCall(call SessionAgentCall, front bool) {
+	accept := a.BeginAccepted(call.SessionID)
+	call.Accepted = accept
+	mu := a.sessionMu(call.SessionID)
+	mu.Lock()
+	if front {
+		queued := call
+		queued.acceptSeq = accept.seq
+		queued.OnComplete = nil
+		queued.Accepted = nil
+		existing, _ := a.messageQueue.Get(call.SessionID)
+		a.messageQueue.Set(call.SessionID, append([]SessionAgentCall{queued}, existing...))
+	} else {
+		a.enqueueCall(call)
+	}
+	mu.Unlock()
+	accept.Close()
+	a.journalQueue(call.SessionID)
 }

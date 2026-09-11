@@ -119,6 +119,7 @@ type SwarmMessage struct {
 	SenderAnimal      string `json:"sender_animal"`
 	SenderWorkspaceID string `json:"sender_workspace_id,omitempty"`
 	BTW               bool   `json:"btw,omitempty"`
+	RequireReply      bool   `json:"require_reply,omitempty"`
 }
 
 // String returns the swarm message's text as a string.

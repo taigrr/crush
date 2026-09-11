@@ -29,6 +29,8 @@ func (m *mockBashPermissionService) CancelAll() {}
 
 func (m *mockBashPermissionService) RepublishPending(sessionID string) {}
 
+func (m *mockBashPermissionService) PendingSessions() []string { return nil }
+
 func (m *mockBashPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true
 }
@@ -109,6 +111,8 @@ func (m *recordingPermissionService) Deny(req permission.PermissionRequest) bool
 func (m *recordingPermissionService) CancelAll() {}
 
 func (m *recordingPermissionService) RepublishPending(sessionID string) {}
+
+func (m *recordingPermissionService) PendingSessions() []string { return nil }
 
 func (m *recordingPermissionService) GrantPersistent(req permission.PermissionRequest) bool {
 	return true

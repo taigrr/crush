@@ -28,6 +28,10 @@ func (w *cwdWorkspace) Config() *config.Config { return nil }
 func (w *cwdWorkspace) AgentIsReady() bool     { return w.ready }
 func (w *cwdWorkspace) AgentIsBusy() bool      { return w.busy }
 
+// AgentIsSessionBusy mirrors the workspace flag: these fixtures model a
+// single-session workspace.
+func (w *cwdWorkspace) AgentIsSessionBusy(string) bool { return w.busy }
+
 func (w *cwdWorkspace) ConnectionState() workspace.ConnectionState {
 	return workspace.ConnectionStateConnected
 }

@@ -12,6 +12,10 @@ type KeyMap struct {
 		PasteImage  key.Binding
 		MentionFile key.Binding
 		Commands    key.Binding
+		// Stash parks the drafted prompt (text and attachments) so a
+		// different message can be sent first; pressing it again with an
+		// empty editor restores the draft, with a non-empty editor swaps.
+		Stash key.Binding
 
 		// Attachments key maps
 		AttachmentDeleteMode key.Binding
@@ -82,20 +86,24 @@ type KeyMap struct {
 		Search        key.Binding
 		PrevSection   key.Binding
 		NextSection   key.Binding
+		Pin           key.Binding
 	}
 
 	// Global key maps
-	Quit       key.Binding
-	Help       key.Binding
-	Commands   key.Binding
-	Models     key.Binding
-	Suspend    key.Binding
-	Sessions   key.Binding
-	Search     key.Binding
-	Milestones key.Binding
-	Tab        key.Binding
-	ToggleYolo key.Binding
-	Fullscreen key.Binding
+	Quit     key.Binding
+	Help     key.Binding
+	Commands key.Binding
+	Models   key.Binding
+	Suspend  key.Binding
+	Sessions key.Binding
+	// PinSessions keeps the left session navigator open across session
+	// switches (see UI.leftSidebarPinned).
+	PinSessions key.Binding
+	Search      key.Binding
+	Milestones  key.Binding
+	Tab         key.Binding
+	ToggleYolo  key.Binding
+	Fullscreen  key.Binding
 	// ArchiveSession opens the confirmation modal to archive the current
 	// (active) session from the main window.
 	ArchiveSession key.Binding
@@ -127,6 +135,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("ctrl+s"),
 			key.WithHelp("ctrl+s", "sessions"),
 		),
+		// Bubble Tea enables Kitty key disambiguation, so terminals that
+		// speak it (Ghostty, kitty, WezTerm, ...) deliver ctrl+shift+s
+		// distinctly; alt+s is the fallback for those that collapse it
+		// onto ctrl+s.
+		PinSessions: key.NewBinding(
+			key.WithKeys("alt+s", "ctrl+shift+s"),
+			key.WithHelp("alt+s", "pin sessions"),
+		),
 		Search: key.NewBinding(
 			key.WithKeys("ctrl+b"),
 			key.WithHelp("ctrl+b", "search"),
@@ -153,6 +169,10 @@ func DefaultKeyMap() KeyMap {
 		),
 	}
 
+	km.Editor.Stash = key.NewBinding(
+		key.WithKeys("ctrl+shift+z", "alt+z"),
+		key.WithHelp("alt+z", "stash prompt"),
+	)
 	km.Editor.AddFile = key.NewBinding(
 		key.WithKeys("/"),
 		key.WithHelp("/", "add file"),
@@ -408,6 +428,13 @@ func DefaultKeyMap() KeyMap {
 	km.SessionSidebar.NextSection = key.NewBinding(
 		key.WithKeys("}"),
 		key.WithHelp("}", "next section"),
+	)
+	// Pin/unpin the navigator so it survives session switches. Like the
+	// other single-letter sidebar bindings it is only handled while the
+	// sidebar is focused; alt+s does the same from anywhere.
+	km.SessionSidebar.Pin = key.NewBinding(
+		key.WithKeys("p"),
+		key.WithHelp("p", "pin/unpin"),
 	)
 
 	return km

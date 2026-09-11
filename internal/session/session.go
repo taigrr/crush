@@ -94,6 +94,15 @@ type Session struct {
 	// is how every session behaved before. Set only by swarm `new` with a
 	// `model` argument; sessions a person opens are never given one.
 	ModelRef string
+
+	// SpawnedBySessionID and SpawnedByWorkspaceID record the session
+	// that created this one via the swarm tool (address='new') and the
+	// workspace that spawner lived in. Unlike ParentSessionID, which
+	// marks hidden sub-agent children, lineage is informational: a
+	// spawned session stays visible in lists and addressable by swarm.
+	// Both are empty for sessions opened by a human or a client.
+	SpawnedBySessionID   string
+	SpawnedByWorkspaceID string
 }
 
 // Unread reports whether the session finished a run more recently than it
@@ -102,12 +111,34 @@ func (s Session) Unread() bool {
 	return s.LastFinishedAt > 0 && s.LastFinishedAt > s.LastSeenAt
 }
 
+// CreateOptions carries the optional stamps applied to a new top-level
+// session in the same insert, before its Created event is published, so
+// subscribers see one consistent row instead of a Created followed by a
+// burst of Updated events. Every field is optional; the zero value
+// behaves like Create.
+type CreateOptions struct {
+	// ModelRef is the session's own model reference (see
+	// [Session.ModelRef]).
+	ModelRef string
+	// SpawnedBySessionID and SpawnedByWorkspaceID record swarm lineage
+	// (see [Session.SpawnedBySessionID]). The workspace id is only
+	// stored when the session id is set.
+	SpawnedBySessionID   string
+	SpawnedByWorkspaceID string
+	// WorkingDir pins the directory the session's tools run in (see
+	// [Session.WorkingDir]).
+	WorkingDir string
+}
+
 type Service interface {
 	pubsub.Subscriber[Session]
 	Create(ctx context.Context, title string) (Session, error)
 	// CreateWithModelRef creates a top-level session that runs modelRef
 	// (see Session.ModelRef). An empty ref behaves exactly like Create.
 	CreateWithModelRef(ctx context.Context, title, modelRef string) (Session, error)
+	// CreateWithOptions creates a top-level session with every optional
+	// stamp in opts applied before the Created event is published.
+	CreateWithOptions(ctx context.Context, title string, opts CreateOptions) (Session, error)
 	CreateTitleSession(ctx context.Context, parentSessionID string) (Session, error)
 	CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error)
 	Get(ctx context.Context, id string) (Session, error)
@@ -123,6 +154,10 @@ type Service interface {
 
 	// SetWorkingDir records the directory the session runs its tools in.
 	SetWorkingDir(ctx context.Context, id, dir string) error
+	// SetSpawnedBy records the swarm lineage of a session: the session
+	// (and its workspace) that created it via `swarm new`. Publishes an
+	// update so viewers can nest or link it under the spawner.
+	SetSpawnedBy(ctx context.Context, id, spawnerSessionID, spawnerWorkspaceID string) error
 	// SetFavorite pins or unpins a session so the sidebar inbox sticks it
 	// to the top. Publishes an update so the sidebar reprojects.
 	SetFavorite(ctx context.Context, id string, favorite bool) error
@@ -169,10 +204,23 @@ func (s *service) Create(ctx context.Context, title string) (Session, error) {
 }
 
 func (s *service) CreateWithModelRef(ctx context.Context, title, modelRef string) (Session, error) {
+	return s.CreateWithOptions(ctx, title, CreateOptions{ModelRef: modelRef})
+}
+
+// CreateWithOptions inserts the row with every stamp in opts applied in
+// the same statement before publishing Created. Stamping before publish
+// matters: subscribers (sidebar, swarm identity backfill, GUI mirrors)
+// see one consistent row rather than a Created without the stamps
+// followed by a burst of Updated events.
+func (s *service) CreateWithOptions(ctx context.Context, title string, opts CreateOptions) (Session, error) {
+	spawnedBy := sessionSpawnedByParams("", opts.SpawnedBySessionID, opts.SpawnedByWorkspaceID)
 	dbSession, err := s.q.CreateSession(ctx, db.CreateSessionParams{
-		ID:       uuid.New().String(),
-		Title:    title,
-		ModelRef: sql.NullString{String: modelRef, Valid: modelRef != ""},
+		ID:                   uuid.New().String(),
+		Title:                title,
+		WorkingDir:           sql.NullString{String: opts.WorkingDir, Valid: opts.WorkingDir != ""},
+		ModelRef:             sql.NullString{String: opts.ModelRef, Valid: opts.ModelRef != ""},
+		SpawnedBySessionID:   spawnedBy.SpawnedBySessionID,
+		SpawnedByWorkspaceID: spawnedBy.SpawnedByWorkspaceID,
 	})
 	if err != nil {
 		return Session{}, err
@@ -441,6 +489,28 @@ func (s *service) SetWorkingDir(ctx context.Context, id, dir string) error {
 	return nil
 }
 
+func (s *service) SetSpawnedBy(ctx context.Context, id, spawnerSessionID, spawnerWorkspaceID string) error {
+	if spawnerSessionID == "" {
+		return nil
+	}
+	if err := s.q.SetSessionSpawnedBy(ctx, sessionSpawnedByParams(id, spawnerSessionID, spawnerWorkspaceID)); err != nil {
+		return fmt.Errorf("setting session spawned-by: %w", err)
+	}
+	s.publishByID(ctx, id)
+	return nil
+}
+
+// sessionSpawnedByParams maps a lineage pair onto the nullable columns.
+// The workspace id is stored only alongside a session id so a row is
+// never half-populated.
+func sessionSpawnedByParams(id, spawnerSessionID, spawnerWorkspaceID string) db.SetSessionSpawnedByParams {
+	return db.SetSessionSpawnedByParams{
+		ID:                   id,
+		SpawnedBySessionID:   sql.NullString{String: spawnerSessionID, Valid: spawnerSessionID != ""},
+		SpawnedByWorkspaceID: sql.NullString{String: spawnerWorkspaceID, Valid: spawnerSessionID != "" && spawnerWorkspaceID != ""},
+	}
+}
+
 func (s *service) SetFavorite(ctx context.Context, id string, favorite bool) error {
 	fav := int64(0)
 	if favorite {
@@ -541,6 +611,9 @@ func (s *service) fromDBItem(item db.Session) Session {
 		Animal:           item.Animal.String,
 		Favorite:         item.Favorite != 0,
 		ModelRef:         item.ModelRef.String,
+
+		SpawnedBySessionID:   item.SpawnedBySessionID.String,
+		SpawnedByWorkspaceID: item.SpawnedByWorkspaceID.String,
 	}
 }
 

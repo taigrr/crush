@@ -10,6 +10,8 @@ INSERT INTO sessions (
     summary_message_id,
     working_dir,
     model_ref,
+    spawned_by_session_id,
+    spawned_by_workspace_id,
     updated_at,
     created_at
 ) VALUES (
@@ -23,6 +25,8 @@ INSERT INTO sessions (
     null,
     ?,
     sqlc.narg('model_ref'),
+    sqlc.narg('spawned_by_session_id'),
+    sqlc.narg('spawned_by_workspace_id'),
     strftime('%s', 'now'),
     strftime('%s', 'now')
 ) RETURNING *;
@@ -114,6 +118,15 @@ WHERE id = ?;
 -- name: SetSessionFavorite :exec
 UPDATE sessions
 SET favorite = ?
+WHERE id = ?;
+
+-- name: SetSessionSpawnedBy :exec
+-- Records which session (and workspace) created this one via the swarm
+-- tool. Lineage is informational: it never affects visibility or
+-- addressability the way parent_session_id does.
+UPDATE sessions
+SET spawned_by_session_id = ?,
+    spawned_by_workspace_id = ?
 WHERE id = ?;
 
 -- name: SetSessionSwarmIdentity :execrows
