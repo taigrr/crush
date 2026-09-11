@@ -259,10 +259,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		largeModel.Model,
 		fantasy.WithSystemPrompt(systemPrompt),
 		fantasy.WithTools(agentTools...),
+		fantasy.WithRepairToolCall(repairToolCall),
 		fantasy.WithUserAgent(userAgent),
 	)
 
 	sessionLock := sync.Mutex{}
+	// incompleteSteps accumulates steps whose streamed tool calls were
+	// truncated; PrepareStep rewrites them out of the request history.
+	var incompleteSteps []incompleteStep
 	currentSession, err := a.sessions.Get(ctx, call.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session: %w", err)
@@ -466,6 +470,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			for i := range prepared.Messages {
 				prepared.Messages[i].ProviderOptions = nil
 			}
+			// A step whose tool_use block was lost in transit must not be
+			// replayed as an assistant turn (see incompleteStep).
+			prepared.Messages = patchIncompleteSteps(prepared.Messages, incompleteSteps)
 
 			// Use latest tools (updated by SetTools when MCP tools
 			// change), filtered to those available for this turn's
@@ -647,6 +654,21 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				}
 			}
 			currentAssistant.AddFinish(finishReason, "", "")
+			// A tool call that got tool-input-start but never tool-call
+			// means the provider stream dropped a block: fantasy's copy of
+			// this step is missing content the model produced. Record it
+			// so the next PrepareStep rewrites the step instead of sending
+			// the corrupted turn back (Anthropic rejects that outright).
+			if completed, unfinished := unfinishedToolCalls(currentAssistant); len(unfinished) > 0 {
+				for _, tc := range unfinished {
+					slog.Warn("Tool call never completed streaming; step will be replayed as text", "tool_call_id", tc.ID, "tool_name", tc.Name, "session_id", call.SessionID)
+				}
+				incompleteSteps = append(incompleteSteps, incompleteStep{
+					completed:  completed,
+					unfinished: unfinished,
+					text:       currentAssistant.Content().Text,
+				})
+			}
 			sessionLock.Lock()
 			defer sessionLock.Unlock()
 
@@ -836,7 +858,13 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
 			return a.dispatchNextQueued(ctx, call, currentAssistant, nil, err, &skipRunComplete)
 		}
-		return nil, err
+		// A provider/transport failure (e.g. the stream dying mid
+		// tool-call) must not strand prompts queued behind it either:
+		// the session goes idle, so nothing would ever drain them. Hand
+		// off the same way; a persistent failure surfaces on each queued
+		// turn in its own error finish.
+		a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
+		return a.dispatchNextQueued(ctx, call, currentAssistant, nil, err, &skipRunComplete)
 	}
 
 	if shouldSummarize {

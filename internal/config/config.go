@@ -292,6 +292,11 @@ type TUIOptions struct {
 	// navigator, persisted so a resize survives restarts. Zero means use
 	// the built-in default.
 	SessionsSidebarWidth int `json:"sessions_sidebar_width,omitempty" jsonschema:"description=Width in columns of the left session navigator,default=30,minimum=20,maximum=80"`
+	// SessionsSidebarPinned keeps the left session navigator open across
+	// session switches instead of collapsing it after each activation.
+	// Toggled from the TUI (alt+s, or "p" while the navigator is focused)
+	// and persisted here so the choice survives restarts.
+	SessionsSidebarPinned bool `json:"sessions_sidebar_pinned,omitempty" jsonschema:"description=Keep the left session navigator open after switching sessions,default=false"`
 }
 
 // Completions defines options for the completions UI.
@@ -306,6 +311,11 @@ func (c Completions) Limits() (depth, items int) {
 
 type Permissions struct {
 	AllowedTools []string `json:"allowed_tools,omitempty" jsonschema:"description=List of tools that don't require permission prompts,example=bash,example=view"`
+	// Sysadmin starts every workspace with sysadmin mode on, so the bash
+	// tool's sysadmin command filter is a no-op from the first turn. The
+	// palette toggle still works and overrides this for the running
+	// process.
+	Sysadmin bool `json:"sysadmin,omitempty" jsonschema:"description=Start with sysadmin mode enabled (bash sysadmin command filter off). Defaults to false."`
 }
 
 type TrailerStyle string

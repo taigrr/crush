@@ -660,6 +660,10 @@
           },
           "type": "array",
           "description": "List of tools that don't require permission prompts"
+        },
+        "sysadmin": {
+          "type": "boolean",
+          "description": "Start with sysadmin mode enabled (bash sysadmin command filter off). Defaults to false."
         }
       },
       "additionalProperties": false,
@@ -955,6 +959,11 @@
           "minimum": 20,
           "description": "Width in columns of the left session navigator",
           "default": 30
+        },
+        "sessions_sidebar_pinned": {
+          "type": "boolean",
+          "description": "Keep the left session navigator open after switching sessions",
+          "default": false
         }
       },
       "additionalProperties": false,

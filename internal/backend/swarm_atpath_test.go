@@ -57,7 +57,7 @@ func TestCreateSwarmSessionAtPath_ReuseExisting(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), wd, "hello", "")
+	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), wd, backend.SwarmSpawnOptions{Title: "hello"})
 	require.NoError(t, err)
 	require.Equal(t, ws.ID, gotID, "must reuse the already-running workspace")
 	require.NotEmpty(t, sess.ID)
@@ -82,7 +82,7 @@ func TestCreateSwarmSessionAtPath_CreateNew(t *testing.T) {
 	target := t.TempDir()
 	writeSwarmProject(t, target)
 
-	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, "hello", "")
+	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, backend.SwarmSpawnOptions{Title: "hello"})
 	require.NoError(t, err)
 	require.NotEmpty(t, gotID, "must bring up a new workspace")
 	require.NotEmpty(t, sess.ID)
@@ -108,13 +108,13 @@ func TestCreateSwarmSessionAtPath_RejectsMissingDir(t *testing.T) {
 	t.Cleanup(b.Shutdown)
 
 	missing := filepath.Join(t.TempDir(), "does", "not", "exist")
-	_, _, err = b.CreateSwarmSessionAtPath(t.Context(), missing, "hello", "")
+	_, _, err = b.CreateSwarmSessionAtPath(t.Context(), missing, backend.SwarmSpawnOptions{Title: "hello"})
 	require.ErrorIs(t, err, backend.ErrSwarmPathNotDir)
 	require.NoDirExists(t, missing, "must not create the missing directory")
 
 	file := filepath.Join(t.TempDir(), "file.txt")
 	require.NoError(t, os.WriteFile(file, []byte("x"), 0o644))
-	_, _, err = b.CreateSwarmSessionAtPath(t.Context(), file, "hello", "")
+	_, _, err = b.CreateSwarmSessionAtPath(t.Context(), file, backend.SwarmSpawnOptions{Title: "hello"})
 	require.ErrorIs(t, err, backend.ErrSwarmPathNotDir)
 }
 
@@ -152,7 +152,7 @@ func TestLookupSwarmAddress_ReattachesTornDownWorkspace(t *testing.T) {
 	target := t.TempDir()
 	writeSwarmProject(t, target)
 
-	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, "hello", "")
+	gotID, sess, err := b.CreateSwarmSessionAtPath(t.Context(), target, backend.SwarmSpawnOptions{Title: "hello"})
 	require.NoError(t, err)
 	require.NotEmpty(t, gotID)
 

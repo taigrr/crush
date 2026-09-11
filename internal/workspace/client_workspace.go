@@ -101,6 +101,10 @@ type ClientWorkspace struct {
 	cachedWorktree      *worktree.Worktree
 	cachedWorktreeValid bool
 	cachedWorktreeTime  time.Time
+
+	// agentState memoizes the agent/session status RPCs the TUI polls on
+	// every Update and View; see agentStateCache.
+	agentState agentStateCache
 }
 
 // NewClientWorkspace creates a new ClientWorkspace that proxies all
@@ -352,6 +356,7 @@ func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string
 	// does not consume notify.RunComplete for completion detection
 	// (it observes message events directly), so the RunComplete
 	// event that fires is harmlessly ignored.
+	w.agentState.invalidate()
 	return w.client.SendMessage(ctx, w.workspaceID(), sessionID, uuid.New().String(), prompt, attachments...)
 }
 
@@ -362,6 +367,7 @@ func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string
 // the message at the next step boundary without waiting for the turn to
 // finish.
 func (w *ClientWorkspace) AgentRunBTW(ctx context.Context, sessionID, prompt string) error {
+	w.agentState.invalidate()
 	return w.client.SendMessage(ctx, w.workspaceID(), sessionID, "", "[btw] "+prompt)
 }
 
@@ -370,27 +376,22 @@ func (w *ClientWorkspace) AgentRunShellCommand(ctx context.Context, sessionID, c
 }
 
 func (w *ClientWorkspace) AgentCancel(sessionID string) {
+	w.agentState.invalidate()
 	_ = w.client.CancelAgentSession(context.Background(), w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentCancelAll() {
+	w.agentState.invalidate()
 	_ = w.client.CancelAgent(context.Background(), w.workspaceID())
 }
 
 func (w *ClientWorkspace) AgentIsBusy() bool {
-	info, err := w.client.GetAgentInfo(context.Background(), w.workspaceID())
-	if err != nil {
-		return false
-	}
-	return info.IsBusy
+	info := w.agentInfo(context.Background())
+	return info != nil && info.IsBusy
 }
 
 func (w *ClientWorkspace) AgentIsSessionBusy(sessionID string) bool {
-	info, err := w.client.GetAgentSessionInfo(context.Background(), w.workspaceID(), sessionID)
-	if err != nil {
-		return false
-	}
-	return info.IsBusy
+	return w.sessionBusy(context.Background(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentModel() AgentModel {
@@ -405,11 +406,8 @@ func (w *ClientWorkspace) AgentModel() AgentModel {
 }
 
 func (w *ClientWorkspace) AgentIsReady() bool {
-	info, err := w.client.GetAgentInfo(context.Background(), w.workspaceID())
-	if err != nil {
-		return false
-	}
-	return info.IsReady
+	info := w.agentInfo(context.Background())
+	return info != nil && info.IsReady
 }
 
 func (w *ClientWorkspace) AgentReadiness(ctx context.Context) (bool, error) {
@@ -421,11 +419,7 @@ func (w *ClientWorkspace) AgentReadiness(ctx context.Context) (bool, error) {
 }
 
 func (w *ClientWorkspace) AgentQueuedPrompts(sessionID string) int {
-	count, err := w.client.GetAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
-	if err != nil {
-		return 0
-	}
-	return count
+	return w.sessionQueued(context.Background(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentQueuedPromptsList(sessionID string) []string {
@@ -437,6 +431,7 @@ func (w *ClientWorkspace) AgentQueuedPromptsList(sessionID string) []string {
 }
 
 func (w *ClientWorkspace) AgentClearQueue(sessionID string) {
+	w.agentState.invalidate()
 	_ = w.client.ClearAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
 }
 
@@ -1453,6 +1448,7 @@ func (w *ClientWorkspace) SwitchWorkspace(ctx context.Context, path string) erro
 	w.cachedWorktree = nil
 	w.cachedWorktreeValid = false
 	w.mu.Unlock()
+	w.agentState.invalidate()
 
 	if sameWorkspace {
 		// Already viewing this workspace; nothing to reconnect.
@@ -1500,6 +1496,11 @@ func (w *ClientWorkspace) consumeEvents(evc <-chan any, send func(tea.Msg)) {
 		if _, ok := ev.(pubsub.Event[proto.ConfigChanged]); ok {
 			w.refreshWorkspace()
 			continue
+		}
+		// Drop cached agent status before the UI sees the event, so the
+		// Update that handles it re-reads fresh state.
+		if invalidatesAgentState(ev) {
+			w.agentState.invalidate()
 		}
 		translated := translateEvent(ev)
 		if translated != nil && send != nil {
@@ -1713,6 +1714,10 @@ func protoToSession(s proto.Session) session.Session {
 		Color:            s.Color,
 		Animal:           s.Animal,
 		ModelRef:         s.ModelRef,
+		WorkingDir:       s.WorkingDir,
+
+		SpawnedBySessionID:   s.SpawnedBySessionID,
+		SpawnedByWorkspaceID: s.SpawnedByWorkspaceID,
 	}
 }
 
@@ -1752,6 +1757,7 @@ func protoToMessage(m proto.Message) message.Message {
 				SenderAnimal:      v.SenderAnimal,
 				SenderWorkspaceID: v.SenderWorkspaceID,
 				BTW:               v.BTW,
+				RequireReply:      v.RequireReply,
 			})
 		case proto.ReasoningContent:
 			msg.Parts = append(msg.Parts, message.ReasoningContent{
@@ -1825,6 +1831,10 @@ func sessionToProto(s session.Session) proto.Session {
 		Color:            s.Color,
 		Animal:           s.Animal,
 		ModelRef:         s.ModelRef,
+		WorkingDir:       s.WorkingDir,
+
+		SpawnedBySessionID:   s.SpawnedBySessionID,
+		SpawnedByWorkspaceID: s.SpawnedByWorkspaceID,
 	}
 }
 

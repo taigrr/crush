@@ -88,6 +88,10 @@ type Querier interface {
 	RecordFileRead(ctx context.Context, arg RecordFileReadParams) error
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
 	SetSessionFavorite(ctx context.Context, arg SetSessionFavoriteParams) error
+	// Records which session (and workspace) created this one via the swarm
+	// tool. Lineage is informational: it never affects visibility or
+	// addressability the way parent_session_id does.
+	SetSessionSpawnedBy(ctx context.Context, arg SetSessionSpawnedByParams) error
 	// Only assign the identity if the row does not already have BOTH
 	// fields set, so concurrent writers (startup backfill + Created-event
 	// subscriber) can't clobber a persisted identity with a

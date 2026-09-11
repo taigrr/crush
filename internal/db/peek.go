@@ -124,6 +124,9 @@ type PeekedSession struct {
 	Color          string
 	Animal         string
 	Favorite       bool
+	// SpawnedBySessionID is the swarm lineage (see
+	// [session.Session.SpawnedBySessionID]); empty on older schemas.
+	SpawnedBySessionID string
 }
 
 // Unread reports whether the session finished a run more recently than it
@@ -189,6 +192,7 @@ SELECT
     %s,
     %s,
     %s,
+    %s,
     %s
 FROM sessions
 WHERE parent_session_id IS NULL
@@ -201,6 +205,7 @@ ORDER BY updated_at DESC`,
 		sel("color", "''"),
 		sel("animal", "''"),
 		sel("favorite", "0"),
+		sel("spawned_by_session_id", "''"),
 		archivedFilter(cols),
 	)
 
@@ -221,6 +226,7 @@ ORDER BY updated_at DESC`,
 			color      sql.NullString
 			animal     sql.NullString
 			favorite   sql.NullInt64
+			spawnedBy  sql.NullString
 		)
 		if err := rows.Scan(
 			&p.ID,
@@ -234,6 +240,7 @@ ORDER BY updated_at DESC`,
 			&color,
 			&animal,
 			&favorite,
+			&spawnedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -244,6 +251,7 @@ ORDER BY updated_at DESC`,
 		p.Color = color.String
 		p.Animal = animal.String
 		p.Favorite = favorite.Valid && favorite.Int64 != 0
+		p.SpawnedBySessionID = spawnedBy.String
 		out = append(out, p)
 	}
 	if err := rows.Err(); err != nil {

@@ -392,7 +392,7 @@ func (stubSwarmBackend) Send(ctx context.Context, senderSessionID string, target
 	return "sent", nil
 }
 
-func (stubSwarmBackend) CreateSessionInWorkspace(ctx context.Context, workspaceID, title, _ string) (session.Session, error) {
+func (stubSwarmBackend) CreateSessionInWorkspace(ctx context.Context, workspaceID string, _ SwarmNewOptions) (session.Session, error) {
 	return session.Session{}, nil
 }
 
@@ -404,7 +404,7 @@ func (stubSwarmBackend) ResolveWorkspaceByPath(ctx context.Context, path string)
 	return "", false, nil
 }
 
-func (stubSwarmBackend) CreateSessionInWorkspaceAtPath(ctx context.Context, path, title, _ string) (string, session.Session, error) {
+func (stubSwarmBackend) CreateSessionInWorkspaceAtPath(ctx context.Context, path string, _ SwarmNewOptions) (string, session.Session, error) {
 	return "", session.Session{}, nil
 }
 
@@ -434,7 +434,7 @@ func TestSwarmContextCancellationIsFatal(t *testing.T) {
 	cfg := func() swarm.Config { return swarm.Config{} }
 
 	ctx := context.WithValue(context.Background(), SessionIDContextKey, "sender")
-	resp, err := runSwarm(ctx, be, sess, cfg, "ws", SwarmParams{
+	resp, err := runSwarm(ctx, be, sess, cfg, "ws", nil, SwarmParams{
 		Address: "someone-else",
 		Prompt:  "hello",
 	})
