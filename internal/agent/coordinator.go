@@ -1024,9 +1024,18 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	// Cross-workspace search is offered to main agents only (never
 	// task/reviewer sub-agents) and only when the backend is wired.
 	var historySearcher tools.HistorySearcher
+	var jobNotify tools.JobNotifyFunc
 	if !isSubAgent && swarmBackend != nil {
 		if hs, ok := swarmBackend.(tools.HistorySearcher); ok {
 			historySearcher = hs
+		}
+		// Background job completion notices are queued back onto the
+		// owning session as a user turn. Main agents only: sub-agent
+		// sessions are one-shot and must never be re-driven.
+		if jn, ok := swarmBackend.(tools.JobNotifier); ok {
+			jobNotify = func(ctx context.Context, sessionID, text string) error {
+				return jn.NotifySession(ctx, swarmWorkspaceID, sessionID, text)
+			}
 		}
 	}
 
@@ -1038,7 +1047,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 
 	allTools = append(
 		allTools,
-		tools.NewBashTool(c.permissions, c.workingDir, c.cfg.Config().Options.Attribution, modelName),
+		tools.NewBashTool(c.permissions, c.workingDir, c.cfg.Config().Options.Attribution, modelName, jobNotify),
 		tools.NewCrushInfoTool(c.cfg, c.lspManager, c.allSkills, c.activeSkills, c.skillTracker),
 		tools.NewReloadConfigTool(c.cfg, c.permissions),
 		tools.NewCrushLogsTool(logFile),

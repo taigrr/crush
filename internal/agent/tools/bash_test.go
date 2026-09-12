@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
@@ -135,7 +136,7 @@ func (m *recordingPermissionService) SubscribeNotifications(ctx context.Context)
 func newBashToolForTest(workingDir string) fantasy.AgentTool {
 	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
-	return NewBashTool(permissions, func(context.Context) string { return workingDir }, attribution, "test-model")
+	return NewBashTool(permissions, func(context.Context) string { return workingDir }, attribution, "test-model", nil)
 }
 
 func newBashToolWithRecordingPerms(workingDir string, allow bool) (fantasy.AgentTool, *recordingPermissionService) {
@@ -144,7 +145,7 @@ func newBashToolWithRecordingPerms(workingDir string, allow bool) (fantasy.Agent
 		allow:  allow,
 	}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
-	return NewBashTool(perms, func(context.Context) string { return workingDir }, attribution, "test-model"), perms
+	return NewBashTool(perms, func(context.Context) string { return workingDir }, attribution, "test-model", nil), perms
 }
 
 func TestBashTool_ChainedCommandsRequirePermission(t *testing.T) {
@@ -201,4 +202,73 @@ func runBashTool(t *testing.T, tool fantasy.AgentTool, ctx context.Context, para
 	resp, err := tool.Run(ctx, call)
 	require.NoError(t, err)
 	return resp
+}
+
+func TestBashTool_BackgroundJobCompletionNotifies(t *testing.T) {
+	workingDir := t.TempDir()
+	type notice struct {
+		sessionID string
+		text      string
+	}
+	got := make(chan notice, 1)
+	notify := func(ctx context.Context, sessionID, text string) error {
+		got <- notice{sessionID: sessionID, text: text}
+		return nil
+	}
+	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
+	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
+	tool := NewBashTool(permissions, func(context.Context) string { return workingDir }, attribution, "test-model", notify)
+	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+
+	resp := runBashTool(t, tool, ctx, BashParams{
+		Description:     "slow job",
+		Command:         "sleep 2; echo job-output; exit 3",
+		RunInBackground: true,
+	})
+	require.False(t, resp.IsError)
+	var meta BashResponseMetadata
+	require.NoError(t, json.Unmarshal([]byte(resp.Metadata), &meta))
+	require.True(t, meta.Background)
+	require.NotEmpty(t, meta.ShellID)
+
+	select {
+	case n := <-got:
+		require.Equal(t, "test-session", n.sessionID)
+		require.Contains(t, n.text, "[background job "+meta.ShellID+" finished]")
+		require.Contains(t, n.text, "slow job")
+		require.Contains(t, n.text, "job-output")
+		require.Contains(t, n.text, "Exit code: 3")
+	case <-time.After(10 * time.Second):
+		t.Fatal("expected background job completion notification")
+	}
+}
+
+func TestBashTool_KilledBackgroundJobDoesNotNotify(t *testing.T) {
+	workingDir := t.TempDir()
+	got := make(chan string, 1)
+	notify := func(ctx context.Context, sessionID, text string) error {
+		got <- text
+		return nil
+	}
+	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
+	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
+	tool := NewBashTool(permissions, func(context.Context) string { return workingDir }, attribution, "test-model", notify)
+	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+
+	resp := runBashTool(t, tool, ctx, BashParams{
+		Description:     "killed job",
+		Command:         "sleep 30",
+		RunInBackground: true,
+	})
+	require.False(t, resp.IsError)
+	var meta BashResponseMetadata
+	require.NoError(t, json.Unmarshal([]byte(resp.Metadata), &meta))
+	require.NotEmpty(t, meta.ShellID)
+	require.NoError(t, shell.GetBackgroundShellManager().Kill(meta.ShellID))
+
+	select {
+	case text := <-got:
+		t.Fatalf("unexpected notification for killed job: %s", text)
+	case <-time.After(2 * time.Second):
+	}
 }

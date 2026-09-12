@@ -56,6 +56,17 @@ func (s *swarmShim) Send(ctx context.Context, senderSessionID string, target too
 	return res.Delivery, nil
 }
 
+// NotifySession implements tools.JobNotifier: it queues a plain user
+// turn on the given session in its own workspace. SendMessage already
+// folds the message behind any in-flight run, so a completion notice
+// never interrupts the turn that launched the job.
+func (s *swarmShim) NotifySession(ctx context.Context, workspaceID, sessionID, text string) error {
+	return s.b.SendMessage(workspaceID, proto.AgentMessage{
+		SessionID: sessionID,
+		Prompt:    text,
+	})
+}
+
 func (s *swarmShim) CreateSessionInWorkspace(ctx context.Context, workspaceID, title, modelRef string) (session.Session, error) {
 	return s.b.CreateSwarmSession(ctx, workspaceID, title, modelRef)
 }

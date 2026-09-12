@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"fmt"
 	"html/template"
+	"log/slog"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -193,7 +194,63 @@ func blockFuncs(allowSysadmin bool) []shell.BlockFunc {
 	)
 }
 
-func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attribution *config.Attribution, modelName string) fantasy.AgentTool {
+// JobNotifier delivers a follow-up user turn to a session once a
+// background shell job finishes, so the agent can act on the results
+// without polling. Implementations are expected to queue behind any
+// in-flight turn rather than interrupt it.
+type JobNotifier interface {
+	NotifySession(ctx context.Context, workspaceID, sessionID, text string) error
+}
+
+// JobNotifyFunc is the per-session hook the bash tool invokes when a
+// backgrounded job completes. nil disables completion notifications.
+type JobNotifyFunc func(ctx context.Context, sessionID, text string) error
+
+// watchBackgroundJob waits for a backgrounded shell to exit and hands
+// its output to notify as a queued message on the owning session.
+// Jobs that were killed (interrupted) are skipped: the kill was
+// deliberate, so a completion notice would only be noise.
+func watchBackgroundJob(bgShell *shell.BackgroundShell, sessionID string, notify JobNotifyFunc) {
+	if notify == nil || bgShell == nil {
+		return
+	}
+	bgShell.Wait()
+	stdout, stderr, _, execErr := bgShell.GetOutput()
+	if shell.IsInterrupt(execErr) {
+		return
+	}
+	text := formatJobCompletion(bgShell, stdout, stderr, execErr)
+	if err := notify(context.Background(), sessionID, text); err != nil {
+		slog.Warn("background job completion notify failed", "job", bgShell.ID, "session", sessionID, "error", err)
+	}
+}
+
+// formatJobCompletion renders the message queued when a background job
+// finishes: a header identifying the job, then the same output block
+// the bash tool would have returned had the command completed inline.
+func formatJobCompletion(bgShell *shell.BackgroundShell, stdout, stderr string, execErr error) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "[background job %s finished]\n", bgShell.ID)
+	if bgShell.Description != "" {
+		fmt.Fprintf(&sb, "Description: %s\n", bgShell.Description)
+	}
+	fmt.Fprintf(&sb, "Command: %s\n", bgShell.Command)
+	if code := shell.ExitCode(execErr); code != 0 {
+		fmt.Fprintf(&sb, "Exit code: %d\n", code)
+	} else {
+		sb.WriteString("Exit code: 0\n")
+	}
+	output := formatOutput(stdout, stderr, execErr)
+	if output == "" {
+		output = BashNoOutput
+	}
+	sb.WriteString("\n")
+	sb.WriteString(output)
+	fmt.Fprintf(&sb, "\n\n<cwd>%s</cwd>", normalizeWorkingDir(bgShell.WorkingDir))
+	return sb.String()
+}
+
+func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attribution *config.Attribution, modelName string, notify JobNotifyFunc) fantasy.AgentTool {
 	return fantasy.NewAgentTool(
 		BashToolName,
 		string(bashDescription(attribution, modelName)),
@@ -275,6 +332,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				}
 
 				// Still running after fast-failure check - return as background job
+				go watchBackgroundJob(bgShell, sessionID, notify)
 				metadata := BashResponseMetadata{
 					StartTime:        startTime.UnixMilli(),
 					EndTime:          time.Now().UnixMilli(),
@@ -359,6 +417,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 			}
 
 			// Still running - keep as background job
+			go watchBackgroundJob(bgShell, sessionID, notify)
 			metadata := BashResponseMetadata{
 				StartTime:        startTime.UnixMilli(),
 				EndTime:          time.Now().UnixMilli(),

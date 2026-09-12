@@ -142,7 +142,7 @@ func TestToolErrorContract(t *testing.T) {
 		},
 		{
 			name:  "bash missing session id",
-			tool:  NewBashTool(perms, wd, &config.Attribution{}, "test-model"),
+			tool:  NewBashTool(perms, wd, &config.Attribution{}, "test-model", nil),
 			ctx:   emptyCtx,
 			call:  fantasy.ToolCall{ID: "c9", Name: BashToolName, Input: mustJSON(BashParams{Command: "echo hi", Description: "x"})},
 			match: "session ID is required",
