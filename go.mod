@@ -64,7 +64,7 @@ require (
 	github.com/taigrr/animals v0.0.3
 	github.com/taigrr/catwalk v0.51.6-fork
 	github.com/taigrr/colorhash v0.8.0
-	github.com/taigrr/fantasy v0.27.0-fork
+	github.com/taigrr/fantasy v0.27.1-fork
 	github.com/taigrr/simplecolorpalettes v0.10.1
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5

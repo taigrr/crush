@@ -646,7 +646,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 					}
 				}
 			}
-			currentAssistant.AddFinish(finishReason, "", "")
+			if title, details, ok := emptyResponseError(stepResult.FinishReason, *currentAssistant); ok {
+				currentAssistant.AddFinish(message.FinishReasonError, title, details)
+			} else {
+				currentAssistant.AddFinish(finishReason, "", "")
+			}
 			sessionLock.Lock()
 			defer sessionLock.Unlock()
 
