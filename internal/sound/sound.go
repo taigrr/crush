@@ -10,7 +10,22 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync/atomic"
 )
+
+// muted is the server-wide master mute switch. It gates every playback
+// path in this process regardless of which workspace triggered the
+// sound, so muting from one attached session or workspace silences the
+// whole server. It is initialized from the global config at startup and
+// toggled at runtime via SetMuted.
+var muted atomic.Bool
+
+// SetMuted sets the server-wide master mute switch. When muted, all
+// PlayAsync/Play calls become no-ops.
+func SetMuted(m bool) { muted.Store(m) }
+
+// Muted reports whether the server-wide master mute switch is on.
+func Muted() bool { return muted.Load() }
 
 // Sound identifies a bundled notification sound. Each value maps to an
 // embedded WAV file and to a configurable event in the user's config.
@@ -69,6 +84,9 @@ func open(s Sound, path string) (io.ReadCloser, string, error) {
 // block on playback (e.g. an end-of-turn chime fired from a run's
 // completion path).
 func PlayAsync(s Sound, path string) {
+	if muted.Load() {
+		return
+	}
 	go func() {
 		if err := Play(s, path); err != nil {
 			slog.Debug("Failed to play notification sound", "sound", string(s), "path", path, "error", err)

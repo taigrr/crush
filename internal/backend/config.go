@@ -14,6 +14,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/skills"
+	"github.com/taigrr/crush/internal/sound"
 )
 
 // publishConfigChanged publishes a ConfigChanged event on the workspace's
@@ -89,8 +90,31 @@ func (b *Backend) SetConfigField(workspaceID string, scope config.Scope, key str
 	if err := ws.Cfg.SetConfigField(scope, key, value); err != nil {
 		return err
 	}
+	// The master sound mute is server-wide, not per-workspace: apply it to
+	// the process immediately so every running workspace is silenced, not
+	// just the one that issued the change. It is persisted at global scope
+	// above so it also survives restarts.
+	if key == "options.sound.disabled" {
+		if muted, ok := coerceBool(value); ok {
+			sound.SetMuted(muted)
+		}
+	}
 	publishConfigChanged(ws)
 	return nil
+}
+
+// coerceBool best-effort converts a JSON-decoded config value to a bool.
+// Values arrive as `any` across the socket, so a bool may present as a
+// bool or, defensively, as a string.
+func coerceBool(v any) (bool, bool) {
+	switch b := v.(type) {
+	case bool:
+		return b, true
+	case string:
+		return b == "true", true
+	default:
+		return false, false
+	}
 }
 
 // RemoveConfigField removes a key from the config file for the given

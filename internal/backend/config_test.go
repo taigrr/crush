@@ -11,6 +11,7 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
+	"github.com/taigrr/crush/internal/sound"
 )
 
 // awaitConfigChanged drains events until a ConfigChanged is received
@@ -96,6 +97,21 @@ func TestUpdatePreferredModel_PublishesConfigChanged(t *testing.T) {
 	model := config.SelectedModel{Provider: "openai", Model: "gpt-4"}
 	require.NoError(t, b.UpdatePreferredModel(ws.ID, config.ScopeGlobal, config.SelectedModelTypeLarge, model))
 	awaitConfigChanged(t, evc, ws.ID)
+}
+
+func TestSetConfigField_SoundMuteAppliesServerWide(t *testing.T) {
+	b, ws, evc := newPublishingWorkspace(t)
+	t.Cleanup(func() { sound.SetMuted(false) })
+
+	require.False(t, sound.Muted())
+
+	require.NoError(t, b.SetConfigField(ws.ID, config.ScopeGlobal, "options.sound.disabled", true))
+	awaitConfigChanged(t, evc, ws.ID)
+	require.True(t, sound.Muted(), "master mute should apply process-wide")
+
+	require.NoError(t, b.SetConfigField(ws.ID, config.ScopeGlobal, "options.sound.disabled", false))
+	awaitConfigChanged(t, evc, ws.ID)
+	require.False(t, sound.Muted(), "unmute should apply process-wide")
 }
 
 func TestSetCompactMode_PublishesConfigChanged(t *testing.T) {

@@ -9,7 +9,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestBundledSoundsDecode verifies every bundled sound file is a valid,
+// TestMuteGate verifies the server-wide mute switch short-circuits
+// playback. Play returns nil without touching the audio device when
+// muted, so this is safe headless.
+func TestMuteGate(t *testing.T) {
+	t.Cleanup(func() { SetMuted(false) })
+
+	require.False(t, Muted())
+	SetMuted(true)
+	require.True(t, Muted())
+	// Play is a no-op (no speaker init, no error) while muted.
+	require.NoError(t, Play(EndOfTurn, ""))
+
+	SetMuted(false)
+	require.False(t, Muted())
+}
+
 // non-empty WAV that beep can decode. This runs without an audio device
 // (no speaker.Init), so it is safe in headless CI.
 func TestBundledSoundsDecode(t *testing.T) {

@@ -27,6 +27,7 @@ import (
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/registry"
 	"github.com/taigrr/crush/internal/skills"
+	"github.com/taigrr/crush/internal/sound"
 	"github.com/taigrr/crush/internal/ui/util"
 	"github.com/taigrr/crush/internal/version"
 )
@@ -297,6 +298,13 @@ func (w *Workspace) Shutdown() {
 
 // New creates a new [Backend].
 func New(ctx context.Context, cfg *config.ConfigStore, shutdownFn ShutdownFunc) *Backend {
+	// Initialize the server-wide sound mute from the global config so the
+	// master mute survives restarts and applies to every workspace.
+	if cfg != nil {
+		if c := cfg.Config(); c != nil && c.Options != nil && c.Options.Sound != nil {
+			sound.SetMuted(c.Options.Sound.Disabled)
+		}
+	}
 	return &Backend{
 		workspaces:     csync.NewMap[string, *Workspace](),
 		pathIndex:      make(map[string]string),
