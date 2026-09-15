@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/taigrr/catwalk/pkg/catwalk"
@@ -180,7 +181,19 @@ type coordinator struct {
 	// (the project root hosting .crush/). Empty means use cfg.WorkingDir().
 	effectiveWorkingDir string
 
-	readyWg errgroup.Group
+	// ready is the current readiness barrier. Each buildAgent creates a
+	// FRESH errgroup, fully populates it with its readiness goroutines,
+	// and only then atomically stores it here; run() loads the current
+	// barrier and Waits on it. This deliberately avoids reusing a single
+	// errgroup.Group across rebuilds: the underlying sync.WaitGroup
+	// forbids a positive-delta Add (errgroup.Go) racing a Wait once the
+	// counter has hit zero, which is exactly what happened when a
+	// coordinator rebuild (InitAgent) ran concurrently with in-flight
+	// runs (e.g. a burst of swarm messages) and panicked the daemon with
+	// "WaitGroup is reused before previous Wait has returned". An
+	// in-flight run keeps waiting on the barrier it loaded while a
+	// rebuild installs a new one; the two never share a WaitGroup.
+	ready atomic.Pointer[errgroup.Group]
 
 	// parentCostMu serializes the read-modify-write in
 	// updateParentSessionCost. Sub-agents can run concurrently (the
@@ -285,13 +298,10 @@ func (c *coordinator) SwarmWired() bool {
 //
 // If the coder agent is currently busy, the rebuild is deferred until
 // it goes idle (mirroring UpdateModelsWhenIdle) rather than run
-// inline: buildTools -> buildAgent schedules new work on the
-// coordinator's shared readyWg via readyWg.Go (i.e. wg.Add), and
-// every in-flight run blocks on that same readyWg via
-// readyWg.Wait() in run(). sync.WaitGroup's contract forbids a
-// positive-delta Add starting concurrently with a Wait once the
-// counter has reached zero, so rebuilding inline while busy risks
-// panicking the process or a run observing a half-populated tool set.
+// inline. Note this path calls buildTools/SetTools directly (not
+// buildAgent), so it no longer touches the readiness barrier; the
+// defer-until-idle is kept so an in-flight run never observes a
+// half-swapped tool set mid-turn.
 func (c *coordinator) WireSwarmBackendIfMissing(ctx context.Context, be tools.SwarmBackend, workspaceID string, cfg func() swarm.Config) error {
 	c.swarmMu.Lock()
 	if c.swarmBackend != nil || c.swarmWiring {
@@ -497,7 +507,12 @@ func (c *coordinator) RunAccepted(ctx context.Context, accept *AcceptedRun, sess
 // dispatchMu; when nil (the in-process/local path) no accept tracking
 // applies.
 func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
-	if err := c.readyWg.Wait(); err != nil {
+	// Wait on the readiness barrier captured at run start. Loading the
+	// pointer (rather than waiting on a shared, mutating group) means a
+	// concurrent rebuild that installs a new barrier can never race an
+	// Add against this Wait: this run keeps waiting on the fully-
+	// populated group it loaded.
+	if err := c.awaitReady(); err != nil {
 		return nil, err
 	}
 
@@ -904,6 +919,36 @@ func applyOpenAICompatProviderOptions(options fantasy.ProviderOptions, mergedOpt
 	}
 }
 
+// installReadyBarrier builds a fresh errgroup, launches fns on it, and
+// atomically publishes it as the coordinator's readiness barrier. It is
+// the ONLY writer of c.ready. Because each call creates a brand-new
+// group and never Adds to a previously-published one, a rebuild can run
+// concurrently with any number of in-flight runs blocked in awaitReady
+// without ever racing an Add against a Wait on the same WaitGroup — the
+// bug that panicked the daemon ("WaitGroup is reused before previous
+// Wait has returned") when a burst of swarm messages rebuilt a busy
+// coordinator.
+func (c *coordinator) installReadyBarrier(fns ...func() error) {
+	eg := new(errgroup.Group)
+	for _, fn := range fns {
+		eg.Go(fn)
+	}
+	c.ready.Store(eg)
+}
+
+// awaitReady blocks until the readiness barrier captured at call time
+// completes, returning its (cached) error. A nil barrier means the
+// agent was never built (defensive; production always builds first) and
+// is treated as ready. A run that loaded an older barrier keeps waiting
+// on that fully-populated group even if a rebuild installs a new one.
+func (c *coordinator) awaitReady() error {
+	eg := c.ready.Load()
+	if eg == nil {
+		return nil
+	}
+	return eg.Wait()
+}
+
 func mergeCallOptions(model Model, cfg config.ProviderConfig) (fantasy.ProviderOptions, *float64, *float64, *int64, *float64, *float64) {
 	modelOptions := getProviderOptions(model, cfg)
 	temp := cmp.Or(model.ModelCfg.Temperature, model.CatwalkCfg.Options.Temperature)
@@ -942,37 +987,44 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 	// The readiness goroutines below run asynchronously and outlive the
 	// caller of buildAgent. In the daemon, buildAgent is reached via an
 	// InitAgent HTTP handler whose request context is cancelled the moment
-	// the handler returns. Because readyWg is an errgroup, a cancellation
-	// here would be cached and returned by every future run, permanently
+	// the handler returns. Because the barrier is an errgroup, a
+	// cancellation here would be cached and returned by every future run
+	// that loaded this barrier, permanently
 	// wedging the coordinator (messages send but never produce output).
 	// Detach from the request lifetime so only real build failures poison
 	// readiness.
 	readyCtx := context.WithoutCancel(ctx)
 
-	c.readyWg.Go(func() error {
-		systemPrompt, err := prompt.Build(readyCtx, large.Model.Provider(), large.Model.Model(), c.cfg)
-		if err != nil {
-			return err
-		}
-		result.SetSystemPrompt(systemPrompt)
-		return nil
-	})
-
-	c.readyWg.Go(func() error {
-		// Wait for MCP servers to finish registering their tools before
-		// building the initial tool list. This ensures the tool set includes
-		// all MCP tools, not just fast-to-init ones — slow stdio servers
-		// (e.g. Python via uv) otherwise register too late to appear.
-		if err := mcp.WaitForInit(readyCtx); err != nil {
-			return err
-		}
-		tools, err := c.buildTools(readyCtx, agent, isSubAgent)
-		if err != nil {
-			return err
-		}
-		result.SetTools(tools)
-		return nil
-	})
+	// Build a FRESH readiness barrier for this agent and fully populate
+	// it before publishing it. A rebuild that races in-flight runs thus
+	// never Adds to a group those runs are Waiting on (see the `ready`
+	// field docs); the previous barrier is simply replaced, and any run
+	// that already loaded it keeps waiting on that older, complete group.
+	c.installReadyBarrier(
+		func() error {
+			systemPrompt, err := prompt.Build(readyCtx, large.Model.Provider(), large.Model.Model(), c.cfg)
+			if err != nil {
+				return err
+			}
+			result.SetSystemPrompt(systemPrompt)
+			return nil
+		},
+		func() error {
+			// Wait for MCP servers to finish registering their tools before
+			// building the initial tool list. This ensures the tool set includes
+			// all MCP tools, not just fast-to-init ones — slow stdio servers
+			// (e.g. Python via uv) otherwise register too late to appear.
+			if err := mcp.WaitForInit(readyCtx); err != nil {
+				return err
+			}
+			tools, err := c.buildTools(readyCtx, agent, isSubAgent)
+			if err != nil {
+				return err
+			}
+			result.SetTools(tools)
+			return nil
+		},
+	)
 
 	return result, nil
 }
