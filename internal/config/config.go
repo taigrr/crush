@@ -291,7 +291,9 @@ type TUIOptions struct {
 	// SessionsSidebarWidth is the width in columns of the left session
 	// navigator, persisted so a resize survives restarts. Zero means use
 	// the built-in default.
-	SessionsSidebarWidth int `json:"sessions_sidebar_width,omitempty" jsonschema:"description=Width in columns of the left session navigator,default=30,minimum=20,maximum=80"`
+	SessionsSidebarWidth int    `json:"sessions_sidebar_width,omitempty" jsonschema:"description=Width in columns of the left session navigator,default=30,minimum=20,maximum=80"`
+	VoiceKeybindEnabled  *bool  `json:"voice_keybind_enabled,omitempty" jsonschema:"description=Enable the Ctrl+Space / F8 shortcut for voice dictation. /voice still works when this is off.,default=true"`
+	VoiceCaptureMode     string `json:"voice_capture_mode,omitempty" jsonschema:"description=How the voice chord (Ctrl+Space / F8) behaves. hold records while the key is down (falls back to toggle in terminals without key-release events),enum=hold,enum=toggle,default=hold"`
 }
 
 // Completions defines options for the completions UI.
@@ -354,6 +356,16 @@ type Options struct {
 	NotificationStyle         string        `json:"notification_style,omitempty" jsonschema:"description=Notification style to use. Options: auto (default), native, osc, bell, disabled. Auto selects based on environment: native for local sessions, osc for SSH (with automatic OSC 99/777 detection).,enum=auto,enum=native,enum=osc,enum=bell,enum=disabled,default=auto"`
 	DisabledSkills            []string      `json:"disabled_skills,omitempty" jsonschema:"description=List of skill names to disable and hide from the agent,example=crush-config"`
 	Sound                     *SoundOptions `json:"sound,omitempty" jsonschema:"description=Server-side notification sound settings"`
+	Voice                     *VoiceOptions `json:"voice,omitempty" jsonschema:"description=Voice dictation (streaming STT) settings"`
+}
+
+type VoiceOptions struct {
+	Disabled    bool   `json:"disabled,omitempty" jsonschema:"description=Disable voice dictation entirely,default=false"`
+	APIBase     string `json:"api_base,omitempty" jsonschema:"description=HTTPS API root for streaming STT (wss:// is derived),format=uri,example=https://api.x.ai"`
+	STTWSPath   string `json:"stt_ws_path,omitempty" jsonschema:"description=WebSocket path for streaming STT,default=/v1/stt,example=/v1/stt"`
+	Language    string `json:"language,omitempty" jsonschema:"description=Preferred STT language code or auto,default=en,example=en,example=auto"`
+	APIKey      string `json:"api_key,omitempty" jsonschema:"description=Optional dedicated STT API key. Empty inherits grok / XAI_API_KEY."`
+	InputDevice string `json:"input_device,omitempty" jsonschema:"description=Microphone to capture from (platform device ID). Empty uses the system default. Pick one via Ctrl+P → Select Microphone."`
 }
 
 // SoundOptions controls the server-side notification sounds. Sounds are
@@ -917,6 +929,34 @@ func (c *Config) LowBandwidthEnabled() bool {
 		return false
 	}
 	return *c.Options.TUI.LowBandwidth
+}
+
+func (c *Config) VoiceDisabled() bool {
+	return c != nil && c.Options != nil && c.Options.Voice != nil && c.Options.Voice.Disabled
+}
+
+func (c *Config) VoiceInputDevice() string {
+	if c == nil || c.Options == nil || c.Options.Voice == nil {
+		return ""
+	}
+	return c.Options.Voice.InputDevice
+}
+
+func (c *Config) VoiceKeybindEnabled() bool {
+	if c == nil || c.Options == nil || c.Options.TUI == nil || c.Options.TUI.VoiceKeybindEnabled == nil {
+		return true
+	}
+	return *c.Options.TUI.VoiceKeybindEnabled
+}
+
+func (c *Config) VoiceCaptureMode() string {
+	if c == nil || c.Options == nil || c.Options.TUI == nil {
+		return "hold"
+	}
+	if c.Options.TUI.VoiceCaptureMode == "toggle" {
+		return "toggle"
+	}
+	return "hold"
 }
 
 const maxRecentModelsPerType = 5

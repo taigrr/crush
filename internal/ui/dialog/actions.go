@@ -111,7 +111,13 @@ type (
 	ActionToggleTransparentBackground struct{}
 	ActionToggleLowBandwidth          struct{}
 	ActionToggleSound                 struct{}
-	ActionInitializeProject           struct{}
+	ActionToggleVoice                 struct{}
+	ActionOpenMicrophonePicker        struct{}
+	ActionSelectMicrophone            struct {
+		DeviceID string
+		Name     string
+	}
+	ActionInitializeProject struct{}
 	// ActionArchiveSession is emitted when the user confirms archiving the
 	// current (active) session in the archive-confirmation dialog.
 	ActionArchiveSession struct{}

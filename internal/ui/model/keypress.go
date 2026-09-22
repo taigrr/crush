@@ -173,6 +173,10 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 
 	// Handle cancel key when agent is busy.
 	if key.Matches(msg, m.keyMap.Chat.Cancel) {
+		if m.voice != nil && m.voice.dict.listening() {
+			m.stopVoiceKeepingFinal()
+			return tea.Batch(cmds...)
+		}
 		// Cancel a running bang-mode shell command first, if any.
 		if m.shellCancel != nil {
 			m.shellCancel()
@@ -266,6 +270,11 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			case key.Matches(msg, m.keyMap.Editor.SendMessage):
 				prevHeight := m.textarea.Height()
 				value := m.textarea.Value()
+				if m.voice != nil && m.voice.dict.pending() {
+					m.voice.dict.commit()
+					m.voice.reset()
+					value = m.textarea.Value()
+				}
 				if before, ok := strings.CutSuffix(value, "\\"); ok {
 					// If the last character is a backslash, remove it and add a newline.
 					m.textarea.SetValue(before)

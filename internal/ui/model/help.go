@@ -38,6 +38,9 @@ func (m *UI) ShortHelp() []key.Binding {
 			commands,
 			k.Models,
 		)
+		if m.voiceEnabled() && m.voiceKeybindEnabled() {
+			binds = append(binds, k.Voice)
+		}
 
 		switch m.focus {
 		case uiFocusEditor:
@@ -181,6 +184,9 @@ func (m *UI) FullHelp() [][]key.Binding {
 			k.ToggleYolo,
 			k.Fullscreen,
 		)
+		if m.voiceEnabled() && m.voiceKeybindEnabled() {
+			mainBinds = append(mainBinds, k.Voice)
+		}
 		if hasSession {
 			mainBinds = append(mainBinds, k.Chat.NewSession, k.ArchiveSession)
 		}

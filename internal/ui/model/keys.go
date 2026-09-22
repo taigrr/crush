@@ -96,6 +96,7 @@ type KeyMap struct {
 	Tab        key.Binding
 	ToggleYolo key.Binding
 	Fullscreen key.Binding
+	Voice      key.Binding
 	// ArchiveSession opens the confirmation modal to archive the current
 	// (active) session from the main window.
 	ArchiveSession key.Binding
@@ -150,6 +151,10 @@ func DefaultKeyMap() KeyMap {
 		ArchiveSession: key.NewBinding(
 			key.WithKeys("ctrl+x"),
 			key.WithHelp("ctrl+x", "archive session"),
+		),
+		Voice: key.NewBinding(
+			key.WithKeys("ctrl+space", "f8"),
+			key.WithHelp("ctrl+space/f8", "dictate"),
 		),
 	}
 
@@ -228,7 +233,7 @@ func DefaultKeyMap() KeyMap {
 		key.WithHelp("ctrl+d", "toggle details"),
 	)
 	km.Chat.TogglePills = key.NewBinding(
-		key.WithKeys("ctrl+t", "ctrl+space"),
+		key.WithKeys("ctrl+t"),
 		key.WithHelp("ctrl+t", "toggle tasks"),
 	)
 	km.Chat.PillLeft = key.NewBinding(

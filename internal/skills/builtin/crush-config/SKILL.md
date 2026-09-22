@@ -297,6 +297,53 @@ session navigator (ctrl+s). Valid range is 20-80; omit it for the default of
 data config, so a value set in a project or workspace config outranks the
 resize and pins the width for that project.
 
+## Voice dictation
+
+Hold `Ctrl+Space` (or `F8`) to dictate into the prompt at the caret; live
+partial transcripts are replaced in place by the final. Esc or Enter stops
+capture; Enter also sends. Nothing is auto-sent.
+
+```json
+{
+  "options": {
+    "voice": {
+      "disabled": false,
+      "api_base": "https://api.x.ai",
+      "language": "en"
+    },
+    "tui": {
+      "voice_keybind_enabled": true,
+      "voice_capture_mode": "hold"
+    }
+  }
+}
+```
+
+- `options.voice.disabled`: hide `/voice` and the chord entirely.
+- `options.voice.api_base`: HTTPS STT root, default `https://api.x.ai`.
+  The grok provider `base_url` is not inherited: the subscription proxy
+  only serves chat and 404s on `/v1/stt`. `wss://` is derived; plaintext
+  `http://` / `ws://` is rejected.
+- `options.voice.language`: catalog code (`en`, `ja`, …) or `auto`
+  (resolve from locale). The STT API does not accept `auto` on the wire.
+- `options.voice.api_key`: optional dedicated STT bearer. Empty uses
+  `XAI_API_KEY` or the grok provider's OAuth token / API key. An expired
+  OAuth token is refreshed before connecting, and a 401/403 handshake
+  forces one refresh and retry.
+- `options.voice.input_device`: microphone to capture from (macOS
+  CoreAudio UID or PulseAudio/PipeWire source name). Empty uses the system
+  default. Set from the command palette (Ctrl+P → Select Microphone).
+- `options.tui.voice_keybind_enabled`: off silences Ctrl+Space / F8
+  without disabling `/voice`.
+- `options.tui.voice_capture_mode`: `hold` (default: record while
+  Ctrl+Space is held, stop on release) or `toggle` (press to start,
+  press again to stop). Hold needs a terminal that reports key releases
+  (Kitty keyboard protocol) and falls back to toggle elsewhere.
+
+Auth is the grok provider: `crush login grok`, `XAI_API_KEY`, or a grok
+`api_key` in config. Capture is macOS (CoreAudio) and Linux
+(PulseAudio/PipeWire) only.
+
 ## Themes
 
 `options.tui.theme` selects the UI color theme by name. Because local config
