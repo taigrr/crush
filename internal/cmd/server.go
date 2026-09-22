@@ -3,16 +3,20 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"time"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 	"github.com/taigrr/crush/internal/config"
 	crushlog "github.com/taigrr/crush/internal/log"
 	"github.com/taigrr/crush/internal/server"
+	"github.com/taigrr/crush/internal/version"
 )
 
 var serverHost string
@@ -20,6 +24,29 @@ var serverHost string
 func init() {
 	serverCmd.Flags().StringVarP(&serverHost, "host", "H", server.DefaultHost(), "Server host (TCP or Unix socket)")
 	rootCmd.AddCommand(serverCmd)
+}
+
+// writeStderrBanner stamps a one-line build fingerprint onto the
+// server's stderr. The detached server's stderr is redirected to
+// stderr.log (see startDetachedServer), which is also where the Go
+// runtime writes unrecoverable panics and fatal errors. Those traces
+// carry module paths (crush@vX.Y.Z) but not the running build's
+// commit/build id or pid, and stderr.log is append-only across many
+// restarts, so without this banner it is hard to tell which version a
+// given crash belongs to. Every panic that follows in the file is
+// attributable to the most recent banner above it.
+func writeStderrBanner(w io.Writer) {
+	fmt.Fprintf(w,
+		"=== crush server start: version=%s commit=%s build_id=%s pid=%d go=%s os=%s/%s time=%s ===\n",
+		version.Version,
+		version.Commit,
+		version.BuildID,
+		os.Getpid(),
+		runtime.Version(),
+		runtime.GOOS,
+		runtime.GOARCH,
+		time.Now().Format(time.RFC3339),
+	)
 }
 
 var serverCmd = &cobra.Command{
@@ -51,6 +78,7 @@ var serverCmd = &cobra.Command{
 			crushlog.Setup(logFile, debug, os.Stderr)
 		} else {
 			crushlog.Setup(logFile, debug)
+			writeStderrBanner(os.Stderr)
 		}
 
 		srv := server.NewServer(cfg, hostURL.Scheme, hostURL.Host)

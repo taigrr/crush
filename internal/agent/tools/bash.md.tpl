@@ -122,6 +122,34 @@ Important:
 
 - Return empty response - user sees gh output
 - Never update git config
+
+<stacked_prs>
+{{- if not .GhAvailable }}
+If the user asks for a STACKED PR (GitHub's native stacked pull requests feature), tell them the `gh` CLI is not installed and is required. Do not attempt to install it or to work around it.
+{{- else if not .GhStackAvailable }}
+If the user asks for a STACKED PR (GitHub's native stacked pull requests feature), the `gh-stack` extension is NOT installed. Tell the user to run this first, then restart Crush:
+
+  gh extension install github/gh-stack
+
+Do not run the install yourself and do not check for the extension; this has already been detected. As a fallback only if the user declines to install it, create the chain manually with `gh pr create --base <previous-branch> --head <new-branch>` so each PR targets the branch below it; GitHub offers to link them into a stack in the web UI.
+{{- else }}
+If the user asks for a STACKED PR (GitHub's native stacked pull requests feature), the `gh-stack` extension IS installed. Do not check for it; use the `gh stack` commands directly:
+
+1. Determine the stack state: `gh stack view --short` (exit code 2 means the current branch is not in a stack; exit code 9 means stacks are disabled for this repo, fall back to `gh pr create --base <previous-branch>` chaining).
+2. Starting a new stack from trunk: `gh stack init [--base <trunk>] <branch>` (base defaults to the repo default branch).
+   Adding a layer on top of an existing stack (run from the top branch): `gh stack add <branch>`, or `gh stack add -Am "<commit msg>"` to stage, commit, and branch in one step.
+3. Commit work as usual on the new branch (follow <git_commits>).
+4. Submit: `gh stack submit --auto` pushes every branch, creates/updates one PR per layer with the correct base, and links them into a GitHub Stack. Add `--open` for ready-for-review PRs instead of drafts. Write the new PR's title/body using the <pr_analysis> process above; apply with `gh pr edit <pr> --title ... --body ...` after submit if the auto-generated title is not good enough.
+5. After changing a lower PR in response to review: `gh stack rebase` (cascading rebase) then `gh stack push`. After a lower PR merges: `gh stack sync --prune`.
+6. Navigation: `gh stack up`, `gh stack down`, `gh stack top`, `gh stack bottom`, `gh stack trunk`.
+7. Merging: `gh stack merge [<pr-#>] --squash|--merge|--rebase` merges atomically up to the chosen PR. Only run this if the user explicitly asks to merge.
+
+Notes:
+- Stacks must live in the same repository (no cross-fork stacks).
+- Never push, rebase, or force-push outside the `gh stack` commands above unless the user asks.
+- Local stack metadata lives in `.git/gh-stack`; do not edit or commit it.
+{{- end }}
+</stacked_prs>
 </pull_requests>
 
 <examples>

@@ -103,6 +103,19 @@ var ghAvailable = func() bool {
 	return err == nil
 }()
 
+// ghStackAvailable indicates whether the `gh-stack` extension is installed.
+// It is only probed when `gh` itself is on PATH.
+var ghStackAvailable = func() bool {
+	if !ghAvailable {
+		return false
+	}
+	out, err := exec.Command("gh", "extension", "list").Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), "github/gh-stack")
+}()
+
 // ToolDescriptionData is the common data structure for tool description templates.
 type ToolDescriptionData struct {
 	GhAvailable bool
