@@ -103,6 +103,11 @@ type Coordinator interface {
 	Cancel(sessionID string)
 	CancelAll()
 	IsSessionBusy(sessionID string) bool
+	// IsSessionBusyOrAccepted also counts a run that has been accepted
+	// (dispatched) but not yet registered as active. Observers listing
+	// sessions should use this so a just-dispatched turn is reported
+	// busy; Run's own queue/idle decision must keep using IsSessionBusy.
+	IsSessionBusyOrAccepted(sessionID string) bool
 	IsBusy() bool
 	QueuedPrompts(sessionID string) int
 	QueuedPromptsList(sessionID string) []string
@@ -1821,6 +1826,10 @@ func (c *coordinator) IsBusy() bool {
 
 func (c *coordinator) IsSessionBusy(sessionID string) bool {
 	return c.currentAgent.IsSessionBusy(sessionID)
+}
+
+func (c *coordinator) IsSessionBusyOrAccepted(sessionID string) bool {
+	return c.currentAgent.IsSessionBusyOrAccepted(sessionID)
 }
 
 func (c *coordinator) Model() Model {

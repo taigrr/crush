@@ -216,6 +216,36 @@ func TestIsSessionBusy_IgnoresAcceptedRuns(t *testing.T) {
 			"deliberately ignores")
 }
 
+// TestIsSessionBusyOrAccepted_ObservesDispatchWindow is the per-session
+// observer predicate the session listings use. It must be true from
+// BeginAccepted through the active run and back to idle with no gap, so
+// an overview refresh triggered by the AttentionBusy event (published at
+// dispatch, before activeRequests is set) reports the session busy
+// instead of idle. It must also stay per-session: another session's
+// reservation does not leak.
+func TestIsSessionBusyOrAccepted_ObservesDispatchWindow(t *testing.T) {
+	t.Parallel()
+	sa, _ := newCancelTestAgent(t)
+
+	require.False(t, sa.IsSessionBusyOrAccepted("sid"), "idle before dispatch")
+
+	accept := sa.BeginAccepted("sid")
+	require.True(t, sa.IsSessionBusyOrAccepted("sid"),
+		"accepted-but-not-active must read busy for observers")
+	require.False(t, sa.IsSessionBusy("sid"),
+		"the strict predicate Run relies on must be unchanged")
+	require.False(t, sa.IsSessionBusyOrAccepted("other"),
+		"another session's reservation must not leak")
+
+	// Run's handoff: register active, then release the reservation.
+	sa.activeRequests.Set("sid", func() {})
+	accept.Close()
+	require.True(t, sa.IsSessionBusyOrAccepted("sid"), "active run reads busy")
+
+	sa.activeRequests.Del("sid")
+	require.False(t, sa.IsSessionBusyOrAccepted("sid"), "idle after the run ends")
+}
+
 // TestIsBusy_DuringDispatchWindowDeliversCancel is the end-to-end
 // regression for the bug this commit fixes: pressing Esc during the
 // race window between BeginAccepted and the goroutine registering its
