@@ -62,9 +62,9 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/swag v1.16.6
 	github.com/taigrr/animals v0.0.3
-	github.com/taigrr/catwalk v0.51.8-fork
+	github.com/taigrr/catwalk v0.52.0-fork.0.20260926163154-0133438e86b4
 	github.com/taigrr/colorhash v0.8.0
-	github.com/taigrr/fantasy v0.27.1-fork
+	github.com/taigrr/fantasy v0.28.0-fork.0.20260926163012-74b4516c6ab1
 	github.com/taigrr/simplecolorpalettes v0.10.1
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/sjson v1.2.5
@@ -231,7 +231,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
-
-replace github.com/taigrr/catwalk => github.com/aldouus/catwalk v0.52.0-fork.0.20260926163154-0133438e86b4
-
-replace github.com/taigrr/fantasy => github.com/aldouus/fantasy v0.0.0-20260926163012-74b4516c6ab1

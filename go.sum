@@ -46,10 +46,6 @@ github.com/ProtonMail/go-crypto v1.4.1/go.mod h1:e1OaTyu5SYVrO9gKOEhTc+5UcXtTUa+
 github.com/PuerkitoBio/goquery v1.9.2/go.mod h1:GHPCaP0ODyyxqcNoFGYlAprUFH81NuRPd0GX3Zu2Mvk=
 github.com/PuerkitoBio/goquery v1.13.0 h1:mqHbjD7Jmnul4DTR24LKTjo1uUmHUh072kteGV+xpFM=
 github.com/PuerkitoBio/goquery v1.13.0/go.mod h1:Hip5mdBL8K2wEGKJdr27sRaNwIdDajmCwB/ExUPwW+g=
-github.com/aldouus/catwalk v0.52.0-fork.0.20260926163154-0133438e86b4 h1:BGMqa29OQbunx9V+n3S+D0pnEktVTQcRPTjQY8dFcdI=
-github.com/aldouus/catwalk v0.52.0-fork.0.20260926163154-0133438e86b4/go.mod h1:X1axRtrwz46qnkRkyXpj0obhCASciprQfgbaB4CR8Eo=
-github.com/aldouus/fantasy v0.0.0-20260926163012-74b4516c6ab1 h1:/G4jBVLCyxGnGb4vRRJrEY/vGfx/I/4s1cBcpfIIo5I=
-github.com/aldouus/fantasy v0.0.0-20260926163012-74b4516c6ab1/go.mod h1:M1NcigmNYKSl+B+U32t0eBDGh9yyno81FbNSRtrJf5E=
 github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=
 github.com/alecthomas/assert/v2 v2.11.0/go.mod h1:Bze95FyfUr7x34QZrjL+XP+0qgp/zg8yS+TtBj1WA3k=
 github.com/alecthomas/chroma/v2 v2.27.0 h1:FodwmyOBgJULFYmDqibcp9pvfDLWdtPRh9v/r5BXYZs=
