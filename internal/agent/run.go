@@ -471,6 +471,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// change), filtered to those available for this turn's
 			// context.
 			prepared.Tools = tools.FilterAvailableTools(ctx, a.tools.Copy())
+			if len(prepared.Tools) > 0 {
+				// Add Anthropic caching to the last tool. PrepareStep replaces
+				// the agent's tool list, so the marker set before NewAgent is
+				// not the one the provider sees.
+				prepared.Tools[len(prepared.Tools)-1].SetProviderOptions(a.getCacheControlOptions())
+			}
 
 			// Drain queued follow-up prompts for this step. Calls covered
 			// by a cancel recorded while they sat in the queue are dropped:
@@ -514,6 +520,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			if promptPrefix != "" {
 				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
 			}
+			prepared.Tools = wrapToolsWithCacheWarmer(
+				prepared.Tools,
+				newCacheWarmer(largeModel, prepared.Messages, call.ProviderOptions),
+			)
 
 			sessionLock.Lock()
 			stepMessages = cloneFantasyMessages(prepared.Messages)
