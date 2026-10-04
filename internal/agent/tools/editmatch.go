@@ -287,7 +287,7 @@ func multipleMatchesError(content, oldString string) error {
 func notFoundError(content, oldString string) error {
 	candidates := closestRegions(content, oldString, editMaxCandidates)
 	if len(candidates) == 0 {
-		return errors.New("old_string not found in file. Make sure it matches exactly, including whitespace and line breaks.")
+		return errors.New("old_string not found in file. Make sure it matches exactly, including whitespace and line breaks")
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "old_string not found in file. Closest match is at %s; the file actually contains:\n", describeRegions(candidates))
@@ -576,7 +576,7 @@ func closestRegions(content, oldString string, limit int) []lineRange {
 func tokenSet(line string) map[string]struct{} {
 	set := make(map[string]struct{})
 	for _, tok := range strings.FieldsFunc(line, func(r rune) bool {
-		return !(r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z')
+		return r != '_' && (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z')
 	}) {
 		set[tok] = struct{}{}
 	}
