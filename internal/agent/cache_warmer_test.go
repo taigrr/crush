@@ -61,18 +61,43 @@ func TestNewCacheWarmerGuardsUnsupportedProviders(t *testing.T) {
 	}
 	messages := []fantasy.Message{fantasy.NewUserMessage("hello")}
 
-	require.Nil(t, newCacheWarmer(model, messages, nil))
+	require.Nil(t, newCacheWarmer(model, messages, nil, nil))
 
 	model.ModelCfg.Provider = "anthropic"
-	require.NotNil(t, newCacheWarmer(model, messages, nil))
+	require.NotNil(t, newCacheWarmer(model, messages, nil, nil))
+}
+
+func TestCacheWarmerSendsSameToolsAsStep(t *testing.T) {
+	model := &fakeCacheWarmModel{}
+	cacheOpts := fantasy.ProviderOptions{"anthropic": nil}
+	tool := &sleepTool{delay: time.Millisecond}
+	tool.SetProviderOptions(cacheOpts)
+	warmer := &cacheWarmer{
+		model:     model,
+		messages:  []fantasy.Message{fantasy.NewUserMessage("hello")},
+		tools:     cacheWarmTools([]fantasy.AgentTool{tool}),
+		warmEvery: time.Millisecond,
+	}
+
+	warmer.warm(t.Context())
+
+	call := model.lastCall.Load()
+	require.NotNil(t, call)
+	require.Len(t, call.Tools, 1)
+	fn, ok := call.Tools[0].(fantasy.FunctionTool)
+	require.True(t, ok)
+	require.Equal(t, "sleep", fn.Name)
+	require.Equal(t, cacheOpts, fn.ProviderOptions)
 }
 
 type fakeCacheWarmModel struct {
-	calls atomic.Int64
+	calls    atomic.Int64
+	lastCall atomic.Pointer[fantasy.Call]
 }
 
-func (m *fakeCacheWarmModel) Generate(context.Context, fantasy.Call) (*fantasy.Response, error) {
+func (m *fakeCacheWarmModel) Generate(_ context.Context, call fantasy.Call) (*fantasy.Response, error) {
 	m.calls.Add(1)
+	m.lastCall.Store(&call)
 	return &fantasy.Response{}, nil
 }
 
@@ -98,6 +123,7 @@ func (m *fakeCacheWarmModel) Model() string {
 
 type sleepTool struct {
 	delay time.Duration
+	opts  fantasy.ProviderOptions
 }
 
 func (t *sleepTool) Info() fantasy.ToolInfo {
@@ -114,7 +140,9 @@ func (t *sleepTool) Run(ctx context.Context, _ fantasy.ToolCall) (fantasy.ToolRe
 }
 
 func (t *sleepTool) ProviderOptions() fantasy.ProviderOptions {
-	return nil
+	return t.opts
 }
 
-func (t *sleepTool) SetProviderOptions(fantasy.ProviderOptions) {}
+func (t *sleepTool) SetProviderOptions(opts fantasy.ProviderOptions) {
+	t.opts = opts
+}
