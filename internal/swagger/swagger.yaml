@@ -599,6 +599,7 @@ definitions:
     - 3
     - 4
     - 5
+    - 6
     type: integer
     x-enum-varnames:
     - StateUnstarted
@@ -607,6 +608,7 @@ definitions:
     - StateError
     - StateStopped
     - StateDisabled
+    - StateWarn
   oauth.OAuthClient:
     properties:
       auth_style:

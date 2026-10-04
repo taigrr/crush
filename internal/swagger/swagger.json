@@ -5334,7 +5334,8 @@
                 2,
                 3,
                 4,
-                5
+                5,
+                6
             ],
             "x-enum-varnames": [
                 "StateUnstarted",
@@ -5342,7 +5343,8 @@
                 "StateReady",
                 "StateError",
                 "StateStopped",
-                "StateDisabled"
+                "StateDisabled",
+                "StateWarn"
             ]
         },
         "oauth.OAuthClient": {
