@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/taigrr/fantasy"
+	"github.com/taigrr/fantasy/schema"
 )
 
 const (
@@ -20,6 +21,7 @@ const (
 type cacheWarmer struct {
 	model           fantasy.LanguageModel
 	messages        []fantasy.Message
+	tools           []fantasy.Tool
 	providerOptions fantasy.ProviderOptions
 	userAgent       string
 	warmEvery       time.Duration
@@ -28,13 +30,14 @@ type cacheWarmer struct {
 	lastWarm time.Time
 }
 
-func newCacheWarmer(model Model, messages []fantasy.Message, providerOptions fantasy.ProviderOptions) *cacheWarmer {
+func newCacheWarmer(model Model, messages []fantasy.Message, tools []fantasy.AgentTool, providerOptions fantasy.ProviderOptions) *cacheWarmer {
 	if cacheWarmingDisabled() || !cacheWarmingSupportedProvider(model.ModelCfg.Provider) || len(messages) == 0 {
 		return nil
 	}
 	return &cacheWarmer{
 		model:           model.Model,
 		messages:        cloneFantasyMessages(messages),
+		tools:           cacheWarmTools(tools),
 		providerOptions: providerOptions,
 		userAgent:       userAgent,
 		warmEvery:       cacheWarmInterval,
@@ -53,6 +56,33 @@ func cacheWarmingSupportedProvider(provider string) bool {
 	default:
 		return false
 	}
+}
+
+// cacheWarmTools mirrors how fantasy converts AgentTools into request
+// tools. The provider cache prefix is hashed over tools, then system, then
+// messages, so the warm request must carry an identical tool list or it
+// writes a separate cache entry instead of refreshing the live one.
+func cacheWarmTools(tools []fantasy.AgentTool) []fantasy.Tool {
+	if len(tools) == 0 {
+		return nil
+	}
+	prepared := make([]fantasy.Tool, 0, len(tools))
+	for _, tool := range tools {
+		info := tool.Info()
+		inputSchema := map[string]any{
+			"type":       "object",
+			"properties": info.Parameters,
+			"required":   info.Required,
+		}
+		schema.Normalize(inputSchema)
+		prepared = append(prepared, fantasy.FunctionTool{
+			Name:            info.Name,
+			Description:     info.Description,
+			InputSchema:     inputSchema,
+			ProviderOptions: tool.ProviderOptions(),
+		})
+	}
+	return prepared
 }
 
 func wrapToolsWithCacheWarmer(tools []fantasy.AgentTool, warmer *cacheWarmer) []fantasy.AgentTool {
@@ -106,6 +136,7 @@ func (w *cacheWarmer) warm(ctx context.Context) {
 	temperature := cacheWarmTemperature
 	_, err := w.model.Generate(ctx, fantasy.Call{
 		Prompt:          append(fantasy.Prompt{}, w.messages...),
+		Tools:           w.tools,
 		MaxOutputTokens: &maxOutputTokens,
 		Temperature:     &temperature,
 		UserAgent:       w.userAgent,

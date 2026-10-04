@@ -522,7 +522,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			}
 			prepared.Tools = wrapToolsWithCacheWarmer(
 				prepared.Tools,
-				newCacheWarmer(largeModel, prepared.Messages, call.ProviderOptions),
+				newCacheWarmer(largeModel, prepared.Messages, prepared.Tools, call.ProviderOptions),
 			)
 
 			sessionLock.Lock()
