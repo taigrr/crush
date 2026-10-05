@@ -220,7 +220,7 @@ func (m *UI) View() tea.View {
 // applyProgressBar attaches the terminal progress bar while the agent is
 // busy. Kept outside the frame cache so the randomized value stays fresh.
 func (m *UI) applyProgressBar(v *tea.View) {
-	if m.progressBarEnabled && m.sendProgressBar && m.isAgentBusy() {
+	if m.progressBarEnabled && m.sendProgressBar && m.isSessionBusy() {
 		// HACK: use a random percentage to prevent ghostty from hiding it
 		// after a timeout.
 		v.ProgressBar = tea.NewProgressBar(tea.ProgressBarIndeterminate, rand.IntN(100))

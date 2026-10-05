@@ -109,9 +109,31 @@ func (m *UI) yoloPromptFunc(info textarea.PromptInfo) string {
 	return t.Editor.PromptYoloDotsBlurred.Render()
 }
 
-// isAgentBusy returns true if the agent coordinator exists and is currently
-// busy processing a request.
-func (m *UI) isAgentBusy() bool {
+// isSessionBusy reports whether the agent is running a turn for the session
+// currently open in this UI. A workspace hosts many sessions (swarm workers,
+// other clients), so anything that reflects or gates what the user sees in
+// the open session (cancel hints, placeholders, /continue, summarize,
+// opening the editor, new session, todo spinner, progress bar) must use this
+// and not the workspace-wide flag; otherwise a sibling session streaming in
+// the background makes the idle session the user is looking at behave as if
+// it were busy. When no session is open it falls back to the workspace-wide
+// flag.
+func (m *UI) isSessionBusy() bool {
+	if !m.com.Workspace.AgentIsReady() {
+		return false
+	}
+	if m.hasSession() {
+		return m.com.Workspace.AgentIsSessionBusy(m.session.ID)
+	}
+	return m.com.Workspace.AgentIsBusy()
+}
+
+// isWorkspaceBusy reports whether any session in the workspace is running a
+// turn. Use this only for side effects that are shared across sessions:
+// stopping LSP clients (shared by every session's tool calls) and messaging
+// about model/reasoning changes, which the server applies through
+// UpdateModelsWhenIdle only once the whole agent is idle.
+func (m *UI) isWorkspaceBusy() bool {
 	return m.com.Workspace.AgentIsReady() &&
 		m.com.Workspace.AgentIsBusy()
 }

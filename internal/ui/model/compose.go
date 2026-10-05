@@ -165,7 +165,7 @@ func (m *UI) handleCwd(args string) tea.Cmd {
 	}
 
 	sessionID := m.session.ID
-	busy := m.isAgentBusy()
+	busy := m.isSessionBusy()
 	return tea.Batch(
 		func() tea.Msg {
 			if err := m.com.Workspace.AgentSetWorkingDir(sessionID, target); err != nil {
@@ -241,7 +241,7 @@ func (m *UI) sendBTWMessage(content string) tea.Cmd {
 // sent; the model still has full conversation context and picks up where
 // it left off. The caller (dispatchSlash) guarantees an active session.
 func (m *UI) continueTurn() tea.Cmd {
-	if m.isAgentBusy() {
+	if m.isSessionBusy() {
 		return util.ReportWarn("Agent is still working; nothing to continue")
 	}
 	const continuePrompt = "[continue] Resume the previous task and keep working from where you left off, as if your last turn never ended. Do not wait for further instructions."
