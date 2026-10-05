@@ -31,22 +31,32 @@ func (m *UI) loadPromptHistory() tea.Cmd {
 			return promptHistoryLoadedMsg{messages: nil}
 		}
 
-		texts := make([]string, 0, len(messages))
-		for _, msg := range messages {
-			text := msg.Content().Text
-			if text == "" {
-				continue
-			}
-			// For shell messages, only show the command (first part)
-			// prefixed with ! so it can be re-executed.
-			if msg.Role == message.Shell {
-				texts = append(texts, "!"+text)
-			} else {
-				texts = append(texts, text)
-			}
-		}
-		return promptHistoryLoadedMsg{messages: texts}
+		return promptHistoryLoadedMsg{messages: promptHistoryTexts(messages)}
 	}
+}
+
+// promptHistoryTexts converts user messages into recallable prompt
+// strings. Messages injected by other sessions via the swarm tool are
+// skipped since the local user never typed them.
+func promptHistoryTexts(messages []message.Message) []string {
+	texts := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		if msg.IsSwarmMessage() {
+			continue
+		}
+		text := msg.Content().Text
+		if text == "" {
+			continue
+		}
+		// For shell messages, only show the command (first part)
+		// prefixed with ! so it can be re-executed.
+		if msg.Role == message.Shell {
+			texts = append(texts, "!"+text)
+		} else {
+			texts = append(texts, text)
+		}
+	}
+	return texts
 }
 
 // handleHistoryUp handles up arrow for history navigation.

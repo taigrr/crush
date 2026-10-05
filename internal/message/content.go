@@ -193,6 +193,19 @@ func (m *Message) Content() TextContent {
 	return TextContent{}
 }
 
+// IsSwarmMessage reports whether the message was injected by another
+// session via the swarm tool rather than typed by the local user. Such
+// messages carry the user role but should not be treated as prompts the
+// user authored (e.g. for prompt history recall).
+func (m *Message) IsSwarmMessage() bool {
+	for _, part := range m.Parts {
+		if _, ok := part.(SwarmMessage); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Message) ReasoningContent() ReasoningContent {
 	for _, part := range m.Parts {
 		if c, ok := part.(ReasoningContent); ok {
