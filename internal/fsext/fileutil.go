@@ -1,6 +1,7 @@
 package fsext
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -86,15 +87,23 @@ func (w *FastGlobWalker) ShouldSkipDir(path string) bool {
 //
 // Does not respect gitignore.
 func Glob(pattern string, cwd string, limit int) ([]string, bool, error) {
-	return globWithDoubleStar(pattern, cwd, limit, false)
+	return globWithDoubleStar(context.Background(), pattern, cwd, limit, false)
 }
 
 // GlobGitignoreAware globs files respecting gitignore.
 func GlobGitignoreAware(pattern string, cwd string, limit int) ([]string, bool, error) {
-	return globWithDoubleStar(pattern, cwd, limit, true)
+	return globWithDoubleStar(context.Background(), pattern, cwd, limit, true)
 }
 
-func globWithDoubleStar(pattern, searchPath string, limit int, gitignore bool) ([]string, bool, error) {
+// GlobGitignoreAwareContext globs files respecting gitignore, honoring ctx.
+//
+// If ctx is cancelled or its deadline expires mid-walk, the matches collected
+// so far are returned together with ctx.Err().
+func GlobGitignoreAwareContext(ctx context.Context, pattern string, cwd string, limit int) ([]string, bool, error) {
+	return globWithDoubleStar(ctx, pattern, cwd, limit, true)
+}
+
+func globWithDoubleStar(ctx context.Context, pattern, searchPath string, limit int, gitignore bool) ([]string, bool, error) {
 	// Normalize pattern to forward slashes on Windows so their config can use
 	// backslashes
 	pattern = filepath.ToSlash(pattern)
@@ -102,11 +111,14 @@ func globWithDoubleStar(pattern, searchPath string, limit int, gitignore bool) (
 	walker := NewFastGlobWalker(searchPath)
 	found := csync.NewSlice[FileInfo]()
 	conf := fastwalk.Config{
-		Follow:  true,
+		Follow:  false,
 		ToSlash: fastwalk.DefaultToSlash(),
 		Sort:    fastwalk.SortFilesFirst,
 	}
 	err := fastwalk.Walk(&conf, searchPath, func(path string, d os.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return nil // Skip files we can't access
 		}
@@ -147,7 +159,8 @@ func globWithDoubleStar(pattern, searchPath string, limit int, gitignore bool) (
 		}
 		return nil
 	})
-	if err != nil && !errors.Is(err, filepath.SkipAll) {
+	ctxErr := ctx.Err()
+	if err != nil && !errors.Is(err, filepath.SkipAll) && ctxErr == nil {
 		return nil, false, fmt.Errorf("fastwalk error: %w", err)
 	}
 
@@ -160,7 +173,7 @@ func globWithDoubleStar(pattern, searchPath string, limit int, gitignore bool) (
 	for i, m := range matches {
 		results[i] = m.Path
 	}
-	return results, truncated || errors.Is(err, filepath.SkipAll), nil
+	return results, truncated || errors.Is(err, filepath.SkipAll), ctxErr
 }
 
 // ShouldExcludeFile checks if a file should be excluded from processing

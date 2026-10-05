@@ -31,7 +31,7 @@ func getRgCmd(ctx context.Context, globPattern string) *exec.Cmd {
 	if name == "" {
 		return nil
 	}
-	args := []string{"--files", "-L", "--null"}
+	args := []string{"--files", "--null"}
 	if globPattern != "" {
 		if !filepath.IsAbs(globPattern) && !strings.HasPrefix(globPattern, "/") {
 			globPattern = "/" + globPattern
