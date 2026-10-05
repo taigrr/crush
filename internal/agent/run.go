@@ -443,6 +443,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	history, files := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages, call.Attachments...)
 
 	var stepMessages []fantasy.Message
+	// incompleteToolCallIDs collects tool calls that never finished
+	// streaming in an earlier step of this turn (guarded by
+	// sessionLock). PrepareStep strips them from the replayed history
+	// so a corrupted step is sent as a plain assistant turn.
+	incompleteToolCallIDs := make(map[string]struct{})
 	var shouldSummarize bool
 	// Don't send MaxOutputTokens if 0 — some providers (e.g. LM Studio) reject it
 	var maxOutputTokens *int64
@@ -462,7 +467,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		TopK:             call.TopK,
 		FrequencyPenalty: call.FrequencyPenalty,
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
-			prepared.Messages = options.Messages
+			sessionLock.Lock()
+			prepared.Messages = dropToolCallsFromHistory(options.Messages, incompleteToolCallIDs)
+			sessionLock.Unlock()
 			for i := range prepared.Messages {
 				prepared.Messages[i].ProviderOptions = nil
 			}
@@ -656,13 +663,35 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 					}
 				}
 			}
+			sessionLock.Lock()
+			defer sessionLock.Unlock()
+			// A tool call that saw tool-input-start but never its full
+			// tool-call (the provider dropped the block mid-stream) has
+			// partial or empty input. Persisting it would leave a
+			// tool_use that providers reject on the next request and
+			// on every later session load, so drop it and keep only the
+			// text plus the completed tool calls.
+			finishedCalls, unfinishedCalls := splitToolCallsByFinished(*currentAssistant)
+			if len(unfinishedCalls) > 0 {
+				for _, toolCall := range unfinishedCalls {
+					slog.Warn(
+						"Tool call never finished streaming, dropping it from the step",
+						"tool_call_id", toolCall.ID,
+						"tool_name", toolCall.Name,
+						"message_id", currentAssistant.ID,
+					)
+					incompleteToolCallIDs[toolCall.ID] = struct{}{}
+				}
+				currentAssistant.SetToolCalls(finishedCalls)
+				if finishReason == message.FinishReasonToolUse && len(finishedCalls) == 0 {
+					finishReason = message.FinishReasonEndTurn
+				}
+			}
 			if title, details, ok := emptyResponseError(stepResult.FinishReason, *currentAssistant); ok {
 				currentAssistant.AddFinish(message.FinishReasonError, title, details)
 			} else {
 				currentAssistant.AddFinish(finishReason, "", "")
 			}
-			sessionLock.Lock()
-			defer sessionLock.Unlock()
 
 			updatedSession, getSessionErr := a.sessions.Get(ctx, call.SessionID)
 			if getSessionErr != nil {
