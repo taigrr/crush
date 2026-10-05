@@ -248,6 +248,8 @@ custom role names (e.g. `scout`), each a full model selection:
 
 Other options: `context_paths`, `progress`, `notification_style` (`auto`, `native`, `osc`, `bell`, `disabled`; supersedes the deprecated `disable_notifications`), `disable_auto_summarize`, `disable_metrics`, `disable_provider_auto_update`, `disable_default_providers`, `data_directory`, `initialize_as`.
 
+`disable_default_providers: true` hides the entire embedded provider catalog everywhere (provider setup, the model picker, `crush models`). Only providers fully specified under `providers` (with `base_url`, `models`, and `api_key`) are available; at least one must be configured or startup fails.
+
 ## Notification sounds
 
 The server plays short notification sounds for several events. They are on

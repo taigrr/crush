@@ -25,7 +25,15 @@ func UpdateHyper(_ string) error {
 // Providers returns the compiled-in provider catalog. No network calls, no
 // server dependency, no local files. Custom providers from config are merged
 // by the caller.
-func Providers(_ *Config) ([]catwalk.Provider, error) {
+//
+// When cfg sets options.disable_default_providers, no embedded providers are
+// returned so that every catalog consumer (model picker, CLI listings,
+// provider setup) agrees on the set of available providers. A nil cfg or nil
+// Options yields the full embedded catalog.
+func Providers(cfg *Config) ([]catwalk.Provider, error) {
+	if cfg != nil && cfg.Options != nil && cfg.Options.DisableDefaultProviders {
+		return nil, nil
+	}
 	providerOnce.Do(func() {
 		providerList = embedded.GetAll()
 	})
