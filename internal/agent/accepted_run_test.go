@@ -193,27 +193,39 @@ func TestIsBusy_ActiveRequestStillCountsAsBusy(t *testing.T) {
 		"after the active request is cleared the agent must report idle")
 }
 
-// TestIsSessionBusy_IgnoresAcceptedRuns locks in the deliberate
-// asymmetry between IsBusy (UI-facing, AND-of-OR) and IsSessionBusy
-// (internal, strict): Run uses IsSessionBusy to decide queue-vs-take-
-// over and must NOT see its own freshly-issued accept reservation as
-// an in-progress turn — that would cause the very prompt being
-// dispatched to be queued behind itself. If this asymmetry were
-// changed naively, the dispatch tests TestRun_IdleCancelDoesNot
-// PoisonNextPrompt and TestCancel_AcceptedAfterCancelIsNotPoisoned
-// regress.
-func TestIsSessionBusy_IgnoresAcceptedRuns(t *testing.T) {
+// TestIsSessionBusy_ObservesDispatchWindow locks in the asymmetry between
+// the observer-facing IsSessionBusy (active OR accepted) and the strict
+// isSessionActive Run uses to decide queue-vs-take-over. Run must NOT see
+// its own freshly-issued accept reservation as an in-progress turn — that
+// would queue the very prompt being dispatched behind itself — while
+// observers (session overviews, REST isBusy, swarm delivery) must see it
+// so a turn is reported busy from the AttentionBusy event onward with no
+// gap. If the strict side were changed naively, TestRun_IdleCancelDoesNot
+// PoisonNextPrompt and TestCancel_AcceptedAfterCancelIsNotPoisoned regress.
+func TestIsSessionBusy_ObservesDispatchWindow(t *testing.T) {
 	t.Parallel()
 	sa, _ := newCancelTestAgent(t)
 
+	require.False(t, sa.IsSessionBusy("sid"), "idle before dispatch")
+
 	accept := sa.BeginAccepted("sid")
-	defer accept.Close()
-	require.False(t, sa.IsSessionBusy("sid"),
-		"IsSessionBusy must remain strict to activeRequests so Run "+
+	require.True(t, sa.IsSessionBusy("sid"),
+		"accepted-but-not-active must read busy for observers")
+	require.False(t, sa.isSessionActive("sid"),
+		"isSessionActive must stay strict to activeRequests so Run "+
 			"does not queue a prompt behind its own accept reservation")
-	require.True(t, sa.IsBusy(),
-		"IsBusy must observe the same accepted reservation IsSessionBusy "+
-			"deliberately ignores")
+	require.False(t, sa.IsSessionBusy("other"),
+		"another session's reservation must not leak")
+	require.True(t, sa.IsBusy())
+
+	// Run's handoff: register active, then release the reservation.
+	sa.activeRequests.Set("sid", func() {})
+	accept.Close()
+	require.True(t, sa.IsSessionBusy("sid"), "active run reads busy")
+	require.True(t, sa.isSessionActive("sid"))
+
+	sa.activeRequests.Del("sid")
+	require.False(t, sa.IsSessionBusy("sid"), "idle after the run ends")
 }
 
 // TestIsBusy_DuringDispatchWindowDeliversCancel is the end-to-end

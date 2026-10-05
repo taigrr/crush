@@ -170,7 +170,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			return nil, nil
 		}
 
-		if a.IsSessionBusy(call.SessionID) {
+		if a.isSessionActive(call.SessionID) {
 			// Busy: an earlier prompt is active. Queue this call and
 			// release the accept reservation. A Cancel arriving after
 			// this point sees the active entry and clears the queue.
@@ -191,7 +191,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		mu.Unlock()
 
 		defer a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
-	} else if a.IsSessionBusy(call.SessionID) {
+	} else if a.isSessionActive(call.SessionID) {
 		// Queue the message if busy. Strip OnComplete: the caller that
 		// supplied the hook (typically coordinator.Run) has its own
 		// retry/coalesce scope that ends when it returns, so by the time
