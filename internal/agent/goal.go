@@ -282,6 +282,7 @@ func (a *sessionAgent) evaluateGoal(ctx context.Context, condition, transcript s
 		small.Model,
 		fantasy.WithSystemPrompt(goalEvaluatorSystemPrompt),
 		fantasy.WithTools(tool),
+		fantasy.WithRepairToolCall(repairToolCall),
 		fantasy.WithUserAgent(userAgent),
 	)
 

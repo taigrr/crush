@@ -336,7 +336,7 @@ After significant changes:
 - Only use the tools you know exist.
 
 <bash_commands>
-**CRITICAL**: The `description` parameter is REQUIRED for all bash tool calls. Always provide it.
+**IMPORTANT**: The `description` parameter is strongly encouraged for all bash tool calls. If omitted, it defaults to the first line of the command, which is usually less helpful to the user.
 
 When running non-trivial bash commands (especially those that modify the system):
 - Briefly explain what the command does and why you're running it

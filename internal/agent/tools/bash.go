@@ -21,7 +21,7 @@ import (
 )
 
 type BashParams struct {
-	Description         string `json:"description" description:"A brief description of what the command does, try to keep it under 30 characters or so"`
+	Description         string `json:"description,omitempty" description:"A brief description of what the command does, try to keep it under 30 characters or so. Strongly encouraged; defaults to the first line of the command when omitted"`
 	Command             string `json:"command" description:"The command to execute"`
 	WorkingDir          string `json:"working_dir,omitempty" description:"The working directory to execute the command in (defaults to current directory)"`
 	RunInBackground     bool   `json:"run_in_background,omitempty" description:"Set to true (boolean) to run this command in the background. Use job_output to read the output later."`
@@ -254,6 +254,28 @@ func formatJobCompletion(bgShell *shell.BackgroundShell, stdout, stderr string, 
 	return sb.String()
 }
 
+// MaxDerivedBashDescriptionLen caps the length of a description derived
+// from a command's first line.
+const MaxDerivedBashDescriptionLen = 80
+
+// DeriveBashDescription builds a fallback description for a bash call from
+// the first non-empty line of the command, trimmed and capped in length. It
+// returns an empty string when the command has no content.
+func DeriveBashDescription(command string) string {
+	for line := range strings.SplitSeq(command, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		runes := []rune(line)
+		if len(runes) > MaxDerivedBashDescriptionLen {
+			return string(runes[:MaxDerivedBashDescriptionLen-1]) + "…"
+		}
+		return line
+	}
+	return ""
+}
+
 func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attribution *config.Attribution, modelName string, notify JobNotifyFunc) fantasy.AgentTool {
 	return fantasy.NewAgentTool(
 		BashToolName,
@@ -261,6 +283,9 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 		func(ctx context.Context, params BashParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 			if params.Command == "" {
 				return fantasy.NewTextErrorResponse("missing command"), nil
+			}
+			if params.Description == "" {
+				params.Description = DeriveBashDescription(params.Command)
 			}
 
 			// Determine working directory
