@@ -1,6 +1,7 @@
 package fsext
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -265,5 +266,51 @@ func TestGlobWithDoubleStar(t *testing.T) {
 		// Results should be sorted by mod time, but we set the oldestFile
 		// to have the most recent mod time
 		require.Equal(t, []string{oldestFile, middleDir, newestFile}, matches)
+	})
+}
+
+func TestGlobGitignoreAwareContext(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cancelled context returns partial matches and ctx error", func(t *testing.T) {
+		t.Parallel()
+		testDir := t.TempDir()
+		for i := range 20 {
+			path := filepath.Join(testDir, fmt.Sprintf("file%02d.txt", i))
+			require.NoError(t, os.WriteFile(path, []byte("x"), 0o644))
+		}
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		matches, _, err := GlobGitignoreAwareContext(ctx, "**/*.txt", testDir, 0)
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotNil(t, matches)
+		require.Less(t, len(matches), 20)
+	})
+
+	t.Run("live context behaves like GlobGitignoreAware", func(t *testing.T) {
+		t.Parallel()
+		testDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(testDir, "a.txt"), []byte("x"), 0o644))
+
+		matches, truncated, err := GlobGitignoreAwareContext(t.Context(), "*.txt", testDir, 0)
+		require.NoError(t, err)
+		require.False(t, truncated)
+		require.Len(t, matches, 1)
+	})
+
+	t.Run("does not follow symlinked directories", func(t *testing.T) {
+		t.Parallel()
+		testDir := t.TempDir()
+		outside := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("x"), 0o644))
+		require.NoError(t, os.WriteFile(filepath.Join(testDir, "inside.txt"), []byte("x"), 0o644))
+		require.NoError(t, os.Symlink(outside, filepath.Join(testDir, "link")))
+
+		matches, _, err := GlobGitignoreAwareContext(t.Context(), "**/*.txt", testDir, 0)
+		require.NoError(t, err)
+		require.Len(t, matches, 1)
+		require.Equal(t, filepath.Join(testDir, "inside.txt"), matches[0])
 	})
 }
