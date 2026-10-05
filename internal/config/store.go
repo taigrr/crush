@@ -290,6 +290,7 @@ func (s *ConfigStore) UpdatePreferredModel(scope Scope, modelType SelectedModelT
 	if !validRoleName(string(modelType)) {
 		return fmt.Errorf("invalid model role name %q: use letters, digits, '-' or '_'", modelType)
 	}
+	s.backfillModelDefaults(&model)
 	s.config.Models[modelType] = model
 	if err := s.SetConfigField(scope, fmt.Sprintf("models.%s", modelType), model); err != nil {
 		return fmt.Errorf("failed to update preferred model: %w", err)
@@ -298,6 +299,29 @@ func (s *ConfigStore) UpdatePreferredModel(scope Scope, modelType SelectedModelT
 		return err
 	}
 	return nil
+}
+
+// backfillModelDefaults fills unset tuning fields on a model selection from
+// the catalog entry, mirroring what defaultModelSelection seeds for the
+// default selection. Explicitly set values are left untouched. The default
+// reasoning effort is only applied when the model advertises it among its
+// reasoning levels, since an unrecognized effort would never be sent (or
+// would be rejected outright by some providers).
+func (s *ConfigStore) backfillModelDefaults(model *SelectedModel) {
+	if model.Provider == "" || model.Model == "" {
+		return
+	}
+	catalog := s.config.GetModel(model.Provider, model.Model)
+	if catalog == nil {
+		return
+	}
+	if model.MaxTokens <= 0 {
+		model.MaxTokens = catalog.DefaultMaxTokens
+	}
+	if model.ReasoningEffort == "" && catalog.CanReason &&
+		slices.Contains(catalog.ReasoningLevels, catalog.DefaultReasoningEffort) {
+		model.ReasoningEffort = catalog.DefaultReasoningEffort
+	}
 }
 
 // SetCompactMode sets the compact mode setting and persists it.
