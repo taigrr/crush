@@ -179,7 +179,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 			m.shellCancel = nil
 			return tea.Batch(cmds...)
 		}
-		if m.isAgentBusy() {
+		if m.isSessionBusy() {
 			if cmd := m.cancelAgent(); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -332,7 +332,7 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 					m.chat.SetSelected(m.chat.Len() - 1)
 				}
 			case key.Matches(msg, m.keyMap.Editor.OpenEditor):
-				if m.isAgentBusy() {
+				if m.isSessionBusy() {
 					cmds = append(cmds, util.ReportWarn("Agent is working, please wait..."))
 					break
 				}

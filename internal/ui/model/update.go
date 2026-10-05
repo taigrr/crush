@@ -40,7 +40,7 @@ import (
 func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	m.beginFrameUpdate()
-	if m.hasSession() && m.isAgentBusy() {
+	if m.hasSession() && m.isSessionBusy() {
 		queueSize := m.com.Workspace.AgentQueuedPrompts(m.session.ID)
 		if queueSize != m.promptQueue {
 			m.promptQueue = queueSize
@@ -265,12 +265,12 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// start the spinner if there is a new message
-		if hasInProgressTodo(m.session.Todos) && m.isAgentBusy() && !m.todoIsSpinning {
+		if hasInProgressTodo(m.session.Todos) && m.isSessionBusy() && !m.todoIsSpinning {
 			m.todoIsSpinning = true
 			cmds = append(cmds, m.todoSpinner.Tick)
 		}
 		// stop the spinner if the agent is not busy anymore
-		if m.todoIsSpinning && !m.isAgentBusy() {
+		if m.todoIsSpinning && !m.isSessionBusy() {
 			m.todoIsSpinning = false
 		}
 		// there is a number of things that could change the pills here so we want to re-render
@@ -798,7 +798,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case uiFocusMain:
 	case uiFocusEditor:
 		// Textarea placeholder logic
-		if m.isAgentBusy() {
+		if m.isSessionBusy() {
 			m.textarea.Placeholder = m.workingPlaceholder
 		} else {
 			m.textarea.Placeholder = m.readyPlaceholder

@@ -227,7 +227,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			return backfillDoneMsg{count: n, err: err}
 		})
 	case dialog.ActionNewSession:
-		if m.isAgentBusy() {
+		if m.isSessionBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before starting a new session..."))
 			break
 		}
@@ -236,7 +236,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionSummarize:
-		if m.isAgentBusy() {
+		if m.isSessionBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before summarizing session..."))
 			break
 		}
@@ -252,7 +252,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		m.status.ToggleHelp()
 		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionExternalEditor:
-		if m.isAgentBusy() {
+		if m.isSessionBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is working, please wait..."))
 			break
 		}
@@ -416,7 +416,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		cmds = append(cmds, m.mergeWorktree(msg.WorktreeID, msg.TargetBranch, msg.Rebase))
 
 	case dialog.ActionInitializeProject:
-		if m.isAgentBusy() {
+		if m.isSessionBusy() {
 			cmds = append(cmds, util.ReportWarn("Agent is busy, please wait before summarizing session..."))
 			break
 		}
@@ -454,7 +454,7 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		// If the agent is busy the server queues the live apply until it
 		// finishes (see app.UpdateAgentModel -> UpdateModelsWhenIdle), so
 		// fire the RPC regardless and tell the user when it will take effect.
-		queued := m.isAgentBusy()
+		queued := m.isWorkspaceBusy()
 		cmds = append(cmds, func() tea.Msg {
 			m.com.Workspace.UpdateAgentModel(context.TODO())
 			if queued {

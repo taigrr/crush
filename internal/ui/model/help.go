@@ -16,7 +16,7 @@ func (m *UI) ShortHelp() []key.Binding {
 		binds = append(binds, k.Quit)
 	case uiChat:
 		// Show cancel binding if agent is busy.
-		if m.isAgentBusy() {
+		if m.isSessionBusy() {
 			cancelBinding := k.Chat.Cancel
 			if m.isCanceling {
 				cancelBinding.SetHelp("esc", "press again to cancel")
@@ -152,7 +152,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 			})
 	case uiChat:
 		// Show cancel binding if agent is busy.
-		if m.isAgentBusy() {
+		if m.isSessionBusy() {
 			cancelBinding := k.Chat.Cancel
 			if m.isCanceling {
 				cancelBinding.SetHelp("esc", "press again to cancel")

@@ -1,10 +1,12 @@
 package model
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/workspace"
 )
@@ -15,11 +17,13 @@ type cancelWorkspace struct {
 	workspace.Workspace
 
 	ready         bool
+	workspaceBusy bool
 	sessionBusy   map[string]bool
 	queued        map[string]int
 	cancelCalls   []string
 	cancelAllHits int
 	clearQueue    []string
+	runCalls      []string
 }
 
 func newCancelWorkspace() *cancelWorkspace {
@@ -37,6 +41,18 @@ func (w *cancelWorkspace) ConnectionState() workspace.ConnectionState {
 }
 
 func (w *cancelWorkspace) AgentIsReady() bool { return w.ready }
+
+func (w *cancelWorkspace) AgentIsBusy() bool {
+	if w.workspaceBusy {
+		return true
+	}
+	for _, busy := range w.sessionBusy {
+		if busy {
+			return true
+		}
+	}
+	return false
+}
 
 func (w *cancelWorkspace) AgentIsSessionBusy(sessionID string) bool {
 	return w.sessionBusy[sessionID]
@@ -56,6 +72,11 @@ func (w *cancelWorkspace) AgentCancelAll() {
 
 func (w *cancelWorkspace) AgentClearQueue(sessionID string) {
 	w.clearQueue = append(w.clearQueue, sessionID)
+}
+
+func (w *cancelWorkspace) AgentRun(_ context.Context, sessionID string, _ string, _ ...message.Attachment) error {
+	w.runCalls = append(w.runCalls, sessionID)
+	return nil
 }
 
 func newCancelTestUI(t *testing.T, ws workspace.Workspace) *UI {

@@ -63,7 +63,7 @@ func (m *UI) handleLoadSession(msg loadSessionMsg) []tea.Cmd {
 	}
 	if hasInProgressTodo(m.session.Todos) {
 		// only start spinner if there is an in-progress todo
-		if m.isAgentBusy() {
+		if m.isSessionBusy() {
 			m.todoIsSpinning = true
 			cmds = append(cmds, m.todoSpinner.Tick)
 		}
@@ -113,7 +113,7 @@ func (m *UI) handleLoadSessionAndSwitchWorktree(msg loadSessionAndSwitchWorktree
 		cmds = append(cmds, cmd)
 	}
 	if hasInProgressTodo(m.session.Todos) {
-		if m.isAgentBusy() {
+		if m.isSessionBusy() {
 			m.todoIsSpinning = true
 			cmds = append(cmds, m.todoSpinner.Tick)
 		}

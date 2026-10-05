@@ -24,9 +24,10 @@ type cwdWorkspace struct {
 	btwCalls    []string
 }
 
-func (w *cwdWorkspace) Config() *config.Config { return nil }
-func (w *cwdWorkspace) AgentIsReady() bool     { return w.ready }
-func (w *cwdWorkspace) AgentIsBusy() bool      { return w.busy }
+func (w *cwdWorkspace) Config() *config.Config         { return nil }
+func (w *cwdWorkspace) AgentIsReady() bool             { return w.ready }
+func (w *cwdWorkspace) AgentIsBusy() bool              { return w.busy }
+func (w *cwdWorkspace) AgentIsSessionBusy(string) bool { return w.busy }
 
 func (w *cwdWorkspace) ConnectionState() workspace.ConnectionState {
 	return workspace.ConnectionStateConnected
