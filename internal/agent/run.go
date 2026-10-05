@@ -739,7 +739,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
 				return a.dispatchNextQueued(ctx, call, currentAssistant, result, err, &skipRunComplete)
 			}
-			return result, err
+			// A provider error before the assistant message existed
+			// must still hand off to queued prompts; otherwise they sit
+			// in the queue forever once this session goes idle.
+			a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
+			return a.dispatchNextQueued(ctx, call, currentAssistant, result, err, &skipRunComplete)
 		}
 		// Persist final state with a context detached from the run
 		// context. The run context (ctx) is derived from the
@@ -843,14 +847,15 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		if updateErr != nil {
 			return nil, updateErr
 		}
-		if isCancelErr {
-			// Release the active request and hand off to any prompt
-			// queued while this turn was streaming, instead of
-			// returning and leaving it stuck in the queue.
-			a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
-			return a.dispatchNextQueued(ctx, call, currentAssistant, nil, err, &skipRunComplete)
-		}
-		return nil, err
+		// Release the active request and hand off to any prompt queued
+		// while this turn was streaming, instead of returning and
+		// leaving it stuck in the queue. This applies to provider and
+		// transport errors as much as to cancellation: each queued
+		// prompt runs as its own turn, so a persistent failure surfaces
+		// once per turn in its own error finish rather than silently
+		// stranding the queue.
+		a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
+		return a.dispatchNextQueued(ctx, call, currentAssistant, nil, err, &skipRunComplete)
 	}
 
 	if shouldSummarize {
@@ -1012,7 +1017,10 @@ func (a *sessionAgent) dispatchNextQueued(ctx context.Context, call SessionAgent
 			complete.MessageID = currentAssistant.ID
 			complete.Text = currentAssistant.Content().String()
 		}
-		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+		if err != nil {
+			complete.Error = err.Error()
+			complete.Cancelled = errors.Is(err, context.Canceled)
+		} else if ctx.Err() != nil {
 			complete.Cancelled = true
 		}
 		a.publishRunComplete(ctx, call, complete)
