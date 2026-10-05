@@ -33,6 +33,7 @@ import (
 	"github.com/taigrr/crush/internal/ui/dialog"
 	"github.com/taigrr/crush/internal/ui/notification"
 	"github.com/taigrr/crush/internal/ui/util"
+	"github.com/taigrr/crush/internal/voice"
 	"github.com/taigrr/crush/internal/workspace"
 )
 
@@ -525,6 +526,9 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.keyMap.Models.SetHelp("ctrl+m", "models")
 			m.keyMap.Editor.Newline.SetHelp("shift+enter", "newline")
 		}
+		if m.voiceEnabled() && msg.SupportsEventTypes() && m.voiceHoldMode() {
+			m.keyMap.Voice.SetHelp("ctrl+space/f8", "hold to talk")
+		}
 	case copyChatHighlightMsg:
 		cmds = append(cmds, m.copyChatHighlight())
 	case DelayedClickMsg:
@@ -698,7 +702,31 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyPressMsg:
+		if cmd, handled := m.handleVoiceKeyPress(msg); handled {
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			break
+		}
 		if cmd := m.handleKeyPressMsg(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case tea.KeyReleaseMsg:
+		if cmd, handled := m.handleVoiceKeyRelease(msg); handled {
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+	case voiceEventMsg:
+		if cmd := m.handleVoiceEvent(voice.Event(msg)); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case voicePulseTickMsg:
+		if cmd := m.handleVoicePulseTick(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case micDevicesMsg:
+		if cmd := m.handleMicDevices(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 	case tea.PasteMsg:

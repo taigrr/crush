@@ -70,6 +70,8 @@ func newTestUI() *UI {
 		pendingQuestions:   make(map[string]*question.Request),
 	}
 
+	u.voice = newVoiceSession(newDictation(&u.textarea))
+
 	// The UI itself is the help keymap, so the status bar can only be built
 	// once the model exists.
 	u.status = NewStatus(com, u)

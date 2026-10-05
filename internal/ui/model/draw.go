@@ -179,6 +179,7 @@ func (m *UI) View() tea.View {
 	}
 	v.MouseMode = tea.MouseModeCellMotion
 	v.ReportFocus = m.caps.ReportFocusEvents
+	v.KeyboardEnhancements.ReportEventTypes = true
 	v.WindowTitle = "crush " + home.Short(m.com.Workspace.WorkingDir())
 
 	key, cacheable := m.currentFrameKey()
