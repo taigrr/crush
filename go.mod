@@ -66,7 +66,7 @@ require (
 	github.com/taigrr/colorhash v0.8.0
 	github.com/taigrr/fantasy v0.29.0-fork
 	github.com/taigrr/simplecolorpalettes v0.10.1
-	github.com/tidwall/gjson v1.19.0
+	github.com/tidwall/gjson v1.20.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/yuin/gopher-lua v1.1.2
 	github.com/zeebo/xxh3 v1.1.0
