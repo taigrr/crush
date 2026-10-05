@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -271,4 +272,69 @@ func TestBashTool_KilledBackgroundJobDoesNotNotify(t *testing.T) {
 		t.Fatalf("unexpected notification for killed job: %s", text)
 	case <-time.After(2 * time.Second):
 	}
+}
+
+func TestDeriveBashDescription(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("a", MaxDerivedBashDescriptionLen+10)
+	tests := []struct {
+		name    string
+		command string
+		want    string
+	}{
+		{name: "empty", command: "", want: ""},
+		{name: "whitespace only", command: " \n\t\n", want: ""},
+		{name: "single line", command: "ls -la", want: "ls -la"},
+		{name: "trims surrounding whitespace", command: "  go build ./...  ", want: "go build ./..."},
+		{name: "first line only", command: "git status\ngit diff", want: "git status"},
+		{name: "skips leading blank lines", command: "\n\n  echo hi\necho bye", want: "echo hi"},
+		{name: "exactly at cap unchanged", command: strings.Repeat("a", MaxDerivedBashDescriptionLen), want: strings.Repeat("a", MaxDerivedBashDescriptionLen)},
+		{name: "long line capped", command: long, want: strings.Repeat("a", MaxDerivedBashDescriptionLen-1) + "…"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tc.want, DeriveBashDescription(tc.command))
+		})
+	}
+}
+
+func TestBashTool_DescriptionIsOptional(t *testing.T) {
+	workingDir := t.TempDir()
+	tool := newBashToolForTest(workingDir)
+	require.NotContains(t, tool.Info().Required, "description")
+	require.Contains(t, tool.Info().Required, "command")
+}
+
+func TestBashTool_MissingDescriptionFallsBackToCommand(t *testing.T) {
+	workingDir := t.TempDir()
+	tool := newBashToolForTest(workingDir)
+	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+
+	resp := runBashTool(t, tool, ctx, BashParams{
+		Command: "echo fallback-output\necho second",
+	})
+	require.False(t, resp.IsError)
+
+	var meta BashResponseMetadata
+	require.NoError(t, json.Unmarshal([]byte(resp.Metadata), &meta))
+	require.Equal(t, "echo fallback-output", meta.Description)
+	require.Contains(t, meta.Output, "fallback-output")
+}
+
+func TestBashTool_ExplicitDescriptionPreserved(t *testing.T) {
+	workingDir := t.TempDir()
+	tool := newBashToolForTest(workingDir)
+	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+
+	resp := runBashTool(t, tool, ctx, BashParams{
+		Description: "explicit",
+		Command:     "echo hi",
+	})
+	require.False(t, resp.IsError)
+
+	var meta BashResponseMetadata
+	require.NoError(t, json.Unmarshal([]byte(resp.Metadata), &meta))
+	require.Equal(t, "explicit", meta.Description)
 }
