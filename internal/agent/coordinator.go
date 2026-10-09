@@ -1670,10 +1670,10 @@ func (c *coordinator) buildBedrockProvider(baseURL, apiKey string, headers map[s
 	}
 
 	switch {
-	case apiKey != "":
-		opts = append(opts, bedrock.WithAPIKey(apiKey))
 	case os.Getenv("AWS_BEARER_TOKEN_BEDROCK") != "":
 		opts = append(opts, bedrock.WithAPIKey(os.Getenv("AWS_BEARER_TOKEN_BEDROCK")))
+	case apiKey != "":
+		opts = append(opts, bedrock.WithAPIKey(apiKey))
 	default:
 		// Skip, let the SDK do authentication.
 	}

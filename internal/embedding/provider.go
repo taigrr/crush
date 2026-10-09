@@ -34,10 +34,10 @@ func buildEmbeddingModel(ctx context.Context, p ProviderParams, modelID string) 
 	case bedrock.Name:
 		var opts []bedrock.Option
 		switch {
-		case p.APIKey != "":
-			opts = append(opts, bedrock.WithAPIKey(p.APIKey))
 		case os.Getenv("AWS_BEARER_TOKEN_BEDROCK") != "":
 			opts = append(opts, bedrock.WithAPIKey(os.Getenv("AWS_BEARER_TOKEN_BEDROCK")))
+		case p.APIKey != "":
+			opts = append(opts, bedrock.WithAPIKey(p.APIKey))
 		}
 		if p.BaseURL == "" {
 			p.BaseURL = os.Getenv("AWS_ENDPOINT_URL_BEDROCK")

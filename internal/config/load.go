@@ -420,9 +420,9 @@ func (c *Config) applyProviderSpecificConfig(store *ConfigStore, env env.Env, re
 		// The Bedrock mantle (OpenAI-compatible) endpoint authenticates
 		// with a Bedrock API key via the Authorization header, not SigV4,
 		// so it requires AWS_BEARER_TOKEN_BEDROCK.
-		if prepared.APIKey == "" {
-			prepared.APIKey = env.Get("AWS_BEARER_TOKEN_BEDROCK")
-			prepared.APIKeyTemplate = prepared.APIKey
+		if token := env.Get("AWS_BEARER_TOKEN_BEDROCK"); token != "" {
+			prepared.APIKey = token
+			prepared.APIKeyTemplate = token
 		}
 		if prepared.APIKey == "" {
 			return skipMissing("Skipping Bedrock Mantle provider due to missing AWS_BEARER_TOKEN_BEDROCK")
