@@ -62,9 +62,9 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/swag v1.16.6
 	github.com/taigrr/animals v0.0.3
-	github.com/taigrr/catwalk v0.52.1-fork
+	github.com/taigrr/catwalk v0.53.0-fork
 	github.com/taigrr/colorhash v0.8.0
-	github.com/taigrr/fantasy v0.29.0-fork
+	github.com/taigrr/fantasy v0.31.0-fork
 	github.com/taigrr/simplecolorpalettes v0.10.1
 	github.com/tidwall/gjson v1.20.0
 	github.com/tidwall/sjson v1.2.5
@@ -224,7 +224,7 @@ require (
 	google.golang.org/api v0.300.0 // indirect
 	google.golang.org/genai v1.72.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
-	google.golang.org/grpc v1.84.0 // indirect
+	google.golang.org/grpc v1.86.0-dev // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/dnaeon/go-vcr.v4 v4.0.6-0.20251110073552-01de4eb40290 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
