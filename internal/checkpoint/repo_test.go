@@ -1,8 +1,10 @@
 package checkpoint_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -57,6 +59,27 @@ func TestInitRepo(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, diff)
 	})
+}
+
+func TestCreateSnapshotConcurrent(t *testing.T) {
+	t.Parallel()
+	projectDir := newProjectDir(t)
+	for i := range 20 {
+		name := filepath.Join(projectDir, fmt.Sprintf("f%d.go", i))
+		require.NoError(t, os.WriteFile(name, []byte("package main"), 0o644))
+	}
+
+	repo, err := checkpoint.InitRepo(projectDir, nil)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			_, err := repo.CreateSnapshot("concurrent")
+			require.NoError(t, err)
+		})
+	}
+	wg.Wait()
 }
 
 func TestCreateSnapshot(t *testing.T) {

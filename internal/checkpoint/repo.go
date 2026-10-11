@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -60,6 +61,11 @@ type Repo struct {
 	workTree    string // Directory whose contents are snapshotted
 	config      *Config
 	ignorer     gitignore.Matcher
+
+	// snapshotMu serializes snapshot creation. Concurrent agent runs in the
+	// same workspace share a Repo, and blobCache is not safe for concurrent
+	// access.
+	snapshotMu sync.Mutex
 
 	// blobCache maps relative file paths to their last known state.
 	// Used to skip re-reading and re-compressing unchanged files.
@@ -198,6 +204,9 @@ func (r *Repo) CreateSnapshotCtx(ctx context.Context, description string) (strin
 	if r.repo == nil {
 		return "", ErrRepoNotInitialized
 	}
+
+	r.snapshotMu.Lock()
+	defer r.snapshotMu.Unlock()
 
 	// Build tree from the configured work tree.
 	treeHash, err := r.buildTree(ctx, r.workTree, "")
