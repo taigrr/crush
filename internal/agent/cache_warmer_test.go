@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -70,26 +71,87 @@ func TestNewCacheWarmerGuardsUnsupportedProviders(t *testing.T) {
 	}
 }
 
-func TestNewCacheWarmerSkipsThinkingBudget(t *testing.T) {
+func thinkingOpts(budget int64) fantasy.ProviderOptions {
+	return fantasy.ProviderOptions{
+		anthropic.Name: &anthropic.ProviderOptions{
+			Thinking: &anthropic.ThinkingProviderOption{BudgetTokens: budget},
+		},
+	}
+}
+
+func TestNewCacheWarmerThinkingBelowThresholdSkips(t *testing.T) {
 	model := Model{
 		Model:    &fakeCacheWarmModel{},
-		ModelCfg: config.SelectedModel{Provider: "bedrock"},
+		ModelCfg: config.SelectedModel{Provider: "bedrock", Think: true},
 	}
 	messages := []fantasy.Message{fantasy.NewUserMessage("hello")}
 
-	opts := fantasy.ProviderOptions{
-		anthropic.Name: &anthropic.ProviderOptions{
-			Thinking: &anthropic.ThinkingProviderOption{BudgetTokens: 2000},
-		},
+	require.Nil(t, newCacheWarmer(model, messages, nil, thinkingOpts(2000)))
+}
+
+func TestNewCacheWarmerThinkingAboveThresholdWarmsWithSameBudget(t *testing.T) {
+	fake := &fakeCacheWarmModel{}
+	model := Model{
+		Model:    fake,
+		ModelCfg: config.SelectedModel{Provider: "anthropic", Think: true},
 	}
-	require.Nil(t, newCacheWarmer(model, messages, nil, opts))
+	const budget = int64(2000)
+	// ~4 chars/token: comfortably above 5x(budget+1) tokens.
+	big := strings.Repeat("x", int(cacheWarmThinkingBreakEven*(budget+1)*cacheWarmCharsPerToken)+1000)
+	messages := []fantasy.Message{fantasy.NewUserMessage(big)}
+	opts := thinkingOpts(budget)
 
-	model.ModelCfg.Think = true
-	require.Nil(t, newCacheWarmer(model, messages, nil, nil))
+	warmer := newCacheWarmer(model, messages, nil, opts)
+	require.NotNil(t, warmer)
+	require.True(t, warmer.warm(t.Context()))
 
-	model.ModelCfg.Think = false
-	opts = fantasy.ProviderOptions{anthropic.Name: &anthropic.ProviderOptions{}}
-	require.NotNil(t, newCacheWarmer(model, messages, nil, opts))
+	call := fake.lastCall.Load()
+	require.NotNil(t, call)
+	require.Nil(t, call.Temperature)
+	require.NotNil(t, call.MaxOutputTokens)
+	require.Equal(t, budget+1, *call.MaxOutputTokens)
+	got, ok := call.ProviderOptions[anthropic.Name].(*anthropic.ProviderOptions)
+	require.True(t, ok)
+	require.Equal(t, budget, got.Thinking.BudgetTokens)
+	require.Len(t, call.Prompt, 1)
+}
+
+func TestNewCacheWarmerAdaptiveUsesOneToken(t *testing.T) {
+	fake := &fakeCacheWarmModel{}
+	model := Model{
+		Model:    fake,
+		ModelCfg: config.SelectedModel{Provider: "bedrock-europe"},
+	}
+	effort := anthropic.Effort("high")
+	opts := fantasy.ProviderOptions{anthropic.Name: &anthropic.ProviderOptions{Effort: &effort}}
+
+	warmer := newCacheWarmer(model, []fantasy.Message{fantasy.NewUserMessage("hello")}, nil, opts)
+	require.NotNil(t, warmer)
+	require.True(t, warmer.warm(t.Context()))
+
+	call := fake.lastCall.Load()
+	require.NotNil(t, call)
+	require.Equal(t, cacheWarmMaxOutputTokens, *call.MaxOutputTokens)
+	require.Equal(t, opts, call.ProviderOptions)
+}
+
+func TestCacheWarmerCapsWarmsPerRun(t *testing.T) {
+	model := &fakeCacheWarmModel{}
+	warmer := &cacheWarmer{
+		model:     model,
+		messages:  []fantasy.Message{fantasy.NewUserMessage("hello")},
+		warmEvery: 5 * time.Millisecond,
+		maxPerRun: 2,
+	}
+	tool := &cacheWarmingTool{
+		AgentTool: &sleepTool{delay: 100 * time.Millisecond},
+		warmer:    warmer,
+	}
+
+	_, err := tool.Run(t.Context(), fantasy.ToolCall{Name: "sleep"})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(2), model.calls.Load())
 }
 
 func TestCacheWarmerOmitsTemperature(t *testing.T) {
