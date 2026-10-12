@@ -8,6 +8,7 @@ import (
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
+	"charm.land/fantasy/providers/anthropic"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/stretchr/testify/require"
 )
@@ -63,8 +64,49 @@ func TestNewCacheWarmerGuardsUnsupportedProviders(t *testing.T) {
 
 	require.Nil(t, newCacheWarmer(model, messages, nil, nil))
 
-	model.ModelCfg.Provider = "anthropic"
-	require.NotNil(t, newCacheWarmer(model, messages, nil, nil))
+	for _, provider := range []string{"anthropic", "bedrock", "bedrock-europe", "vercel"} {
+		model.ModelCfg.Provider = provider
+		require.NotNil(t, newCacheWarmer(model, messages, nil, nil), provider)
+	}
+}
+
+func TestNewCacheWarmerSkipsThinkingBudget(t *testing.T) {
+	model := Model{
+		Model:    &fakeCacheWarmModel{},
+		ModelCfg: config.SelectedModel{Provider: "bedrock"},
+	}
+	messages := []fantasy.Message{fantasy.NewUserMessage("hello")}
+
+	opts := fantasy.ProviderOptions{
+		anthropic.Name: &anthropic.ProviderOptions{
+			Thinking: &anthropic.ThinkingProviderOption{BudgetTokens: 2000},
+		},
+	}
+	require.Nil(t, newCacheWarmer(model, messages, nil, opts))
+
+	model.ModelCfg.Think = true
+	require.Nil(t, newCacheWarmer(model, messages, nil, nil))
+
+	model.ModelCfg.Think = false
+	opts = fantasy.ProviderOptions{anthropic.Name: &anthropic.ProviderOptions{}}
+	require.NotNil(t, newCacheWarmer(model, messages, nil, opts))
+}
+
+func TestCacheWarmerOmitsTemperature(t *testing.T) {
+	model := &fakeCacheWarmModel{}
+	warmer := &cacheWarmer{
+		model:     model,
+		messages:  []fantasy.Message{fantasy.NewUserMessage("hello")},
+		warmEvery: time.Millisecond,
+	}
+
+	warmer.warm(t.Context())
+
+	call := model.lastCall.Load()
+	require.NotNil(t, call)
+	require.Nil(t, call.Temperature)
+	require.NotNil(t, call.MaxOutputTokens)
+	require.Equal(t, cacheWarmMaxOutputTokens, *call.MaxOutputTokens)
 }
 
 func TestCacheWarmerSendsSameToolsAsStep(t *testing.T) {

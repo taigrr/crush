@@ -8,14 +8,15 @@ import (
 	"sync"
 	"time"
 
+	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
+	"charm.land/fantasy/providers/anthropic"
 	"charm.land/fantasy/schema"
 )
 
 const (
 	cacheWarmInterval        = 4 * time.Minute
 	cacheWarmMaxOutputTokens = int64(1)
-	cacheWarmTemperature     = 0.0
 )
 
 type cacheWarmer struct {
@@ -32,6 +33,12 @@ type cacheWarmer struct {
 
 func newCacheWarmer(model Model, messages []fantasy.Message, tools []fantasy.AgentTool, providerOptions fantasy.ProviderOptions) *cacheWarmer {
 	if cacheWarmingDisabled() || !cacheWarmingSupportedProvider(model.ModelCfg.Provider) || len(messages) == 0 {
+		return nil
+	}
+	// A thinking budget requires max_tokens > budget_tokens, so a 1-token
+	// warm request would be rejected. Rather than bumping max_tokens (and
+	// paying for real output), skip warming entirely.
+	if model.ModelCfg.Think || hasThinkingBudget(providerOptions) {
 		return nil
 	}
 	return &cacheWarmer{
@@ -51,11 +58,21 @@ func cacheWarmingDisabled() bool {
 
 func cacheWarmingSupportedProvider(provider string) bool {
 	switch provider {
-	case "anthropic", "bedrock", "vercel":
+	case string(catwalk.InferenceProviderAnthropic),
+		string(catwalk.InferenceProviderBedrock),
+		string(catwalk.InferenceProviderBedrockEurope),
+		string(catwalk.InferenceProviderVercel):
 		return true
 	default:
 		return false
 	}
+}
+
+// hasThinkingBudget reports whether the call enables Anthropic extended
+// thinking with an explicit token budget.
+func hasThinkingBudget(opts fantasy.ProviderOptions) bool {
+	o, ok := opts[anthropic.Name].(*anthropic.ProviderOptions)
+	return ok && o != nil && o.Thinking != nil && o.Thinking.BudgetTokens > 0
 }
 
 // cacheWarmTools mirrors how fantasy converts AgentTools into request
@@ -133,12 +150,12 @@ func (w *cacheWarmer) warm(ctx context.Context) {
 		return
 	}
 	maxOutputTokens := cacheWarmMaxOutputTokens
-	temperature := cacheWarmTemperature
+	// Temperature is intentionally omitted: a fixed value is rejected by
+	// Bedrock/Anthropic when thinking or adaptive reasoning is enabled.
 	_, err := w.model.Generate(ctx, fantasy.Call{
 		Prompt:          append(fantasy.Prompt{}, w.messages...),
 		Tools:           w.tools,
 		MaxOutputTokens: &maxOutputTokens,
-		Temperature:     &temperature,
 		UserAgent:       w.userAgent,
 		ProviderOptions: w.providerOptions,
 	})
