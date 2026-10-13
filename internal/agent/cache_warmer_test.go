@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/fantasy"
+	"github.com/taigrr/fantasy/providers/anthropic"
 )
 
 func TestCacheWarmingToolWarmsLongRunningTool(t *testing.T) {
@@ -63,8 +65,110 @@ func TestNewCacheWarmerGuardsUnsupportedProviders(t *testing.T) {
 
 	require.Nil(t, newCacheWarmer(model, messages, nil, nil))
 
-	model.ModelCfg.Provider = "anthropic"
-	require.NotNil(t, newCacheWarmer(model, messages, nil, nil))
+	for _, provider := range []string{"anthropic", "bedrock", "bedrock-europe", "vercel"} {
+		model.ModelCfg.Provider = provider
+		require.NotNil(t, newCacheWarmer(model, messages, nil, nil), provider)
+	}
+}
+
+func thinkingOpts(budget int64) fantasy.ProviderOptions {
+	return fantasy.ProviderOptions{
+		anthropic.Name: &anthropic.ProviderOptions{
+			Thinking: &anthropic.ThinkingProviderOption{BudgetTokens: budget},
+		},
+	}
+}
+
+func TestNewCacheWarmerThinkingBelowThresholdSkips(t *testing.T) {
+	model := Model{
+		Model:    &fakeCacheWarmModel{},
+		ModelCfg: config.SelectedModel{Provider: "bedrock", Think: true},
+	}
+	messages := []fantasy.Message{fantasy.NewUserMessage("hello")}
+
+	require.Nil(t, newCacheWarmer(model, messages, nil, thinkingOpts(2000)))
+}
+
+func TestNewCacheWarmerThinkingAboveThresholdWarmsWithSameBudget(t *testing.T) {
+	fake := &fakeCacheWarmModel{}
+	model := Model{
+		Model:    fake,
+		ModelCfg: config.SelectedModel{Provider: "anthropic", Think: true},
+	}
+	const budget = int64(2000)
+	// ~4 chars/token: comfortably above 5x(budget+1) tokens.
+	big := strings.Repeat("x", int(cacheWarmThinkingBreakEven*(budget+1)*cacheWarmCharsPerToken)+1000)
+	messages := []fantasy.Message{fantasy.NewUserMessage(big)}
+	opts := thinkingOpts(budget)
+
+	warmer := newCacheWarmer(model, messages, nil, opts)
+	require.NotNil(t, warmer)
+	require.True(t, warmer.warm(t.Context()))
+
+	call := fake.lastCall.Load()
+	require.NotNil(t, call)
+	require.Nil(t, call.Temperature)
+	require.NotNil(t, call.MaxOutputTokens)
+	require.Equal(t, budget+1, *call.MaxOutputTokens)
+	got, ok := call.ProviderOptions[anthropic.Name].(*anthropic.ProviderOptions)
+	require.True(t, ok)
+	require.Equal(t, budget, got.Thinking.BudgetTokens)
+	require.Len(t, call.Prompt, 1)
+}
+
+func TestNewCacheWarmerAdaptiveUsesOneToken(t *testing.T) {
+	fake := &fakeCacheWarmModel{}
+	model := Model{
+		Model:    fake,
+		ModelCfg: config.SelectedModel{Provider: "bedrock-europe"},
+	}
+	effort := anthropic.Effort("high")
+	opts := fantasy.ProviderOptions{anthropic.Name: &anthropic.ProviderOptions{Effort: &effort}}
+
+	warmer := newCacheWarmer(model, []fantasy.Message{fantasy.NewUserMessage("hello")}, nil, opts)
+	require.NotNil(t, warmer)
+	require.True(t, warmer.warm(t.Context()))
+
+	call := fake.lastCall.Load()
+	require.NotNil(t, call)
+	require.Equal(t, cacheWarmMaxOutputTokens, *call.MaxOutputTokens)
+	require.Equal(t, opts, call.ProviderOptions)
+}
+
+func TestCacheWarmerCapsWarmsPerRun(t *testing.T) {
+	model := &fakeCacheWarmModel{}
+	warmer := &cacheWarmer{
+		model:     model,
+		messages:  []fantasy.Message{fantasy.NewUserMessage("hello")},
+		warmEvery: 5 * time.Millisecond,
+		maxPerRun: 2,
+	}
+	tool := &cacheWarmingTool{
+		AgentTool: &sleepTool{delay: 100 * time.Millisecond},
+		warmer:    warmer,
+	}
+
+	_, err := tool.Run(t.Context(), fantasy.ToolCall{Name: "sleep"})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(2), model.calls.Load())
+}
+
+func TestCacheWarmerOmitsTemperature(t *testing.T) {
+	model := &fakeCacheWarmModel{}
+	warmer := &cacheWarmer{
+		model:     model,
+		messages:  []fantasy.Message{fantasy.NewUserMessage("hello")},
+		warmEvery: time.Millisecond,
+	}
+
+	warmer.warm(t.Context())
+
+	call := model.lastCall.Load()
+	require.NotNil(t, call)
+	require.Nil(t, call.Temperature)
+	require.NotNil(t, call.MaxOutputTokens)
+	require.Equal(t, cacheWarmMaxOutputTokens, *call.MaxOutputTokens)
 }
 
 func TestCacheWarmerSendsSameToolsAsStep(t *testing.T) {
