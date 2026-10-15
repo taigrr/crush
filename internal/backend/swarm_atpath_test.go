@@ -20,7 +20,24 @@ import (
 // workspace into swarm so CreateSwarmSession(AtPath) passes its gate.
 func writeSwarmProject(t *testing.T, dir string) {
 	t.Helper()
-	const cfg = `{"options":{"swarm":{"enabled":true}}}`
+	// A provider must be configured so CreateWorkspace builds the agent
+	// coordinator; relying on provider API keys in the host environment
+	// makes the tests pass locally but fail on CI runners.
+	const cfg = `{
+  "options": {"swarm": {"enabled": true}},
+  "providers": {
+    "dp": {
+      "type": "openai-compat",
+      "base_url": "http://127.0.0.1:0/v1",
+      "api_key": "x",
+      "models": [{"id": "big", "name": "Big"}]
+    }
+  },
+  "models": {
+    "large": {"provider": "dp", "model": "big"},
+    "small": {"provider": "dp", "model": "big"}
+  }
+}`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "crush.json"), []byte(cfg), 0o644))
 }
 

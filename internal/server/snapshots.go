@@ -5,7 +5,13 @@ import (
 	"net/http"
 
 	"github.com/taigrr/crush/internal/fork"
+	"github.com/taigrr/crush/internal/proto"
 )
+
+// swag resolves "proto.Error" in the @Failure annotations below through this
+// file's own imports, so proto must be imported here even though the handlers
+// write errors via jsonError.
+var _ proto.Error
 
 // handleGetWorkspaceSnapshotsEnabled returns whether snapshots are enabled.
 //
