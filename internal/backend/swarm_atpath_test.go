@@ -20,25 +20,18 @@ import (
 // workspace into swarm so CreateSwarmSession(AtPath) passes its gate.
 func writeSwarmProject(t *testing.T, dir string) {
 	t.Helper()
-	// A provider must be configured so CreateWorkspace builds the agent
-	// coordinator; relying on provider API keys in the host environment
-	// makes the tests pass locally but fail on CI runners.
-	const cfg = `{
-  "options": {"swarm": {"enabled": true}},
-  "providers": {
-    "dp": {
-      "type": "openai-compat",
-      "base_url": "http://127.0.0.1:0/v1",
-      "api_key": "x",
-      "models": [{"id": "big", "name": "Big"}]
-    }
-  },
-  "models": {
-    "large": {"provider": "dp", "model": "big"},
-    "small": {"provider": "dp", "model": "big"}
-  }
-}`
+	const cfg = `{"options":{"swarm":{"enabled":true}}}`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "crush.json"), []byte(cfg), 0o644))
+}
+
+// writeSwarmProviderProject is writeSwarmProject plus a custom provider, so
+// CreateWorkspace builds the agent coordinator (it is skipped when no provider
+// is configured). Tests that assert on the coordinator must use this rather
+// than rely on provider API keys in the host environment, which CI runners
+// don't have.
+func writeSwarmProviderProject(t *testing.T, dir string) {
+	t.Helper()
+	writeSwarmRolesProject(t, dir)
 }
 
 // isolateConfigHome points config.Init's global reads at a throwaway
@@ -238,7 +231,7 @@ func TestCreateWorkspace_WiresSwarm(t *testing.T) {
 	isolateConfigHome(t)
 
 	wd := t.TempDir()
-	writeSwarmProject(t, wd)
+	writeSwarmProviderProject(t, wd)
 
 	srvCfg, err := config.Init(wd, "", false)
 	require.NoError(t, err)
@@ -282,7 +275,7 @@ func TestCreateWorkspace_ReuseRewiresSwarm(t *testing.T) {
 	isolateConfigHome(t)
 
 	wd := t.TempDir()
-	writeSwarmProject(t, wd)
+	writeSwarmProviderProject(t, wd)
 
 	srvCfg, err := config.Init(wd, "", false)
 	require.NoError(t, err)
@@ -335,7 +328,7 @@ func TestCreateWorkspace_ConcurrentCreateBothRewireSwarm(t *testing.T) {
 	isolateConfigHome(t)
 
 	wd := t.TempDir()
-	writeSwarmProject(t, wd)
+	writeSwarmProviderProject(t, wd)
 
 	srvCfg, err := config.Init(wd, "", false)
 	require.NoError(t, err)
