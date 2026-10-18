@@ -138,7 +138,7 @@ func TestBaselineEnrich_NoChangesSkipsDiagnostics(t *testing.T) {
 	require.Empty(t, r.FilesChanged)
 	require.NotNil(t, r.FilesChanged)
 	require.Nil(t, r.Diagnostics)
-	require.Equal(t, "s", r.Address, "sessions without an identity fall back to the raw ID")
+	require.Empty(t, r.Address, "sessions without an identity have no swarm address yet")
 }
 
 func TestBaselineEnrich_LookupFailuresAreBestEffort(t *testing.T) {

@@ -153,6 +153,9 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
   across multiple clients with row-level DB sync and multi-client
   permission coordination.
 - Embedded Swagger UI for the server API at `/v1/docs/`.
+- Machine-readable `crush run --output-format json|stream-json` with
+  distinct exit codes, so scripts and other agents (Claude Code, clawdbot)
+  can drive a full Crush loop. See [docs/headless.md](docs/headless.md).
 
 ### Providers
 

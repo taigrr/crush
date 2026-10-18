@@ -205,9 +205,12 @@ func nonNegative(n int64) int64 {
 }
 
 // SessionAddress returns the session's fully-qualified swarm address
-// (color-animal-shorthash), falling back to the raw session ID when the
-// session has no identity yet.
+// (color-animal-shorthash), or "" when the session has not been assigned
+// an identity yet. The session ID is always a valid address too.
 func SessionAddress(s proto.Session) string {
+	if s.Color == "" || s.Animal == "" {
+		return ""
+	}
 	return swarm.FormatAddress(swarm.Identity{Color: s.Color, Animal: s.Animal}, s.ID)
 }
 
