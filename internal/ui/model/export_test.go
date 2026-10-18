@@ -58,7 +58,8 @@ func TestResolveExportPath(t *testing.T) {
 
 	t.Run("absolute name preserved", func(t *testing.T) {
 		t.Parallel()
-		require.Equal(t, "/abs/path.md", resolveExportPath("/abs/path.md", "t", wd))
+		absPath := filepath.Join(t.TempDir(), "path.md")
+		require.Equal(t, absPath, resolveExportPath(absPath, "t", wd))
 	})
 
 	t.Run("tilde expands to home dir", func(t *testing.T) {
@@ -68,9 +69,10 @@ func TestResolveExportPath(t *testing.T) {
 	})
 
 	t.Run("env var expands", func(t *testing.T) {
-		os.Setenv("EXPORTDIR", "/tmp/exports")
+		exportDir := t.TempDir()
+		os.Setenv("EXPORTDIR", exportDir)
 		defer os.Unsetenv("EXPORTDIR")
-		require.Equal(t, "/tmp/exports/out.md", resolveExportPath("$EXPORTDIR/out", "t", wd))
+		require.Equal(t, filepath.Join(exportDir, "out.md"), resolveExportPath("$EXPORTDIR/out", "t", wd))
 	})
 }
 
