@@ -162,8 +162,8 @@ func TestRunStream_ErrorRunComplete(t *testing.T) {
 }
 
 // TestRunStream_CancelledRunCompleteIsClean ensures a cancelled
-// run (e.g. Ctrl+C while `crush run` waits) exits cleanly rather
-// than reporting the cancellation as a failure.
+// run (e.g. Ctrl+C while `crush run` waits) is not reported as an
+// agent failure; the caller maps it to the cancelled exit code instead.
 func TestRunStream_CancelledRunCompleteIsClean(t *testing.T) {
 	t.Parallel()
 
@@ -189,6 +189,8 @@ func TestRunStream_CompletedRunIsNotCancelled(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, s.cancelled)
 }
+
+// TestRunStream_LeadingWhitespaceTrimmedOnce mirrors the
 // pre-existing trim of leading whitespace on the first byte of
 // stdout: the trim must happen exactly once even when stdout is
 // first produced by the RunComplete reconciliation path rather
