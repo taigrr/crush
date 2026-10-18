@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -628,17 +627,23 @@ func TestRunnerAbandonRaceSafety(t *testing.T) {
 	t.Cleanup(func() { runShell = origRunShell })
 
 	// Synchronize shutdown with the abandoned goroutine so the test
-	// exits cleanly even under -race.
-	var wg sync.WaitGroup
+	// exits cleanly even under -race. A channel closed by the stub is
+	// used rather than a WaitGroup: the stub runs on the goroutine being
+	// abandoned, so a wg.Add there has no happens-before edge to the
+	// cleanup's Wait and -race reports it.
+	finished := make(chan struct{})
 	release := make(chan struct{})
 	t.Cleanup(func() {
 		close(release)
-		wg.Wait()
+		select {
+		case <-finished:
+		case <-time.After(10 * time.Second):
+			t.Error("abandoned hook goroutine never finished")
+		}
 	})
 
 	runShell = func(_ context.Context, opts shell.RunOptions) error {
-		wg.Add(1)
-		defer wg.Done()
+		defer close(finished)
 		// Write before the caller observes ctx.Done(); the caller will
 		// not read the buffer while we still own it.
 		_, _ = io.WriteString(opts.Stdout, "before\n")
