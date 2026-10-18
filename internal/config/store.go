@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/taigrr/catwalk/pkg/catwalk"
@@ -56,7 +57,9 @@ type RuntimeOverrides struct {
 // from racing on store fields. autoReload uses TryLock on reloadMu to
 // skip redundant reloads when one is already in progress.
 type ConfigStore struct {
-	config             *Config
+	// config is swapped wholesale by ReloadFromDisk while other goroutines
+	// (e.g. agent tool builders) read it, so the pointer is atomic.
+	config             atomic.Pointer[Config]
 	workingDir         string
 	resolver           VariableResolver
 	globalDataPath     string   // ~/.local/share/crush/crush.json
@@ -73,7 +76,7 @@ type ConfigStore struct {
 
 // Config returns the pure-data config struct (read-only after load).
 func (s *ConfigStore) Config() *Config {
-	return s.config
+	return s.config.Load()
 }
 
 // WorkingDir returns the current working directory.
@@ -101,7 +104,7 @@ func (s *ConfigStore) KnownProviders() []catwalk.Provider {
 
 // SetupAgents configures the coder and task agents on the config.
 func (s *ConfigStore) SetupAgents() {
-	s.config.SetupAgents()
+	s.Config().SetupAgents()
 }
 
 // Overrides returns the runtime overrides for this store.
@@ -291,7 +294,7 @@ func (s *ConfigStore) UpdatePreferredModel(scope Scope, modelType SelectedModelT
 		return fmt.Errorf("invalid model role name %q: use letters, digits, '-' or '_'", modelType)
 	}
 	s.backfillModelDefaults(&model)
-	s.config.Models[modelType] = model
+	s.Config().Models[modelType] = model
 	if err := s.SetConfigField(scope, fmt.Sprintf("models.%s", modelType), model); err != nil {
 		return fmt.Errorf("failed to update preferred model: %w", err)
 	}
@@ -311,7 +314,7 @@ func (s *ConfigStore) backfillModelDefaults(model *SelectedModel) {
 	if model.Provider == "" || model.Model == "" {
 		return
 	}
-	catalog := s.config.GetModel(model.Provider, model.Model)
+	catalog := s.Config().GetModel(model.Provider, model.Model)
 	if catalog == nil {
 		return
 	}
@@ -326,31 +329,31 @@ func (s *ConfigStore) backfillModelDefaults(model *SelectedModel) {
 
 // SetCompactMode sets the compact mode setting and persists it.
 func (s *ConfigStore) SetCompactMode(scope Scope, enabled bool) error {
-	if s.config.Options == nil {
-		s.config.Options = &Options{}
+	if s.Config().Options == nil {
+		s.Config().Options = &Options{}
 	}
-	s.config.Options.TUI.CompactMode = enabled
+	s.Config().Options.TUI.CompactMode = enabled
 	return s.SetConfigField(scope, "options.tui.compact_mode", enabled)
 }
 
 // SetTransparentBackground sets the transparent background setting and persists it.
 func (s *ConfigStore) SetTransparentBackground(scope Scope, enabled bool) error {
-	if s.config.Options == nil {
-		s.config.Options = &Options{}
+	if s.Config().Options == nil {
+		s.Config().Options = &Options{}
 	}
-	s.config.Options.TUI.Transparent = &enabled
+	s.Config().Options.TUI.Transparent = &enabled
 	return s.SetConfigField(scope, "options.tui.transparent", enabled)
 }
 
 // SetLowBandwidth sets the reduced-motion TUI mode and persists it.
 func (s *ConfigStore) SetLowBandwidth(scope Scope, enabled bool) error {
-	if s.config.Options == nil {
-		s.config.Options = &Options{}
+	if s.Config().Options == nil {
+		s.Config().Options = &Options{}
 	}
-	if s.config.Options.TUI == nil {
-		s.config.Options.TUI = &TUIOptions{}
+	if s.Config().Options.TUI == nil {
+		s.Config().Options.TUI = &TUIOptions{}
 	}
-	s.config.Options.TUI.LowBandwidth = &enabled
+	s.Config().Options.TUI.LowBandwidth = &enabled
 	return s.SetConfigField(scope, "options.tui.low_bandwidth", enabled)
 }
 
@@ -385,10 +388,10 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
 		}
 	}
 
-	providerConfig, exists = s.config.Providers.Get(providerID)
+	providerConfig, exists = s.Config().Providers.Get(providerID)
 	if exists {
 		setKeyOrToken()
-		s.config.Providers.Set(providerID, providerConfig)
+		s.Config().Providers.Set(providerID, providerConfig)
 		return nil
 	}
 
@@ -415,7 +418,7 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
 	} else {
 		return fmt.Errorf("provider with ID %s not found in known providers", providerID)
 	}
-	s.config.Providers.Set(providerID, providerConfig)
+	s.Config().Providers.Set(providerID, providerConfig)
 	return nil
 }
 
@@ -429,7 +432,7 @@ func (s *ConfigStore) SetProviderAPIKey(scope Scope, providerID string, apiKey a
 // already rotated the refresh token — the disk is re-checked under lock
 // to recover the other process's token.
 func (s *ConfigStore) RefreshOAuthToken(ctx context.Context, scope Scope, providerID string) error {
-	providerConfig, exists := s.config.Providers.Get(providerID)
+	providerConfig, exists := s.Config().Providers.Get(providerID)
 	if !exists {
 		return fmt.Errorf("provider %s not found", providerID)
 	}
@@ -495,7 +498,7 @@ func (s *ConfigStore) RefreshOAuthToken(ctx context.Context, scope Scope, provid
 		providerConfig.SetupGrok()
 	}
 
-	s.config.Providers.Set(providerID, providerConfig)
+	s.Config().Providers.Set(providerID, providerConfig)
 
 	if err := s.SetConfigFields(scope, map[string]any{
 		fmt.Sprintf("providers.%s.api_key", providerID): refreshedToken.AccessToken,
@@ -517,7 +520,7 @@ func (s *ConfigStore) applyToken(providerConfig ProviderConfig, token *oauth.Tok
 	if providerID == string(catwalk.InferenceProviderGrok) {
 		providerConfig.SetupGrok()
 	}
-	s.config.Providers.Set(providerID, providerConfig)
+	s.Config().Providers.Set(providerID, providerConfig)
 	return nil
 }
 
@@ -562,8 +565,8 @@ func (s *ConfigStore) recordRecentModel(scope Scope, modelType SelectedModelType
 		return nil
 	}
 
-	if s.config.RecentModels == nil {
-		s.config.RecentModels = make(map[SelectedModelType][]SelectedModel)
+	if s.Config().RecentModels == nil {
+		s.Config().RecentModels = make(map[SelectedModelType][]SelectedModel)
 	}
 
 	eq := func(a, b SelectedModel) bool {
@@ -575,7 +578,7 @@ func (s *ConfigStore) recordRecentModel(scope Scope, modelType SelectedModelType
 		Model:    model.Model,
 	}
 
-	current := s.config.RecentModels[modelType]
+	current := s.Config().RecentModels[modelType]
 	withoutCurrent := slices.DeleteFunc(slices.Clone(current), func(existing SelectedModel) bool {
 		return eq(existing, entry)
 	})
@@ -589,7 +592,7 @@ func (s *ConfigStore) recordRecentModel(scope Scope, modelType SelectedModelType
 		return nil
 	}
 
-	s.config.RecentModels[modelType] = updated
+	s.Config().RecentModels[modelType] = updated
 
 	if err := s.SetConfigField(scope, fmt.Sprintf("recent_models.%s", modelType), updated); err != nil {
 		return fmt.Errorf("failed to persist recent models: %w", err)
@@ -600,10 +603,9 @@ func (s *ConfigStore) recordRecentModel(scope Scope, modelType SelectedModelType
 
 // NewTestStore creates a ConfigStore for testing purposes.
 func NewTestStore(cfg *Config, loadedPaths ...string) *ConfigStore {
-	return &ConfigStore{
-		config:      cfg,
-		loadedPaths: loadedPaths,
-	}
+	store := &ConfigStore{loadedPaths: loadedPaths}
+	store.config.Store(cfg)
+	return store
 }
 
 // ImportCopilot attempts to import a GitHub Copilot token from disk.
@@ -801,8 +803,8 @@ func (s *ConfigStore) reloadFromDiskLocked(_ context.Context) error {
 
 	// Apply defaults (using existing data directory if set)
 	var dataDir string
-	if s.config != nil && s.config.Options != nil {
-		dataDir = s.config.Options.DataDirectory
+	if s.Config() != nil && s.Config().Options != nil {
+		dataDir = s.Config().Options.DataDirectory
 	}
 	cfg.setDefaults(s.workingDir, dataDir)
 
@@ -843,7 +845,7 @@ func (s *ConfigStore) reloadFromDiskLocked(_ context.Context) error {
 	}
 
 	// Save current state for potential rollback
-	oldConfig := s.config
+	oldConfig := s.config.Load()
 	oldLoadedPaths := s.loadedPaths
 	oldResolver := s.resolver
 	oldKnownProviders := s.knownProviders
@@ -851,7 +853,7 @@ func (s *ConfigStore) reloadFromDiskLocked(_ context.Context) error {
 	oldWorkspacePath := s.workspacePath
 
 	// Update store state BEFORE running model/agent setup (so they see new config)
-	s.config = cfg
+	s.config.Store(cfg)
 	s.loadedPaths = loadedPaths
 	s.resolver = resolver
 	s.knownProviders = providers
@@ -872,7 +874,7 @@ func (s *ConfigStore) reloadFromDiskLocked(_ context.Context) error {
 
 	// Rollback on setup failure
 	if setupErr != nil {
-		s.config = oldConfig
+		s.config.Store(oldConfig)
 		s.loadedPaths = oldLoadedPaths
 		s.resolver = oldResolver
 		s.knownProviders = oldKnownProviders

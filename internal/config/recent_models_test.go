@@ -33,10 +33,9 @@ func readRecentModels(t *testing.T, path string) map[string]any {
 
 // testStoreWithPath creates a ConfigStore backed by a Config for recent model tests.
 func testStoreWithPath(cfg *Config, dir string) *ConfigStore {
-	return &ConfigStore{
-		config:         cfg,
+	return withConfig(&ConfigStore{
 		globalDataPath: filepath.Join(dir, "config.json"),
-	}
+	}, cfg)
 }
 
 func TestRecordRecentModel_AddsAndPersists(t *testing.T) {

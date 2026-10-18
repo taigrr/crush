@@ -151,7 +151,7 @@ func TestConfigureSelectedModels_RolesValidatedAndBackfilled(t *testing.T) {
 			{ID: "gpt-5.6-luna(low)", Name: "Luna", DefaultMaxTokens: 4096},
 		},
 	})
-	store := &ConfigStore{config: c}
+	store := withConfig(&ConfigStore{}, c)
 	require.NoError(t, configureSelectedModels(store, nil, false))
 
 	worker, ok := c.Models[SelectedModelTypeWorker]

@@ -164,7 +164,7 @@ func TestLoadFromConfigPaths_InvalidJSON(t *testing.T) {
 
 // testStore wraps a Config in a minimal ConfigStore for testing.
 func testStore(cfg *Config) *ConfigStore {
-	return &ConfigStore{config: cfg}
+	return withConfig(&ConfigStore{}, cfg)
 }
 
 func TestConfig_setDefaults(t *testing.T) {
@@ -1556,7 +1556,7 @@ func TestConfig_configureSelectedModels(t *testing.T) {
 			},
 		}
 		cfg.setDefaults(dir, "")
-		store := &ConfigStore{config: cfg, globalDataPath: globalPath}
+		store := withConfig(&ConfigStore{globalDataPath: globalPath}, cfg)
 		env := env.NewFromMap(map[string]string{})
 		resolver := NewShellVariableResolver(env)
 		err := cfg.configureProviders(store, env, resolver, knownProviders)

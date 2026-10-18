@@ -50,12 +50,12 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 	cfg.setDefaults(workingDir, dataDir)
 
 	store := &ConfigStore{
-		config:         cfg,
 		workingDir:     workingDir,
 		globalDataPath: GlobalConfigData(),
 		workspacePath:  filepath.Join(cfg.Options.DataDirectory, fmt.Sprintf("%s.json", appName)),
 		loadedPaths:    loadedPaths,
 	}
+	store.config.Store(cfg)
 
 	if debug {
 		cfg.Options.Debug = true
@@ -82,7 +82,7 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 					"path", store.workspacePath)
 			}
 			cfg.Embedding = globalEmbedding
-			store.config = cfg
+			store.config.Store(cfg)
 			store.loadedPaths = append(store.loadedPaths, store.workspacePath)
 		}
 	}
@@ -744,7 +744,7 @@ func applyModelOverrides(target *SelectedModel, override SelectedModel, model *c
 }
 
 func configureSelectedModels(store *ConfigStore, knownProviders []catwalk.Provider, persist bool) error {
-	c := store.config
+	c := store.Config()
 	defaultLarge, defaultSmall, err := c.defaultModelSelection(knownProviders)
 	if err != nil {
 		return fmt.Errorf("failed to select default models: %w", err)

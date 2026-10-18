@@ -91,7 +91,7 @@ func (e *EmbeddingConfig) Validate() error {
 // variable resolver. Returns ok=false when no embedder is configured or
 // its provider is unknown/disabled.
 func (s *ConfigStore) EmbeddingProviderParams() (typ, apiKey, baseURL string, ok bool) {
-	cfg := s.config
+	cfg := s.Config()
 	if cfg == nil || cfg.Embedding == nil {
 		return "", "", "", false
 	}
@@ -111,7 +111,7 @@ func (s *ConfigStore) EmbeddingProviderParams() (typ, apiKey, baseURL string, ok
 // EmbeddingParams resolves everything the embedding package needs to
 // build its Service from the active config.
 func (s *ConfigStore) EmbeddingParams() embedding.Params {
-	cfg := s.config
+	cfg := s.Config()
 	if cfg == nil || cfg.Embedding == nil {
 		return embedding.Params{Configured: false}
 	}
