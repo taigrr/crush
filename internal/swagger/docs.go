@@ -68,7 +68,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -139,19 +139,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -190,19 +190,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -249,7 +249,7 @@ const docTemplate = `{
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -308,13 +308,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -348,13 +348,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -380,7 +380,7 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -414,13 +414,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -458,25 +458,25 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -504,13 +504,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -550,13 +550,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -584,13 +584,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -631,13 +631,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -672,13 +672,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -722,13 +722,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -769,13 +769,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -820,13 +820,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -861,13 +861,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -902,13 +902,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -952,13 +952,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -999,13 +999,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1058,19 +1058,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1105,13 +1105,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1146,13 +1146,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1180,13 +1180,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1220,13 +1220,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1266,19 +1266,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1312,13 +1312,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1358,19 +1358,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1410,19 +1410,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1462,19 +1462,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1502,13 +1502,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1548,19 +1548,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1600,19 +1600,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1662,13 +1662,13 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1699,13 +1699,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1752,13 +1752,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1798,19 +1798,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1856,19 +1856,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1905,13 +1905,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1948,13 +1948,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -1994,19 +1994,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2034,13 +2034,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2081,13 +2081,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2115,13 +2115,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2149,13 +2149,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2201,19 +2201,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2259,19 +2259,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2311,19 +2311,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2363,19 +2363,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2415,19 +2415,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2464,13 +2464,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2507,13 +2507,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2554,13 +2554,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2603,19 +2603,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2649,13 +2649,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2693,19 +2693,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2739,13 +2739,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2783,19 +2783,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2823,13 +2823,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2863,13 +2863,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2903,13 +2903,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2943,13 +2943,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -2992,19 +2992,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3041,13 +3041,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3091,19 +3091,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3140,13 +3140,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3187,13 +3187,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3244,19 +3244,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3289,13 +3289,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3336,13 +3336,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3389,13 +3389,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3439,13 +3439,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3489,13 +3489,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3539,13 +3539,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3589,13 +3589,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3636,13 +3636,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3686,13 +3686,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3727,13 +3727,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3777,13 +3777,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3834,19 +3834,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3887,13 +3887,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3935,13 +3935,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3978,13 +3978,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4030,19 +4030,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4079,13 +4079,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4119,13 +4119,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4159,13 +4159,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4199,13 +4199,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4246,13 +4246,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4293,13 +4293,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4334,13 +4334,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4377,13 +4377,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4417,13 +4417,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4464,13 +4464,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4503,13 +4503,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -4556,19 +4556,19 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -5303,6 +5303,14 @@ const docTemplate = `{
                 "ScopeWorkspace"
             ]
         },
+        "github_com_taigrr_crush_internal_proto.Error": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_taigrr_crush_internal_proto.Message": {
             "type": "object",
             "properties": {
@@ -5614,14 +5622,6 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "session_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "proto.Error": {
-            "type": "object",
-            "properties": {
-                "message": {
                     "type": "string"
                 }
             }

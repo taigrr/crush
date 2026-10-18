@@ -361,12 +361,20 @@ func TestConnectionState_SwitchDuringConnectResetsBackoff(t *testing.T) {
 	// connect* (before returning its error), exercising the
 	// prepReconnect reconnectSwitch (connect-window) path rather than
 	// the waitBackoff sleep-window path.
+	// switchIdx records how many delays had been observed at the moment
+	// of the switch. It is captured inside the connect, before the loop
+	// can record the post-switch delay; reading it after switchDone
+	// would race the loop and could skip the reset base delay.
 	var switchedOnce sync.Once
+	var switchIdx int
 	switchDone := make(chan struct{})
 	w.SetSubscribeEventsFnForTest(func(context.Context, string) (<-chan any, error) {
 		select {
 		case <-grown:
 			switchedOnce.Do(func() {
+				obsMu.Lock()
+				switchIdx = len(observed)
+				obsMu.Unlock()
 				w.RequestSwitchForTest()
 				close(switchDone)
 			})
@@ -387,13 +395,8 @@ func TestConnectionState_SwitchDuringConnectResetsBackoff(t *testing.T) {
 		t.Fatal("backoff never grew enough to trigger the in-connect switch")
 	}
 
-	// Record how many delays had been observed at the moment of the
-	// switch; the switch must reset backoff so a delay recorded strictly
-	// afterwards is the base again.
-	obsMu.Lock()
-	switchIdx := len(observed)
-	obsMu.Unlock()
-
+	// The switch must reset backoff so a delay recorded strictly after
+	// it is the base again.
 	require.Eventually(t, func() bool {
 		obsMu.Lock()
 		defer obsMu.Unlock()

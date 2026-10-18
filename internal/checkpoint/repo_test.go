@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -174,6 +175,9 @@ func TestCreateSnapshot(t *testing.T) {
 
 	t.Run("preserves executable permissions", func(t *testing.T) {
 		t.Parallel()
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows has no POSIX executable bits")
+		}
 		projectDir := newProjectDir(t)
 
 		// Create executable file.
@@ -581,7 +585,9 @@ func TestSymlinks(t *testing.T) {
 
 		info, err := os.Stat(filepath.Join(restoreDir, "run.sh"))
 		require.NoError(t, err)
-		require.NotZero(t, info.Mode()&0o111, "executable bit should be preserved")
+		if runtime.GOOS != "windows" {
+			require.NotZero(t, info.Mode()&0o111, "executable bit should be preserved")
+		}
 
 		deep, err := os.ReadFile(filepath.Join(restoreDir, "a", "b", "c.txt"))
 		require.NoError(t, err)

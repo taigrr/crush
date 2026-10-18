@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,8 +62,14 @@ func hyperBuilder(model string) builderFunc {
 	}
 }
 
+var windowsInvalidPathChars = strings.NewReplacer(
+	"<", "_", ">", "_", ":", "_", `"`, "_", "|", "_", "?", "_", "*", "_",
+)
+
 func testEnv(t *testing.T) fakeEnv {
-	workingDir := filepath.Join("/tmp/crush-test/", t.Name())
+	// Keep a fixed, name-derived path so prompts stay deterministic for
+	// cassettes, but strip characters Windows rejects in path segments.
+	workingDir := filepath.Join("/tmp/crush-test/", windowsInvalidPathChars.Replace(t.Name()))
 	os.RemoveAll(workingDir)
 
 	err := os.MkdirAll(workingDir, 0o755)
