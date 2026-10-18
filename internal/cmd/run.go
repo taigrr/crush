@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/format"
+	"github.com/taigrr/crush/internal/headless"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
@@ -58,6 +60,13 @@ crush run --session {session-id} "Follow up on your last response"
 # Continue the most recent session
 crush run --continue "Follow up on your last response"
 
+# Emit a single JSON result (for scripts and other agents)
+crush run --output-format json "Fix the failing test"
+
+# Stream newline-delimited JSON events as the run progresses
+crush run --output-format stream-json "Refactor the config loader"
+
+Exit codes: 0 completed, 1 failure, 4 cancelled, 5 agent error.
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var (
@@ -67,56 +76,99 @@ crush run --continue "Follow up on your last response"
 			smallModel, _ = cmd.Flags().GetString("small-model")
 			sessionID, _  = cmd.Flags().GetString("session")
 			useLast, _    = cmd.Flags().GetBool("continue")
+			formatFlag, _ = cmd.Flags().GetString("output-format")
 		)
 
-		// Cancel on SIGINT or SIGTERM.
-		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
-		defer cancel()
-
-		prompt := strings.Join(args, " ")
-
-		prompt, err := MaybePrependStdin(prompt)
-		if err != nil {
-			slog.Error("Failed to read from stdin", "error", err)
-			return err
-		}
-
-		if prompt == "" {
-			return fmt.Errorf("no prompt provided")
-		}
-
-		switch {
-		case sessionID != "":
-		case useLast:
-		}
-
-		c, ws, cleanup, err := connectToServer(cmd, func(w *proto.Workspace) {
-			w.Isolated = true
-			w.YOLO = true
-		})
+		format, err := headless.ParseOutputFormat(formatFlag)
 		if err != nil {
 			return err
 		}
-		defer cleanup()
-
-		if sessionID != "" {
-			sess, err := resolveSessionByID(ctx, c, ws.ID, sessionID)
-			if err != nil {
-				return err
-			}
-			sessionID = sess.ID
-		}
-
-		if !ws.Config.IsConfigured() {
-			return fmt.Errorf("no providers configured - please run 'crush' to set up a provider interactively")
-		}
-
-		if verbose {
-			slog.SetDefault(slog.New(log.New(os.Stderr)))
-		}
-
-		return runNonInteractive(ctx, c, ws, prompt, largeModel, smallModel, quiet || verbose, sessionID, useLast)
+		return reportRunError(os.Stdout, format, runCommand(cmd, args, runOptions{
+			largeModel:        largeModel,
+			smallModel:        smallModel,
+			hideSpinner:       quiet || verbose,
+			continueSessionID: sessionID,
+			useLast:           useLast,
+			verbose:           verbose,
+			format:            format,
+		}))
 	},
+}
+
+// runOptions carries the parsed `crush run` flags.
+type runOptions struct {
+	prompt            string
+	largeModel        string
+	smallModel        string
+	hideSpinner       bool
+	continueSessionID string
+	useLast           bool
+	verbose           bool
+	format            headless.OutputFormat
+}
+
+func runCommand(cmd *cobra.Command, args []string, opts runOptions) error {
+	// Cancel on SIGINT or SIGTERM.
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	defer cancel()
+
+	prompt := strings.Join(args, " ")
+
+	prompt, err := MaybePrependStdin(prompt)
+	if err != nil {
+		slog.Error("Failed to read from stdin", "error", err)
+		return err
+	}
+
+	if prompt == "" {
+		return fmt.Errorf("no prompt provided")
+	}
+	opts.prompt = prompt
+
+	c, ws, cleanup, err := connectToServer(cmd, func(w *proto.Workspace) {
+		w.Isolated = true
+		w.YOLO = true
+	})
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if opts.continueSessionID != "" {
+		sess, err := resolveSessionByID(ctx, c, ws.ID, opts.continueSessionID)
+		if err != nil {
+			return err
+		}
+		opts.continueSessionID = sess.ID
+	}
+
+	if !ws.Config.IsConfigured() {
+		return fmt.Errorf("no providers configured - please run 'crush' to set up a provider interactively")
+	}
+
+	if opts.verbose {
+		slog.SetDefault(slog.New(log.New(os.Stderr)))
+	}
+
+	return runNonInteractive(ctx, c, ws, opts)
+}
+
+// reportRunError reports a failure that happened outside the run loop
+// (bad flags, server unreachable, no providers) as a structured result
+// when a JSON output format was requested, so callers always get exactly
+// one result object. Errors already reported by the run loop pass
+// through unchanged.
+func reportRunError(out io.Writer, format headless.OutputFormat, err error) error {
+	if err == nil || !format.IsStructured() || headless.IsSilent(err) {
+		return err
+	}
+	res := headless.NewResult(headless.StatusError)
+	res.ExitCode = headless.ExitCode(err)
+	res.Error = err.Error()
+	if emitErr := headless.NewNDJSONEmitter(out).Emit(res); emitErr != nil {
+		return err
+	}
+	return &headless.ExitError{Code: res.ExitCode, Err: err, Silent: true}
 }
 
 func init() {
@@ -126,6 +178,7 @@ func init() {
 	runCmd.Flags().String("small-model", "", "Small model to use. If not provided, uses the default small model for the provider")
 	runCmd.Flags().StringP("session", "s", "", "Continue a previous session by ID")
 	runCmd.Flags().BoolP("continue", "C", false, "Continue the most recent session")
+	runCmd.Flags().StringP("output-format", "o", string(headless.FormatText), "Output format: text, json, or stream-json")
 	runCmd.MarkFlagsMutuallyExclusive("session", "continue")
 }
 
@@ -135,18 +188,17 @@ func runNonInteractive(
 	ctx context.Context,
 	c *client.Client,
 	ws *proto.Workspace,
-	prompt, largeModel, smallModel string,
-	hideSpinner bool,
-	continueSessionID string,
-	useLast bool,
+	opts runOptions,
 ) error {
-	slog.Info("Running in non-interactive mode")
+	slog.Info("Running in non-interactive mode", "format", opts.format)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if largeModel != "" || smallModel != "" {
-		if err := overrideModels(ctx, c, ws, largeModel, smallModel); err != nil {
+	hideSpinner := opts.hideSpinner || opts.format.IsStructured()
+
+	if opts.largeModel != "" || opts.smallModel != "" {
+		if err := overrideModels(ctx, c, ws, opts.largeModel, opts.smallModel); err != nil {
 			return fmt.Errorf("failed to override models: %w", err)
 		}
 	}
@@ -208,15 +260,21 @@ func runNonInteractive(
 
 	defer stopSpinner()
 
-	sess, err := resolveSession(ctx, c, ws.ID, continueSessionID, useLast)
+	sess, err := resolveSession(ctx, c, ws.ID, opts.continueSessionID, opts.useLast)
 	if err != nil {
 		return fmt.Errorf("failed to resolve session: %w", err)
 	}
-	if continueSessionID != "" || useLast {
+	if opts.continueSessionID != "" || opts.useLast {
 		slog.Info("Continuing session for non-interactive run", "session_id", sess.ID)
 	} else {
 		slog.Info("Created session for non-interactive run", "session_id", sess.ID)
 	}
+
+	if opts.format.IsStructured() {
+		stopSpinner()
+		return runStructured(ctx, c, ws, sess, opts.prompt, opts.format, os.Stdout)
+	}
+	prompt := opts.prompt
 
 	events, err := c.SubscribeEvents(ctx, ws.ID)
 	if err != nil {
@@ -261,15 +319,19 @@ func runNonInteractive(
 
 			done, err := stream.handle(ev, stopSpinner)
 			if err != nil {
-				return err
+				return headless.NewExitError(headless.ExitAgentError, err)
 			}
 			if done {
+				if stream.cancelled {
+					return headless.NewExitError(headless.ExitCancelled, errors.New("run cancelled"))
+				}
 				return nil
 			}
 
 		case <-ctx.Done():
 			stopSpinner()
-			return ctx.Err()
+			cancelServerRun(c, ws.ID, sess.ID)
+			return headless.NewExitError(headless.ExitCancelled, ctx.Err())
 		case err := <-sendErr:
 			if err != nil {
 				stopSpinner()
@@ -301,6 +363,9 @@ type runStream struct {
 	out       io.Writer
 	read      map[string]int
 	printed   bool
+	// cancelled is set when the terminal RunComplete reports that the
+	// run was cancelled rather than completed.
+	cancelled bool
 }
 
 // emitIncremental writes the not-yet-printed suffix of full for message
@@ -383,6 +448,7 @@ func (s *runStream) handle(ev any, stopSpinner func()) (done bool, err error) {
 		if e.Payload.Error != "" && !e.Payload.Cancelled {
 			return true, fmt.Errorf("agent run failed: %s", e.Payload.Error)
 		}
+		s.cancelled = e.Payload.Cancelled
 		// Reconcile stdout against the authoritative final
 		// assistant text carried in the event. The pubsub fan-in
 		// does not serialize publishes across upstream brokers, so

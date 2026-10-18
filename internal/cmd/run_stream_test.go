@@ -175,9 +175,20 @@ func TestRunStream_CancelledRunCompleteIsClean(t *testing.T) {
 	}}, nil)
 	require.True(t, done)
 	require.NoError(t, err)
+	require.True(t, s.cancelled, "the caller maps a cancelled run to the cancelled exit code")
 }
 
-// TestRunStream_LeadingWhitespaceTrimmedOnce mirrors the
+// TestRunStream_CompletedRunIsNotCancelled guards the cancelled flag
+// against false positives on a normal completion.
+func TestRunStream_CompletedRunIsNotCancelled(t *testing.T) {
+	t.Parallel()
+
+	s := &runStream{sessionID: "S", out: &bytes.Buffer{}, read: map[string]int{}}
+	done, err := s.handle(pubsub.Event[proto.RunComplete]{Payload: proto.RunComplete{SessionID: "S"}}, nil)
+	require.True(t, done)
+	require.NoError(t, err)
+	require.False(t, s.cancelled)
+}
 // pre-existing trim of leading whitespace on the first byte of
 // stdout: the trim must happen exactly once even when stdout is
 // first produced by the RunComplete reconciliation path rather

@@ -30,6 +30,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/headless"
 	"github.com/taigrr/crush/internal/lock"
 	crushlog "github.com/taigrr/crush/internal/log"
 	"github.com/taigrr/crush/internal/proto"
@@ -193,9 +194,19 @@ func Execute() {
 		rootCmd,
 		fang.WithVersion(version.Version),
 		fang.WithNotifySignal(os.Interrupt),
+		fang.WithErrorHandler(errorHandler),
 	); err != nil {
-		os.Exit(1)
+		os.Exit(headless.ExitCode(err))
 	}
+}
+
+// errorHandler prints command errors, except those a headless command
+// has already reported in its structured output format.
+func errorHandler(w io.Writer, styles fang.Styles, err error) {
+	if headless.IsSilent(err) {
+		return
+	}
+	fang.DefaultErrorHandler(w, styles, err)
 }
 
 // supportsProgressBar tries to determine whether the current terminal supports
