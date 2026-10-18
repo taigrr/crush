@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -47,23 +48,28 @@ func TestHasChanges(t *testing.T) {
 func TestAffectedPaths_DedupesAndSorts(t *testing.T) {
 	t.Parallel()
 
+	dir := t.TempDir()
+	pathA := filepath.Join(dir, "a.go")
+	pathB := filepath.Join(dir, "b.go")
+	pathC := filepath.Join(dir, "c.go")
+
 	edit := &protocol.WorkspaceEdit{
 		Changes: map[protocol.DocumentURI][]protocol.TextEdit{
-			protocol.URIFromPath("/tmp/b.go"): {},
-			protocol.URIFromPath("/tmp/a.go"): {},
+			protocol.URIFromPath(pathB): {},
+			protocol.URIFromPath(pathA): {},
 		},
 		DocumentChanges: []protocol.DocumentChange{
 			{TextDocumentEdit: &protocol.TextDocumentEdit{
 				TextDocument: protocol.OptionalVersionedTextDocumentIdentifier{
 					TextDocumentIdentifier: protocol.TextDocumentIdentifier{
-						URI: protocol.URIFromPath("/tmp/a.go"), // duplicate of Changes
+						URI: protocol.URIFromPath(pathA), // duplicate of Changes
 					},
 				},
 			}},
 			{TextDocumentEdit: &protocol.TextDocumentEdit{
 				TextDocument: protocol.OptionalVersionedTextDocumentIdentifier{
 					TextDocumentIdentifier: protocol.TextDocumentIdentifier{
-						URI: protocol.URIFromPath("/tmp/c.go"),
+						URI: protocol.URIFromPath(pathC),
 					},
 				},
 			}},
@@ -71,7 +77,7 @@ func TestAffectedPaths_DedupesAndSorts(t *testing.T) {
 	}
 
 	got := affectedPaths(edit)
-	require.Equal(t, []string{"/tmp/a.go", "/tmp/b.go", "/tmp/c.go"}, got)
+	require.Equal(t, []string{pathA, pathB, pathC}, got)
 }
 
 func TestFormatRenameResult(t *testing.T) {
