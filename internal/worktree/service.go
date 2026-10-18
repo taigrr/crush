@@ -140,6 +140,16 @@ func NewService(cfg ServiceConfig, queries *db.Queries, conn *sql.DB, checkpoint
 		if err := os.MkdirAll(worktreeDir, 0o755); err != nil {
 			return nil, fmt.Errorf("create worktrees dir: %w", err)
 		}
+		// Keep the managed worktrees out of the main checkout's status.
+		// Otherwise they show up as untracked files, and Merge refuses to
+		// run because the project tree looks dirty. The data directory's
+		// own .gitignore only covers this when it is the default .crush.
+		gitIgnorePath := filepath.Join(worktreeDir, ".gitignore")
+		if _, err := os.Stat(gitIgnorePath); os.IsNotExist(err) {
+			if err := os.WriteFile(gitIgnorePath, []byte("*\n"), 0o644); err != nil {
+				return nil, fmt.Errorf("create worktrees .gitignore: %w", err)
+			}
+		}
 	}
 
 	return &service{
