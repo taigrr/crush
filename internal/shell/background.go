@@ -128,7 +128,7 @@ func (m *BackgroundShellManager) Start(ctx context.Context, workingDir string, b
 		err := shell.ExecStream(shellCtx, command, bgShell.stdout, bgShell.stderr)
 
 		bgShell.exitErr = err
-		bgShell.killed.Store(shellCtx.Err() != nil)
+		bgShell.killed.Store(err != nil && shellCtx.Err() != nil)
 		bgShell.completedAt.Store(time.Now().Unix())
 	}()
 
@@ -255,10 +255,11 @@ func (bs *BackgroundShell) IsDone() bool {
 	}
 }
 
-// Killed reports whether the shell exited after being cancelled via Kill or
-// KillAll. Unlike checking the exit error, this is reliable on Windows, where
-// a killed process reports a plain non-zero exit status rather than a
-// context cancellation.
+// Killed reports whether the shell exited with an error after its context was
+// cancelled (via Kill or KillAll; callers start jobs with a background
+// context). Unlike checking the exit error, this is reliable on Windows, where
+// a killed process reports a plain non-zero exit status rather than a context
+// cancellation.
 func (bs *BackgroundShell) Killed() bool {
 	return bs.killed.Load()
 }

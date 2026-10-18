@@ -352,3 +352,28 @@ func TestBackgroundShell_WaitContext_Canceled(t *testing.T) {
 
 	require.False(t, bgShell.WaitContext(ctx))
 }
+
+func TestBackgroundShell_Killed(t *testing.T) {
+	t.Parallel()
+
+	t.Run("set when killed", func(t *testing.T) {
+		t.Parallel()
+		manager := newBackgroundShellManager()
+		bgShell, err := manager.Start(context.Background(), t.TempDir(), nil, "sleep 30", "")
+		require.NoError(t, err)
+		require.NoError(t, manager.Kill(bgShell.ID))
+		bgShell.Wait()
+		require.True(t, bgShell.Killed())
+	})
+
+	t.Run("unset on natural non-zero exit", func(t *testing.T) {
+		t.Parallel()
+		manager := newBackgroundShellManager()
+		bgShell, err := manager.Start(context.Background(), t.TempDir(), nil, "exit 3", "")
+		require.NoError(t, err)
+		bgShell.Wait()
+		_, _, _, execErr := bgShell.GetOutput()
+		require.Equal(t, 3, ExitCode(execErr))
+		require.False(t, bgShell.Killed())
+	})
+}
