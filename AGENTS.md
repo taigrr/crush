@@ -103,11 +103,14 @@ internal/
 
 - **Headless**: `internal/headless` owns the JSON result/event schema,
   exit codes, and the watch/answer/status helpers shared by `crush run`,
-  `crush session {wait,status,answer,cancel}`, and `crush mcp`. Per-run
-  permission modes are per-session policies in the permission service
-  (`SetSessionPolicy`), applied via `AgentMessage.PermissionPolicy` and
-  cleared when the session goes idle. Exit codes are public API: never
-  renumber them. User docs live in `docs/headless.md`.
+  `crush session {wait,status,answer,cancel}`, and `crush mcp`. Permission
+  modes are per-turn: `AgentMessage.PermissionPolicy` becomes
+  `SessionAgentCall.PermissionPolicy`, which `sessionAgent.Run` puts on the
+  turn's context (`permission.WithPolicy`). Anything a turn starts on its
+  behalf (sub-agents, background job notices, swarm sends) must carry the
+  policy along, and queued prompts are only folded into a turn with the same
+  policy. Exit codes are public API: never renumber them. User docs live in
+  `docs/headless.md`.
 
 ## Build/Test/Lint Commands
 

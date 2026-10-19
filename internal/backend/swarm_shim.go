@@ -5,6 +5,7 @@ import (
 
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
 )
@@ -62,8 +63,9 @@ func (s *swarmShim) Send(ctx context.Context, senderSessionID string, target too
 // never interrupts the turn that launched the job.
 func (s *swarmShim) NotifySession(ctx context.Context, workspaceID, sessionID, text string) error {
 	return s.b.SendMessage(workspaceID, proto.AgentMessage{
-		SessionID: sessionID,
-		Prompt:    text,
+		SessionID:        sessionID,
+		Prompt:           text,
+		PermissionPolicy: proto.PermissionPolicy(permission.PolicyFromContext(ctx)),
 	})
 }
 

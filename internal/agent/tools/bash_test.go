@@ -264,6 +264,35 @@ func TestBashTool_BackgroundJobCompletionNotifies(t *testing.T) {
 	}
 }
 
+func TestBashTool_BackgroundJobNotifyCarriesRunPolicy(t *testing.T) {
+	workingDir := t.TempDir()
+	got := make(chan permission.SessionPolicy, 1)
+	notify := func(ctx context.Context, sessionID, text string) error {
+		got <- permission.PolicyFromContext(ctx)
+		return nil
+	}
+	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
+	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
+	tool := NewBashTool(permissions, func(context.Context) string { return workingDir }, attribution, "test-model", notify)
+	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx = permission.WithPolicy(ctx, permission.SessionPolicyDeny)
+
+	resp := runBashTool(t, tool, ctx, BashParams{
+		Description:     "quick job",
+		Command:         "sleep 1; echo done",
+		RunInBackground: true,
+	})
+	require.False(t, resp.IsError)
+
+	select {
+	case policy := <-got:
+		require.Equal(t, permission.SessionPolicyDeny, policy,
+			"the completion turn runs under the policy of the turn that launched the job")
+	case <-time.After(10 * time.Second):
+		t.Fatal("expected background job completion notification")
+	}
+}
+
 func TestBashTool_KilledBackgroundJobDoesNotNotify(t *testing.T) {
 	workingDir := t.TempDir()
 	got := make(chan string, 1)

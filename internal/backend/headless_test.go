@@ -170,3 +170,17 @@ func TestPendingPrompts_WorkspaceNotFound(t *testing.T) {
 	_, err := b.PendingPrompts(t.Context(), "nope", "s")
 	require.ErrorIs(t, err, ErrWorkspaceNotFound)
 }
+
+func TestNotifySession_CarriesRunPolicy(t *testing.T) {
+	t.Parallel()
+	b, _ := newTestBackend(t)
+	ws, coord := insertPolicyWorkspace(t, b)
+
+	shim := &swarmShim{b: b}
+	ctx := permission.WithPolicy(t.Context(), permission.SessionPolicyDeny)
+	require.NoError(t, shim.NotifySession(ctx, ws.ID, "S1", "[background job finished]"))
+	waitForRunEntered(t, coord)
+	close(coord.release)
+	require.Equal(t, permission.SessionPolicyDeny, coord.seen.Load(),
+		"a job's completion turn keeps the policy of the run that started it")
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/home"
+	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
@@ -346,6 +347,10 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 		// SwarmParts, when non-empty, replaces the default
 		// TextContent user message with structured swarm parts.
 		SwarmParts: []proto.SwarmMessage{part},
+		// Work delegated by a headless run stays under that run's
+		// permission policy, so a deny run cannot escape its policy by
+		// handing work to another session.
+		PermissionPolicy: proto.PermissionPolicy(permission.PolicyFromContext(ctx)),
 	}
 	if err := b.SendMessage(target.WorkspaceID, msg); err != nil {
 		return SwarmSendResult{}, err

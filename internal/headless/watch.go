@@ -70,9 +70,11 @@ func Watch(ctx context.Context, c WatchClient, req WatchRequest) Outcome {
 		}
 		return Outcome{Status: StatusBlocked, Pending: &pending, Error: blockedReason(pending)}, true
 	}
+	// busy errs on the side of "still running": a transient lookup
+	// failure must not end a wait early.
 	busy := func() bool {
 		info, err := c.GetAgentSessionInfo(ctx, req.WorkspaceID, req.SessionID)
-		return err == nil && info != nil && info.IsBusy
+		return err != nil || (info != nil && info.IsBusy)
 	}
 
 	if req.CheckIdle {
@@ -114,6 +116,9 @@ func Watch(ctx context.Context, c WatchClient, req WatchRequest) Outcome {
 
 		case ev, ok := <-req.Events:
 			if !ok {
+				if held != nil {
+					return reconcileDenial(ctx, c, req, *held)
+				}
 				return Outcome{
 					Status:   StatusError,
 					Error:    "event stream closed before the run finished",
@@ -141,6 +146,9 @@ func Watch(ctx context.Context, c WatchClient, req WatchRequest) Outcome {
 			return reconcileDenial(ctx, c, req, *out)
 
 		case <-deadline:
+			if held != nil && !busy() {
+				return reconcileDenial(ctx, c, req, *held)
+			}
 			return Outcome{Status: StatusTimeout, Error: "timed out waiting for the run to finish"}
 
 		case <-ctx.Done():

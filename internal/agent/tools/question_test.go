@@ -84,6 +84,25 @@ func TestQuestionTool_RunPolicy(t *testing.T) {
 	assert.Contains(t, resp.Content, "question was not answered")
 }
 
+func TestQuestionCapable_FollowsRunPolicy(t *testing.T) {
+	t.Parallel()
+
+	skipping := permission.NewPermissionService("/tmp", true, nil)
+	interactive := permission.NewPermissionService("/tmp", false, nil)
+	interactive.AutoApproveSession("fetch-child")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "s")
+
+	assert.True(t, QuestionCapable(skipping)(permission.WithPolicy(ctx, permission.SessionPolicyPrompt)),
+		"a delegated run can ask even when the workspace skips prompts")
+	assert.False(t, QuestionCapable(skipping)(ctx))
+	assert.True(t, QuestionCapable(interactive)(ctx))
+	assert.False(t, QuestionCapable(interactive)(permission.WithPolicy(ctx, permission.SessionPolicyDeny)))
+	assert.False(t, QuestionCapable(interactive)(permission.WithPolicy(ctx, permission.SessionPolicyAllow)))
+
+	child := context.WithValue(permission.WithPolicy(t.Context(), permission.SessionPolicyPrompt), SessionIDContextKey, "fetch-child")
+	assert.False(t, QuestionCapable(interactive)(child), "an auto-approving sub-agent is unattended")
+}
+
 func TestQuestionTool_NotAvailableInNonInteractiveContext(t *testing.T) {
 	t.Parallel()
 

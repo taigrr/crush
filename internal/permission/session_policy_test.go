@@ -246,3 +246,16 @@ func TestContextPolicy_AllowAndDeny(t *testing.T) {
 	require.False(t, granted)
 	require.Equal(t, SessionPolicyPrompt, svc.SessionPolicy("s"), "run policies never change the session default")
 }
+
+func TestEffectivePolicy_AutoApprovedChildStaysApprovedUnderDelegate(t *testing.T) {
+	t.Parallel()
+
+	svc := NewPermissionService("/tmp", false, nil)
+	svc.AutoApproveSession("fetch-child")
+	p, _ := EffectivePolicy(WithPolicy(t.Context(), SessionPolicyPrompt), svc, "fetch-child")
+	require.Equal(t, SessionPolicyAllow, p, "the caller already approved the fetch that started the sub-agent")
+
+	granted, err := svc.Request(WithPolicy(t.Context(), SessionPolicyPrompt), policyRequest("fetch-child", "tc"))
+	require.NoError(t, err)
+	require.True(t, granted)
+}

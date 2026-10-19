@@ -107,11 +107,21 @@ func PolicyFromContext(ctx context.Context) SessionPolicy {
 // EffectivePolicy returns the policy that governs a request from
 // sessionID made under ctx. explicit is true when the policy came from
 // the run (ctx) rather than the session's stored default.
+//
+// A session that auto-approves itself (an agentic fetch sub-agent) stays
+// auto-approved under a delegated run: the caller already approved the
+// tool call that started it. Only an explicit deny overrides that.
 func EffectivePolicy(ctx context.Context, svc Service, sessionID string) (policy SessionPolicy, explicit bool) {
-	if p := PolicyFromContext(ctx); p != "" {
+	stored := svc.SessionPolicy(sessionID)
+	p := PolicyFromContext(ctx)
+	switch {
+	case p == "":
+		return stored, false
+	case p == SessionPolicyPrompt && stored == SessionPolicyAllow:
+		return stored, false
+	default:
 		return p, true
 	}
-	return svc.SessionPolicy(sessionID), false
 }
 
 // ParseSessionPolicy validates s. The empty string maps to

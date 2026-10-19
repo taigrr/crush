@@ -71,6 +71,17 @@ func (f *fakeRunClient) SendAgentMessage(_ context.Context, _ string, msg proto.
 	if f.sendErr != nil {
 		return f.sendErr
 	}
+	f.mu.Lock()
+	busy := f.busy
+	f.mu.Unlock()
+	if !busy {
+		// Like the real server, an idle session's turn starts with the
+		// caller's user message.
+		f.events <- pubsub.Event[proto.Message]{Payload: proto.Message{
+			ID: "user-" + msg.RunID, SessionID: msg.SessionID, Role: proto.User,
+			Parts: []proto.ContentPart{proto.TextContent{Text: msg.Prompt}},
+		}}
+	}
 	if f.script != nil {
 		for _, ev := range f.script(msg.RunID) {
 			f.events <- ev
@@ -328,6 +339,7 @@ func TestRunStructured_StreamClosed(t *testing.T) {
 	t.Parallel()
 
 	c := newFakeRunClient(nil)
+	c.busy = true // nothing is sent on the closed stream
 	close(c.events)
 	lines, err := runStructuredForTest(t, t.Context(), c, headless.FormatJSON)
 	require.Equal(t, headless.ExitFailure, headless.ExitCode(err))

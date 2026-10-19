@@ -214,7 +214,12 @@ type JobNotifyFunc func(ctx context.Context, sessionID, text string) error
 // its output to notify as a queued message on the owning session.
 // Jobs that were killed (interrupted) are skipped: the kill was
 // deliberate, so a completion notice would only be noise.
-func watchBackgroundJob(bgShell *shell.BackgroundShell, sessionID string, notify JobNotifyFunc) {
+//
+// policy is the run permission policy of the turn that launched the job;
+// the completion turn runs under it too, so a job started by an
+// unattended headless run never surfaces prompts nobody will answer, and
+// a deny run's follow-up cannot be escalated by the workspace yolo toggle.
+func watchBackgroundJob(bgShell *shell.BackgroundShell, sessionID string, policy permission.SessionPolicy, notify JobNotifyFunc) {
 	if notify == nil || bgShell == nil {
 		return
 	}
@@ -224,7 +229,7 @@ func watchBackgroundJob(bgShell *shell.BackgroundShell, sessionID string, notify
 		return
 	}
 	text := formatJobCompletion(bgShell, stdout, stderr, execErr)
-	if err := notify(context.Background(), sessionID, text); err != nil {
+	if err := notify(permission.WithPolicy(context.Background(), policy), sessionID, text); err != nil {
 		slog.Warn("Background job completion notify failed", "job", bgShell.ID, "session", sessionID, "error", err)
 	}
 }
@@ -361,7 +366,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				}
 
 				// Still running after fast-failure check - return as background job
-				go watchBackgroundJob(bgShell, sessionID, notify)
+				go watchBackgroundJob(bgShell, sessionID, permission.PolicyFromContext(ctx), notify)
 				metadata := BashResponseMetadata{
 					StartTime:        startTime.UnixMilli(),
 					EndTime:          time.Now().UnixMilli(),
@@ -446,7 +451,7 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 			}
 
 			// Still running - keep as background job
-			go watchBackgroundJob(bgShell, sessionID, notify)
+			go watchBackgroundJob(bgShell, sessionID, permission.PolicyFromContext(ctx), notify)
 			metadata := BashResponseMetadata{
 				StartTime:        startTime.UnixMilli(),
 				EndTime:          time.Now().UnixMilli(),

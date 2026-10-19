@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/taigrr/crush/internal/agent/notify"
+	"github.com/taigrr/crush/internal/permission"
 )
 
 func (r *AcceptedRun) Close() {
@@ -130,9 +131,12 @@ func (a *sessionAgent) enqueueCall(call SessionAgentCall) {
 // a RunID are left in the queue so each runs as its own turn via the
 // recursive run path and publishes its own RunComplete, giving every
 // RunID-bearing prompt an explicit lifecycle instead of being silently
-// absorbed into another turn. fold is processed by the caller without the
-// lock held.
-func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceledWithRunID []SessionAgentCall) {
+// absorbed into another turn. A call whose permission policy differs from
+// the active turn's (activePolicy) is also left queued: folding it would
+// run its tool calls under the other turn's policy, for example letting a
+// swarm message or `/btw` aside be auto-approved by a headless yolo turn.
+// fold is processed by the caller without the lock held.
+func (a *sessionAgent) drainQueueForStep(sessionID string, activePolicy permission.SessionPolicy) (fold, canceledWithRunID []SessionAgentCall) {
 	dispatchLock := a.sessionMu(sessionID)
 	dispatchLock.Lock()
 	defer dispatchLock.Unlock()
@@ -145,7 +149,7 @@ func (a *sessionAgent) drainQueueForStep(sessionID string) (fold, canceledWithRu
 			}
 			continue
 		}
-		if queued.RunID != "" {
+		if queued.RunID != "" || queued.PermissionPolicy != activePolicy {
 			keep = append(keep, queued)
 			continue
 		}

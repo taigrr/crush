@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/agent/notify"
+	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/pubsub"
 )
 
@@ -85,7 +86,7 @@ func TestDrainQueueForStep_FiltersUnderDispatchLock(t *testing.T) {
 	// Cancel high-water mark at seq 2: seq <= 2 and seq == 0 are covered.
 	a.cancelMark.Set(sessionID, 2)
 
-	fold, canceledWithRunID := a.drainQueueForStep(sessionID)
+	fold, canceledWithRunID := a.drainQueueForStep(sessionID, "")
 
 	require.Len(t, fold, 1,
 		"only the follow-up queued after the cancel (seq > mark) must be folded")
@@ -114,7 +115,7 @@ func TestDrainQueueForStep_NoMarkFoldsAllNonRunID(t *testing.T) {
 		{SessionID: sessionID, Prompt: "b", acceptSeq: 5},
 	})
 
-	fold, canceledWithRunID := a.drainQueueForStep(sessionID)
+	fold, canceledWithRunID := a.drainQueueForStep(sessionID, "")
 	require.Len(t, fold, 2, "no cancel mark means all non-RunID queued calls are folded")
 	require.Empty(t, canceledWithRunID)
 }
@@ -142,7 +143,7 @@ func TestDrainQueueForStep_KeepsRunIDPromptsQueued(t *testing.T) {
 		{SessionID: sessionID, RunID: "run-b", Prompt: "keep-me-too", acceptSeq: 3},
 	})
 
-	fold, canceledWithRunID := a.drainQueueForStep(sessionID)
+	fold, canceledWithRunID := a.drainQueueForStep(sessionID, "")
 
 	require.Len(t, fold, 1, "only the non-RunID prompt is folded into the active turn")
 	require.Equal(t, "fold-me", fold[0].Prompt)
@@ -177,7 +178,7 @@ func TestDrainQueueForStep_ReportsCanceledRunIDDrops(t *testing.T) {
 	})
 	a.cancelMark.Set(sessionID, 2)
 
-	fold, canceledWithRunID := a.drainQueueForStep(sessionID)
+	fold, canceledWithRunID := a.drainQueueForStep(sessionID, "")
 
 	require.Empty(t, fold, "no uncanceled non-RunID prompts to fold")
 	require.Len(t, canceledWithRunID, 1,
@@ -319,9 +320,38 @@ func TestDrainQueueForStep_DroppedRunIDPublishesCancelledRunComplete(t *testing.
 	})
 	a.cancelMark.Set(sessionID, 2)
 
-	_, canceledWithRunID := a.drainQueueForStep(sessionID)
+	_, canceledWithRunID := a.drainQueueForStep(sessionID, "")
 	require.Len(t, canceledWithRunID, 1)
 	a.publishCanceledQueueDrops(canceledWithRunID)
 
 	requireSingleCancelledRunComplete(t, ch, sessionID, "run-dropped")
+}
+
+// TestDrainQueueForStep_KeepsDifferentPolicyQueued ensures a queued call
+// is never folded into a turn running under another permission policy:
+// a swarm message or `/btw` aside arriving during a headless yolo turn
+// must run as its own turn, not inherit the yolo approval.
+func TestDrainQueueForStep_KeepsDifferentPolicyQueued(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	a := NewSessionAgent(SessionAgentOptions{
+		Sessions: env.sessions,
+		Messages: env.messages,
+	}).(*sessionAgent)
+
+	const sessionID = "drain-policy"
+	a.messageQueue.Set(sessionID, []SessionAgentCall{
+		{SessionID: sessionID, Prompt: "btw from the TUI"},
+		{SessionID: sessionID, Prompt: "same policy", PermissionPolicy: permission.SessionPolicyAllow},
+	})
+
+	fold, _ := a.drainQueueForStep(sessionID, permission.SessionPolicyAllow)
+	require.Len(t, fold, 1)
+	require.Equal(t, "same policy", fold[0].Prompt)
+
+	kept, ok := a.messageQueue.Get(sessionID)
+	require.True(t, ok)
+	require.Len(t, kept, 1)
+	require.Equal(t, "btw from the TUI", kept[0].Prompt, "a call with another policy waits for its own turn")
 }

@@ -53,10 +53,12 @@ func runHeadless(
 	cwd := workspaceCwd(ws)
 	baseline := headless.TakeBaseline(ctx, c, ws.ID, sess.ID)
 
+	// Our prompt may be queued behind another turn (a TUI user's, or one
+	// that starts between any busy check and our send), so output and
+	// prompts are only attributed to us once our own user message shows
+	// up. Completion is still matched by RunID.
 	tracker := headless.NewTracker(sess.ID, runID, progress)
-	if info, err := c.GetAgentSessionInfo(ctx, ws.ID, sess.ID); err == nil && info != nil && info.IsBusy {
-		tracker.AwaitUserPrompt(opts.prompt)
-	}
+	tracker.AwaitUserPrompt(opts.prompt)
 
 	events, err := c.SubscribeEvents(ctx, ws.ID)
 	if err != nil {
