@@ -24,7 +24,7 @@ func TestFingerprint_Stable(t *testing.T) {
 func TestIdentityAndCursors(t *testing.T) {
 	t.Cleanup(db.ResetPool)
 	ctx := context.Background()
-	conn, err := db.Connect(ctx, t.TempDir())
+	conn, err := db.Connect(ctx, db.TempDataDir(t))
 	require.NoError(t, err)
 
 	id1, err := LoadOrInitIdentity(ctx, conn, FingerprintInputs{Remote: "github.com/c/c", RepoRelCrushDir: ".crush"})
@@ -50,7 +50,7 @@ func TestIdentityAndCursors(t *testing.T) {
 func TestPendingChanges_CollapsesAndDeletes(t *testing.T) {
 	t.Cleanup(db.ResetPool)
 	ctx := context.Background()
-	conn, err := db.Connect(ctx, t.TempDir())
+	conn, err := db.Connect(ctx, db.TempDataDir(t))
 	require.NoError(t, err)
 
 	now := time.Now().UnixMilli()

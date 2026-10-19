@@ -363,7 +363,7 @@ func TestE2E_TwoClientsReceiveSameMessage(t *testing.T) {
 	// deduplicate at the backend's pathIndex and return the same
 	// workspace id.
 	wsPath := t.TempDir()
-	dataDir := t.TempDir()
+	dataDir := db.TempDataDir(t)
 	args := proto.Workspace{Path: wsPath, DataDir: dataDir}
 
 	argsA := args

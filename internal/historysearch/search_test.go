@@ -19,7 +19,7 @@ func TestSearch_IncludesArchivedSessions(t *testing.T) {
 	t.Cleanup(db.ResetPool)
 	ctx := context.Background()
 
-	dataDir := t.TempDir()
+	dataDir := db.TempDataDir(t)
 	conn, err := db.Connect(ctx, dataDir)
 	require.NoError(t, err)
 

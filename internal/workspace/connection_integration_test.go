@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/workspace"
@@ -27,7 +28,7 @@ func TestClientWorkspace_ConnectionDropIsReportedAndRetried(t *testing.T) {
 	rt := newRuntimeServer(t)
 
 	cwd := t.TempDir()
-	dataDir := t.TempDir()
+	dataDir := db.TempDataDir(t)
 
 	c := rt.newClient(t, cwd)
 	ctx, cancel := context.WithCancel(context.Background())

@@ -19,7 +19,7 @@ func TestCopyMessagesUpToReplaysEmbeddings(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	conn, err := db.Connect(ctx, t.TempDir())
+	conn, err := db.Connect(ctx, db.TempDataDir(t))
 	require.NoError(t, err)
 	q := db.New(conn)
 

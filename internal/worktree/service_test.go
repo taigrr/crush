@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -88,10 +89,24 @@ func TestService_CreateUsesRealGitWorktree(t *testing.T) {
 	_, err = os.Stat(filepath.Join(wt.Path, "README.md"))
 	require.NoError(t, err)
 
-	// git worktree list (from the project) includes the new path.
-	out, err := exec.CommandContext(t.Context(), "git", "-C", projectDir, "worktree", "list").CombinedOutput()
+	// git worktree list (from the project) includes the new path. Compare
+	// by file identity: on Windows git prints forward slashes and long
+	// names while temp paths may use 8.3 short names (RUNNER~1).
+	out, err := exec.CommandContext(t.Context(), "git", "-C", projectDir, "worktree", "list", "--porcelain").CombinedOutput()
 	require.NoError(t, err)
-	require.Contains(t, string(out), wt.Path)
+	want, err := os.Stat(wt.Path)
+	require.NoError(t, err)
+	listed := false
+	for line := range strings.SplitSeq(string(out), "\n") {
+		path, ok := strings.CutPrefix(strings.TrimSpace(line), "worktree ")
+		if !ok {
+			continue
+		}
+		if got, err := os.Stat(path); err == nil && os.SameFile(want, got) {
+			listed = true
+		}
+	}
+	require.True(t, listed, "git worktree list must include %s:\n%s", wt.Path, out)
 
 	// A branch named after the worktree now exists.
 	branchOut, err := exec.CommandContext(t.Context(), "git", "-C", projectDir, "branch", "--list", "feature-x").CombinedOutput()

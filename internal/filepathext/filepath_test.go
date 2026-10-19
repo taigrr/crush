@@ -3,6 +3,7 @@ package filepathext
 import (
 	"os/user"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,9 @@ func TestExpandTilde(t *testing.T) {
 	// A real user resolves to their home dir. Resolve the expected value the
 	// same way ExpandTilde does (user.Lookup) so this holds regardless of cgo
 	// build mode.
-	if cur, err := user.Current(); err == nil {
+	// Windows usernames are DOMAIN\name; a backslash is a path separator
+	// there, so "~DOMAIN\name" is not a ~user form and is not covered.
+	if cur, err := user.Current(); err == nil && !strings.ContainsRune(cur.Username, '\\') {
 		if u, err := user.Lookup(cur.Username); err == nil && u.HomeDir != "" {
 			require.Equal(t, u.HomeDir, ExpandTilde("~"+u.Username))
 			require.Equal(t, filepath.Join(u.HomeDir, "foo"), ExpandTilde("~"+u.Username+"/foo"))

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/server"
@@ -63,7 +64,7 @@ func TestClientWorkspace_ConfigChangedRefreshesSiblingCache(t *testing.T) {
 	rt := newRuntimeServer(t)
 
 	cwd := t.TempDir()
-	dataDir := t.TempDir()
+	dataDir := db.TempDataDir(t)
 
 	cA := rt.newClient(t, cwd)
 	cB := rt.newClient(t, cwd)
@@ -141,7 +142,7 @@ func TestClientWorkspace_ConfigChangedSignalArrives(t *testing.T) {
 	rt := newRuntimeServer(t)
 
 	cwd := t.TempDir()
-	dataDir := t.TempDir()
+	dataDir := db.TempDataDir(t)
 
 	c := rt.newClient(t, cwd)
 	ctx, cancel := context.WithCancel(context.Background())

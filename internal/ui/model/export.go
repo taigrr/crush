@@ -73,7 +73,9 @@ func resolveExportPath(name, title, workingDir string) string {
 		}
 	}
 	if filepath.IsAbs(name) {
-		return name
+		// Clean normalizes separators, e.g. "$DIR/out" expanding to a
+		// Windows path with a trailing forward slash.
+		return filepath.Clean(name)
 	}
 	return filepath.Join(workingDir, name)
 }

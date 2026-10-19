@@ -181,6 +181,7 @@ func TestParsePiFollowsLatestBranchAndTracksModel(t *testing.T) {
 func TestDiscoverSkipsGeneratedTitles(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 
 	claudeRoot := filepath.Join(home, ".claude", "projects", "project")
 	require.NoError(t, os.MkdirAll(claudeRoot, 0o755))
@@ -223,6 +224,7 @@ func TestPromptProvenance(t *testing.T) {
 func TestDiscoverFindsAndSortsSessions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	root := filepath.Join(home, ".pi", "agent", "sessions", "project")
 	require.NoError(t, os.MkdirAll(root, 0o755))
 	write := func(name, timestamp, title string) {

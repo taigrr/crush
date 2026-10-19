@@ -11,7 +11,7 @@ import (
 func TestChangelog_RecordsSessionMutations(t *testing.T) {
 	t.Cleanup(ResetPool)
 	ctx := context.Background()
-	conn, err := Connect(ctx, t.TempDir())
+	conn, err := Connect(ctx, TempDataDir(t))
 	require.NoError(t, err)
 
 	now := time.Now().UnixMilli()

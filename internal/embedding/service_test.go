@@ -28,7 +28,7 @@ func (f *fakeEmbedder) Model() string    { return "fake" }
 
 func newTestService(t *testing.T, hybrid bool) *service {
 	t.Helper()
-	conn, err := db.Connect(t.Context(), t.TempDir())
+	conn, err := db.Connect(t.Context(), db.TempDataDir(t))
 	require.NoError(t, err)
 	q := db.New(conn)
 	return &service{
@@ -179,7 +179,7 @@ func TestBackfillEmbedsMissingOnly(t *testing.T) {
 func TestBackfillDisabledIsNoop(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	conn, err := db.Connect(ctx, t.TempDir())
+	conn, err := db.Connect(ctx, db.TempDataDir(t))
 	require.NoError(t, err)
 	s := &service{store: newStore(db.New(conn))} // cfg nil = disabled
 
