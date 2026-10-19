@@ -76,6 +76,9 @@ crush session wait <session-id> --timeout 9m -o json
 
 Exit codes: 0 completed, 1 failure, 2 blocked on a permission or question,
 3 permission denied, 4 cancelled, 5 agent error, 124 timeout.
+
+Driving Crush from another agent? 'crush skill print' prints a skill that
+explains the workflow.
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var (

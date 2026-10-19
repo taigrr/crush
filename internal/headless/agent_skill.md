@@ -6,7 +6,7 @@ description: Delegate a self-contained coding task to Crush, a separate coding a
 # Delegating to Crush
 
 Crush runs its own full agent loop and reports back with the final answer, the files it changed, and the LSP errors left in them.
-Prefer the `crush_*` MCP tools when they are available (`claude mcp add crush -- crush mcp`); otherwise use the CLI below.
+Prefer the `crush_*` MCP tools when they are available (Crush serves them with `crush mcp` over stdio); otherwise use the CLI below.
 
 ## Write the task
 

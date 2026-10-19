@@ -30,7 +30,9 @@ crush_list, crush_diff.
 
 Runs default to --permission-mode delegate: tool permissions wait for the
 calling agent to decide with crush_respond. The flag is also the most
-permissive mode a caller may request.`,
+permissive mode a caller may request.
+
+'crush skill print' prints a skill that teaches an agent this workflow.`,
 	Example: `
 # Claude Code
 claude mcp add crush -- crush mcp

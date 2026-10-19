@@ -98,6 +98,9 @@ crush --session {session-id}
 
 # Continue the most recent session
 crush --continue
+
+# Driving Crush from another agent? Print a skill that explains how
+crush skill print
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID, _ := cmd.Flags().GetString("session")

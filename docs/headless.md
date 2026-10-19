@@ -250,10 +250,14 @@ The MCP server keeps each project's workspace attached while it runs, so LSPs
 stay warm between calls, and any session it starts can be opened in the TUI
 with its `attach_command` to watch or take over.
 
-A Claude Code skill that teaches Claude when and how to hand work to Crush is
-in [docs/integrations/claude-code/crush/SKILL.md](integrations/claude-code/crush/SKILL.md).
-Copy the `crush` directory into `~/.claude/skills/` (or a project's
-`.claude/skills/`) to install it.
+## Agent skill
+
+`crush skill print` prints a `SKILL.md` that teaches another agent when and
+how to hand work to Crush, using the MCP tools or the CLI above.
+Save it wherever your agent loads skills from, or paste it into its
+instructions.
+The source lives in
+[internal/headless/agent_skill.md](../internal/headless/agent_skill.md).
 
 ## Security
 

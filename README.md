@@ -147,7 +147,7 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 ### CLI & Client/Server
 
 - Extra subcommands: `crush session {list,show,last,delete,rename,import,status,wait,answer,cancel}`,
-  `crush mcp`,
+  `crush mcp`, `crush skill print`,
   `crush search`, `crush embeddings`, `crush db merge`, `crush reload`,
   `crush shutdown`, `crush server`.
 - Client/server mode by default, sharing one workspace per directory
@@ -158,7 +158,8 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
   distinct exit codes, per-run permission modes (`yolo`, `deny`, `delegate`),
   `--detach`/`--timeout`, `crush session {status,wait,answer,cancel}`, and a
   `crush mcp` server, so scripts and other agents (Claude Code, clawdbot) can
-  drive a full Crush loop. See [docs/headless.md](docs/headless.md).
+  drive a full Crush loop. `crush skill print` prints a skill that teaches
+  an agent the workflow. See [docs/headless.md](docs/headless.md).
 
 ### Providers
 
