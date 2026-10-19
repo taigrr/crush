@@ -351,7 +351,10 @@ func TestE2E_TwoClientsReceiveSameMessage(t *testing.T) {
 	// Shorten the create-grace window so the workspace's pending
 	// creation holds release quickly during test cleanup once both
 	// SSE streams have been detached.
-	h.backend.SetCreateGrace(200 * time.Millisecond)
+	// The window must still outlast both workspace creations: on a slow
+	// runner (Windows) client A's hold expiring before client B posts
+	// would tear the workspace down and defeat the dedup under test.
+	h.backend.SetCreateGrace(2 * time.Second)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
