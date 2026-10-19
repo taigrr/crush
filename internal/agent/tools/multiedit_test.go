@@ -36,6 +36,14 @@ func (m *mockPermissionService) AutoApproveSession(sessionID string) {}
 
 func (m *mockPermissionService) SetSkipRequests(skip bool) {}
 
+func (m *mockPermissionService) SetSessionPolicy(string, permission.SessionPolicy) {}
+
+func (m *mockPermissionService) SessionPolicy(string) permission.SessionPolicy {
+	return permission.SessionPolicyPrompt
+}
+
+func (m *mockPermissionService) PendingRequests(string) []permission.PermissionRequest { return nil }
+
 func (m *mockPermissionService) SkipRequests() bool {
 	return false
 }

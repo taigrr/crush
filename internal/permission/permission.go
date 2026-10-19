@@ -2,9 +2,11 @@ package permission
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -63,6 +65,68 @@ type PermissionRequest struct {
 	Path        string `json:"path"`
 }
 
+// SessionPolicy controls how permission requests raised by one session
+// are resolved, independently of the workspace-wide skip toggle.
+type SessionPolicy string
+
+const (
+	// SessionPolicyPrompt is the default: requests are published and wait
+	// for a client to answer. Set explicitly on a run (see [WithPolicy])
+	// it also overrides the workspace-wide skip toggle, so a run whose
+	// caller asked to decide every request is never auto-approved
+	// because someone enabled yolo mode in the TUI.
+	SessionPolicyPrompt SessionPolicy = "prompt"
+	// SessionPolicyAllow approves every request for the session.
+	SessionPolicyAllow SessionPolicy = "allow"
+	// SessionPolicyDeny denies every request that is not pre-approved by
+	// the allowed-tools list or a PreToolUse hook. It wins over the
+	// workspace-wide skip toggle so an unattended run can never be
+	// escalated by someone enabling yolo mode in the TUI.
+	SessionPolicyDeny SessionPolicy = "deny"
+)
+
+// policyKey carries a run's permission policy on its context.
+type policyKey struct{}
+
+// WithPolicy returns a context whose permission requests follow policy.
+// It is set per agent call, so a policy applies to exactly the turn
+// (and the sub-agents it starts) that asked for it. An empty policy
+// masks any policy inherited from a parent context, restoring the
+// session's default behavior.
+func WithPolicy(ctx context.Context, policy SessionPolicy) context.Context {
+	return context.WithValue(ctx, policyKey{}, policy)
+}
+
+// PolicyFromContext returns the policy set by [WithPolicy], or "" when
+// none applies.
+func PolicyFromContext(ctx context.Context) SessionPolicy {
+	p, _ := ctx.Value(policyKey{}).(SessionPolicy)
+	return p
+}
+
+// EffectivePolicy returns the policy that governs a request from
+// sessionID made under ctx. explicit is true when the policy came from
+// the run (ctx) rather than the session's stored default.
+func EffectivePolicy(ctx context.Context, svc Service, sessionID string) (policy SessionPolicy, explicit bool) {
+	if p := PolicyFromContext(ctx); p != "" {
+		return p, true
+	}
+	return svc.SessionPolicy(sessionID), false
+}
+
+// ParseSessionPolicy validates s. The empty string maps to
+// [SessionPolicyPrompt].
+func ParseSessionPolicy(s string) (SessionPolicy, error) {
+	switch SessionPolicy(s) {
+	case "", SessionPolicyPrompt:
+		return SessionPolicyPrompt, nil
+	case SessionPolicyAllow, SessionPolicyDeny:
+		return SessionPolicy(s), nil
+	default:
+		return "", fmt.Errorf("invalid session permission policy %q", s)
+	}
+}
+
 type Service interface {
 	pubsub.Subscriber[PermissionRequest]
 	// GrantPersistent grants a permission request and remembers the grant
@@ -85,7 +149,16 @@ type Service interface {
 	// longer exists.
 	CancelAll()
 	Request(ctx context.Context, opts CreatePermissionRequest) (bool, error)
+	// AutoApproveSession is shorthand for setting [SessionPolicyAllow].
 	AutoApproveSession(sessionID string)
+	// SetSessionPolicy sets how requests for sessionID are resolved.
+	// [SessionPolicyPrompt] clears any override.
+	SetSessionPolicy(sessionID string, policy SessionPolicy)
+	// SessionPolicy returns the policy for sessionID.
+	SessionPolicy(sessionID string) SessionPolicy
+	// PendingRequests returns the still-unanswered requests raised by
+	// sessionID, or by every session when sessionID is empty.
+	PendingRequests(sessionID string) []PermissionRequest
 	SetSkipRequests(skip bool)
 	SkipRequests() bool
 	// SetSysadminMode toggles ephemeral sysadmin mode. When enabled, the
@@ -113,15 +186,15 @@ type PermissionKey struct {
 type permissionService struct {
 	*pubsub.Broker[PermissionRequest]
 
-	notificationBroker    *pubsub.Broker[PermissionNotification]
-	workingDir            string
-	sessionPermissions    *csync.Map[PermissionKey, bool]
-	pendingRequests       *csync.Map[string, pendingPermission]
-	autoApproveSessions   map[string]bool
-	autoApproveSessionsMu sync.RWMutex
-	skip                  atomic.Bool
-	sysadmin              atomic.Bool
-	allowedTools          []string
+	notificationBroker *pubsub.Broker[PermissionNotification]
+	workingDir         string
+	sessionPermissions *csync.Map[PermissionKey, bool]
+	pendingRequests    *csync.Map[string, pendingPermission]
+	sessionPolicies    map[string]SessionPolicy
+	sessionPoliciesMu  sync.RWMutex
+	skip               atomic.Bool
+	sysadmin           atomic.Bool
+	allowedTools       []string
 
 	// perSessionMu serializes permission requests within a single
 	// session WITHOUT blocking other sessions. A workspace runs many
@@ -137,7 +210,7 @@ type permissionService struct {
 	// this service, and deleting a mutex on request resolution would
 	// race a concurrent Request about to lock it. This matches the
 	// existing per-session maps here (sessionPermissions,
-	// autoApproveSessions), is bounded by the total number of sessions,
+	// sessionPolicies), is bounded by the total number of sessions,
 	// and each entry is a tiny *sync.Mutex, so the footprint is
 	// negligible.
 	perSessionMu *csync.Map[string, *sync.Mutex]
@@ -261,7 +334,9 @@ func (s *permissionService) Deny(permission PermissionRequest) bool {
 }
 
 func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRequest) (bool, error) {
-	if s.skip.Load() {
+	policy, explicit := EffectivePolicy(ctx, s, opts.SessionID)
+	skipIgnored := policy == SessionPolicyDeny || (explicit && policy == SessionPolicyPrompt)
+	if s.skip.Load() && !skipIgnored {
 		return true, nil
 	}
 
@@ -284,6 +359,15 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		return true, nil
 	}
 
+	if policy == SessionPolicyDeny {
+		s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
+			SessionID:  opts.SessionID,
+			ToolCallID: opts.ToolCallID,
+			Denied:     true,
+		})
+		return false, nil
+	}
+
 	// Serialize requests within this session only. Different sessions
 	// proceed concurrently so a background session's prompt never blocks
 	// behind another session's in-flight request.
@@ -297,11 +381,7 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 		ToolCallID: opts.ToolCallID,
 	})
 
-	s.autoApproveSessionsMu.RLock()
-	autoApprove := s.autoApproveSessions[opts.SessionID]
-	s.autoApproveSessionsMu.RUnlock()
-
-	if autoApprove {
+	if policy == SessionPolicyAllow {
 		s.notificationBroker.Publish(pubsub.CreatedEvent, PermissionNotification{
 			SessionID:  opts.SessionID,
 			ToolCallID: opts.ToolCallID,
@@ -371,9 +451,39 @@ func (s *permissionService) Request(ctx context.Context, opts CreatePermissionRe
 }
 
 func (s *permissionService) AutoApproveSession(sessionID string) {
-	s.autoApproveSessionsMu.Lock()
-	s.autoApproveSessions[sessionID] = true
-	s.autoApproveSessionsMu.Unlock()
+	s.SetSessionPolicy(sessionID, SessionPolicyAllow)
+}
+
+func (s *permissionService) SetSessionPolicy(sessionID string, policy SessionPolicy) {
+	s.sessionPoliciesMu.Lock()
+	defer s.sessionPoliciesMu.Unlock()
+	if policy == SessionPolicyPrompt || policy == "" {
+		delete(s.sessionPolicies, sessionID)
+		return
+	}
+	s.sessionPolicies[sessionID] = policy
+}
+
+func (s *permissionService) SessionPolicy(sessionID string) SessionPolicy {
+	s.sessionPoliciesMu.RLock()
+	defer s.sessionPoliciesMu.RUnlock()
+	if policy, ok := s.sessionPolicies[sessionID]; ok {
+		return policy
+	}
+	return SessionPolicyPrompt
+}
+
+func (s *permissionService) PendingRequests(sessionID string) []PermissionRequest {
+	var out []PermissionRequest
+	for _, p := range s.pendingRequests.Seq2() {
+		if sessionID == "" || p.req.SessionID == sessionID {
+			out = append(out, p.req)
+		}
+	}
+	slices.SortFunc(out, func(a, b PermissionRequest) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out
 }
 
 func (s *permissionService) SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[PermissionNotification] {
@@ -398,14 +508,14 @@ func (s *permissionService) SysadminMode() bool {
 
 func NewPermissionService(workingDir string, skip bool, allowedTools []string) Service {
 	svc := &permissionService{
-		Broker:              pubsub.NewBroker[PermissionRequest](),
-		notificationBroker:  pubsub.NewBroker[PermissionNotification](),
-		workingDir:          workingDir,
-		sessionPermissions:  csync.NewMap[PermissionKey, bool](),
-		autoApproveSessions: make(map[string]bool),
-		allowedTools:        allowedTools,
-		pendingRequests:     csync.NewMap[string, pendingPermission](),
-		perSessionMu:        csync.NewMap[string, *sync.Mutex](),
+		Broker:             pubsub.NewBroker[PermissionRequest](),
+		notificationBroker: pubsub.NewBroker[PermissionNotification](),
+		workingDir:         workingDir,
+		sessionPermissions: csync.NewMap[PermissionKey, bool](),
+		sessionPolicies:    make(map[string]SessionPolicy),
+		allowedTools:       allowedTools,
+		pendingRequests:    csync.NewMap[string, pendingPermission](),
+		perSessionMu:       csync.NewMap[string, *sync.Mutex](),
 	}
 	svc.skip.Store(skip)
 	return svc

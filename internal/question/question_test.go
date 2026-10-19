@@ -278,3 +278,42 @@ func TestQuestionService_AnswerRejectsWrongSessionRouting(t *testing.T) {
 		t.Fatal("no notification published for the correct answer")
 	}
 }
+
+func TestQuestionService_PendingRequests(t *testing.T) {
+	t.Parallel()
+	svc := NewQuestionService()
+	requests := svc.Subscribe(t.Context())
+
+	require.Empty(t, svc.PendingRequests("s-1"))
+
+	answered := make(chan Answer, 1)
+	go func() {
+		a, _ := svc.Ask(t.Context(), CreateQuestionRequest{
+			SessionID: "s-1", ToolCallID: "call-1", Kind: KindFreeText, Prompt: "Name?",
+		})
+		answered <- a
+	}()
+
+	select {
+	case <-requests:
+	case <-time.After(time.Second):
+		t.Fatal("question request was not published")
+	}
+
+	pending := svc.PendingRequests("s-1")
+	require.Len(t, pending, 1)
+	require.Equal(t, "Name?", pending[0].Prompt)
+	require.Equal(t, "call-1", pending[0].ToolCallID)
+	require.Empty(t, svc.PendingRequests("s-2"))
+
+	require.True(t, svc.Answer(Answer{
+		ID: pending[0].ID, SessionID: "s-1", ToolCallID: "call-1", Selected: []string{"Ada"},
+	}))
+	select {
+	case a := <-answered:
+		require.Equal(t, []string{"Ada"}, a.Selected)
+	case <-time.After(time.Second):
+		t.Fatal("answer did not unblock Ask")
+	}
+	require.Empty(t, svc.PendingRequests("s-1"))
+}

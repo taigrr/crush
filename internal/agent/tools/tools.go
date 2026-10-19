@@ -71,10 +71,14 @@ func GetModelNameFromContext(ctx context.Context) string {
 	return getContextValue(ctx, ModelNameContextKey, "")
 }
 
+// PermissionDeniedMessage is the tool result text recorded when a tool
+// call is denied.
+const PermissionDeniedMessage = "User denied permission"
+
 // NewPermissionDeniedResponse returns a tool response indicating the user
 // denied permission, with StopTurn set so the agent loop does not retry.
 func NewPermissionDeniedResponse() fantasy.ToolResponse {
-	resp := fantasy.NewTextErrorResponse("User denied permission")
+	resp := fantasy.NewTextErrorResponse(PermissionDeniedMessage)
 	resp.StopTurn = true
 	return resp
 }

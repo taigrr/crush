@@ -169,6 +169,34 @@ type AgentMessage struct {
 	// treats prompts as strings (queue drop notifications, run
 	// logs) keeps working.
 	SwarmParts []SwarmMessage `json:"swarm_parts,omitempty"`
+	// PermissionPolicy, when set, is the permission policy for this turn
+	// and the sub-agents it spawns: "allow" approves every request,
+	// "deny" denies anything not pre-approved, and "prompt" always asks
+	// a client, even when the workspace skips prompts. It applies only
+	// to this turn (also when the turn is queued behind another), never
+	// to other turns on the session.
+	PermissionPolicy PermissionPolicy `json:"permission_policy,omitempty"`
+}
+
+// PermissionPolicy is a per-session permission policy for a headless run.
+type PermissionPolicy string
+
+const (
+	PermissionPolicyPrompt PermissionPolicy = "prompt"
+	PermissionPolicyAllow  PermissionPolicy = "allow"
+	PermissionPolicyDeny   PermissionPolicy = "deny"
+)
+
+// PendingPrompts lists the permission requests and questions a session
+// (or any of its sub-agent sessions) is currently blocked on.
+type PendingPrompts struct {
+	Permissions []PermissionRequest `json:"permissions"`
+	Questions   []QuestionRequest   `json:"questions"`
+}
+
+// IsEmpty reports whether nothing is pending.
+func (p PendingPrompts) IsEmpty() bool {
+	return len(p.Permissions) == 0 && len(p.Questions) == 0
 }
 
 // ShellCommandRequest represents a request to run a shell command directly.

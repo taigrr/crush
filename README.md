@@ -154,8 +154,10 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
   permission coordination.
 - Embedded Swagger UI for the server API at `/v1/docs/`.
 - Machine-readable `crush run --output-format json|stream-json` with
-  distinct exit codes, so scripts and other agents (Claude Code, clawdbot)
-  can drive a full Crush loop. See [docs/headless.md](docs/headless.md).
+  distinct exit codes, per-run permission modes (`yolo`, `deny`, `delegate`),
+  `--detach`/`--timeout`, and `crush session {status,wait,answer,cancel}`, so
+  scripts and other agents (Claude Code, clawdbot) can drive a full Crush
+  loop. See [docs/headless.md](docs/headless.md).
 
 ### Providers
 

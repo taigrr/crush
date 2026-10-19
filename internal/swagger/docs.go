@@ -3072,7 +3072,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Session creation params (title)",
+                        "description": "Session creation params (title, optional model_ref)",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -3584,6 +3584,54 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Message"
                             }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/pending": {
+            "get": {
+                "description": "Lists the permission requests and questions that the session, or any of its sub-agent sessions, is waiting on.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get pending prompts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.PendingPrompts"
                         }
                     },
                     "404": {
@@ -5435,6 +5483,14 @@ const docTemplate = `{
                     "description": "ClientID identifies the client that initiated the turn. The\nserver uses it to route per-client resources (notably the editor\nbridge) to the right client. Empty means \"no specific client\".",
                     "type": "string"
                 },
+                "permission_policy": {
+                    "description": "PermissionPolicy, when set, is the permission policy for this turn\nand the sub-agents it spawns: \"allow\" approves every request,\n\"deny\" denies anything not pre-approved, and \"prompt\" always asks\na client, even when the workspace skips prompts. It applies only\nto this turn (also when the turn is queued behind another), never\nto other turns on the session.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/proto.PermissionPolicy"
+                        }
+                    ]
+                },
                 "prompt": {
                     "type": "string"
                 },
@@ -5840,6 +5896,23 @@ const docTemplate = `{
                 }
             }
         },
+        "proto.PendingPrompts": {
+            "type": "object",
+            "properties": {
+                "permissions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.PermissionRequest"
+                    }
+                },
+                "questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.QuestionRequest"
+                    }
+                }
+            }
+        },
         "proto.PermissionAction": {
             "type": "string",
             "enum": [
@@ -5871,6 +5944,19 @@ const docTemplate = `{
                     "type": "boolean"
                 }
             }
+        },
+        "proto.PermissionPolicy": {
+            "type": "string",
+            "enum": [
+                "prompt",
+                "allow",
+                "deny"
+            ],
+            "x-enum-varnames": [
+                "PermissionPolicyPrompt",
+                "PermissionPolicyAllow",
+                "PermissionPolicyDeny"
+            ]
         },
         "proto.PermissionRequest": {
             "type": "object",
@@ -5959,6 +6045,47 @@ const docTemplate = `{
             "properties": {
                 "resolved": {
                     "type": "boolean"
+                }
+            }
+        },
+        "proto.QuestionKind": {
+            "type": "string",
+            "enum": [
+                "single_choice",
+                "multiple_choice",
+                "free_text",
+                "yes_no"
+            ],
+            "x-enum-varnames": [
+                "QuestionKindSingleChoice",
+                "QuestionKindMultipleChoice",
+                "QuestionKindFreeText",
+                "QuestionKindYesNo"
+            ]
+        },
+        "proto.QuestionRequest": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/proto.QuestionKind"
+                },
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "tool_call_id": {
+                    "type": "string"
                 }
             }
         },

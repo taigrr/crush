@@ -39,6 +39,16 @@ func (m *mockBashPermissionService) AutoApproveSession(sessionID string) {}
 
 func (m *mockBashPermissionService) SetSkipRequests(skip bool) {}
 
+func (m *mockBashPermissionService) SetSessionPolicy(string, permission.SessionPolicy) {}
+
+func (m *mockBashPermissionService) SessionPolicy(string) permission.SessionPolicy {
+	return permission.SessionPolicyPrompt
+}
+
+func (m *mockBashPermissionService) PendingRequests(string) []permission.PermissionRequest {
+	return nil
+}
+
 func (m *mockBashPermissionService) SkipRequests() bool {
 	return false
 }
@@ -119,6 +129,16 @@ func (m *recordingPermissionService) GrantPersistent(req permission.PermissionRe
 func (m *recordingPermissionService) AutoApproveSession(sessionID string) {}
 
 func (m *recordingPermissionService) SetSkipRequests(skip bool) {}
+
+func (m *recordingPermissionService) SetSessionPolicy(string, permission.SessionPolicy) {}
+
+func (m *recordingPermissionService) SessionPolicy(string) permission.SessionPolicy {
+	return permission.SessionPolicyPrompt
+}
+
+func (m *recordingPermissionService) PendingRequests(string) []permission.PermissionRequest {
+	return nil
+}
 
 func (m *recordingPermissionService) SkipRequests() bool {
 	return false

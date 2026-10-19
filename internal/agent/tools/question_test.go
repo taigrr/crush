@@ -48,6 +48,42 @@ func TestQuestionTool_HardFailsWhenNonInteractive(t *testing.T) {
 	assert.Contains(t, resp.Content, "no interactive client")
 }
 
+func TestQuestionTool_HardFailsForUnattendedSessionPolicy(t *testing.T) {
+	t.Parallel()
+
+	for _, policy := range []permission.SessionPolicy{permission.SessionPolicyAllow, permission.SessionPolicyDeny} {
+		perms := permission.NewPermissionService("/tmp", false, nil)
+		perms.SetSessionPolicy("headless", policy)
+		tool := NewQuestionTool(perms, question.NewQuestionService())
+
+		ctx := context.WithValue(t.Context(), SessionIDContextKey, "headless")
+		resp := runQuestionTool(t, tool, ctx, QuestionParams{Kind: "yes_no", Prompt: "Proceed?"})
+		require.True(t, resp.IsError, policy)
+		assert.Contains(t, resp.Content, "no interactive client", policy)
+	}
+}
+
+func TestQuestionTool_RunPolicy(t *testing.T) {
+	t.Parallel()
+
+	perms := permission.NewPermissionService("/tmp", true /* skip */, nil)
+	tool := NewQuestionTool(perms, question.NewQuestionService())
+
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "headless")
+	resp := runQuestionTool(t, tool, permission.WithPolicy(ctx, permission.SessionPolicyDeny), QuestionParams{Kind: "yes_no", Prompt: "Proceed?"})
+	require.True(t, resp.IsError)
+	assert.Contains(t, resp.Content, "no interactive client")
+
+	// A delegated run's question reaches its caller even under workspace
+	// yolo: it blocks in Ask (here until the context is cancelled)
+	// instead of failing fast.
+	delegated, cancel := context.WithCancel(permission.WithPolicy(ctx, permission.SessionPolicyPrompt))
+	cancel()
+	resp = runQuestionTool(t, tool, delegated, QuestionParams{Kind: "yes_no", Prompt: "Proceed?"})
+	require.True(t, resp.IsError)
+	assert.Contains(t, resp.Content, "question was not answered")
+}
+
 func TestQuestionTool_NotAvailableInNonInteractiveContext(t *testing.T) {
 	t.Parallel()
 

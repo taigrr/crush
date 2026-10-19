@@ -35,12 +35,19 @@ func (e *NDJSONEmitter) Emit(v any) error {
 	return e.enc.Encode(v)
 }
 
-// Outcome is the terminal state observed by a [Tracker].
+// Outcome is the terminal state observed by a [Tracker] or [Watch].
 type Outcome struct {
 	Status    Status
 	MessageID string
 	Text      string
 	Error     string
+	// ExitCode overrides the status-derived exit code when non-zero.
+	ExitCode int
+	// Pending is set for [StatusBlocked].
+	Pending *proto.PendingPrompts
+	// Interrupted is set when the caller's own context ended the wait
+	// (Ctrl+C); the run itself may still be going on the server.
+	Interrupted bool
 }
 
 // Tracker translates the workspace SSE stream into headless events for
@@ -63,6 +70,7 @@ type Tracker struct {
 	text    map[string]string
 	calls   map[string]bool
 	results map[string]bool
+	denied  bool
 }
 
 // NewTracker returns a tracker for the run identified by sessionID and
@@ -86,6 +94,10 @@ func (t *Tracker) AwaitUserPrompt(prompt string) {
 	t.awaitStart = true
 	t.prompt = strings.TrimSpace(prompt)
 }
+
+// Started reports whether the tracked run's own turn has begun, i.e.
+// [Tracker.AwaitUserPrompt] is not holding output back.
+func (t *Tracker) Started() bool { return !t.awaitStart }
 
 // Handle processes one SSE event. It returns a non-nil [Outcome] when
 // the tracked run has ended. The error is non-nil only when emitting an
@@ -117,10 +129,22 @@ func (t *Tracker) Handle(ev any) (*Outcome, error) {
 			out.Status = StatusCancelled
 		case rc.Error != "":
 			out.Status = StatusError
+		case t.denied:
+			out.Status = StatusPermissionDenied
+			out.Error = "permission denied"
 		default:
 			out.Status = StatusCompleted
 		}
+		t.denied = false
 		return out, nil
+
+	case pubsub.Event[proto.PermissionNotification]:
+		// A denial in the tracked session stops the agent's turn, so
+		// the run that follows ends early rather than completing.
+		if e.Payload.Denied && e.Payload.SessionID == t.sessionID && !t.awaitStart {
+			t.denied = true
+		}
+		return nil, nil
 
 	case pubsub.Event[proto.AgentEvent]:
 		if e.Payload.Error == nil {

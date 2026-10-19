@@ -135,6 +135,7 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("POST /v1/workspaces/{id}/sessions/{sid}/favorite", c.handleSetWorkspaceSessionFavorite)
 	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/archived", c.handleGetWorkspaceArchivedSessions)
 	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/history", c.handleGetWorkspaceSessionHistory)
+	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/pending", c.handleGetWorkspaceSessionPending)
 	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/messages", c.handleGetWorkspaceSessionMessages)
 	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/messages/user", c.handleGetWorkspaceSessionUserMessages)
 	mux.HandleFunc("GET /v1/workspaces/{id}/messages/user", c.handleGetWorkspaceAllUserMessages)
@@ -230,6 +231,13 @@ func (s *Server) installHandler() {
 // production listener setup.
 func (s *Server) Handler() http.Handler {
 	return s.h.Handler
+}
+
+// Backend returns the backend the server routes requests to. Exposed
+// so integration tests in other packages can install scripted agents
+// into workspaces created over HTTP.
+func (s *Server) Backend() *backend.Backend {
+	return s.backend
 }
 
 // Serve accepts incoming connections on the listener.

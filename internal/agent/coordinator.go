@@ -605,6 +605,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 			return c.currentAgent.Run(ctx, SessionAgentCall{
 				SessionID:        sessionID,
 				RunID:            runID,
+				PermissionPolicy: permission.PolicyFromContext(ctx),
 				ResolveModel:     resolveModel,
 				Prompt:           currentPrompt,
 				SwarmParts:       currentSwarmParts,
@@ -2062,7 +2063,12 @@ func (c *coordinator) runSubAgent(ctx context.Context, params subAgentParams) (f
 	// Run the agent
 	run := func() (*fantasy.AgentResult, error) {
 		return params.Agent.Run(ctx, SessionAgentCall{
-			SessionID:        session.ID,
+			SessionID: session.ID,
+			// A sub-agent acts for its parent, so it runs under the
+			// parent turn's headless permission policy: an unattended
+			// yolo/deny run must not stall on, or escape through, a
+			// child session's prompts.
+			PermissionPolicy: permission.PolicyFromContext(ctx),
 			ResolveModel:     resolveModel,
 			Prompt:           params.Prompt,
 			MaxOutputTokens:  maxTokens,

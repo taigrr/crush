@@ -666,6 +666,16 @@ definitions:
           server uses it to route per-client resources (notably the editor
           bridge) to the right client. Empty means "no specific client".
         type: string
+      permission_policy:
+        allOf:
+        - $ref: '#/definitions/proto.PermissionPolicy'
+        description: |-
+          PermissionPolicy, when set, is the permission policy for this turn
+          and the sub-agents it spawns: "allow" approves every request,
+          "deny" denies anything not pre-approved, and "prompt" always asks
+          a client, even when the workspace skips prompts. It applies only
+          to this turn (also when the turn is queued behind another), never
+          to other turns on the session.
       prompt:
         type: string
       run_id:
@@ -950,6 +960,17 @@ definitions:
       session:
         $ref: '#/definitions/proto.Session'
     type: object
+  proto.PendingPrompts:
+    properties:
+      permissions:
+        items:
+          $ref: '#/definitions/proto.PermissionRequest'
+        type: array
+      questions:
+        items:
+          $ref: '#/definitions/proto.QuestionRequest'
+        type: array
+    type: object
   proto.PermissionAction:
     enum:
     - allow
@@ -972,6 +993,16 @@ definitions:
       resolved:
         type: boolean
     type: object
+  proto.PermissionPolicy:
+    enum:
+    - prompt
+    - allow
+    - deny
+    type: string
+    x-enum-varnames:
+    - PermissionPolicyPrompt
+    - PermissionPolicyAllow
+    - PermissionPolicyDeny
   proto.PermissionRequest:
     properties:
       action:
@@ -1029,6 +1060,35 @@ definitions:
     properties:
       resolved:
         type: boolean
+    type: object
+  proto.QuestionKind:
+    enum:
+    - single_choice
+    - multiple_choice
+    - free_text
+    - yes_no
+    type: string
+    x-enum-varnames:
+    - QuestionKindSingleChoice
+    - QuestionKindMultipleChoice
+    - QuestionKindFreeText
+    - QuestionKindYesNo
+  proto.QuestionRequest:
+    properties:
+      id:
+        type: string
+      kind:
+        $ref: '#/definitions/proto.QuestionKind'
+      options:
+        items:
+          type: string
+        type: array
+      prompt:
+        type: string
+      session_id:
+        type: string
+      tool_call_id:
+        type: string
     type: object
   proto.ReadSkillRequest:
     properties:
@@ -3327,7 +3387,7 @@ paths:
         name: id
         required: true
         type: string
-      - description: Session creation params (title)
+      - description: Session creation params (title, optional model_ref)
         in: body
         name: request
         required: true
@@ -3652,6 +3712,39 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Get user messages for session
+      tags:
+      - sessions
+  /workspaces/{id}/sessions/{sid}/pending:
+    get:
+      description: Lists the permission requests and questions that the session, or
+        any of its sub-agent sessions, is waiting on.
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.PendingPrompts'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Get pending prompts
       tags:
       - sessions
   /workspaces/{id}/sessions/{sid}/seen:

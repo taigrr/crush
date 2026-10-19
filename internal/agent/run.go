@@ -18,6 +18,7 @@ import (
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/stringext"
 	"github.com/taigrr/fantasy"
@@ -108,6 +109,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	if err := ValidateCall(call); err != nil {
 		return nil, err
 	}
+	// Always set (even when empty) so a queued turn dispatched from
+	// another turn's stack does not inherit that turn's policy.
+	ctx = permission.WithPolicy(ctx, call.PermissionPolicy)
 
 	// genCtx/cancel are the run context and its cancel func. For the
 	// accepted (fire-and-forget) dispatch path they are created under

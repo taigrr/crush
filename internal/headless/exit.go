@@ -14,11 +14,21 @@ const (
 	// ExitFailure is a generic failure before or around the run (bad
 	// flags, server unreachable, no providers configured, ...).
 	ExitFailure = 1
+	// ExitBlocked means the run is paused waiting for a permission
+	// decision or an answer to a question. It is still alive on the
+	// server and resumes after `crush session answer`.
+	ExitBlocked = 2
+	// ExitPermissionDenied means the run stopped because a tool call
+	// was denied.
+	ExitPermissionDenied = 3
 	// ExitCancelled means the run was cancelled before it finished.
 	ExitCancelled = 4
 	// ExitAgentError means the agent run itself failed (provider error,
 	// tool loop failure, ...).
 	ExitAgentError = 5
+	// ExitTimeout means the caller's --timeout elapsed first. Unless the
+	// run was isolated it keeps going on the server.
+	ExitTimeout = 124
 )
 
 // ExitError carries a process exit code alongside the underlying error.

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/fantasy"
 	"github.com/taigrr/fantasy/providers/anthropic"
 	"github.com/taigrr/fantasy/providers/bedrock"
@@ -494,4 +495,50 @@ func TestGetProviderOptionsRespectsExistingReasoning(t *testing.T) {
 	opts := getProviderOptions(model, config.ProviderConfig{ID: "test", Type: catwalk.Type(openrouter.Name)})
 	parsed := opts[openrouter.Name].(*openrouter.ProviderOptions)
 	require.NotNil(t, parsed.Reasoning)
+}
+
+func TestRunSubAgent_InheritsRunPermissionPolicy(t *testing.T) {
+	const providerID = "test-provider"
+	providerCfg := config.ProviderConfig{ID: providerID}
+
+	for _, policy := range []permission.SessionPolicy{
+		permission.SessionPolicyDeny,
+		permission.SessionPolicyAllow,
+		permission.SessionPolicyPrompt,
+		"",
+	} {
+		name := string(policy)
+		if name == "" {
+			name = "none"
+		}
+		t.Run(name, func(t *testing.T) {
+			env := testEnv(t)
+			coord := newTestCoordinator(t, env, providerID, providerCfg)
+
+			parent, err := env.sessions.Create(t.Context(), "Parent")
+			require.NoError(t, err)
+
+			var got permission.SessionPolicy
+			agent := newMockAgent(providerID, 4096, func(_ context.Context, call SessionAgentCall) (*fantasy.AgentResult, error) {
+				require.NotEqual(t, parent.ID, call.SessionID)
+				got = call.PermissionPolicy
+				return agentResultWithText("ok"), nil
+			})
+
+			ctx := t.Context()
+			if policy != "" {
+				ctx = permission.WithPolicy(ctx, policy)
+			}
+			_, err = coord.runSubAgent(ctx, subAgentParams{
+				Agent:          agent,
+				SessionID:      parent.ID,
+				AgentMessageID: "msg-" + name,
+				ToolCallID:     "call-" + name,
+				Prompt:         "child work",
+				SessionTitle:   "Child",
+			})
+			require.NoError(t, err)
+			require.Equal(t, policy, got)
+		})
+	}
 }

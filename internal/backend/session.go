@@ -3,6 +3,9 @@ package backend
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
 
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/message"
@@ -145,12 +148,40 @@ func (b *Backend) attachedByRoot(root string) (*Workspace, bool) {
 
 // CreateSession creates a new session in the given workspace.
 func (b *Backend) CreateSession(ctx context.Context, workspaceID, title string) (session.Session, error) {
+	return b.CreateSessionWithModel(ctx, workspaceID, title, "")
+}
+
+// CreateSessionWithModel creates a top-level session that runs modelRef
+// (a role name, "provider/model", or a bare model id) instead of the
+// workspace's large model. An empty modelRef behaves like
+// [Backend.CreateSession]. The session's swarm identity is assigned
+// before returning so callers can report its address right away.
+func (b *Backend) CreateSessionWithModel(ctx context.Context, workspaceID, title, modelRef string) (session.Session, error) {
 	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
 		return session.Session{}, err
 	}
 
-	return ws.Sessions.Create(ctx, title)
+	modelRef = strings.TrimSpace(modelRef)
+	if modelRef != "" {
+		if ws.Cfg == nil {
+			return session.Session{}, fmt.Errorf("%w: workspace has no config", ErrInvalidSessionModel)
+		}
+		if _, err := ws.Cfg.Config().ResolveModelRef(modelRef); err != nil {
+			return session.Session{}, fmt.Errorf("%w: %v", ErrInvalidSessionModel, err)
+		}
+	}
+
+	sess, err := ws.Sessions.CreateWithModelRef(ctx, title, modelRef)
+	if err != nil {
+		return session.Session{}, err
+	}
+	filled, err := ws.EnsureSwarmIdentity(ctx, sess)
+	if err != nil {
+		slog.Warn("Failed to assign swarm identity to new session", "session_id", sess.ID, "error", err)
+		return sess, nil
+	}
+	return filled, nil
 }
 
 // GetSession retrieves a session by workspace and session ID.

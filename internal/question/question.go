@@ -2,6 +2,8 @@ package question
 
 import (
 	"context"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/csync"
@@ -100,6 +102,9 @@ type Service interface {
 	// question in the given session so a client that just switched to (or
 	// re-attached to) the workspace surfaces the prompt (switch-to-grant).
 	RepublishPending(sessionID string)
+	// PendingRequests returns the still-unanswered questions asked by
+	// sessionID, or by every session when sessionID is empty.
+	PendingRequests(sessionID string) []Request
 	SubscribeNotifications(ctx context.Context) <-chan pubsub.Event[Notification]
 }
 
@@ -238,4 +243,19 @@ func (s *questionService) RepublishPending(sessionID string) {
 			s.Publish(pubsub.CreatedEvent, p.req)
 		}
 	}
+}
+
+// PendingRequests returns the still-unanswered questions for sessionID,
+// or for every session when sessionID is empty.
+func (s *questionService) PendingRequests(sessionID string) []Request {
+	var out []Request
+	for _, p := range s.pendingRequests.Seq2() {
+		if sessionID == "" || p.req.SessionID == sessionID {
+			out = append(out, p.req)
+		}
+	}
+	slices.SortFunc(out, func(a, b Request) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out
 }

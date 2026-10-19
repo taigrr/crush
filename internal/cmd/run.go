@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"charm.land/lipgloss/v2"
@@ -66,7 +67,15 @@ crush run --output-format json "Fix the failing test"
 # Stream newline-delimited JSON events as the run progresses
 crush run --output-format stream-json "Refactor the config loader"
 
-Exit codes: 0 completed, 1 failure, 4 cancelled, 5 agent error.
+# Let the caller approve tool calls (see 'crush session answer')
+crush run -o json --permission-mode delegate "Upgrade the dependencies"
+
+# Start in the background and check back later
+crush run -o json --detach "Port the tests to testify"
+crush session wait <session-id> --timeout 9m -o json
+
+Exit codes: 0 completed, 1 failure, 2 blocked on a permission or question,
+3 permission denied, 4 cancelled, 5 agent error, 124 timeout.
   `,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var (
@@ -77,13 +86,17 @@ Exit codes: 0 completed, 1 failure, 4 cancelled, 5 agent error.
 			sessionID, _  = cmd.Flags().GetString("session")
 			useLast, _    = cmd.Flags().GetBool("continue")
 			formatFlag, _ = cmd.Flags().GetString("output-format")
+			modeFlag, _   = cmd.Flags().GetString("permission-mode")
+			detach, _     = cmd.Flags().GetBool("detach")
+			timeout, _    = cmd.Flags().GetDuration("timeout")
+			isolated, _   = cmd.Flags().GetBool("isolated")
 		)
 
 		format, err := headless.ParseOutputFormat(formatFlag)
 		if err != nil {
 			return err
 		}
-		return reportRunError(os.Stdout, format, runCommand(cmd, args, runOptions{
+		opts := runOptions{
 			largeModel:        largeModel,
 			smallModel:        smallModel,
 			hideSpinner:       quiet || verbose,
@@ -91,7 +104,18 @@ Exit codes: 0 completed, 1 failure, 4 cancelled, 5 agent error.
 			useLast:           useLast,
 			verbose:           verbose,
 			format:            format,
-		}))
+			detach:            detach,
+			timeout:           timeout,
+			isolated:          isolated,
+		}
+		opts.mode, err = headless.ParsePermissionMode(modeFlag)
+		if err == nil {
+			err = opts.normalize()
+		}
+		if err != nil {
+			return reportRunError(os.Stdout, format, err)
+		}
+		return reportRunError(os.Stdout, format, runCommand(cmd, args, opts))
 	},
 }
 
@@ -105,11 +129,61 @@ type runOptions struct {
 	useLast           bool
 	verbose           bool
 	format            headless.OutputFormat
+	mode              headless.PermissionMode
+	detach            bool
+	timeout           time.Duration
+	isolated          bool
+	// modelRef, when set, is the per-session model for a newly created
+	// session. It replaces rewriting the workspace's model config, which
+	// would also switch the model of every other client sharing the
+	// workspace.
+	modelRef string
+}
+
+// normalize validates flag combinations and decides how model overrides
+// are applied.
+func (o *runOptions) normalize() error {
+	if o.timeout < 0 {
+		return fmt.Errorf("--timeout must not be negative")
+	}
+	continuing := o.continueSessionID != "" || o.useLast
+	// Overriding the small model, or the model of an existing session,
+	// can only be done by rewriting the workspace config. Keep that
+	// confined to a private workspace like `crush run` always did.
+	needsPrivateConfig := o.smallModel != "" || (o.largeModel != "" && continuing)
+	if needsPrivateConfig && !o.isolated {
+		if o.detach || o.mode.Delegates() {
+			return fmt.Errorf("--small-model, or --model with --session/--continue, needs a private workspace, which cannot be combined with --detach or --permission-mode delegate")
+		}
+		o.isolated = true
+	}
+	if o.isolated {
+		if o.detach {
+			return fmt.Errorf("--detach cannot be combined with --isolated: nothing could reach the run after this process exits")
+		}
+		if o.mode.Delegates() {
+			return fmt.Errorf("--permission-mode delegate cannot be combined with --isolated: nothing could answer the run's prompts")
+		}
+		return nil
+	}
+	if o.largeModel != "" {
+		o.modelRef = o.largeModel
+		o.largeModel = ""
+	}
+	return nil
+}
+
+// usesLegacyTextStream reports whether the run can use the original
+// text streaming loop, which prints assistant text live. It only knows
+// how to report completion, cancellation, and errors, so anything that
+// can end in another status goes through [runHeadless].
+func (o runOptions) usesLegacyTextStream() bool {
+	return o.format == headless.FormatText && !o.detach && o.timeout == 0 && o.mode == headless.ModeYOLO
 }
 
 func runCommand(cmd *cobra.Command, args []string, opts runOptions) error {
 	// Cancel on SIGINT or SIGTERM.
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	prompt := strings.Join(args, " ")
@@ -126,8 +200,14 @@ func runCommand(cmd *cobra.Command, args []string, opts runOptions) error {
 	opts.prompt = prompt
 
 	c, ws, cleanup, err := connectToServer(cmd, func(w *proto.Workspace) {
+		if !opts.isolated {
+			return
+		}
 		w.Isolated = true
-		w.YOLO = true
+		// A private workspace has no other client, so the workspace-wide
+		// toggle is equivalent to the session policy and also hides the
+		// question tool from the model, as before.
+		w.YOLO = opts.mode == headless.ModeYOLO
 	})
 	if err != nil {
 		return err
@@ -179,6 +259,10 @@ func init() {
 	runCmd.Flags().StringP("session", "s", "", "Continue a previous session by ID")
 	runCmd.Flags().BoolP("continue", "C", false, "Continue the most recent session")
 	runCmd.Flags().StringP("output-format", "o", string(headless.FormatText), "Output format: text, json, or stream-json")
+	runCmd.Flags().String("permission-mode", string(headless.ModeYOLO), "How tool permissions are handled: yolo (approve all), deny (deny anything not pre-approved), or delegate (wait for 'crush session answer')")
+	runCmd.Flags().Bool("detach", false, "Start the run in the background, print the session and exit")
+	runCmd.Flags().Duration("timeout", 0, "Stop waiting after this long (e.g. 9m); the run keeps going unless --isolated")
+	runCmd.Flags().Bool("isolated", false, "Run in a private workspace that no other client (TUI, 'crush session') can see")
 	runCmd.MarkFlagsMutuallyExclusive("session", "continue")
 }
 
@@ -260,7 +344,10 @@ func runNonInteractive(
 
 	defer stopSpinner()
 
-	sess, err := resolveSession(ctx, c, ws.ID, opts.continueSessionID, opts.useLast)
+	if opts.modelRef != "" {
+		opts.modelRef = canonicalModelRef(ctx, c, ws.ID, opts.modelRef)
+	}
+	sess, err := resolveSession(ctx, c, ws.ID, opts.continueSessionID, opts.useLast, opts.modelRef)
 	if err != nil {
 		return fmt.Errorf("failed to resolve session: %w", err)
 	}
@@ -270,9 +357,9 @@ func runNonInteractive(
 		slog.Info("Created session for non-interactive run", "session_id", sess.ID)
 	}
 
-	if opts.format.IsStructured() {
+	if !opts.usesLegacyTextStream() {
 		stopSpinner()
-		return runStructured(ctx, c, ws, sess, opts.prompt, opts.format, os.Stdout)
+		return runHeadless(ctx, c, ws, sess, opts, os.Stdout)
 	}
 	prompt := opts.prompt
 
@@ -288,7 +375,12 @@ func runNonInteractive(
 	runID := uuid.New().String()
 	sendErr := make(chan error, 1)
 	go func() {
-		sendErr <- c.SendMessage(ctx, ws.ID, sess.ID, runID, prompt)
+		sendErr <- c.SendAgentMessage(ctx, ws.ID, proto.AgentMessage{
+			SessionID:        sess.ID,
+			RunID:            runID,
+			Prompt:           prompt,
+			PermissionPolicy: opts.mode.Policy(),
+		})
 	}()
 
 	stream := &runStream{
@@ -572,6 +664,23 @@ func overrideModels(
 	return c.UpdateAgent(ctx, ws.ID)
 }
 
+// canonicalModelRef maps a --model value to "provider/model" using the
+// same lenient matching --model always had (case-insensitive, provider
+// optional), so a per-session model accepts every string the workspace
+// override used to. Values that match no configured model, such as role
+// names, are passed through for the server to resolve.
+func canonicalModelRef(ctx context.Context, c *client.Client, workspaceID, ref string) string {
+	cfg, err := c.GetConfig(ctx, workspaceID)
+	if err != nil {
+		return ref
+	}
+	matches, _ := findModelMatches(cfg.Providers.Copy(), ref, "")
+	if len(matches) != 1 {
+		return ref
+	}
+	return matches[0].provider + "/" + matches[0].modelID
+}
+
 type modelMatch struct {
 	provider string
 	modelID  string
@@ -646,7 +755,7 @@ func validateModelMatches(matches []modelMatch, modelID, label string) (modelMat
 // If continueSessionID is set it fetches that session; if useLast is set it
 // returns the most recently updated top-level session; otherwise it creates a
 // new one.
-func resolveSession(ctx context.Context, c *client.Client, wsID, continueSessionID string, useLast bool) (*proto.Session, error) {
+func resolveSession(ctx context.Context, c *client.Client, wsID, continueSessionID string, useLast bool, modelRef string) (*proto.Session, error) {
 	switch {
 	case continueSessionID != "":
 		sess, err := c.GetSession(ctx, wsID, continueSessionID)
@@ -670,7 +779,7 @@ func resolveSession(ctx context.Context, c *client.Client, wsID, continueSession
 		return last, nil
 
 	default:
-		return c.CreateSession(ctx, wsID, "non-interactive")
+		return c.CreateSessionWithModel(ctx, wsID, "non-interactive", modelRef)
 	}
 }
 

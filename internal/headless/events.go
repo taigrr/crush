@@ -3,6 +3,8 @@ package headless
 import (
 	"encoding/json"
 	"errors"
+
+	"github.com/taigrr/crush/internal/proto"
 )
 
 // Status is the terminal state of a headless run.
@@ -15,17 +17,35 @@ const (
 	StatusError Status = "error"
 	// StatusCancelled means the run was cancelled before finishing.
 	StatusCancelled Status = "cancelled"
+	// StatusBlocked means the run is waiting on a permission decision or
+	// a question; see [Result.Pending].
+	StatusBlocked Status = "blocked"
+	// StatusPermissionDenied means the run stopped after a tool call
+	// was denied.
+	StatusPermissionDenied Status = "permission_denied"
+	// StatusTimeout means the caller stopped waiting before the run
+	// ended.
+	StatusTimeout Status = "timeout"
+	// StatusRunning means the run was started in the background
+	// (--detach) and is still in progress.
+	StatusRunning Status = "running"
 )
 
 // ExitCode returns the process exit code associated with s.
 func (s Status) ExitCode() int {
 	switch s {
-	case StatusCompleted:
+	case StatusCompleted, StatusRunning:
 		return ExitOK
 	case StatusCancelled:
 		return ExitCancelled
 	case StatusError:
 		return ExitAgentError
+	case StatusBlocked:
+		return ExitBlocked
+	case StatusPermissionDenied:
+		return ExitPermissionDenied
+	case StatusTimeout:
+		return ExitTimeout
 	default:
 		return ExitFailure
 	}
@@ -40,7 +60,17 @@ const (
 	EventToolCall   EventType = "tool_call"
 	EventToolResult EventType = "tool_result"
 	EventResult     EventType = "result"
+	EventBlocked    EventType = "blocked"
+	EventStatus     EventType = "status"
 )
+
+// BlockedEvent is emitted in stream-json mode when the run starts
+// waiting on a permission decision or question.
+type BlockedEvent struct {
+	Type      EventType            `json:"type"`
+	SessionID string               `json:"session_id"`
+	Pending   proto.PendingPrompts `json:"pending"`
+}
 
 // InitEvent is the first stream-json line. It identifies the session so
 // a caller can resume, attach to, or cancel the run even if it never
@@ -123,22 +153,25 @@ const MaxDiagnosticItems = 50
 // Result is the final object of every structured run: the only line in
 // json mode and the last line in stream-json mode.
 type Result struct {
-	Type          EventType          `json:"type"`
-	Status        Status             `json:"status"`
-	ExitCode      int                `json:"exit_code"`
-	SessionID     string             `json:"session_id,omitempty"`
-	Address       string             `json:"address,omitempty"`
-	WorkspaceID   string             `json:"workspace_id,omitempty"`
-	RunID         string             `json:"run_id,omitempty"`
-	MessageID     string             `json:"message_id,omitempty"`
-	Cwd           string             `json:"cwd,omitempty"`
-	Text          string             `json:"text"`
-	Error         string             `json:"error,omitempty"`
-	DurationMS    int64              `json:"duration_ms"`
-	Usage         *Usage             `json:"usage,omitempty"`
-	FilesChanged  []string           `json:"files_changed"`
-	Diagnostics   *DiagnosticSummary `json:"diagnostics,omitempty"`
-	AttachCommand string             `json:"attach_command,omitempty"`
+	Type         EventType          `json:"type"`
+	Status       Status             `json:"status"`
+	ExitCode     int                `json:"exit_code"`
+	SessionID    string             `json:"session_id,omitempty"`
+	Address      string             `json:"address,omitempty"`
+	WorkspaceID  string             `json:"workspace_id,omitempty"`
+	RunID        string             `json:"run_id,omitempty"`
+	MessageID    string             `json:"message_id,omitempty"`
+	Cwd          string             `json:"cwd,omitempty"`
+	Text         string             `json:"text"`
+	Error        string             `json:"error,omitempty"`
+	DurationMS   int64              `json:"duration_ms"`
+	Usage        *Usage             `json:"usage,omitempty"`
+	FilesChanged []string           `json:"files_changed"`
+	Diagnostics  *DiagnosticSummary `json:"diagnostics,omitempty"`
+	// Pending lists what a blocked run is waiting on. Answer with
+	// `crush session answer`.
+	Pending       *proto.PendingPrompts `json:"pending,omitempty"`
+	AttachCommand string                `json:"attach_command,omitempty"`
 }
 
 // NewResult returns a result with the type and exit code derived from

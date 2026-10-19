@@ -94,7 +94,14 @@ func NewQuestionTool(permissions permission.Service, questions question.Service)
 				return fantasy.NewTextErrorResponse("session_id is required"), nil
 			}
 
-			if permissions.SkipRequests() {
+			// A run with an allow/deny policy is unattended (`crush run
+			// --permission-mode yolo|deny`): nobody is watching for its
+			// prompts, so fail fast exactly like the workspace-wide skip
+			// case. A delegated run (explicit prompt policy) always
+			// reaches its caller, even if the workspace skips prompts.
+			policy, explicit := permission.EffectivePolicy(ctx, permissions, sessionID)
+			delegated := explicit && policy == permission.SessionPolicyPrompt
+			if (permissions.SkipRequests() && !delegated) || policy != permission.SessionPolicyPrompt {
 				return fantasy.NewTextErrorResponse(
 					"question tool unavailable: no interactive client is attached to answer (non-interactive/headless run, or permission prompts are being skipped). Do not retry — proceed by stating your assumption clearly and continuing.",
 				), nil

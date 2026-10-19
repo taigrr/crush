@@ -683,13 +683,19 @@ func (c *Client) UpdateAgent(ctx context.Context, id string) error {
 // to distinguish its own turn's terminal event from any concurrent
 // turn on the same session (e.g. interactive TUI usage).
 func (c *Client) SendMessage(ctx context.Context, id string, sessionID, runID, prompt string, attachments ...message.Attachment) error {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent", id), nil, jsonBody(proto.AgentMessage{
+	return c.SendAgentMessage(ctx, id, proto.AgentMessage{
 		SessionID:   sessionID,
-		ClientID:    c.clientID,
 		RunID:       runID,
 		Prompt:      prompt,
 		Attachments: proto.AttachmentsFromMessage(attachments),
-	}), http.Header{"Content-Type": []string{"application/json"}})
+	})
+}
+
+// SendAgentMessage sends a fully specified agent message. ClientID is
+// always overwritten with this client's ID.
+func (c *Client) SendAgentMessage(ctx context.Context, id string, msg proto.AgentMessage) error {
+	msg.ClientID = c.clientID
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent", id), nil, jsonBody(msg), http.Header{"Content-Type": []string{"application/json"}})
 	if err != nil {
 		return fmt.Errorf("failed to send message to agent: %w", err)
 	}
@@ -734,6 +740,24 @@ func decodeErrorMessage(body io.Reader) string {
 		return ""
 	}
 	return e.Message
+}
+
+// GetPendingPrompts returns the permission requests and questions the
+// session (or any of its sub-agent sessions) is blocked on.
+func (c *Client) GetPendingPrompts(ctx context.Context, id, sessionID string) (proto.PendingPrompts, error) {
+	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/pending", id, sessionID), nil, nil)
+	if err != nil {
+		return proto.PendingPrompts{}, fmt.Errorf("failed to get pending prompts: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return proto.PendingPrompts{}, fmt.Errorf("failed to get pending prompts: status code %d", rsp.StatusCode)
+	}
+	var pending proto.PendingPrompts
+	if err := json.NewDecoder(rsp.Body).Decode(&pending); err != nil {
+		return proto.PendingPrompts{}, fmt.Errorf("failed to decode pending prompts: %w", err)
+	}
+	return pending, nil
 }
 
 // GetAgentSessionInfo retrieves the agent session info for a workspace.
@@ -845,12 +869,22 @@ func (c *Client) ListSessionHistoryFiles(ctx context.Context, id string, session
 
 // CreateSession creates a new session in a workspace as a proto type.
 func (c *Client) CreateSession(ctx context.Context, id string, title string) (*proto.Session, error) {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions", id), nil, jsonBody(proto.Session{Title: title}), http.Header{"Content-Type": []string{"application/json"}})
+	return c.CreateSessionWithModel(ctx, id, title, "")
+}
+
+// CreateSessionWithModel creates a session that runs modelRef (a role
+// name, "provider/model", or a bare model id) instead of the workspace's
+// large model. An empty modelRef uses the large model.
+func (c *Client) CreateSessionWithModel(ctx context.Context, id, title, modelRef string) (*proto.Session, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions", id), nil, jsonBody(proto.Session{Title: title, ModelRef: modelRef}), http.Header{"Content-Type": []string{"application/json"}})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 	defer rsp.Body.Close()
 	if rsp.StatusCode != http.StatusOK {
+		if msg := decodeErrorMessage(rsp.Body); msg != "" {
+			return nil, fmt.Errorf("failed to create session: status code %d: %s", rsp.StatusCode, msg)
+		}
 		return nil, fmt.Errorf("failed to create session: status code %d", rsp.StatusCode)
 	}
 	var sess proto.Session

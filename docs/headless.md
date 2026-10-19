@@ -70,12 +70,15 @@ stdout.
 }
 ```
 
-- `status` is `completed`, `error`, or `cancelled`.
+- `status` is `completed`, `error`, `cancelled`, `blocked`,
+  `permission_denied`, `timeout`, or `running` (with `--detach`).
 - `usage` counts only what this run consumed, not the whole session.
 - `files_changed` lists files the agent edited during this run.
 - `diagnostics` reports LSP errors and warnings still present in those files.
   It is omitted when no files changed or no LSP is running.
 - `address` is the session's swarm address.
+- `pending` lists what a `blocked` run is waiting on (see
+  [Permissions](#permissions)).
 - `attach_command` opens the session in the TUI so a person can review or
   take over.
 
@@ -89,21 +92,71 @@ In `stream-json` mode every line is a JSON object with a `type` field.
 | `text`        | New assistant text was streamed.         | `message_id`, `text` (the new chunk) |
 | `tool_call`   | A tool call's input finished streaming.  | `tool_call_id`, `name`, `input`      |
 | `tool_result` | A tool returned.                         | `tool_call_id`, `content` (max 4 KiB), `truncated`, `is_error` |
+| `blocked`     | The run is waiting on a prompt.          | `pending`                            |
 | `result`      | The run ended.                           | See above.                           |
 
 Unknown event types may be added later; consumers should ignore them.
 
 ### Exit codes
 
-| Code | Meaning                                                   |
-| ---- | --------------------------------------------------------- |
-| 0    | The run completed.                                        |
-| 1    | Generic failure (bad flags, server unreachable, ...).     |
-| 4    | The run was cancelled (Ctrl+C, SIGTERM, or another client). |
-| 5    | The agent run failed (provider error, ...).               |
+| Code | Meaning                                                      |
+| ---- | ------------------------------------------------------------ |
+| 0    | The run completed (or was started with `--detach`).          |
+| 1    | Generic failure (bad flags, server unreachable, ...).        |
+| 2    | Blocked on a permission request or question.                 |
+| 3    | A tool call was denied and the run stopped.                  |
+| 4    | The run was cancelled (Ctrl+C, SIGTERM, or another client).  |
+| 5    | The agent run failed (provider error, ...).                  |
+| 124  | `--timeout` elapsed before the run finished.                 |
 
 Interrupting `crush run` also cancels the run on the server, so it doesn't
 keep using tokens in the background.
+
+### Permissions
+
+`--permission-mode` decides what happens when the agent wants to run a tool
+that needs approval.
+The mode applies only to this run's own turn and the sub-agents it starts.
+Other turns on the same session, including ones a person sends from the TUI
+or that are queued behind the run, keep the usual behavior.
+
+| Mode       | Behavior                                                                 |
+| ---------- | ------------------------------------------------------------------------ |
+| `yolo`     | Approve everything (default, the historical `crush run` behavior).       |
+| `deny`     | Deny anything not pre-approved by `allowed_tools` or a `PreToolUse` hook. A denied call of the run itself ends the turn with exit code 3; a denial inside a sub-agent ends only that sub-agent. Turning on yolo mode in the TUI does not override it. |
+| `delegate` | Leave the request pending and exit with code 2 and `status: "blocked"`. The run stays alive on the server until it is answered with `crush session answer`. Questions from the agent are delegated the same way. Turning on yolo mode in the TUI does not auto-approve a delegated run. |
+
+In `yolo` and `deny` mode the agent's question tool fails right away, so the
+agent proceeds on its own assumptions instead of waiting.
+
+`--permission-mode yolo` without `--timeout`, `--detach`, or JSON output
+keeps the original live-streaming text output; the other modes print the
+final text when the run ends.
+
+### Background runs and timeouts
+
+- `--detach` starts the run, prints a `running` result with the session ID,
+  and exits immediately.
+- `--timeout 9m` stops waiting after the given time and exits with code 124.
+  The run keeps going, and `crush session wait` picks it up again.
+  Use a timeout shorter than your caller's own tool timeout (Claude Code's
+  Bash tool allows at most 10 minutes).
+
+### Shared and isolated workspaces
+
+By default `crush run` joins the same workspace as any TUI or other client in
+that directory.
+That makes the run visible to `crush session` commands and lets a person open
+it with `attach_command` while it is still going.
+
+`--isolated` runs in a private workspace instead.
+It cannot be combined with `--detach` or `--permission-mode delegate`, since
+nothing could reach the run afterwards, and an isolated run that times out is
+cancelled.
+`--small-model`, or `--model` together with `--session`/`--continue`, have to
+rewrite the workspace's model configuration, so they switch to an isolated
+workspace automatically.
+`--model` on a new session sets that session's model only.
 
 ### Sessions
 
@@ -111,3 +164,31 @@ Each run creates a new session unless `--session <id>` or `--continue` is
 given.
 The session ID in the result can be passed to `--session` to continue the
 conversation later.
+
+## Controlling running sessions
+
+These commands take a session ID, a hash prefix from `crush session list`, or
+the session's swarm address, and accept `-o json` like `crush run`.
+They look sessions up in the workspace for the current directory; use `--cwd`
+for another one.
+
+| Command                      | Purpose                                                       |
+| ---------------------------- | ------------------------------------------------------------- |
+| `crush session status <id>`  | Report `running`, `blocked` (with `pending`), or `idle` (with the last turn). |
+| `crush session wait <id>`    | Wait until the run finishes or blocks; prints a result. `--timeout` exits with 124. Usage and files are session totals. |
+| `crush session answer <id>`  | `--allow`, `--allow-session`, `--deny`, `--answer <text>` (repeatable), or `--cancel-question`. `--request <id>` picks one when several are pending. `--wait` waits for the result afterwards. |
+| `crush session cancel <id>`  | Cancel the running turn.                                       |
+
+Interrupting `crush session wait` never cancels the run.
+
+### Example: delegating from another agent
+
+```sh
+# Start the work, but leave every approval to the caller.
+crush run -o json --permission-mode delegate --timeout 9m "Upgrade the Go dependencies"
+# => exit 2, {"status":"blocked","pending":{"permissions":[{"id":"…","tool_name":"bash","description":"go get -u ./..."}]},…}
+
+# Approve it and keep going.
+crush session answer 7f0c3b9e --allow --wait --timeout 9m -o json
+# => exit 0, {"status":"completed","files_changed":[…],"diagnostics":{…},…}
+```

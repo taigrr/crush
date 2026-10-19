@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/taigrr/crush/internal/agent"
@@ -11,6 +12,7 @@ import (
 	"github.com/taigrr/crush/internal/agent/tools"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/shell"
@@ -49,6 +51,11 @@ func (b *Backend) SendMessage(workspaceID string, msg proto.AgentMessage) error 
 		return err
 	}
 
+	policy, err := permission.ParseSessionPolicy(string(msg.PermissionPolicy))
+	if err != nil {
+		return fmt.Errorf("%w: %q", ErrInvalidPermissionPolicy, msg.PermissionPolicy)
+	}
+
 	accept := ws.AgentCoordinator.BeginAccepted(msg.SessionID)
 
 	ws.runMu.Lock()
@@ -60,7 +67,7 @@ func (b *Backend) SendMessage(workspaceID string, msg proto.AgentMessage) error 
 	ws.runWG.Add(1)
 	ws.runMu.Unlock()
 
-	go b.runAgent(ws, msg, accept)
+	go b.runAgent(ws, msg, policy, accept)
 	return nil
 }
 
@@ -88,7 +95,7 @@ func (b *Backend) SendMessage(workspaceID string, msg proto.AgentMessage) error 
 // notify.RunComplete event with that correlator. A run-complete marker
 // is also attached so the coordinator can report whether it published
 // the terminal event, letting runAgent avoid a duplicate fallback.
-func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.AcceptedRun) {
+func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, policy permission.SessionPolicy, accept *agent.AcceptedRun) {
 	// Registered first so it runs last — after runWG.Done below — so that
 	// if this was the final in-flight run and all clients have already
 	// detached, the workspace (and, if it was the last one, the server)
@@ -111,6 +118,12 @@ func (b *Backend) runAgent(ws *Workspace, msg proto.AgentMessage, accept *agent.
 		ctx = agent.WithRunID(ctx, msg.RunID)
 	}
 	ctx = agent.WithRunCompleteMarker(ctx)
+	// A headless run's permission policy travels on the context into
+	// this turn's SessionAgentCall, so it governs exactly this turn and
+	// its sub-agents, even when the turn is queued behind another one.
+	if msg.PermissionPolicy != "" {
+		ctx = permission.WithPolicy(ctx, policy)
+	}
 
 	// Route the originating client's editor bridge to the tools for this
 	// turn. The coordinator is shared across all clients on the

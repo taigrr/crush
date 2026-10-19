@@ -550,7 +550,7 @@ func (c *controllerV1) handlePostSessionImport(w http.ResponseWriter, r *http.Re
 //	@Accept			json
 //	@Produce		json
 //	@Param			id		path		string			true	"Workspace ID"
-//	@Param			request	body		proto.Session	true	"Session creation params (title)"
+//	@Param			request	body		proto.Session	true	"Session creation params (title, optional model_ref)"
 //	@Success		200		{object}	proto.Session
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
@@ -559,14 +559,14 @@ func (c *controllerV1) handlePostSessionImport(w http.ResponseWriter, r *http.Re
 func (c *controllerV1) handlePostWorkspaceSessions(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var args session.Session
+	var args proto.Session
 	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 		c.server.logError(r, "Failed to decode request", "error", err)
 		jsonError(w, http.StatusBadRequest, "failed to decode request")
 		return
 	}
 
-	sess, err := c.backend.CreateSession(r.Context(), id, args.Title)
+	sess, err := c.backend.CreateSessionWithModel(r.Context(), id, args.Title, args.ModelRef)
 	if err != nil {
 		c.handleError(w, r, err)
 		return
@@ -1533,6 +1533,27 @@ func (c *controllerV1) handleGetWorkspaceAgentDefaultSmallModel(w http.ResponseW
 	jsonEncode(w, model)
 }
 
+// handleGetWorkspaceSessionPending returns what a session is blocked on.
+//
+//	@Summary		Get pending prompts
+//	@Description	Lists the permission requests and questions that the session, or any of its sub-agent sessions, is waiting on.
+//	@Tags			sessions
+//	@Produce		json
+//	@Param			id	path		string	true	"Workspace ID"
+//	@Param			sid	path		string	true	"Session ID"
+//	@Success		200	{object}	proto.PendingPrompts
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/sessions/{sid}/pending [get]
+func (c *controllerV1) handleGetWorkspaceSessionPending(w http.ResponseWriter, r *http.Request) {
+	pending, err := c.backend.PendingPrompts(r.Context(), r.PathValue("id"), r.PathValue("sid"))
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, pending)
+}
+
 // handlePostWorkspacePermissionsGrant grants a permission request.
 //
 //	@Summary		Grant permission
@@ -1713,6 +1734,8 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, backend.ErrSwarmPathNotDir):
 		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrInvalidPermissionAction):
+		status = http.StatusBadRequest
+	case errors.Is(err, backend.ErrInvalidPermissionPolicy):
 		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrUnknownCommand):
 		status = http.StatusBadRequest

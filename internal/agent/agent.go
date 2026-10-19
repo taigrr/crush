@@ -23,6 +23,7 @@ import (
 	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/milestone"
+	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/version"
@@ -60,8 +61,14 @@ type SessionAgentCall struct {
 	// reliable completion contract (e.g. `crush run` against a
 	// session that may be busy) MUST set it; SessionID alone is
 	// ambiguous when concurrent turns share the same session.
-	RunID  string
-	Prompt string
+	RunID string
+	// PermissionPolicy is the headless permission policy for this turn
+	// (see permission.WithPolicy). It travels with the call so a turn
+	// queued behind another one runs under its own policy, not the
+	// policy of whichever turn happens to dispatch it. Empty means the
+	// session's default behavior.
+	PermissionPolicy permission.SessionPolicy
+	Prompt           string
 	// ResolveModel, when non-nil, returns the model this turn runs on
 	// instead of the agent's large model. The coordinator sets it for
 	// sub-agent runs from the tool's per-call `model` parameter or the
