@@ -513,3 +513,14 @@ func (i *LSPClientInfo) UnmarshalJSON(data []byte) error {
 	}
 	return nil
 }
+
+// SwarmTarget is a swarm address resolved to the workspace and session
+// that own it.
+type SwarmTarget struct {
+	WorkspaceID string `json:"workspace_id"`
+	SessionID   string `json:"session_id"`
+	Address     string `json:"address"`
+	// Path is the workspace's project root; clients connect to it to
+	// operate on the session.
+	Path string `json:"path"`
+}

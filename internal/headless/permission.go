@@ -59,3 +59,12 @@ func (m PermissionMode) Policy() proto.PermissionPolicy {
 
 // Delegates reports whether pending prompts are handed to the caller.
 func (m PermissionMode) Delegates() bool { return m == ModeDelegate }
+
+// permissiveness ranks modes from most to least restrictive.
+var permissiveness = map[PermissionMode]int{ModeDeny: 0, ModeDelegate: 1, ModeYOLO: 2}
+
+// Allows reports whether a caller limited to m may request other: a
+// ceiling of delegate permits delegate and deny, but not yolo.
+func (m PermissionMode) Allows(other PermissionMode) bool {
+	return permissiveness[other] <= permissiveness[m]
+}

@@ -266,6 +266,16 @@ func setupClientServerWorkspace(cmd *cobra.Command) (workspace.Workspace, func()
 // connectToServer ensures the server is running, creates a client and
 // workspace, and returns a cleanup function that deletes the workspace.
 func connectToServer(cmd *cobra.Command, opts ...func(*proto.Workspace)) (*client.Client, *proto.Workspace, func(), error) {
+	cwd, err := ResolveCwd(cmd)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return connectToServerAt(cmd, cwd, opts...)
+}
+
+// connectToServerAt is [connectToServer] for an explicit directory
+// instead of the --cwd flag.
+func connectToServerAt(cmd *cobra.Command, cwd string, opts ...func(*proto.Workspace)) (*client.Client, *proto.Workspace, func(), error) {
 	hostURL, err := server.ParseHostURL(clientHost)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("invalid host URL: %v", err)
@@ -279,11 +289,6 @@ func connectToServer(cmd *cobra.Command, opts ...func(*proto.Workspace)) (*clien
 	yolo, _ := cmd.Flags().GetBool("yolo")
 	dataDir, _ := cmd.Flags().GetString("data-dir")
 	ctx := cmd.Context()
-
-	cwd, err := ResolveCwd(cmd)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 
 	c, err := client.NewClient(cwd, hostURL.Scheme, hostURL.Host)
 	if err != nil {

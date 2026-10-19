@@ -146,7 +146,8 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 
 ### CLI & Client/Server
 
-- Extra subcommands: `crush session {list,show,last,delete,rename,import}`,
+- Extra subcommands: `crush session {list,show,last,delete,rename,import,status,wait,answer,cancel}`,
+  `crush mcp`,
   `crush search`, `crush embeddings`, `crush db merge`, `crush reload`,
   `crush shutdown`, `crush server`.
 - Client/server mode by default, sharing one workspace per directory
@@ -155,9 +156,9 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
 - Embedded Swagger UI for the server API at `/v1/docs/`.
 - Machine-readable `crush run --output-format json|stream-json` with
   distinct exit codes, per-run permission modes (`yolo`, `deny`, `delegate`),
-  `--detach`/`--timeout`, and `crush session {status,wait,answer,cancel}`, so
-  scripts and other agents (Claude Code, clawdbot) can drive a full Crush
-  loop. See [docs/headless.md](docs/headless.md).
+  `--detach`/`--timeout`, `crush session {status,wait,answer,cancel}`, and a
+  `crush mcp` server, so scripts and other agents (Claude Code, clawdbot) can
+  drive a full Crush loop. See [docs/headless.md](docs/headless.md).
 
 ### Providers
 

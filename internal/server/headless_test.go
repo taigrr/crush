@@ -94,3 +94,28 @@ func TestHandlePostWorkspaceAgent_InvalidPermissionPolicy(t *testing.T) {
 	require.Contains(t, e.Message, "invalid permission policy")
 	require.Zero(t, h.coord.runStarts.Load(), "the run is rejected before dispatch")
 }
+
+func TestHandleGetSwarmResolve_Errors(t *testing.T) {
+	// The not-found path probes the workspace registry, so point it at an
+	// empty home instead of the developer's real one.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	h := &e2eHarness{}
+	h.installServer(t)
+
+	for query, want := range map[string]int{
+		"":                            http.StatusBadRequest,
+		"?address=":                   http.StatusBadRequest,
+		"?address=%21":                http.StatusBadRequest,
+		"?address=ghost-nothing-ffff": http.StatusNotFound,
+	} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, h.httpSrv.URL+"/v1/swarm/resolve"+query, nil)
+		require.NoError(t, err)
+		resp, err := h.httpSrv.Client().Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, want, resp.StatusCode, query)
+	}
+}

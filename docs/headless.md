@@ -169,8 +169,9 @@ conversation later.
 
 These commands take a session ID, a hash prefix from `crush session list`, or
 the session's swarm address, and accept `-o json` like `crush run`.
-They look sessions up in the workspace for the current directory; use `--cwd`
-for another one.
+Sessions are looked up in the workspace for the current directory first, then
+across every workspace the server knows about, so a swarm address works from
+anywhere.
 
 | Command                      | Purpose                                                       |
 | ---------------------------- | ------------------------------------------------------------- |
@@ -192,3 +193,56 @@ crush run -o json --permission-mode delegate --timeout 9m "Upgrade the Go depend
 crush session answer 7f0c3b9e --allow --wait --timeout 9m -o json
 # => exit 0, {"status":"completed","files_changed":[…],"diagnostics":{…},…}
 ```
+
+## MCP server
+
+`crush mcp` serves the same loop over the Model Context Protocol on
+stdin/stdout, which is the most natural way for another agent to use Crush.
+
+```sh
+# Claude Code
+claude mcp add crush -- crush mcp
+
+# Any MCP client: run "crush mcp" as a stdio server in the project directory.
+```
+
+| Tool            | Purpose                                                                 |
+| --------------- | ----------------------------------------------------------------------- |
+| `crush_start`   | Start a run (or a follow-up with `session`) and return right away with the session, address, and `attach_command`. Accepts `cwd`, `model` (role name, `provider/model`, or model ID), `permission_mode`, and `title`. |
+| `crush_wait`    | Wait up to `timeout_seconds` (default 300, max 540) and return the same result object as `crush run -o json`, with usage and files changed as session totals. Call again on `timeout`. |
+| `crush_status`  | Report `running`, `blocked`, or `idle` without waiting.                 |
+| `crush_respond` | Answer a blocked run: `decision` (`allow`, `allow_session`, `deny`), `answer`, or `cancel_question`; `wait: true` waits afterwards. |
+| `crush_cancel`  | Cancel the running turn.                                                |
+| `crush_list`    | List a project's sessions, newest first.                                |
+| `crush_diff`    | Unified diff of every file the session changed.                         |
+
+Runs started over MCP default to `permission_mode: "delegate"`, so a tool call
+that needs approval comes back to the calling agent as `status: "blocked"`
+instead of running unasked, even if someone turns on yolo mode in the TUI.
+The server's `--permission-mode` is also the most permissive mode a caller may
+request: under the default, `crush_start` accepts `delegate` or `deny` but
+rejects `yolo`.
+Start the server with `--permission-mode yolo` to let callers approve their
+own runs, or `deny` to forbid delegation too.
+
+Long waits send MCP progress notifications every 15 seconds when the client
+asks for progress, which keeps clients that reset their timeout on progress
+from giving up.
+`--max-wait` lowers the 9 minute cap on a single `crush_wait` for clients with
+shorter tool timeouts.
+
+The MCP server keeps each project's workspace attached while it runs, so LSPs
+stay warm between calls, and any session it starts can be opened in the TUI
+with its `attach_command` to watch or take over.
+
+A Claude Code skill that teaches Claude when and how to hand work to Crush is
+in [docs/integrations/claude-code/crush/SKILL.md](integrations/claude-code/crush/SKILL.md).
+Copy the `crush` directory into `~/.claude/skills/` (or a project's
+`.claude/skills/`) to install it.
+
+## Security
+
+The Crush server listens on a per-user unix socket (`/tmp/crush-<uid>.sock`)
+or named pipe by default; any process running as the same user can drive it,
+exactly like the TUI.
+Do not expose it with `--host tcp://...` on a shared or untrusted network.

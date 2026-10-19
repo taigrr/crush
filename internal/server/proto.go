@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/backend"
@@ -1533,6 +1534,33 @@ func (c *controllerV1) handleGetWorkspaceAgentDefaultSmallModel(w http.ResponseW
 	jsonEncode(w, model)
 }
 
+// handleGetSwarmResolve resolves a swarm address across workspaces.
+//
+//	@Summary		Resolve swarm address
+//	@Description	Finds the workspace and session that own a swarm address (color-animal[-shorthash] or a session UUID), across every running or registered workspace.
+//	@Tags			swarm
+//	@Produce		json
+//	@Param			address	query		string	true	"Swarm address"
+//	@Success		200		{object}	proto.SwarmTarget
+//	@Failure		400		{object}	proto.Error
+//	@Failure		404		{object}	proto.Error
+//	@Failure		409		{object}	proto.Error
+//	@Failure		500		{object}	proto.Error
+//	@Router			/swarm/resolve [get]
+func (c *controllerV1) handleGetSwarmResolve(w http.ResponseWriter, r *http.Request) {
+	address := strings.TrimSpace(r.URL.Query().Get("address"))
+	if address == "" {
+		jsonError(w, http.StatusBadRequest, "address is required")
+		return
+	}
+	target, err := c.backend.ResolveSwarmTarget(r.Context(), address)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, target)
+}
+
 // handleGetWorkspaceSessionPending returns what a session is blocked on.
 //
 //	@Summary		Get pending prompts
@@ -1730,6 +1758,12 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, backend.ErrAgentNotInitialized):
 		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrPathRequired):
+		status = http.StatusBadRequest
+	case errors.Is(err, backend.ErrSwarmAddressNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, backend.ErrSwarmAddressAmbiguous):
+		status = http.StatusConflict
+	case errors.Is(err, backend.ErrSwarmAddressInvalid), errors.Is(err, backend.ErrSwarmTargetIsSubagent):
 		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrSwarmPathNotDir):
 		status = http.StatusBadRequest

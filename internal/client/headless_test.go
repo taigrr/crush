@@ -90,3 +90,23 @@ func TestCreateSessionWithModel(t *testing.T) {
 	_, err = c.CreateSessionWithModel(t.Context(), "ws", "t", "ghost")
 	require.ErrorContains(t, err, "invalid session model: ghost")
 }
+
+func TestResolveSwarmAddress(t *testing.T) {
+	t.Parallel()
+
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/swarm/resolve", r.URL.Path)
+		require.Equal(t, "coral-polar bear-3b9e", r.URL.Query().Get("address"))
+		_ = json.NewEncoder(w).Encode(proto.SwarmTarget{WorkspaceID: "ws", SessionID: "s", Address: "coral-polar bear-3b9e", Path: "/p"})
+	})
+	got, err := c.ResolveSwarmAddress(t.Context(), "coral-polar bear-3b9e")
+	require.NoError(t, err)
+	require.Equal(t, proto.SwarmTarget{WorkspaceID: "ws", SessionID: "s", Address: "coral-polar bear-3b9e", Path: "/p"}, got)
+
+	c = newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(proto.Error{Message: "swarm address matches multiple sessions"})
+	})
+	_, err = c.ResolveSwarmAddress(t.Context(), "coral-otter")
+	require.ErrorContains(t, err, "matches multiple sessions")
+}

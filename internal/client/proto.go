@@ -742,6 +742,28 @@ func decodeErrorMessage(body io.Reader) string {
 	return e.Message
 }
 
+// ResolveSwarmAddress resolves a swarm address (color-animal[-hash] or a
+// session UUID) to the workspace and session that own it, across every
+// workspace the server knows about.
+func (c *Client) ResolveSwarmAddress(ctx context.Context, address string) (proto.SwarmTarget, error) {
+	rsp, err := c.get(ctx, "/swarm/resolve", url.Values{"address": []string{address}}, nil)
+	if err != nil {
+		return proto.SwarmTarget{}, fmt.Errorf("failed to resolve swarm address: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		if msg := decodeErrorMessage(rsp.Body); msg != "" {
+			return proto.SwarmTarget{}, fmt.Errorf("failed to resolve swarm address %q: %s", address, msg)
+		}
+		return proto.SwarmTarget{}, fmt.Errorf("failed to resolve swarm address %q: status code %d", address, rsp.StatusCode)
+	}
+	var target proto.SwarmTarget
+	if err := json.NewDecoder(rsp.Body).Decode(&target); err != nil {
+		return proto.SwarmTarget{}, fmt.Errorf("failed to decode swarm target: %w", err)
+	}
+	return target, nil
+}
+
 // GetPendingPrompts returns the permission requests and questions the
 // session (or any of its sub-agent sessions) is blocked on.
 func (c *Client) GetPendingPrompts(ctx context.Context, id, sessionID string) (proto.PendingPrompts, error) {

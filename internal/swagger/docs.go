@@ -208,6 +208,59 @@ const docTemplate = `{
                 }
             }
         },
+        "/swarm/resolve": {
+            "get": {
+                "description": "Finds the workspace and session that own a swarm address (color-animal[-shorthash] or a session UUID), across every running or registered workspace.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "swarm"
+                ],
+                "summary": "Resolve swarm address",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Swarm address",
+                        "name": "address",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.SwarmTarget"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/version": {
             "get": {
                 "produces": [
@@ -6344,6 +6397,24 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "text": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.SwarmTarget": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "path": {
+                    "description": "Path is the workspace's project root; clients connect to it to\noperate on the session.",
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "workspace_id": {
                     "type": "string"
                 }
             }

@@ -1280,6 +1280,20 @@ definitions:
       text:
         type: string
     type: object
+  proto.SwarmTarget:
+    properties:
+      address:
+        type: string
+      path:
+        description: |-
+          Path is the workspace's project root; clients connect to it to
+          operate on the session.
+        type: string
+      session_id:
+        type: string
+      workspace_id:
+        type: string
+    type: object
   proto.Todo:
     properties:
       active_form:
@@ -1517,6 +1531,42 @@ paths:
       summary: Peek a session's info in any known workspace
       tags:
       - sessions
+  /swarm/resolve:
+    get:
+      description: Finds the workspace and session that own a swarm address (color-animal[-shorthash]
+        or a session UUID), across every running or registered workspace.
+      parameters:
+      - description: Swarm address
+        in: query
+        name: address
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.SwarmTarget'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Resolve swarm address
+      tags:
+      - swarm
   /version:
     get:
       produces:

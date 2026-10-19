@@ -48,6 +48,9 @@ internal/
   pubsub/                          Internal pub/sub for cross-component messaging
   filetracker/                     Tracks files touched per session
   history/                         Prompt history
+  headless/                        Machine-readable contract for `crush run`, `crush session`, `crush mcp`
+    headlesstest/                  In-process server + scripted agent for end-to-end tests
+  mcpserver/                       `crush mcp`: Crush exposed to other agents as MCP tools
 ```
 
 ### Key Dependency Roles
@@ -97,6 +100,14 @@ internal/
   enabled. Sender identity is stamped by the
   backend from the sender's session row (untrusted tool input is
   overwritten) to prevent spoofing.
+
+- **Headless**: `internal/headless` owns the JSON result/event schema,
+  exit codes, and the watch/answer/status helpers shared by `crush run`,
+  `crush session {wait,status,answer,cancel}`, and `crush mcp`. Per-run
+  permission modes are per-session policies in the permission service
+  (`SetSessionPolicy`), applied via `AgentMessage.PermissionPolicy` and
+  cleared when the session goes idle. Exit codes are public API: never
+  renumber them. User docs live in `docs/headless.md`.
 
 ## Build/Test/Lint Commands
 

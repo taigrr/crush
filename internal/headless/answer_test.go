@@ -35,6 +35,18 @@ func TestPermissionModePolicy(t *testing.T) {
 	require.False(t, ModeDeny.Delegates())
 }
 
+func TestPermissionModeAllows(t *testing.T) {
+	t.Parallel()
+
+	require.True(t, ModeYOLO.Allows(ModeYOLO))
+	require.True(t, ModeYOLO.Allows(ModeDeny))
+	require.True(t, ModeDelegate.Allows(ModeDelegate))
+	require.True(t, ModeDelegate.Allows(ModeDeny))
+	require.False(t, ModeDelegate.Allows(ModeYOLO))
+	require.True(t, ModeDeny.Allows(ModeDeny))
+	require.False(t, ModeDeny.Allows(ModeDelegate))
+}
+
 func TestAnswer(t *testing.T) {
 	t.Parallel()
 

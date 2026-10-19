@@ -28,6 +28,7 @@ var (
 	ErrSwarmSelfAddressed     = errors.New("swarm target is the sender's own session")
 	ErrSwarmWorkspaceNotFound = errors.New("swarm target workspace not found")
 	ErrSwarmPathNotDir        = errors.New("swarm path does not exist or is not a directory")
+	ErrSwarmAddressInvalid    = errors.New("invalid swarm address")
 )
 
 // SwarmLookupResult describes a resolved swarm address across all
@@ -69,7 +70,7 @@ type SwarmLookupResult struct {
 func (b *Backend) LookupSwarmAddress(ctx context.Context, addrStr string) (SwarmLookupResult, error) {
 	addr, ok := swarm.ParseAddress(addrStr)
 	if !ok {
-		return SwarmLookupResult{}, fmt.Errorf("swarm: invalid address %q", addrStr)
+		return SwarmLookupResult{}, fmt.Errorf("swarm: %w %q", ErrSwarmAddressInvalid, addrStr)
 	}
 
 	// seen dedupes sessions by (workspace, session) so a workspace
@@ -675,4 +676,24 @@ func isSubSession(s session.Session) bool {
 		return true
 	}
 	return false
+}
+
+// ResolveSwarmTarget resolves a swarm address (color-animal[-hash] or a
+// session UUID) across every running or registered workspace into the
+// workspace and session that own it. Sub-agent sessions are rejected
+// with [ErrSwarmTargetIsSubagent].
+func (b *Backend) ResolveSwarmTarget(ctx context.Context, address string) (proto.SwarmTarget, error) {
+	res, err := b.LookupSwarmAddress(ctx, address)
+	if err != nil {
+		return proto.SwarmTarget{}, err
+	}
+	if res.Sub {
+		return proto.SwarmTarget{}, ErrSwarmTargetIsSubagent
+	}
+	return proto.SwarmTarget{
+		WorkspaceID: res.WorkspaceID,
+		SessionID:   res.SessionID,
+		Address:     swarm.FormatAddress(swarm.Identity{Color: res.Color, Animal: res.Animal}, res.SessionID),
+		Path:        res.WorkspaceRoot,
+	}, nil
 }
