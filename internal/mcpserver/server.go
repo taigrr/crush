@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,6 +63,11 @@ type Options struct {
 	// ProgressInterval is how often a long wait sends a progress
 	// notification when the caller asked for progress.
 	ProgressInterval time.Duration
+	// AllowForeignSessions lets callers answer prompts of, cancel, and
+	// send follow-ups to sessions this server did not start (for example
+	// a person's TUI session). Read-only tools work on any session
+	// regardless.
+	AllowForeignSessions bool
 }
 
 const (
@@ -80,7 +86,7 @@ Workflow:
 3. If status is "blocked", the run is waiting on a permission request or question listed in "pending". Ask the user if needed, then call crush_respond (set wait=true to keep going).
 4. When status is "completed", review "text", "files_changed", and "diagnostics" (LSP errors left in changed files), and crush_diff for the exact changes.
 
-Follow-ups go to the same session with crush_start and the session parameter. Sessions can also be referenced by their swarm address (e.g. "coral-otter-3b9e"). A person can watch or take over any session with its attach_command.`
+Follow-ups go to the same session with crush_start and the session parameter. crush_respond, crush_cancel, and follow-ups only work on sessions this server started. Sessions can also be referenced by their swarm address (e.g. "coral-otter-3b9e"). A person can watch or take over any session with its attach_command.`
 
 // New builds the MCP server.
 func New(conn Connector, opts Options) *mcp.Server {
@@ -96,7 +102,7 @@ func New(conn Connector, opts Options) *mcp.Server {
 	if opts.ProgressInterval <= 0 {
 		opts.ProgressInterval = defaultProgressInterval
 	}
-	t := &tools{conn: conn, opts: opts}
+	t := &tools{conn: conn, opts: opts, owned: make(map[string]bool)}
 
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "crush",
@@ -144,6 +150,29 @@ func New(conn Connector, opts Options) *mcp.Server {
 type tools struct {
 	conn Connector
 	opts Options
+
+	mu    sync.Mutex
+	owned map[string]bool
+}
+
+func (t *tools) own(sessionID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.owned[sessionID] = true
+}
+
+// checkControl refuses to act on a session this server did not start,
+// unless foreign sessions were allowed.
+func (t *tools) checkControl(sessionID string) error {
+	if t.opts.AllowForeignSessions {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.owned[sessionID] {
+		return nil
+	}
+	return fmt.Errorf("session %s was not started by this crush mcp server; start crush mcp with --allow-foreign-sessions to control other sessions", sessionID)
 }
 
 // StartInput is the input of crush_start.
@@ -257,6 +286,9 @@ func (t *tools) start(ctx context.Context, _ *mcp.CallToolRequest, in StartInput
 			return nil, headless.Result{}, errors.New("model can only be set for a new session")
 		}
 		c, ws, sess, err = t.resolve(ctx, in.Cwd, in.Session)
+		if err == nil {
+			err = t.checkControl(sess.ID)
+		}
 	} else {
 		c, ws, err = t.connect(ctx, in.Cwd)
 		if err == nil {
@@ -268,6 +300,7 @@ func (t *tools) start(ctx context.Context, _ *mcp.CallToolRequest, in StartInput
 		return nil, headless.Result{}, err
 	}
 
+	t.own(sess.ID)
 	runID := newRunID()
 	if err := c.SendAgentMessage(ctx, ws.ID, proto.AgentMessage{
 		SessionID:        sess.ID,
@@ -365,9 +398,16 @@ func (t *tools) respond(ctx context.Context, req *mcp.CallToolRequest, in Respon
 	if err != nil {
 		return nil, RespondOutput{}, err
 	}
+	if err := t.checkControl(sess.ID); err != nil {
+		return nil, RespondOutput{}, err
+	}
+	decision := proto.PermissionAction(in.Decision)
+	if t.opts.DefaultMode == headless.ModeDeny && decision != "" && decision != proto.PermissionDeny {
+		return nil, RespondOutput{}, fmt.Errorf("decision %q is not allowed: this server only permits deny (started with --permission-mode deny)", decision)
+	}
 	ans := headless.AnswerRequest{
 		RequestID:      in.RequestID,
-		Permission:     proto.PermissionAction(in.Decision),
+		Permission:     decision,
 		Answers:        in.Answer,
 		CancelQuestion: in.CancelQuestion,
 	}
@@ -386,6 +426,9 @@ func (t *tools) respond(ctx context.Context, req *mcp.CallToolRequest, in Respon
 func (t *tools) cancel(ctx context.Context, _ *mcp.CallToolRequest, in SessionInput) (*mcp.CallToolResult, CancelOutput, error) {
 	c, ws, sess, err := t.resolve(ctx, in.Cwd, in.Session)
 	if err != nil {
+		return nil, CancelOutput{}, err
+	}
+	if err := t.checkControl(sess.ID); err != nil {
 		return nil, CancelOutput{}, err
 	}
 	busy := false

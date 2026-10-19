@@ -300,9 +300,46 @@ func TestMCP_Errors(t *testing.T) {
 	require.True(t, res.IsError)
 	require.Contains(t, errorText(res), "unknown project")
 
-	sess, err := e.h.Client.CreateSession(t.Context(), e.h.Workspace.ID, "idle")
-	require.NoError(t, err)
-	_, res = e.call(t, "crush_respond", map[string]any{"session": sess.ID, "decision": "allow"})
+	started, _ := e.call(t, "crush_start", map[string]any{"prompt": "x"})
+	e.h.WaitIdle(t)
+	_, res = e.call(t, "crush_respond", map[string]any{"session": started["session_id"], "decision": "allow"})
 	require.True(t, res.IsError)
 	require.Contains(t, errorText(res), "nothing is pending")
+}
+
+func TestMCP_ForeignSessionsAreReadOnly(t *testing.T) {
+	e := newEnv(t, mcpserver.Options{})
+	sess, err := e.h.Client.CreateSession(t.Context(), e.h.Workspace.ID, "a person's session")
+	require.NoError(t, err)
+
+	status, _ := e.call(t, "crush_status", map[string]any{"session": sess.ID})
+	require.Equal(t, "idle", status["state"], "read-only tools work on any session")
+
+	for name, args := range map[string]map[string]any{
+		"crush_respond": {"session": sess.ID, "decision": "allow"},
+		"crush_cancel":  {"session": sess.ID},
+		"crush_start":   {"session": sess.ID, "prompt": "hijack"},
+	} {
+		_, res := e.call(t, name, args)
+		require.True(t, res.IsError, name)
+		require.Contains(t, errorText(res), "was not started by this crush mcp server", name)
+	}
+
+	allowed := newEnv(t, mcpserver.Options{AllowForeignSessions: true})
+	other, err := allowed.h.Client.CreateSession(t.Context(), allowed.h.Workspace.ID, "shared")
+	require.NoError(t, err)
+	cancelled, _ := allowed.call(t, "crush_cancel", map[string]any{"session": other.ID})
+	require.Equal(t, false, cancelled["was_busy"])
+}
+
+func TestMCP_DenyCeilingOnlyDenies(t *testing.T) {
+	e := newEnv(t, mcpserver.Options{DefaultMode: headless.ModeDeny})
+	started, _ := e.call(t, "crush_start", map[string]any{"prompt": "x"})
+	_, res := e.call(t, "crush_respond", map[string]any{"session": started["session_id"], "decision": "allow_session"})
+	require.True(t, res.IsError)
+	require.Contains(t, errorText(res), "only permits deny")
+
+	_, res = e.call(t, "crush_start", map[string]any{"prompt": "x", "permission_mode": "delegate"})
+	require.True(t, res.IsError)
+	require.Contains(t, errorText(res), `permission_mode "delegate" is not allowed`)
 }

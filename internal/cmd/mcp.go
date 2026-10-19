@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -39,10 +40,14 @@ claude mcp add crush -- crush mcp --permission-mode yolo`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		modeFlag, _ := cmd.Flags().GetString("permission-mode")
+		if modeFlag == "" {
+			return fmt.Errorf("--permission-mode must be delegate, deny, or yolo")
+		}
 		mode, err := headless.ParsePermissionMode(modeFlag)
 		if err != nil {
 			return err
 		}
+		allowForeign, _ := cmd.Flags().GetBool("allow-foreign-sessions")
 		maxWait, _ := cmd.Flags().GetDuration("max-wait")
 		cwd, err := ResolveCwd(cmd)
 		if err != nil {
@@ -57,9 +62,10 @@ claude mcp add crush -- crush mcp --permission-mode yolo`,
 		defer conn.Close()
 
 		srv := mcpserver.New(conn, mcpserver.Options{
-			DefaultCwd:  cwd,
-			DefaultMode: mode,
-			MaxWait:     maxWait,
+			DefaultCwd:           cwd,
+			DefaultMode:          mode,
+			MaxWait:              maxWait,
+			AllowForeignSessions: allowForeign,
 		})
 		if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil && ctx.Err() == nil {
 			return err
@@ -70,6 +76,7 @@ claude mcp add crush -- crush mcp --permission-mode yolo`,
 
 func init() {
 	mcpCmd.Flags().String("permission-mode", string(headless.ModeDelegate), "Default and most permissive permission mode callers may use: delegate, deny, or yolo")
+	mcpCmd.Flags().Bool("allow-foreign-sessions", false, "Let callers answer, cancel, and send follow-ups to sessions this server did not start, such as TUI sessions")
 	mcpCmd.Flags().Duration("max-wait", 0, "Longest a single crush_wait may block (default 9m); keep it below your client's tool timeout")
 	rootCmd.AddCommand(mcpCmd)
 }
@@ -83,6 +90,7 @@ type mcpConnector struct {
 	connect func(dir string) (*mcpEntry, error)
 
 	mu      sync.Mutex
+	closed  bool
 	entries map[string]*mcpEntry
 	// pending dedupes concurrent first connects to the same project
 	// without holding mu (connecting can take seconds), so a slow
@@ -119,6 +127,10 @@ func (m *mcpConnector) Connect(ctx context.Context, dir string) (mcpserver.Clien
 	key := canonicalDir(dir)
 	for {
 		m.mu.Lock()
+		if m.closed {
+			m.mu.Unlock()
+			return nil, nil, errors.New("crush mcp is shutting down")
+		}
 		if e, ok := m.entries[key]; ok {
 			select {
 			case <-e.dead:
@@ -148,10 +160,18 @@ func (m *mcpConnector) Connect(ctx context.Context, dir string) (mcpserver.Clien
 		dial := m.connect
 		m.mu.Unlock()
 
+		// The dial runs on the server's lifetime, not the caller's ctx:
+		// other callers may be waiting on it.
 		p.entry, p.err = dial(key)
 
 		m.mu.Lock()
 		delete(m.pending, key)
+		if p.err == nil && m.closed {
+			// Close ran while we were dialing; nothing will release
+			// this connection later.
+			p.entry.close()
+			p.entry, p.err = nil, errors.New("crush mcp is shutting down")
+		}
 		if p.err == nil {
 			m.entries[key] = p.entry
 		}
@@ -211,6 +231,7 @@ func newMCPEntry(c mcpserver.Client, ws *proto.Workspace, events <-chan any, can
 // Close releases every workspace.
 func (m *mcpConnector) Close() {
 	m.mu.Lock()
+	m.closed = true
 	entries := m.entries
 	m.entries = make(map[string]*mcpEntry)
 	m.mu.Unlock()

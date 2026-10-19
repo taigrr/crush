@@ -72,12 +72,12 @@ func TestMCPConnector_ConcurrentFirstConnectDialsOnce(t *testing.T) {
 	m := newTestConnector(f)
 	dir := t.TempDir()
 
-	var wg sync.WaitGroup
+	errs := make(chan error, 5)
 	for range 5 {
-		wg.Go(func() {
+		go func() {
 			_, _, err := m.Connect(t.Context(), dir)
-			require.NoError(t, err)
-		})
+			errs <- err
+		}()
 	}
 	require.Eventually(t, func() bool { return f.calls.Load() == 1 }, time.Second, 5*time.Millisecond)
 
@@ -91,20 +91,23 @@ func TestMCPConnector_ConcurrentFirstConnectDialsOnce(t *testing.T) {
 		return other.dial(d)
 	}
 	m.mu.Unlock()
-	done := make(chan struct{})
+	otherDir := t.TempDir()
+	done := make(chan error, 1)
 	go func() {
-		_, _, err := m.Connect(t.Context(), t.TempDir())
-		require.NoError(t, err)
-		close(done)
+		_, _, err := m.Connect(t.Context(), otherDir)
+		done <- err
 	}()
 	select {
-	case <-done:
+	case err := <-done:
+		require.NoError(t, err)
 	case <-time.After(time.Second):
 		t.Fatal("a slow connect to one project blocked another project")
 	}
 
 	close(f.gate)
-	wg.Wait()
+	for range 5 {
+		require.NoError(t, <-errs)
+	}
 	require.EqualValues(t, 1, f.calls.Load())
 	m.Close()
 }
@@ -169,4 +172,25 @@ func TestMCPCmdFlags(t *testing.T) {
 	require.NotNil(t, f)
 	require.Equal(t, "delegate", f.DefValue)
 	require.NotNil(t, mcpCmd.Flags().Lookup("max-wait"))
+}
+
+func TestMCPConnector_CloseDuringDialReleasesConnection(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeDialer{gate: make(chan struct{})}
+	m := newTestConnector(f)
+	errc := make(chan error, 1)
+	go func() {
+		_, _, err := m.Connect(context.Background(), t.TempDir())
+		errc <- err
+	}()
+	require.Eventually(t, func() bool { return f.calls.Load() == 1 }, time.Second, 5*time.Millisecond)
+
+	m.Close()
+	close(f.gate)
+	require.ErrorContains(t, <-errc, "shutting down")
+	require.EqualValues(t, 1, f.cleanups.Load(), "a dial that finishes after Close is released, not leaked")
+
+	_, _, err := m.Connect(t.Context(), t.TempDir())
+	require.ErrorContains(t, err, "shutting down")
 }
