@@ -217,6 +217,7 @@ func (c *scriptedCoordinator) IsSessionBusy(string) bool                        
 func (c *scriptedCoordinator) QueuedPrompts(string) int                           { return 0 }
 func (c *scriptedCoordinator) QueuedPromptsList(string) []string                  { return nil }
 func (c *scriptedCoordinator) ClearQueue(string)                                  {}
+func (c *scriptedCoordinator) DropQueued(string, string) bool                     { return false }
 func (c *scriptedCoordinator) Summarize(context.Context, string) error            { return nil }
 func (c *scriptedCoordinator) RegenerateTitle(context.Context, string) error      { return nil }
 func (c *scriptedCoordinator) Model() agent.Model                                 { return agent.Model{} }

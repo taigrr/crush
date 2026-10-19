@@ -385,6 +385,20 @@ func (b *Backend) ClearQueue(workspaceID, sessionID string) error {
 	return nil
 }
 
+// DropQueuedRun removes the still-queued prompt carrying runID from the
+// session's queue without touching its active turn. It reports whether
+// the prompt was still queued.
+func (b *Backend) DropQueuedRun(workspaceID, sessionID, runID string) (bool, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return false, err
+	}
+	if ws.AgentCoordinator == nil {
+		return false, nil
+	}
+	return ws.AgentCoordinator.DropQueued(sessionID, runID), nil
+}
+
 // SetGoal sets (or, when condition is blank, clears) the autonomous goal
 // for a session.
 func (b *Backend) SetGoal(workspaceID, sessionID, condition string) error {

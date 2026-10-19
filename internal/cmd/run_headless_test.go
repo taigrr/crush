@@ -43,6 +43,8 @@ type fakeRunClient struct {
 	sentPolicy proto.PermissionPolicy
 	cancelled  []string
 	granted    []proto.PermissionGrant
+	dropped    []string
+	queued     bool
 	answered   []proto.QuestionAnswer
 }
 
@@ -84,10 +86,26 @@ func (f *fakeRunClient) SendAgentMessage(_ context.Context, _ string, msg proto.
 	}
 	if f.script != nil {
 		for _, ev := range f.script(msg.RunID) {
+			if step, ok := ev.(func()); ok {
+				// Run the step once everything before it was consumed,
+				// to model server state changing mid-run.
+				for len(f.events) > 0 {
+					time.Sleep(time.Millisecond)
+				}
+				step()
+				continue
+			}
 			f.events <- ev
 		}
 	}
 	return nil
+}
+
+func (f *fakeRunClient) DropQueuedRun(_ context.Context, _, _, runID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.dropped = append(f.dropped, runID)
+	return f.queued, nil
 }
 
 func (f *fakeRunClient) GetPendingPrompts(context.Context, string, string) (proto.PendingPrompts, error) {
@@ -446,6 +464,24 @@ func TestCancelServerRun(t *testing.T) {
 	require.Equal(t, []string{"sess"}, c.cancelled)
 }
 
+func TestInterruptRun(t *testing.T) {
+	t.Parallel()
+
+	c := newFakeRunClient(nil)
+	c.queued = true
+	interruptRun(c, "ws", "sess", "run-1", true)
+	require.Equal(t, []string{"run-1"}, c.dropped)
+	require.Empty(t, c.cancelled, "a prompt still queued is dropped, not the active turn cancelled")
+
+	c = newFakeRunClient(nil)
+	interruptRun(c, "ws", "sess", "run-1", false)
+	require.Empty(t, c.cancelled, "a turn that is not ours is never cancelled")
+
+	c = newFakeRunClient(nil)
+	interruptRun(c, "ws", "sess", "run-1", true)
+	require.Equal(t, []string{"sess"}, c.cancelled, "our own active turn is cancelled")
+}
+
 func TestWorkspaceCwd(t *testing.T) {
 	t.Parallel()
 
@@ -491,9 +527,9 @@ func TestRunHeadless_DelegateBlocksOnPermission(t *testing.T) {
 
 	var c *fakeRunClient
 	c = newFakeRunClient(func(runID string) []any {
-		c.setPending(pendingBash())
 		return []any{
 			asstMsg("m1", "I need to clean the build dir"),
+			func() { c.setPending(pendingBash()) },
 			pubsub.Event[proto.PermissionRequest]{Payload: pendingBash().Permissions[0]},
 		}
 	})

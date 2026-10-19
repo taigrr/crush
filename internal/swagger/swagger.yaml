@@ -816,6 +816,11 @@ definitions:
       session_id:
         type: string
     type: object
+  proto.DropQueuedRunResponse:
+    properties:
+      dropped:
+        type: boolean
+    type: object
   proto.File:
     properties:
       content:
@@ -2091,6 +2096,44 @@ paths:
           schema:
             $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get queued prompt status
+      tags:
+      - agent
+  /workspaces/{id}/agent/sessions/{sid}/runs/{rid}/drop:
+    post:
+      description: Removes the queued prompt sent with the given run ID, without cancelling
+        the session's active turn.
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Run ID
+        in: path
+        name: rid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.DropQueuedRunResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
+      summary: Drop a queued run
       tags:
       - agent
   /workspaces/{id}/agent/sessions/{sid}/shell:

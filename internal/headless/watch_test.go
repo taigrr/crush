@@ -397,3 +397,19 @@ func TestWatch_IgnoresPromptsBeforeOurTurnStarts(t *testing.T) {
 	require.Equal(t, StatusCompleted, out.Status, "a prompt raised by the turn ahead of ours is not ours to report")
 	require.True(t, NewTracker("S", "R", nil).Started())
 }
+
+func TestWatch_RechecksPromptsWhenOurTurnStarts(t *testing.T) {
+	t.Parallel()
+
+	c := newFakeWatchClient()
+	c.pending = proto.PendingPrompts{Permissions: []proto.PermissionRequest{{ID: "ours", Description: "rm build"}}}
+	tr := NewTracker("S", "R", nil)
+	tr.AwaitUserPrompt("go")
+	// The permission event overtakes our user message on the SSE stream.
+	c.events <- pubsub.Event[proto.PermissionRequest]{Payload: proto.PermissionRequest{ID: "ours", SessionID: "S"}}
+	c.events <- pubsub.Event[proto.Message]{Payload: proto.Message{
+		ID: "u", SessionID: "S", Role: proto.User, Parts: []proto.ContentPart{proto.TextContent{Text: "go"}},
+	}}
+	out := Watch(t.Context(), c, WatchRequest{SessionID: "S", Tracker: tr, Events: c.events, StopOnBlock: true, Timeout: 2 * time.Second})
+	require.Equal(t, StatusBlocked, out.Status, "a prompt that arrived before our user message is still reported")
+}

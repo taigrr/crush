@@ -132,7 +132,16 @@ func Watch(ctx context.Context, c WatchClient, req WatchRequest) Outcome {
 				}
 				continue
 			}
+			wasStarted := req.Tracker.Started()
 			out, err := req.Tracker.Handle(ev)
+			if !wasStarted && req.Tracker.Started() {
+				// Events from different brokers are not ordered: a
+				// prompt our turn raised may have arrived before our
+				// own user message and been set aside. Re-check now.
+				if blockedOut, ok := blocked(); ok {
+					return blockedOut
+				}
+			}
 			if err != nil {
 				return Outcome{Status: StatusError, Error: err.Error(), ExitCode: ExitFailure}
 			}

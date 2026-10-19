@@ -146,6 +146,7 @@ type SessionAgent interface {
 	QueuedPrompts(sessionID string) int
 	QueuedPromptsList(sessionID string) []string
 	ClearQueue(sessionID string)
+	DropQueued(sessionID, runID string) bool
 	// Summarize compacts the session's history. model, when non-nil, is
 	// the model the turn ran on (a per-call override); nil runs the
 	// agent's large model.

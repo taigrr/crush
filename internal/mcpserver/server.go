@@ -402,8 +402,8 @@ func (t *tools) respond(ctx context.Context, req *mcp.CallToolRequest, in Respon
 		return nil, RespondOutput{}, err
 	}
 	decision := proto.PermissionAction(in.Decision)
-	if t.opts.DefaultMode == headless.ModeDeny && decision != "" && decision != proto.PermissionDeny {
-		return nil, RespondOutput{}, fmt.Errorf("decision %q is not allowed: this server only permits deny (started with --permission-mode deny)", decision)
+	if t.opts.DefaultMode == headless.ModeDeny && decision != proto.PermissionDeny {
+		return nil, RespondOutput{}, errors.New("this server only permits decision \"deny\" (started with --permission-mode deny)")
 	}
 	ans := headless.AnswerRequest{
 		RequestID:      in.RequestID,

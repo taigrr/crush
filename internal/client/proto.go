@@ -468,6 +468,25 @@ func (c *Client) ClearAgentSessionQueuedPrompts(ctx context.Context, id string, 
 	return nil
 }
 
+// DropQueuedRun removes the still-queued prompt sent with runID without
+// cancelling the session's active turn. It reports whether the prompt was
+// still queued.
+func (c *Client) DropQueuedRun(ctx context.Context, id, sessionID, runID string) (bool, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/runs/%s/drop", id, sessionID, url.PathEscape(runID)), nil, nil, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to drop queued run: %w", err)
+	}
+	defer rsp.Body.Close()
+	if rsp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("failed to drop queued run: status code %d", rsp.StatusCode)
+	}
+	var out proto.DropQueuedRunResponse
+	if err := json.NewDecoder(rsp.Body).Decode(&out); err != nil {
+		return false, fmt.Errorf("failed to decode drop response: %w", err)
+	}
+	return out.Dropped, nil
+}
+
 // EmbeddingsPending returns how many past messages would be embedded by
 // a backfill under the active embedding model.
 func (c *Client) EmbeddingsPending(ctx context.Context, id string) (int, error) {

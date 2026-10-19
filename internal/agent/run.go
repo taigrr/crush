@@ -211,7 +211,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// SetTools/SetModels, then drop tools that opt out of this turn's
 	// context (e.g. editor tools when the initiating client has no
 	// attached editor).
-	agentTools := tools.FilterAvailableTools(ctx, a.tools.Copy())
+	agentTools := tools.FilterAvailableTools(context.WithValue(ctx, tools.SessionIDContextKey, call.SessionID), a.tools.Copy())
 	// The turn's model: the caller's per-call override when set, else the
 	// shared large model. Everything below (assistant message
 	// attribution, image limits, context window, usage/cost) reads this
@@ -482,7 +482,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// Use latest tools (updated by SetTools when MCP tools
 			// change), filtered to those available for this turn's
 			// context.
-			prepared.Tools = tools.FilterAvailableTools(ctx, a.tools.Copy())
+			prepared.Tools = tools.FilterAvailableTools(context.WithValue(ctx, tools.SessionIDContextKey, call.SessionID), a.tools.Copy())
 			if len(prepared.Tools) > 0 {
 				// Add Anthropic caching to the last tool. PrepareStep replaces
 				// the agent's tool list, so the marker set before NewAgent is

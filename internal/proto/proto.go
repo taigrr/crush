@@ -524,3 +524,8 @@ type SwarmTarget struct {
 	// operate on the session.
 	Path string `json:"path"`
 }
+
+// DropQueuedRunResponse reports whether a queued prompt was removed.
+type DropQueuedRunResponse struct {
+	Dropped bool `json:"dropped"`
+}

@@ -355,3 +355,46 @@ func TestDrainQueueForStep_KeepsDifferentPolicyQueued(t *testing.T) {
 	require.Len(t, kept, 1)
 	require.Equal(t, "btw from the TUI", kept[0].Prompt, "a call with another policy waits for its own turn")
 }
+
+// TestDropQueued removes only the matching queued call and publishes its
+// cancelled RunComplete, leaving the rest of the queue (and any active
+// turn) alone.
+func TestDropQueued(t *testing.T) {
+	t.Parallel()
+
+	env := testEnv(t)
+	broker := pubsub.NewBroker[notify.RunComplete]()
+	t.Cleanup(broker.Shutdown)
+	a := NewSessionAgent(SessionAgentOptions{
+		Sessions:    env.sessions,
+		Messages:    env.messages,
+		RunComplete: broker,
+	}).(*sessionAgent)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	events := broker.Subscribe(ctx)
+
+	const sessionID = "drop"
+	a.messageQueue.Set(sessionID, []SessionAgentCall{
+		{SessionID: sessionID, Prompt: "theirs"},
+		{SessionID: sessionID, Prompt: "ours", RunID: "run-ours"},
+	})
+
+	require.False(t, a.DropQueued(sessionID, ""), "an empty run ID never matches")
+	require.False(t, a.DropQueued(sessionID, "run-other"))
+	require.True(t, a.DropQueued(sessionID, "run-ours"))
+
+	kept, ok := a.messageQueue.Get(sessionID)
+	require.True(t, ok)
+	require.Len(t, kept, 1)
+	require.Equal(t, "theirs", kept[0].Prompt)
+
+	select {
+	case ev := <-events:
+		require.Equal(t, "run-ours", ev.Payload.RunID)
+		require.True(t, ev.Payload.Cancelled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("a dropped run must publish its cancelled RunComplete")
+	}
+}

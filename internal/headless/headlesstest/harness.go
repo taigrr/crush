@@ -300,6 +300,7 @@ func (a *Agent) IsBusy() bool {
 func (a *Agent) QueuedPrompts(string) int                           { return 0 }
 func (a *Agent) QueuedPromptsList(string) []string                  { return nil }
 func (a *Agent) ClearQueue(string)                                  {}
+func (a *Agent) DropQueued(string, string) bool                     { return false }
 func (a *Agent) Summarize(context.Context, string) error            { return nil }
 func (a *Agent) RegenerateTitle(context.Context, string) error      { return nil }
 func (a *Agent) Model() agent.Model                                 { return agent.Model{} }

@@ -1315,6 +1315,28 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionPromptClear(w http.Respons
 	w.WriteHeader(http.StatusOK)
 }
 
+// handlePostWorkspaceAgentSessionRunDrop removes one still-queued prompt.
+//
+//	@Summary		Drop a queued run
+//	@Description	Removes the queued prompt sent with the given run ID, without cancelling the session's active turn.
+//	@Tags			agent
+//	@Produce		json
+//	@Param			id	path		string	true	"Workspace ID"
+//	@Param			sid	path		string	true	"Session ID"
+//	@Param			rid	path		string	true	"Run ID"
+//	@Success		200	{object}	proto.DropQueuedRunResponse
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/runs/{rid}/drop [post]
+func (c *controllerV1) handlePostWorkspaceAgentSessionRunDrop(w http.ResponseWriter, r *http.Request) {
+	dropped, err := c.backend.DropQueuedRun(r.PathValue("id"), r.PathValue("sid"), r.PathValue("rid"))
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, proto.DropQueuedRunResponse{Dropped: dropped})
+}
+
 // handleGetWorkspaceAgentSessionGoal returns the active autonomous goal.
 //
 //	@Summary		Get goal status

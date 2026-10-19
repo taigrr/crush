@@ -337,7 +337,10 @@ func TestMCP_DenyCeilingOnlyDenies(t *testing.T) {
 	started, _ := e.call(t, "crush_start", map[string]any{"prompt": "x"})
 	_, res := e.call(t, "crush_respond", map[string]any{"session": started["session_id"], "decision": "allow_session"})
 	require.True(t, res.IsError)
-	require.Contains(t, errorText(res), "only permits deny")
+	require.Contains(t, errorText(res), `only permits decision "deny"`)
+
+	_, res = e.call(t, "crush_respond", map[string]any{"session": started["session_id"], "answer": []string{"yes"}})
+	require.True(t, res.IsError, "answering questions is also blocked under a deny ceiling")
 
 	_, res = e.call(t, "crush_start", map[string]any{"prompt": "x", "permission_mode": "delegate"})
 	require.True(t, res.IsError)

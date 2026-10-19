@@ -110,3 +110,20 @@ func TestResolveSwarmAddress(t *testing.T) {
 	_, err = c.ResolveSwarmAddress(t.Context(), "coral-otter")
 	require.ErrorContains(t, err, "matches multiple sessions")
 }
+
+func TestDropQueuedRun(t *testing.T) {
+	t.Parallel()
+
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/v1/workspaces/ws/agent/sessions/s/runs/r-1/drop", r.URL.Path)
+		_ = json.NewEncoder(w).Encode(proto.DropQueuedRunResponse{Dropped: true})
+	})
+	dropped, err := c.DropQueuedRun(t.Context(), "ws", "s", "r-1")
+	require.NoError(t, err)
+	require.True(t, dropped)
+
+	c = newTestClient(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNotFound) })
+	_, err = c.DropQueuedRun(t.Context(), "ws", "s", "r-1")
+	require.ErrorContains(t, err, "status code 404")
+}

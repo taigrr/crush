@@ -107,6 +107,9 @@ type Coordinator interface {
 	QueuedPrompts(sessionID string) int
 	QueuedPromptsList(sessionID string) []string
 	ClearQueue(sessionID string)
+	// DropQueued removes a still-queued call by RunID without touching
+	// the session's active turn. It reports whether one was queued.
+	DropQueued(sessionID, runID string) bool
 	Summarize(context.Context, string) error
 	RegenerateTitle(ctx context.Context, sessionID string) error
 	Model() Model
@@ -1814,6 +1817,10 @@ func (c *coordinator) CancelAll() {
 
 func (c *coordinator) ClearQueue(sessionID string) {
 	c.currentAgent.ClearQueue(sessionID)
+}
+
+func (c *coordinator) DropQueued(sessionID, runID string) bool {
+	return c.currentAgent.DropQueued(sessionID, runID)
 }
 
 func (c *coordinator) IsBusy() bool {

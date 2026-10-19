@@ -334,6 +334,38 @@ func (a *sessionAgent) cancelLocked(sessionID string) {
 	}
 }
 
+// DropQueued removes the queued call carrying runID from sessionID's
+// queue, publishing its cancelled RunComplete. It reports whether such a
+// call was queued. Unlike Cancel it never touches the active turn, so a
+// headless caller giving up on a prompt that is still waiting behind
+// someone else's turn does not cancel that turn.
+func (a *sessionAgent) DropQueued(sessionID, runID string) bool {
+	if runID == "" {
+		return false
+	}
+	mu := a.sessionMu(sessionID)
+	mu.Lock()
+	queued, _ := a.messageQueue.Get(sessionID)
+	var kept, dropped []SessionAgentCall
+	for _, q := range queued {
+		if q.RunID == runID {
+			dropped = append(dropped, q)
+			continue
+		}
+		kept = append(kept, q)
+	}
+	if len(dropped) > 0 {
+		if len(kept) == 0 {
+			a.messageQueue.Del(sessionID)
+		} else {
+			a.messageQueue.Set(sessionID, kept)
+		}
+	}
+	mu.Unlock()
+	a.publishCanceledQueueDrops(dropped)
+	return len(dropped) > 0
+}
+
 func (a *sessionAgent) ClearQueue(sessionID string) {
 	if a.QueuedPrompts(sessionID) > 0 {
 		slog.Debug("Clearing queued prompts", "session_id", sessionID)

@@ -37,6 +37,7 @@ func (c *recordingCoordinator) IsSessionBusy(string) bool                     { 
 func (c *recordingCoordinator) QueuedPrompts(string) int                      { return 0 }
 func (c *recordingCoordinator) QueuedPromptsList(string) []string             { return nil }
 func (c *recordingCoordinator) ClearQueue(string)                             {}
+func (c *recordingCoordinator) DropQueued(string, string) bool                { return false }
 func (c *recordingCoordinator) Summarize(context.Context, string) error       { return nil }
 func (c *recordingCoordinator) RegenerateTitle(context.Context, string) error { return nil }
 func (c *recordingCoordinator) Model() agent.Model                            { return agent.Model{} }

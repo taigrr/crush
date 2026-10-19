@@ -44,6 +44,7 @@ func (c *errorCoordinator) IsSessionBusy(string) bool                          {
 func (c *errorCoordinator) QueuedPrompts(string) int                           { return 0 }
 func (c *errorCoordinator) QueuedPromptsList(string) []string                  { return nil }
 func (c *errorCoordinator) ClearQueue(string)                                  {}
+func (c *errorCoordinator) DropQueued(string, string) bool                     { return false }
 func (c *errorCoordinator) Summarize(context.Context, string) error            { return nil }
 func (c *errorCoordinator) RegenerateTitle(context.Context, string) error      { return nil }
 func (c *errorCoordinator) Model() agent.Model                                 { return agent.Model{} }

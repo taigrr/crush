@@ -422,7 +422,10 @@ func runNonInteractive(
 
 		case <-ctx.Done():
 			stopSpinner()
-			cancelServerRun(c, ws.ID, sess.ID)
+			// The legacy loop cannot tell whether our turn started, so
+			// only a prompt still queued is dropped; otherwise the
+			// active turn is ours.
+			interruptRun(c, ws.ID, sess.ID, runID, true)
 			return headless.NewExitError(headless.ExitCancelled, ctx.Err())
 		case err := <-sendErr:
 			if err != nil {

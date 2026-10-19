@@ -23,7 +23,7 @@ type headlessClient interface {
 	headless.WatchClient
 	SubscribeEvents(ctx context.Context, workspaceID string) (<-chan any, error)
 	SendAgentMessage(ctx context.Context, workspaceID string, msg proto.AgentMessage) error
-	CancelAgentSession(ctx context.Context, workspaceID, sessionID string) error
+	runInterrupter
 }
 
 // cancelTimeout bounds best-effort server calls made after the caller's
@@ -115,11 +115,11 @@ func runHeadless(
 	switch {
 	case outcome.Interrupted:
 		// Ctrl+C on a foreground run means "stop", not "stop watching".
-		cancelServerRun(c, ws.ID, sess.ID)
+		interruptRun(c, ws.ID, sess.ID, runID, tracker.Started())
 	case opts.isolated && outcome.Status == headless.StatusTimeout:
 		// Nothing can reach a private workspace after we exit, so
 		// leaving the run going would only burn tokens.
-		cancelServerRun(c, ws.ID, sess.ID)
+		interruptRun(c, ws.ID, sess.ID, runID, tracker.Started())
 		outcome.Error += "; the run was cancelled because it was isolated"
 	}
 
@@ -191,8 +191,32 @@ type sessionCanceller interface {
 	CancelAgentSession(ctx context.Context, workspaceID, sessionID string) error
 }
 
-// cancelServerRun asks the server to stop the session's run after the
-// local caller gave up (Ctrl+C, SIGTERM, or an isolated timeout).
+// runInterrupter stops one run: drops it if still queued, else cancels
+// the session's active turn.
+type runInterrupter interface {
+	sessionCanceller
+	DropQueuedRun(ctx context.Context, workspaceID, sessionID, runID string) (bool, error)
+}
+
+// interruptRun stops the caller's own run after it gave up (Ctrl+C,
+// SIGTERM, or an isolated timeout). A prompt still queued behind another
+// turn is dropped from the queue; the session's active turn is cancelled
+// only when it is ours (started), so giving up never cancels a turn
+// someone else is running on a shared session.
+func interruptRun(c runInterrupter, workspaceID, sessionID, runID string, started bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
+	defer cancel()
+	dropped, err := c.DropQueuedRun(ctx, workspaceID, sessionID, runID)
+	if err != nil {
+		slog.Warn("Failed to drop queued run", "session_id", sessionID, "error", err)
+	}
+	if dropped || !started {
+		return
+	}
+	cancelServerRun(c, workspaceID, sessionID)
+}
+
+// cancelServerRun asks the server to cancel the session's active turn.
 func cancelServerRun(c sessionCanceller, workspaceID, sessionID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
 	defer cancel()

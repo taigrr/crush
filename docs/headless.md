@@ -117,8 +117,9 @@ keep using tokens in the background.
 `--permission-mode` decides what happens when the agent wants to run a tool
 that needs approval.
 The mode applies to this run's own turn and to work it starts on its behalf:
-sub-agents, the follow-up turn when a background job it launched finishes, and
-messages it sends to other sessions with the swarm tool.
+sub-agents and the follow-up turn when a background job it launched finishes.
+Messages it sends to other sessions with the swarm tool carry `deny` along,
+but never `yolo` or `delegate`: the receiving session keeps its own prompting.
 Other turns on the same session keep the usual behavior, including ones a
 person sends from the TUI or swarm messages from elsewhere that arrive while
 the run is going; those run as their own turn afterwards.
@@ -229,11 +230,13 @@ request: under the default, `crush_start` accepts `delegate` or `deny` but
 rejects `yolo`.
 Start the server with `--permission-mode yolo` to let callers approve their
 own runs, or `deny` to forbid delegation too (then `crush_respond` only
-accepts `deny`).
+accepts `decision: "deny"`).
 
 `crush_respond`, `crush_cancel`, and follow-ups with `crush_start` only work
-on sessions the same `crush mcp` process started, so a caller cannot approve
-prompts in, or send work to, a person's TUI session.
+on sessions the same `crush mcp` process started, so a caller cannot use
+them to approve prompts in, or send work to, a person's TUI session.
+(A run's agent can still message other sessions with its swarm tool; those
+messages never carry auto-approval.)
 The read-only tools work on any session.
 Start the server with `--allow-foreign-sessions` to lift that restriction.
 

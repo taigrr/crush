@@ -184,3 +184,31 @@ func TestNotifySession_CarriesRunPolicy(t *testing.T) {
 	require.Equal(t, permission.SessionPolicyDeny, coord.seen.Load(),
 		"a job's completion turn keeps the policy of the run that started it")
 }
+
+func TestDropQueuedRun(t *testing.T) {
+	t.Parallel()
+	b, _ := newTestBackend(t)
+	ws := insertAgentWorkspace(t, b, newBlockingCoordinator())
+
+	dropped, err := b.DropQueuedRun(ws.ID, "S1", "run-1")
+	require.NoError(t, err)
+	require.False(t, dropped)
+
+	_, err = b.DropQueuedRun("nope", "S1", "run-1")
+	require.ErrorIs(t, err, ErrWorkspaceNotFound)
+
+	none := insertAgentWorkspace(t, b, nil)
+	dropped, err = b.DropQueuedRun(none.ID, "S1", "run-1")
+	require.NoError(t, err)
+	require.False(t, dropped)
+}
+
+func TestSwarmSendPolicy_OnlyDenyTravels(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, proto.PermissionPolicyDeny, swarmSendPolicy(permission.WithPolicy(t.Context(), permission.SessionPolicyDeny)))
+	require.Empty(t, swarmSendPolicy(permission.WithPolicy(t.Context(), permission.SessionPolicyAllow)),
+		"a yolo run must not auto-approve work in another session")
+	require.Empty(t, swarmSendPolicy(permission.WithPolicy(t.Context(), permission.SessionPolicyPrompt)))
+	require.Empty(t, swarmSendPolicy(t.Context()))
+}

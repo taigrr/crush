@@ -346,11 +346,8 @@ func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target 
 		Prompt:    part.Text,
 		// SwarmParts, when non-empty, replaces the default
 		// TextContent user message with structured swarm parts.
-		SwarmParts: []proto.SwarmMessage{part},
-		// Work delegated by a headless run stays under that run's
-		// permission policy, so a deny run cannot escape its policy by
-		// handing work to another session.
-		PermissionPolicy: proto.PermissionPolicy(permission.PolicyFromContext(ctx)),
+		SwarmParts:       []proto.SwarmMessage{part},
+		PermissionPolicy: swarmSendPolicy(ctx),
 	}
 	if err := b.SendMessage(target.WorkspaceID, msg); err != nil {
 		return SwarmSendResult{}, err
@@ -701,4 +698,16 @@ func (b *Backend) ResolveSwarmTarget(ctx context.Context, address string) (proto
 		Address:     swarm.FormatAddress(swarm.Identity{Color: res.Color, Animal: res.Animal}, res.SessionID),
 		Path:        res.WorkspaceRoot,
 	}, nil
+}
+
+// swarmSendPolicy is the permission policy a swarm send carries to its
+// target turn. Only deny travels: a deny run must not escape its policy
+// by handing work to another session, but a yolo (or delegated) run must
+// never grant auto-approval, or override the target's own prompting, in
+// a session that may belong to someone else.
+func swarmSendPolicy(ctx context.Context) proto.PermissionPolicy {
+	if permission.PolicyFromContext(ctx) == permission.SessionPolicyDeny {
+		return proto.PermissionPolicyDeny
+	}
+	return ""
 }

@@ -1064,6 +1064,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/workspaces/{id}/agent/sessions/{sid}/runs/{rid}/drop": {
+            "post": {
+                "description": "Removes the queued prompt sent with the given run ID, without cancelling the session's active turn.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Drop a queued run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Run ID",
+                        "name": "rid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.DropQueuedRunResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/workspaces/{id}/agent/sessions/{sid}/shell": {
             "post": {
                 "consumes": [
@@ -5732,6 +5787,14 @@ const docTemplate = `{
             "properties": {
                 "session_id": {
                     "type": "string"
+                }
+            }
+        },
+        "proto.DropQueuedRunResponse": {
+            "type": "object",
+            "properties": {
+                "dropped": {
+                    "type": "boolean"
                 }
             }
         },
