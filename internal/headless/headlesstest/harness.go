@@ -73,7 +73,7 @@ func New(t *testing.T) *Harness {
 	bws, err := srv.Backend().GetWorkspace(ws.ID)
 	require.NoError(t, err)
 	a := &Agent{app: bws.App, accepted: make(map[string]int), busy: make(map[string]int), cancels: make(map[string][]context.CancelFunc), Reply: "done"}
-	bws.App.AgentCoordinator = a
+	bws.AgentCoordinator = a
 
 	h := &Harness{
 		Server:    hs,

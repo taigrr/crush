@@ -9,7 +9,7 @@ jobs:
     uses: charmbracelet/meta/.github/workflows/lint.yml@main
     with:
       golangci_path: .golangci.yml
-      golangci_version: v2.13
+      golangci_version: v2.15
       timeout: 10m
       # The reusable workflow runs pre-run without a shell override, so on
       # Windows it executes under PowerShell. Delegate to bash (available on
