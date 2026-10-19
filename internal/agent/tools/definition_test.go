@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
@@ -13,6 +14,11 @@ import (
 // duplicates that collapse via cleanupLocations.
 func TestFormatDefinitions(t *testing.T) {
 	t.Parallel()
+
+	dir := t.TempDir()
+	fooPath := filepath.Join(dir, "foo.go")
+	aPath := filepath.Join(dir, "a.go")
+	bPath := filepath.Join(dir, "b.go")
 
 	loc := func(path string, line, col int) protocol.Location {
 		return protocol.Location{
@@ -31,19 +37,19 @@ func TestFormatDefinitions(t *testing.T) {
 	}{
 		{
 			name:     "single location includes path and 1-based position",
-			locs:     []protocol.Location{loc("/tmp/foo.go", 9, 5)},
-			wantSubs: []string{"Found 1 definition", "/tmp/foo.go:10:6"},
+			locs:     []protocol.Location{loc(fooPath, 9, 5)},
+			wantSubs: []string{"Found 1 definition", fooPath + ":10:6"},
 		},
 		{
 			name: "multiple files reported separately",
 			locs: []protocol.Location{
-				loc("/tmp/a.go", 0, 0),
-				loc("/tmp/b.go", 4, 2),
+				loc(aPath, 0, 0),
+				loc(bPath, 4, 2),
 			},
 			wantSubs: []string{
 				"Found 2 definition",
-				"/tmp/a.go:1:1",
-				"/tmp/b.go:5:3",
+				aPath + ":1:1",
+				bPath + ":5:3",
 			},
 		},
 	}

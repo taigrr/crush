@@ -220,12 +220,12 @@ func watchBackgroundJob(bgShell *shell.BackgroundShell, sessionID string, notify
 	}
 	bgShell.Wait()
 	stdout, stderr, _, execErr := bgShell.GetOutput()
-	if shell.IsInterrupt(execErr) {
+	if bgShell.Killed() || shell.IsInterrupt(execErr) {
 		return
 	}
 	text := formatJobCompletion(bgShell, stdout, stderr, execErr)
 	if err := notify(context.Background(), sessionID, text); err != nil {
-		slog.Warn("background job completion notify failed", "job", bgShell.ID, "session", sessionID, "error", err)
+		slog.Warn("Background job completion notify failed", "job", bgShell.ID, "session", sessionID, "error", err)
 	}
 }
 

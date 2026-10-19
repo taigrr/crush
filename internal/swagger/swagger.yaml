@@ -571,6 +571,11 @@ definitions:
     x-enum-varnames:
     - ScopeGlobal
     - ScopeWorkspace
+  github_com_taigrr_crush_internal_proto.Error:
+    properties:
+      message:
+        type: string
+    type: object
   github_com_taigrr_crush_internal_proto.Message:
     properties:
       created_at:
@@ -809,11 +814,6 @@ definitions:
   proto.CurrentSession:
     properties:
       session_id:
-        type: string
-    type: object
-  proto.Error:
-    properties:
-      message:
         type: string
     type: object
   proto.File:
@@ -1441,7 +1441,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Send server control command
       tags:
       - system
@@ -1486,15 +1486,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Peek a session's messages in any known workspace
       tags:
       - sessions
@@ -1519,15 +1519,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Peek a session's info in any known workspace
       tags:
       - sessions
@@ -1593,7 +1593,7 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List workspace/session overviews
       tags:
       - workspaces
@@ -1631,11 +1631,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Create workspace
       tags:
       - workspaces
@@ -1653,7 +1653,7 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Delete workspace
       tags:
       - workspaces
@@ -1674,11 +1674,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get workspace
       tags:
       - workspaces
@@ -1700,11 +1700,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get agent info
       tags:
       - agent
@@ -1729,19 +1729,19 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Send message to agent
       tags:
       - agent
@@ -1759,11 +1759,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Cancel all agent sessions
       tags:
       - agent
@@ -1789,11 +1789,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get default small model
       tags:
       - agent
@@ -1811,11 +1811,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Initialize agent
       tags:
       - agent
@@ -1842,11 +1842,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get agent session
       tags:
       - agent
@@ -1869,11 +1869,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Cancel agent session
       tags:
       - agent
@@ -1902,11 +1902,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Set session working directory
       tags:
       - agent
@@ -1933,11 +1933,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get goal status
       tags:
       - agent
@@ -1967,11 +1967,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Set goal
       tags:
       - agent
@@ -1994,11 +1994,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Clear goal
       tags:
       - agent
@@ -2021,11 +2021,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Clear prompt queue
       tags:
       - agent
@@ -2054,11 +2054,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List queued prompts
       tags:
       - agent
@@ -2085,11 +2085,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get queued prompt status
       tags:
       - agent
@@ -2124,15 +2124,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Run shell command
       tags:
       - agent
@@ -2155,11 +2155,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Summarize session
       tags:
       - agent
@@ -2182,11 +2182,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Regenerate session title
       tags:
       - agent
@@ -2204,11 +2204,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Update agent
       tags:
       - agent
@@ -2230,11 +2230,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get workspace config
       tags:
       - workspaces
@@ -2260,15 +2260,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Set compact mode
       tags:
       - config
@@ -2290,11 +2290,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Import Copilot credentials
       tags:
       - config
@@ -2320,15 +2320,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Set the preferred model
       tags:
       - config
@@ -2354,15 +2354,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Set provider API key
       tags:
       - config
@@ -2388,15 +2388,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Refresh OAuth token
       tags:
       - config
@@ -2414,11 +2414,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Reload config from disk
       tags:
       - config
@@ -2444,15 +2444,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Remove a config field
       tags:
       - config
@@ -2478,15 +2478,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Set a config field
       tags:
       - config
@@ -2519,11 +2519,11 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Set current session for a client
       tags:
       - workspaces
@@ -2543,11 +2543,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Stream workspace events (SSE)
       tags:
       - workspaces
@@ -2578,11 +2578,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get last read time for file
       tags:
       - filetracker
@@ -2608,15 +2608,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Record file read
       tags:
       - filetracker
@@ -2646,15 +2646,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Fork conversation
       tags:
       - forks
@@ -2678,11 +2678,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List git branches
       tags:
       - git
@@ -2706,11 +2706,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List LSP clients
       tags:
       - lsp
@@ -2737,11 +2737,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get LSP diagnostics
       tags:
       - lsp
@@ -2767,15 +2767,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Start LSP server
       tags:
       - lsp
@@ -2793,11 +2793,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Stop all LSP servers
       tags:
       - lsp
@@ -2815,11 +2815,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Disable Docker MCP
       tags:
       - mcp
@@ -2837,11 +2837,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Enable Docker MCP
       tags:
       - mcp
@@ -2871,15 +2871,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get MCP prompt
       tags:
       - mcp
@@ -2909,15 +2909,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Read MCP resource
       tags:
       - mcp
@@ -2943,15 +2943,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Refresh MCP prompts
       tags:
       - mcp
@@ -2977,15 +2977,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Refresh MCP resources
       tags:
       - mcp
@@ -3011,15 +3011,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Refresh MCP tools
       tags:
       - mcp
@@ -3043,11 +3043,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get MCP client states
       tags:
       - mcp
@@ -3074,11 +3074,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get snapshot by message
       tags:
       - snapshots
@@ -3102,11 +3102,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get all user messages for workspace
       tags:
       - workspaces
@@ -3134,15 +3134,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Grant permission
       tags:
       - permissions
@@ -3164,11 +3164,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get skip permissions status
       tags:
       - permissions
@@ -3193,15 +3193,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Set skip permissions
       tags:
       - permissions
@@ -3223,11 +3223,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get sysadmin mode status
       tags:
       - permissions
@@ -3252,15 +3252,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Set sysadmin mode
       tags:
       - permissions
@@ -3278,11 +3278,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Mark project as initialized
       tags:
       - project
@@ -3304,11 +3304,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get project initialization prompt
       tags:
       - project
@@ -3330,11 +3330,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Check if project needs initialization
       tags:
       - project
@@ -3356,11 +3356,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get workspace providers
       tags:
       - workspaces
@@ -3388,15 +3388,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Answer question
       tags:
       - questions
@@ -3420,11 +3420,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List sessions
       tags:
       - sessions
@@ -3453,15 +3453,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Create session
       tags:
       - sessions
@@ -3484,11 +3484,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Delete session
       tags:
       - sessions
@@ -3514,11 +3514,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get session
       tags:
       - sessions
@@ -3552,15 +3552,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Update session
       tags:
       - sessions
@@ -3588,11 +3588,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Archive a session
       tags:
       - sessions
@@ -3624,11 +3624,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Favorite or unfavorite a session
       tags:
       - sessions
@@ -3657,11 +3657,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List tracked files for session
       tags:
       - filetracker
@@ -3690,11 +3690,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get session history
       tags:
       - sessions
@@ -3723,11 +3723,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get session messages
       tags:
       - sessions
@@ -3756,11 +3756,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get user messages for session
       tags:
       - sessions
@@ -3821,11 +3821,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Mark a session as read
       tags:
       - sessions
@@ -3854,11 +3854,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List snapshots
       tags:
       - snapshots
@@ -3881,11 +3881,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Unarchive a session
       tags:
       - sessions
@@ -3914,11 +3914,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List worktrees
       tags:
       - worktrees
@@ -3952,15 +3952,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Create worktree
       tags:
       - worktrees
@@ -3988,11 +3988,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Switch worktree
       tags:
       - worktrees
@@ -4019,11 +4019,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get active worktree
       tags:
       - worktrees
@@ -4047,11 +4047,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List archived sessions
       tags:
       - sessions
@@ -4075,11 +4075,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List visible skills
       tags:
       - skills
@@ -4109,15 +4109,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Read skill content
       tags:
       - skills
@@ -4141,11 +4141,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get skill discovery states
       tags:
       - skills
@@ -4172,11 +4172,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get snapshot
       tags:
       - snapshots
@@ -4203,11 +4203,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get snapshot diff
       tags:
       - snapshots
@@ -4230,11 +4230,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Restore snapshot
       tags:
       - snapshots
@@ -4256,11 +4256,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Check if snapshots are enabled
       tags:
       - snapshots
@@ -4282,11 +4282,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Run snapshot garbage collection
       tags:
       - snapshots
@@ -4308,11 +4308,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get snapshot stats
       tags:
       - snapshots
@@ -4336,11 +4336,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: List all worktrees
       tags:
       - worktrees
@@ -4363,11 +4363,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Delete worktree
       tags:
       - worktrees
@@ -4393,11 +4393,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Get worktree
       tags:
       - worktrees
@@ -4428,15 +4428,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Merge worktree
       tags:
       - worktrees
@@ -4458,11 +4458,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/proto.Error'
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Error'
       summary: Check if worktrees are enabled
       tags:
       - worktrees

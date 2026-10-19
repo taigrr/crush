@@ -132,9 +132,13 @@ type ServiceConfig struct {
 	PostCreateHooks []config.PostCreateHook
 }
 
+// managedWorktreesPathspec is the managed worktrees directory relative to
+// the project root, in git pathspec (slash-separated) form.
+const managedWorktreesPathspec = ".crush/worktrees"
+
 // NewService creates a new worktree service.
 func NewService(cfg ServiceConfig, queries *db.Queries, conn *sql.DB, checkpoints checkpoint.Service) (Service, error) {
-	worktreeDir := filepath.Join(cfg.ProjectDir, ".crush", "worktrees")
+	worktreeDir := filepath.Join(cfg.ProjectDir, filepath.FromSlash(managedWorktreesPathspec))
 
 	if cfg.Enabled {
 		if err := os.MkdirAll(worktreeDir, 0o755); err != nil {
@@ -524,9 +528,12 @@ func (s *service) isGitRepo(ctx context.Context) bool {
 }
 
 // isWorkingTreeDirty reports whether the project's main checkout has
-// uncommitted changes (staged, unstaged, or untracked).
+// uncommitted changes (staged, unstaged, or untracked). The managed
+// worktrees directory is excluded: it lives inside the project and would
+// otherwise count as untracked whenever .crush isn't gitignored (e.g. a
+// non-default data directory), making every Merge fail.
 func (s *service) isWorkingTreeDirty(ctx context.Context) (bool, error) {
-	out, err := s.git(ctx, s.projectRoot, "status", "--porcelain")
+	out, err := s.git(ctx, s.projectRoot, "status", "--porcelain", "--", ".", ":(exclude)"+managedWorktreesPathspec)
 	if err != nil {
 		return false, fmt.Errorf("%w: status: %s", ErrWorktreeMerge, strings.TrimSpace(out))
 	}

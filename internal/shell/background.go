@@ -62,6 +62,7 @@ type BackgroundShell struct {
 	done        chan struct{}
 	exitErr     error
 	completedAt atomic.Int64 // Unix timestamp when job completed (0 if still running)
+	killed      atomic.Bool
 }
 
 // BackgroundShellManager manages background shell instances.
@@ -127,6 +128,7 @@ func (m *BackgroundShellManager) Start(ctx context.Context, workingDir string, b
 		err := shell.ExecStream(shellCtx, command, bgShell.stdout, bgShell.stderr)
 
 		bgShell.exitErr = err
+		bgShell.killed.Store(err != nil && shellCtx.Err() != nil)
 		bgShell.completedAt.Store(time.Now().Unix())
 	}()
 
@@ -251,6 +253,15 @@ func (bs *BackgroundShell) IsDone() bool {
 	default:
 		return false
 	}
+}
+
+// Killed reports whether the shell exited with an error after its context was
+// cancelled (via Kill or KillAll; callers start jobs with a background
+// context). Unlike checking the exit error, this is reliable on Windows, where
+// a killed process reports a plain non-zero exit status rather than a context
+// cancellation.
+func (bs *BackgroundShell) Killed() bool {
+	return bs.killed.Load()
 }
 
 // Wait blocks until the background shell completes.

@@ -659,6 +659,9 @@ func TestE2E_KillingClientASSEDoesNotBreakClientB(t *testing.T) {
 func TestE2E_ShutdownCallbackFiresWhenLastClientLeaves(t *testing.T) {
 	t.Parallel()
 	h := newE2EHarness(t)
+	// A departed client's entry is held for the reconnect-grace window
+	// before teardown; shorten it so teardown is observable here.
+	h.backend.SetReconnectGrace(50 * time.Millisecond)
 
 	ctxA, cancelA := context.WithCancel(t.Context())
 	ctxB, cancelB := context.WithCancel(t.Context())

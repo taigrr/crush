@@ -34,7 +34,7 @@ func TestUpdatePreferredModel_BackfillsCatalogDefaults(t *testing.T) {
 	sel := SelectedModel{Provider: "dp-claude", Model: "fable"}
 	require.NoError(t, store.UpdatePreferredModel(ScopeGlobal, SelectedModelTypeLarge, sel))
 
-	got := store.config.Models[SelectedModelTypeLarge]
+	got := store.Config().Models[SelectedModelTypeLarge]
 	require.Equal(t, int64(16000), got.MaxTokens, "max tokens seeded from catalog")
 	require.Equal(t, "high", got.ReasoningEffort, "reasoning effort seeded from catalog")
 
@@ -52,7 +52,7 @@ func TestUpdatePreferredModel_ExplicitValuesWin(t *testing.T) {
 	sel := SelectedModel{Provider: "dp-claude", Model: "fable", MaxTokens: 1234, ReasoningEffort: "low"}
 	require.NoError(t, store.UpdatePreferredModel(ScopeGlobal, SelectedModelTypeLarge, sel))
 
-	got := store.config.Models[SelectedModelTypeLarge]
+	got := store.Config().Models[SelectedModelTypeLarge]
 	require.Equal(t, int64(1234), got.MaxTokens)
 	require.Equal(t, "low", got.ReasoningEffort)
 }
@@ -64,7 +64,7 @@ func TestUpdatePreferredModel_NoEffortForNonReasoningModel(t *testing.T) {
 	sel := SelectedModel{Provider: "dp-claude", Model: "haiku"}
 	require.NoError(t, store.UpdatePreferredModel(ScopeGlobal, SelectedModelTypeSmall, sel))
 
-	got := store.config.Models[SelectedModelTypeSmall]
+	got := store.Config().Models[SelectedModelTypeSmall]
 	require.Equal(t, int64(8000), got.MaxTokens)
 	require.Empty(t, got.ReasoningEffort)
 }
@@ -76,7 +76,7 @@ func TestUpdatePreferredModel_SkipsEffortNotInReasoningLevels(t *testing.T) {
 	sel := SelectedModel{Provider: "dp-claude", Model: "odd"}
 	require.NoError(t, store.UpdatePreferredModel(ScopeGlobal, SelectedModelTypeLarge, sel))
 
-	got := store.config.Models[SelectedModelTypeLarge]
+	got := store.Config().Models[SelectedModelTypeLarge]
 	require.Equal(t, int64(4000), got.MaxTokens)
 	require.Empty(t, got.ReasoningEffort, "catalog default not advertised in reasoning_levels must not be seeded")
 }
@@ -88,5 +88,5 @@ func TestUpdatePreferredModel_UnknownModelLeftUntouched(t *testing.T) {
 	sel := SelectedModel{Provider: "dp-claude", Model: "ghost"}
 	require.NoError(t, store.UpdatePreferredModel(ScopeGlobal, SelectedModelTypeLarge, sel))
 
-	require.Equal(t, sel, store.config.Models[SelectedModelTypeLarge])
+	require.Equal(t, sel, store.Config().Models[SelectedModelTypeLarge])
 }
