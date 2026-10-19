@@ -25,6 +25,7 @@ import (
 	"github.com/taigrr/crush/internal/app"
 	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/client"
+	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
@@ -42,6 +43,8 @@ type Harness struct {
 	Backend   *backend.Workspace
 	Agent     *Agent
 	Client    *client.Client
+
+	backend *backend.Backend
 }
 
 // New starts a server, creates a real workspace for a temp directory over
@@ -72,7 +75,7 @@ func New(t *testing.T) *Harness {
 	a := &Agent{app: bws.App, accepted: make(map[string]int), busy: make(map[string]int), cancels: make(map[string][]context.CancelFunc), Reply: "done"}
 	bws.App.AgentCoordinator = a
 
-	return &Harness{
+	h := &Harness{
 		Server:    hs,
 		Host:      u.Host,
 		Cwd:       cwd,
@@ -80,7 +83,23 @@ func New(t *testing.T) *Harness {
 		Backend:   bws,
 		Agent:     a,
 		Client:    c,
+		backend:   srv.Backend(),
 	}
+	h.ReleaseOnCleanup(t)
+	return h
+}
+
+// ReleaseOnCleanup closes every workspace and database the server opened
+// when the test ends, before temp directories created so far are
+// removed. Windows cannot delete a database file that is still open, so
+// tests that create more project directories after [New] must call this
+// again afterwards.
+func (h *Harness) ReleaseOnCleanup(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		h.backend.ShutdownWorkspaces()
+		db.ResetPool()
+	})
 }
 
 // NewClient returns another client for the harness server rooted at the

@@ -239,6 +239,7 @@ func TestMCP_CrossProjectSessionBySwarmAddress(t *testing.T) {
 	ows, err := other.CreateWorkspace(t.Context(), proto.Workspace{Path: otherDir, DataDir: t.TempDir()})
 	require.NoError(t, err)
 	e.conn.add(otherDir, other, ows)
+	e.h.ReleaseOnCleanup(t)
 	sess, err := other.CreateSession(t.Context(), ows.ID, "elsewhere")
 	require.NoError(t, err)
 
