@@ -237,25 +237,25 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
@@ -3690,13 +3690,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/proto.Error"
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Error"
                         }
                     }
                 }
