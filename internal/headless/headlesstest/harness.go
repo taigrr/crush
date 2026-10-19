@@ -72,7 +72,7 @@ func New(t *testing.T) *Harness {
 
 	bws, err := srv.Backend().GetWorkspace(ws.ID)
 	require.NoError(t, err)
-	a := &Agent{app: bws.App, accepted: make(map[string]int), busy: make(map[string]int), cancels: make(map[string][]context.CancelFunc), Reply: "done"}
+	a := &Agent{app: bws.App, accepted: make(map[string]int), busy: make(map[string]int), pendingCancel: make(map[string]bool), cancels: make(map[string][]context.CancelFunc), Reply: "done"}
 	bws.AgentCoordinator = a
 
 	h := &Harness{
@@ -136,8 +136,12 @@ type Agent struct {
 	// the real coordinator also reports as busy.
 	accepted map[string]int
 	busy     map[string]int
-	cancels  map[string][]context.CancelFunc
-	policy   []permission.SessionPolicy
+	// pendingCancel records a Cancel that arrived while a run was
+	// accepted but not yet running, so it takes effect on entry, as
+	// the real coordinator's cancel-on-entry does.
+	pendingCancel map[string]bool
+	cancels       map[string][]context.CancelFunc
+	policy        []permission.SessionPolicy
 }
 
 // Policies returns the run permission policy each turn ran under, in
@@ -160,6 +164,10 @@ func (a *Agent) RunAccepted(ctx context.Context, _ *agent.AcceptedRun, sessionID
 	}
 	a.busy[sessionID]++
 	a.cancels[sessionID] = append(a.cancels[sessionID], cancel)
+	if a.pendingCancel[sessionID] {
+		delete(a.pendingCancel, sessionID)
+		cancel()
+	}
 	a.policy = append(a.policy, permission.PolicyFromContext(ctx))
 	a.mu.Unlock()
 	defer func() {
@@ -169,7 +177,7 @@ func (a *Agent) RunAccepted(ctx context.Context, _ *agent.AcceptedRun, sessionID
 		a.mu.Unlock()
 	}()
 
-	if _, err := a.app.Messages.Create(ctx, sessionID, message.CreateMessageParams{
+	if _, err := a.app.Messages.Create(context.WithoutCancel(ctx), sessionID, message.CreateMessageParams{
 		Role:  message.User,
 		Parts: []message.ContentPart{message.TextContent{Text: prompt}},
 	}); err != nil {
@@ -183,7 +191,7 @@ func (a *Agent) RunAccepted(ctx context.Context, _ *agent.AcceptedRun, sessionID
 		// Mirror a real tool turn: an assistant message carrying the
 		// tool call, then a tool message with its result.
 		toolCallID := fmt.Sprintf("tc-%d", time.Now().UnixNano())
-		if _, err := a.app.Messages.Create(ctx, sessionID, message.CreateMessageParams{
+		if _, err := a.app.Messages.Create(context.WithoutCancel(ctx), sessionID, message.CreateMessageParams{
 			Role: message.Assistant,
 			Parts: []message.ContentPart{
 				message.TextContent{Text: "Running echo"},
@@ -281,6 +289,9 @@ func (a *Agent) Cancel(sessionID string) {
 	defer a.mu.Unlock()
 	for _, c := range a.cancels[sessionID] {
 		c()
+	}
+	if a.accepted[sessionID] > 0 {
+		a.pendingCancel[sessionID] = true
 	}
 }
 

@@ -38,7 +38,10 @@ func TestGlobTool_TimeoutReturnsPartialWithNote(t *testing.T) {
 	dir := writeGlobFixture(t)
 
 	old := globTimeout
-	globTimeout = time.Nanosecond
+	// Already expired, so the deadline is hit deterministically even on
+	// platforms with a coarse timer (a 1ns timeout can outlive a fast
+	// search on Windows).
+	globTimeout = -time.Second
 	t.Cleanup(func() { globTimeout = old })
 
 	tool := NewGlobTool(func(context.Context) string { return dir })
@@ -65,7 +68,7 @@ func TestGlobFilesWithTimeout_DistinguishesCauses(t *testing.T) {
 	dir := writeGlobFixture(t)
 
 	t.Run("own deadline", func(t *testing.T) {
-		files, _, timedOut, err := globFilesWithTimeout(t.Context(), "**/*.go", dir, 100, time.Nanosecond)
+		files, _, timedOut, err := globFilesWithTimeout(t.Context(), "**/*.go", dir, 100, -time.Second)
 		require.NoError(t, err)
 		require.True(t, timedOut)
 		require.NotNil(t, files)
