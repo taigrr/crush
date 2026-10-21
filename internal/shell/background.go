@@ -70,11 +70,7 @@ type BackgroundShellManager struct {
 	shells *csync.Map[string, *BackgroundShell]
 }
 
-var (
-	backgroundManager     *BackgroundShellManager
-	backgroundManagerOnce sync.Once
-	idCounter             atomic.Uint64
-)
+var idCounter atomic.Uint64
 
 // newBackgroundShellManager creates a new BackgroundShellManager instance.
 func newBackgroundShellManager() *BackgroundShellManager {
@@ -84,12 +80,7 @@ func newBackgroundShellManager() *BackgroundShellManager {
 }
 
 // GetBackgroundShellManager returns the singleton background shell manager.
-func GetBackgroundShellManager() *BackgroundShellManager {
-	backgroundManagerOnce.Do(func() {
-		backgroundManager = newBackgroundShellManager()
-	})
-	return backgroundManager
-}
+var GetBackgroundShellManager = sync.OnceValue(newBackgroundShellManager)
 
 // Start creates and starts a new background shell with the given command.
 func (m *BackgroundShellManager) Start(ctx context.Context, workingDir string, blockFuncs []BlockFunc, command string, description string) (*BackgroundShell, error) {

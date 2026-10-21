@@ -40,7 +40,7 @@ func newTestService(t *testing.T, hybrid bool) *service {
 
 func TestSearchHybridFusion(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	s := newTestService(t, true)
 
 	// Query vector and three doc vectors. doc "m2" is closest to query.
@@ -83,7 +83,7 @@ func TestSearchHybridFusion(t *testing.T) {
 
 func TestSearchSubstringOnlyWhenDisabled(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	s := newTestService(t, false) // hybrid off
 	s.model = &fakeEmbedder{}     // should never be called
 
@@ -101,7 +101,7 @@ func TestSearchSubstringOnlyWhenDisabled(t *testing.T) {
 
 func TestSearchPagination(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	s := newTestService(t, false)
 
 	docs := []Document{
@@ -118,7 +118,7 @@ func TestSearchPagination(t *testing.T) {
 
 func TestReconcileDropsStale(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	s := newTestService(t, false)
 
 	require.NoError(t, s.store.upsert(ctx, "sig-1", SourceMessage, "m1", "s", 0, []float32{1, 0}))
@@ -134,7 +134,7 @@ func TestReconcileDropsStale(t *testing.T) {
 
 func TestBackfillEmbedsMissingOnly(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	s := newTestService(t, true)
 	s.model = &fakeEmbedder{vecs: map[string][]float32{
 		"alpha": {1, 0},
@@ -178,7 +178,7 @@ func TestBackfillEmbedsMissingOnly(t *testing.T) {
 
 func TestBackfillDisabledIsNoop(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	conn, err := db.Connect(ctx, db.TempDataDir(t))
 	require.NoError(t, err)
 	s := &service{store: newStore(db.New(conn))} // cfg nil = disabled

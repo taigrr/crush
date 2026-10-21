@@ -243,7 +243,7 @@ func newAgentE2EHarness(t *testing.T) *agentE2EHarness {
 
 	h := &e2eHarness{}
 
-	appCtx, cancel := context.WithCancel(context.Background())
+	appCtx, cancel := context.WithCancel(t.Context())
 	a := app.NewForTest(appCtx)
 	coord := newScriptedCoordinator(a)
 	a.AgentCoordinator = coord

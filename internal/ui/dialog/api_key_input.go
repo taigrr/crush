@@ -63,13 +63,14 @@ func NewAPIKeyInput(
 ) (*APIKeyInput, tea.Cmd) {
 	t := com.Styles
 
-	m := APIKeyInput{}
-	m.com = com
-	m.isOnboarding = isOnboarding
-	m.provider = provider
-	m.model = model
-	m.modelType = modelType
-	m.width = 60
+	m := APIKeyInput{
+		com:          com,
+		isOnboarding: isOnboarding,
+		provider:     provider,
+		model:        model,
+		modelType:    modelType,
+		width:        60,
+	}
 
 	innerWidth := m.width - t.Dialog.View.GetHorizontalFrameSize() - 2
 

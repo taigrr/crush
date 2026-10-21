@@ -48,7 +48,7 @@ func newPublishingWorkspace(t *testing.T) (*Backend, *Workspace, <-chan pubsub.E
 	cwd := t.TempDir()
 	dataDir := t.TempDir()
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -56,7 +56,7 @@ func newPublishingWorkspace(t *testing.T) (*Backend, *Workspace, <-chan pubsub.E
 	ws, _, err := b.CreateWorkspace(protoWS(cwd, dataDir, cid))
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	return b, ws, ws.Events(ctx)
 }
@@ -172,7 +172,7 @@ func TestRefreshOAuthToken_NoEventOnError(t *testing.T) {
 	b, ws, evc := newPublishingWorkspace(t)
 
 	// Provider does not exist → store returns an error → no event.
-	err := b.RefreshOAuthToken(context.Background(), ws.ID, config.ScopeGlobal, "no-such-provider")
+	err := b.RefreshOAuthToken(t.Context(), ws.ID, config.ScopeGlobal, "no-such-provider")
 	require.Error(t, err)
 
 	select {

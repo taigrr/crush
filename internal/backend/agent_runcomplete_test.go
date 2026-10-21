@@ -91,7 +91,7 @@ func TestRunAgent_PreRunErrorPublishesTerminalRunComplete(t *testing.T) {
 	t.Parallel()
 	b, _ := newTestBackend(t)
 	runErr := errors.New("update models failed")
-	ws := insertRunCompleteWorkspace(t, b, context.Background(), &errorCoordinator{err: runErr})
+	ws := insertRunCompleteWorkspace(t, b, t.Context(), &errorCoordinator{err: runErr})
 
 	subCtx := t.Context()
 	ch := ws.RunCompletions().Subscribe(subCtx)
@@ -120,7 +120,7 @@ func TestRunAgent_NoFallbackWhenCoordinatorPublished(t *testing.T) {
 	t.Parallel()
 	b, _ := newTestBackend(t)
 	runErr := errors.New("stream failed after publishing terminal event")
-	ws := insertRunCompleteWorkspace(t, b, context.Background(),
+	ws := insertRunCompleteWorkspace(t, b, t.Context(),
 		&errorCoordinator{err: runErr, markPublished: true})
 
 	subCtx := t.Context()
@@ -148,7 +148,7 @@ func TestRunAgent_NoFallbackWhenCoordinatorPublished(t *testing.T) {
 func TestRunAgent_CancellationPublishesNoErrorTerminal(t *testing.T) {
 	t.Parallel()
 	b, _ := newTestBackend(t)
-	ws := insertRunCompleteWorkspace(t, b, context.Background(),
+	ws := insertRunCompleteWorkspace(t, b, t.Context(),
 		&errorCoordinator{err: context.Canceled})
 
 	subCtx := t.Context()

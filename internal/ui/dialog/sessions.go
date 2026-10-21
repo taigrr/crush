@@ -390,13 +390,7 @@ func (s *Session) HandleMsg(msg tea.Msg) Action {
 					}
 				}
 			default:
-				var cmd tea.Cmd
-				s.input, cmd = s.input.Update(msg)
-				value := s.input.Value()
-				s.list.SetFilter(value)
-				s.list.ScrollToTop()
-				s.list.SetSelected(0)
-				return ActionCmd{cmd}
+				return filterOnInput(&s.input, s.list, msg)
 			}
 		}
 	}
@@ -414,10 +408,7 @@ func (s *Session) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	width := max(0, min(defaultDialogMaxWidth, area.Dx()-t.Dialog.View.GetHorizontalBorderSize()))
 	height := max(0, min(defaultDialogHeight, area.Dy()-t.Dialog.View.GetVerticalBorderSize()))
 	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize()
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
-		t.Dialog.InputPrompt.GetVerticalFrameSize() + inputContentHeight +
-		t.Dialog.HelpView.GetVerticalFrameSize() +
-		t.Dialog.View.GetVerticalFrameSize()
+	heightOffset := filterDialogChromeHeight(t)
 	s.input.SetWidth(max(0, innerWidth-t.Dialog.InputPrompt.GetHorizontalFrameSize()-1)) // (1) cursor padding
 	listHeight := height - heightOffset
 	listTotalHeight := s.list.TotalHeight()

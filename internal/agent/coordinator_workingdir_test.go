@@ -98,7 +98,7 @@ func TestCoordinatorWorkingDir_RequestCwd(t *testing.T) {
 		t.Parallel()
 		c := &coordinator{cfg: cfg, effectiveWorkingDir: "/Users/tai/code/nds/monorepo4"}
 		// No request cwd: fall back to the workspace-global dir.
-		require.Equal(t, "/Users/tai/code/nds/monorepo4", c.workingDir(context.Background()))
+		require.Equal(t, "/Users/tai/code/nds/monorepo4", c.workingDir(t.Context()))
 		// Request from a different sibling worktree wins.
 		require.Equal(t,
 			"/Users/tai/code/nds/monorepo",
@@ -109,9 +109,9 @@ func TestCoordinatorWorkingDir_RequestCwd(t *testing.T) {
 	t.Run("full precedence: config < effective < request", func(t *testing.T) {
 		t.Parallel()
 		c := &coordinator{cfg: cfg}
-		require.Equal(t, cfg.WorkingDir(), c.workingDir(context.Background()))
+		require.Equal(t, cfg.WorkingDir(), c.workingDir(t.Context()))
 		c.effectiveWorkingDir = "/proj/wt-a"
-		require.Equal(t, "/proj/wt-a", c.workingDir(context.Background()))
+		require.Equal(t, "/proj/wt-a", c.workingDir(t.Context()))
 		require.Equal(t, "/proj/wt-b", c.workingDir(ctxWithSessionCwd("", "/proj/wt-b")))
 	})
 

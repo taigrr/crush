@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"runtime"
 	"testing"
 	"time"
@@ -14,7 +13,7 @@ func TestBackgroundShell_Integration(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Start a background shell
 	bgManager := shell.GetBackgroundShellManager()
@@ -41,7 +40,7 @@ func TestBackgroundShell_Kill(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Start a long-running background shell
 	bgManager := shell.GetBackgroundShellManager()
@@ -64,7 +63,7 @@ func TestBackgroundShell_MultipleOutputCalls(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Start a background shell
 	bgManager := shell.GetBackgroundShellManager()
@@ -104,7 +103,7 @@ func TestBackgroundShell_EmptyOutput(t *testing.T) {
 	}
 
 	workingDir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Start a background shell with no output
 	bgManager := shell.GetBackgroundShellManager()
@@ -126,7 +125,7 @@ func TestBackgroundShell_ExitCode(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Start a background shell that exits with non-zero code
 	bgManager := shell.GetBackgroundShellManager()
@@ -150,7 +149,7 @@ func TestBackgroundShell_WithBlockFuncs(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	blockFuncs := []shell.BlockFunc{
 		shell.CommandsBlocker([]string{"curl", "wget"}),
@@ -183,7 +182,7 @@ func TestBackgroundShell_StdoutAndStderr(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Start a background shell with both stdout and stderr
 	bgManager := shell.GetBackgroundShellManager()
@@ -205,7 +204,7 @@ func TestBackgroundShell_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Start a background shell
 	bgManager := shell.GetBackgroundShellManager()
@@ -255,7 +254,7 @@ func TestBackgroundShell_List(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	bgManager := shell.GetBackgroundShellManager()
 
@@ -285,7 +284,7 @@ func TestBackgroundShell_AutoBackground(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test that a quick command completes synchronously
 	t.Run("quick command completes synchronously", func(t *testing.T) {

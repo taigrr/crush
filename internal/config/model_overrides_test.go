@@ -7,9 +7,6 @@ import (
 	"github.com/taigrr/catwalk/pkg/catwalk"
 )
 
-//go:fix inline
-func ptr[T any](v T) *T { return new(v) }
-
 func TestApplyModelOverrides(t *testing.T) {
 	t.Parallel()
 

@@ -3,6 +3,7 @@ package headless
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -208,8 +209,8 @@ func LastOutcome(ctx context.Context, c WatchClient, workspaceID, sessionID stri
 	if err != nil {
 		return Outcome{Status: StatusError, Error: "failed to read session history: " + err.Error(), ExitCode: ExitFailure}
 	}
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
+	for i, m := range slices.Backward(msgs) {
+
 		if m.Role != proto.Assistant {
 			continue
 		}

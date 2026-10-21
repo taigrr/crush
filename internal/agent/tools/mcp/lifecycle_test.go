@@ -30,11 +30,11 @@ func liveSession(t *testing.T, toolName string) (*ClientSession, context.Context
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil, nil
 		},
 	)
-	serverSession, err := server.Connect(context.Background(), serverTransport, nil)
+	serverSession, err := server.Connect(t.Context(), serverTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = serverSession.Close() })
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	client := mcp.NewClient(&mcp.Implementation{Name: "crush-test"}, nil)
 	clientSession, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
@@ -69,11 +69,11 @@ func liveSessionWithCapabilities(t *testing.T, toolName, promptName, resourceURI
 			return &mcp.ReadResourceResult{}, nil
 		},
 	)
-	serverSession, err := server.Connect(context.Background(), serverTransport, nil)
+	serverSession, err := server.Connect(t.Context(), serverTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = serverSession.Close() })
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	client := mcp.NewClient(&mcp.Implementation{Name: "crush-test"}, nil)
 	clientSession, err := client.Connect(ctx, clientTransport, nil)
 	require.NoError(t, err)
@@ -208,7 +208,7 @@ func TestGetOrRenewClient_SerializesConcurrentRenewals(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			results[i], errs[i] = getOrRenewClient(context.Background(), cfg, name)
+			results[i], errs[i] = getOrRenewClient(t.Context(), cfg, name)
 		}(i)
 	}
 	wg.Wait()
@@ -236,7 +236,7 @@ func TestRegisterSessionTools_PopulatesRegistry(t *testing.T) {
 
 	cfg := config.NewTestStore(&config.Config{MCP: config.MCPs{name: {Type: config.MCPStdio}}})
 
-	count, err := registerSessionTools(context.Background(), cfg, name, sess)
+	count, err := registerSessionTools(t.Context(), cfg, name, sess)
 	require.NoError(t, err)
 	require.Equal(t, 1, count)
 
@@ -268,7 +268,7 @@ func TestSessionErrorThenRenew_RestoresTools(t *testing.T) {
 	// 1. Initial connect registers the tool (mirrors initClient).
 	sess1, _ := liveSession(t, "send_message")
 	sessions.Set(name, sess1)
-	_, err := registerSessionTools(context.Background(), cfg, name, sess1)
+	_, err := registerSessionTools(t.Context(), cfg, name, sess1)
 	require.NoError(t, err)
 	_, ok := allTools.Get(name)
 	require.True(t, ok, "tool should be registered after the initial connect")
@@ -285,7 +285,7 @@ func TestSessionErrorThenRenew_RestoresTools(t *testing.T) {
 	//    tools. The bug was that it never did: the LLM's tool list stayed empty
 	//    and every subsequent call returned "tool not found".
 	sess2, _ := liveSession(t, "send_message")
-	count, err := registerSessionTools(context.Background(), cfg, name, sess2)
+	count, err := registerSessionTools(t.Context(), cfg, name, sess2)
 	require.NoError(t, err)
 	sessions.Set(name, sess2)
 	require.Equal(t, 1, count)
@@ -329,7 +329,7 @@ func TestGetOrRenewClient_RestoresPromptsAndResources(t *testing.T) {
 	}
 	t.Cleanup(func() { newSession = origNewSession })
 
-	sess, err := getOrRenewClient(context.Background(), cfg, name)
+	sess, err := getOrRenewClient(t.Context(), cfg, name)
 	require.NoError(t, err)
 	require.Same(t, replacement, sess)
 

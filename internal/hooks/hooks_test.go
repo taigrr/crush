@@ -227,7 +227,7 @@ func TestRunnerExitCode0Allow(t *testing.T) {
 		Command: `echo '{"decision":"allow","context":"ok"}'`,
 	}
 	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	require.NoError(t, err)
 	require.Equal(t, DecisionAllow, result.Decision)
 	require.Equal(t, "ok", result.Context)
@@ -239,7 +239,7 @@ func TestRunnerExitCode2Deny(t *testing.T) {
 		Command: `echo "forbidden" >&2; exit 2`,
 	}
 	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	require.NoError(t, err)
 	require.Equal(t, DecisionDeny, result.Decision)
 	require.False(t, result.Halt)
@@ -252,7 +252,7 @@ func TestRunnerExitCode49Halt(t *testing.T) {
 		Command: `echo "stop the turn" >&2; exit 49`,
 	}
 	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	require.NoError(t, err)
 	require.True(t, result.Halt)
 	require.Equal(t, DecisionDeny, result.Decision)
@@ -265,7 +265,7 @@ func TestRunnerHaltViaJSON(t *testing.T) {
 		Command: `echo '{"halt":true,"reason":"via json"}'`,
 	}
 	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	require.NoError(t, err)
 	require.True(t, result.Halt)
 	require.Equal(t, "via json", result.Reason)
@@ -277,7 +277,7 @@ func TestRunnerExitCodeOtherNonBlocking(t *testing.T) {
 		Command: `exit 1`,
 	}
 	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	require.NoError(t, err)
 	require.Equal(t, DecisionNone, result.Decision)
 }
@@ -290,7 +290,7 @@ func TestRunnerTimeout(t *testing.T) {
 	}
 	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
 	start := time.Now()
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	elapsed := time.Since(start)
 	require.NoError(t, err)
 	require.Equal(t, DecisionNone, result.Decision)
@@ -304,7 +304,7 @@ func TestRunnerDeduplication(t *testing.T) {
 		Command: `echo '{"decision":"allow"}'`,
 	}
 	r := NewRunner([]config.HookConfig{hookCfg, hookCfg}, t.TempDir(), t.TempDir())
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	require.NoError(t, err)
 	require.Equal(t, DecisionAllow, result.Decision)
 }
@@ -313,7 +313,7 @@ func TestRunnerNoMatchingHooks(t *testing.T) {
 	t.Parallel()
 	// Hooks are empty.
 	r := NewRunner(nil, t.TempDir(), t.TempDir())
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	require.NoError(t, err)
 	require.Equal(t, DecisionNone, result.Decision)
 }
@@ -340,7 +340,7 @@ func TestRunnerMatcherFiltering(t *testing.T) {
 			{Command: `echo '{"decision":"deny","reason":"blocked"}'`, Matcher: "^bash$"},
 		})
 		r := NewRunner(hooks, t.TempDir(), t.TempDir())
-		result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+		result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 		require.NoError(t, err)
 		require.Equal(t, DecisionDeny, result.Decision)
 	})
@@ -351,7 +351,7 @@ func TestRunnerMatcherFiltering(t *testing.T) {
 			{Command: `echo '{"decision":"deny","reason":"blocked"}'`, Matcher: "^edit$"},
 		})
 		r := NewRunner(hooks, t.TempDir(), t.TempDir())
-		result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+		result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 		require.NoError(t, err)
 		require.Equal(t, DecisionNone, result.Decision)
 	})
@@ -362,7 +362,7 @@ func TestRunnerMatcherFiltering(t *testing.T) {
 			{Command: `echo '{"decision":"allow"}'`},
 		})
 		r := NewRunner(hooks, t.TempDir(), t.TempDir())
-		result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+		result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 		require.NoError(t, err)
 		require.Equal(t, DecisionAllow, result.Decision)
 	})
@@ -374,11 +374,11 @@ func TestRunnerMatcherFiltering(t *testing.T) {
 		})
 		r := NewRunner(hooks, t.TempDir(), t.TempDir())
 
-		result, err := r.Run(context.Background(), EventPreToolUse, "sess", "mcp_github_get_me", `{}`)
+		result, err := r.Run(t.Context(), EventPreToolUse, "sess", "mcp_github_get_me", `{}`)
 		require.NoError(t, err)
 		require.Equal(t, DecisionDeny, result.Decision)
 
-		result, err = r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+		result, err = r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 		require.NoError(t, err)
 		require.Equal(t, DecisionNone, result.Decision)
 	})
@@ -393,11 +393,11 @@ func TestRunnerMatcherFiltering(t *testing.T) {
 		}
 		r := NewRunner(raw, t.TempDir(), t.TempDir())
 
-		deny, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+		deny, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 		require.NoError(t, err)
 		require.Equal(t, DecisionDeny, deny.Decision)
 
-		noop, err := r.Run(context.Background(), EventPreToolUse, "sess", "view", `{}`)
+		noop, err := r.Run(t.Context(), EventPreToolUse, "sess", "view", `{}`)
 		require.NoError(t, err)
 		require.Equal(t, DecisionNone, noop.Decision)
 	})
@@ -411,7 +411,7 @@ func TestRunnerMatcherFiltering(t *testing.T) {
 		}
 		r := NewRunner(raw, t.TempDir(), t.TempDir())
 
-		result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+		result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 		require.NoError(t, err)
 		require.Equal(t, DecisionNone, result.Decision)
 		require.Empty(t, r.Hooks())
@@ -483,7 +483,7 @@ func TestRunnerParallelExecution(t *testing.T) {
 		{Command: `echo '{"decision":"deny","reason":"nope"}' ; exit 0`},
 	}
 	r := NewRunner(hooks, t.TempDir(), t.TempDir())
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	require.NoError(t, err)
 	require.Equal(t, DecisionDeny, result.Decision)
 	require.Equal(t, "nope", result.Reason)
@@ -495,7 +495,7 @@ func TestRunnerEnvVarsPropagated(t *testing.T) {
 		Command: `printf '{"decision":"allow","context":"%s"}' "$CRUSH_TOOL_NAME"`,
 	}
 	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	require.NoError(t, err)
 	require.Equal(t, DecisionAllow, result.Decision)
 	require.Equal(t, "bash", result.Context)
@@ -670,7 +670,7 @@ func TestRunnerAbandonRaceSafety(t *testing.T) {
 	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
 
 	start := time.Now()
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{}`)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)
@@ -687,7 +687,7 @@ func TestRunnerUpdatedInput(t *testing.T) {
 		Command: `echo '{"decision":"allow","updated_input":{"command":"echo rewritten"}}'`,
 	}
 	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{"command":"echo original","timeout":60}`)
+	result, err := r.Run(t.Context(), EventPreToolUse, "sess", "bash", `{"command":"echo original","timeout":60}`)
 	require.NoError(t, err)
 	require.Equal(t, DecisionAllow, result.Decision)
 	require.JSONEq(

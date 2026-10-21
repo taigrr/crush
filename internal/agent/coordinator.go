@@ -198,6 +198,10 @@ type coordinator struct {
 	// rebuild installs a new one; the two never share a WaitGroup.
 	ready atomic.Pointer[errgroup.Group]
 
+	// modelUpdatePending is set while an UpdateModelsWhenIdle waiter is
+	// outstanding, so repeated requests during a busy turn share it.
+	modelUpdatePending atomic.Bool
+
 	// parentCostMu serializes the read-modify-write in
 	// updateParentSessionCost. Sub-agents can run concurrently (the
 	// review tool fans out to N reviewers in parallel), and each
@@ -323,15 +327,9 @@ func (c *coordinator) WireSwarmBackendIfMissing(ctx context.Context, be tools.Sw
 	if c.currentAgent != nil && c.currentAgent.IsBusy() {
 		go func() {
 			defer clearWiring()
-			waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-			defer cancel()
-			if err := c.currentAgent.WaitForIdle(waitCtx); err != nil {
-				slog.Warn("Gave up waiting for agent idle before wiring swarm backend", "error", err)
-				return
-			}
-			if err := c.SetSwarmBackend(context.Background(), be, workspaceID, cfg); err != nil {
-				slog.Warn("Failed to wire swarm backend after waiting for idle", "error", err)
-			}
+			c.applyWhenIdle(ctx, "wire swarm backend", func(ctx context.Context) error {
+				return c.SetSwarmBackend(ctx, be, workspaceID, cfg)
+			})
 		}()
 		return nil
 	}
@@ -1880,24 +1878,41 @@ func (c *coordinator) GoalStatus(sessionID string) (condition string, turns, max
 // polling) until the agent finishes its current turn, then applies. The call
 // returns immediately so the RPC handler does not hang. It reports whether
 // the apply was deferred so callers can tell the user it was queued.
+// idleWaitTimeout bounds how long applyWhenIdle waits for the current turn
+// to finish so a stuck session cannot leak the waiting goroutine forever.
+const idleWaitTimeout = 30 * time.Minute
+
+// applyWhenIdle blocks until the current agent is idle, then runs fn. It
+// detaches from ctx's cancellation (callers are typically RPC handlers
+// that return immediately) while keeping its values.
+func (c *coordinator) applyWhenIdle(ctx context.Context, what string, fn func(context.Context) error) {
+	ctx = context.WithoutCancel(ctx)
+	waitCtx, cancel := context.WithTimeout(ctx, idleWaitTimeout)
+	defer cancel()
+	if err := c.currentAgent.WaitForIdle(waitCtx); err != nil {
+		slog.Warn("Gave up waiting for agent idle", "action", what, "error", err)
+		return
+	}
+	if err := fn(ctx); err != nil {
+		slog.Error("Failed to run deferred action after agent idle", "action", what, "error", err)
+	}
+}
+
 func (c *coordinator) UpdateModelsWhenIdle(ctx context.Context) (deferred bool, err error) {
 	if !c.currentAgent.IsBusy() {
 		return false, c.UpdateModels(ctx)
 	}
-	go func() {
-		// Detach from the request context, which is canceled when the RPC
-		// returns; bound the wait so a stuck session can't leak the
-		// goroutine forever.
-		waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-		if waitErr := c.currentAgent.WaitForIdle(waitCtx); waitErr != nil {
-			slog.Warn("Gave up waiting for agent idle before applying model change", "error", waitErr)
-			return
-		}
-		if updErr := c.UpdateModels(context.Background()); updErr != nil {
-			slog.Error("Failed to apply queued model change", "error", updErr)
-		}
-	}()
+	// Coalesce: UpdateModels reads the config when it runs, so one
+	// pending waiter covers every change requested while the agent is
+	// busy. The flag is cleared before applying so a change requested
+	// during the apply schedules a fresh waiter instead of being lost.
+	if !c.modelUpdatePending.CompareAndSwap(false, true) {
+		return true, nil
+	}
+	go c.applyWhenIdle(ctx, "apply model change", func(ctx context.Context) error {
+		c.modelUpdatePending.Store(false)
+		return c.UpdateModels(ctx)
+	})
 	return true, nil
 }
 
@@ -1972,8 +1987,8 @@ func (c *coordinator) retryAfterUnauthorized(ctx context.Context, providerCfg co
 }
 
 func (c *coordinator) isUnauthorized(err error) bool {
-	var providerErr *fantasy.ProviderError
-	return errors.As(err, &providerErr) && providerErr.StatusCode == http.StatusUnauthorized
+	providerErr, ok := errors.AsType[*fantasy.ProviderError](err)
+	return ok && providerErr.StatusCode == http.StatusUnauthorized
 }
 
 func (c *coordinator) refreshOAuth2Token(ctx context.Context, providerCfg config.ProviderConfig) error {

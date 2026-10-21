@@ -1,21 +1,12 @@
 package config
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func resetProviderState() {
-	providerOnce = sync.Once{}
-	providerList = nil
-}
-
 func TestProviders_ReturnsEmbedded(t *testing.T) {
-	resetProviderState()
-	defer resetProviderState()
-
 	cfg := &Config{
 		Options: &Options{},
 	}
@@ -27,9 +18,6 @@ func TestProviders_ReturnsEmbedded(t *testing.T) {
 }
 
 func TestProviders_NilConfigReturnsEmbedded(t *testing.T) {
-	resetProviderState()
-	defer resetProviderState()
-
 	providers, err := Providers(nil)
 	require.NoError(t, err)
 	require.Greater(t, len(providers), 5, "Expected embedded providers")
@@ -40,9 +28,6 @@ func TestProviders_NilConfigReturnsEmbedded(t *testing.T) {
 }
 
 func TestProviders_DisableDefaultProvidersReturnsNone(t *testing.T) {
-	resetProviderState()
-	defer resetProviderState()
-
 	cfg := &Config{
 		Options: &Options{DisableDefaultProviders: true},
 	}
@@ -59,9 +44,6 @@ func TestProviders_DisableDefaultProvidersReturnsNone(t *testing.T) {
 }
 
 func TestProviders_CalledMultipleTimesReturnsSame(t *testing.T) {
-	resetProviderState()
-	defer resetProviderState()
-
 	cfg := &Config{
 		Options: &Options{},
 	}

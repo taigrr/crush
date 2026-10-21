@@ -341,42 +341,12 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				if done {
 					// Command failed or completed very quickly
 					bgManager.Remove(bgShell.ID)
-
-					interrupted := shell.IsInterrupt(execErr)
-					exitCode := shell.ExitCode(execErr)
-					if exitCode == 0 && !interrupted && execErr != nil {
-						return fantasy.NewTextErrorResponse(fmt.Sprintf("[Job %s] error executing command: %s", bgShell.ID, execErr)), nil
-					}
-
-					stdout = formatOutput(stdout, stderr, execErr)
-
-					metadata := BashResponseMetadata{
-						StartTime:        startTime.UnixMilli(),
-						EndTime:          time.Now().UnixMilli(),
-						Output:           stdout,
-						Description:      params.Description,
-						Background:       params.RunInBackground,
-						WorkingDirectory: bgShell.WorkingDir,
-					}
-					if stdout == "" {
-						return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
-					}
-					stdout += fmt.Sprintf("\n\n<cwd>%s</cwd>", normalizeWorkingDir(bgShell.WorkingDir))
-					return fantasy.WithResponseMetadata(fantasy.NewTextResponse(stdout), metadata), nil
+					return completedBashResponse(bgShell, params, startTime, stdout, stderr, execErr), nil
 				}
 
 				// Still running after fast-failure check - return as background job
 				go watchBackgroundJob(bgShell, sessionID, permission.PolicyFromContext(ctx), notify)
-				metadata := BashResponseMetadata{
-					StartTime:        startTime.UnixMilli(),
-					EndTime:          time.Now().UnixMilli(),
-					Description:      params.Description,
-					WorkingDirectory: bgShell.WorkingDir,
-					Background:       true,
-					ShellID:          bgShell.ID,
-				}
-				response := fmt.Sprintf("Background shell started with ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
-				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
+				return backgroundedBashResponse(bgShell, params, startTime, fmt.Sprintf("Background shell started with ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)), nil
 			}
 
 			// Start synchronous execution with auto-background support
@@ -426,44 +396,52 @@ func NewBashTool(permissions permission.Service, workingDir WorkingDirFunc, attr
 				// Remove from background manager since we're returning directly
 				// Don't call Kill() as it cancels the context and corrupts the exit code
 				bgManager.Remove(bgShell.ID)
-
-				interrupted := shell.IsInterrupt(execErr)
-				exitCode := shell.ExitCode(execErr)
-				if exitCode == 0 && !interrupted && execErr != nil {
-					return fantasy.NewTextErrorResponse(fmt.Sprintf("[Job %s] error executing command: %s", bgShell.ID, execErr)), nil
-				}
-
-				stdout = formatOutput(stdout, stderr, execErr)
-
-				metadata := BashResponseMetadata{
-					StartTime:        startTime.UnixMilli(),
-					EndTime:          time.Now().UnixMilli(),
-					Output:           stdout,
-					Description:      params.Description,
-					Background:       params.RunInBackground,
-					WorkingDirectory: bgShell.WorkingDir,
-				}
-				if stdout == "" {
-					return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata), nil
-				}
-				stdout += fmt.Sprintf("\n\n<cwd>%s</cwd>", normalizeWorkingDir(bgShell.WorkingDir))
-				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(stdout), metadata), nil
+				return completedBashResponse(bgShell, params, startTime, stdout, stderr, execErr), nil
 			}
 
 			// Still running - keep as background job
 			go watchBackgroundJob(bgShell, sessionID, permission.PolicyFromContext(ctx), notify)
-			metadata := BashResponseMetadata{
-				StartTime:        startTime.UnixMilli(),
-				EndTime:          time.Now().UnixMilli(),
-				Description:      params.Description,
-				WorkingDirectory: bgShell.WorkingDir,
-				Background:       true,
-				ShellID:          bgShell.ID,
-			}
-			response := fmt.Sprintf("Command is taking longer than expected and has been moved to background.\n\nBackground shell ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)
-			return fantasy.WithResponseMetadata(fantasy.NewTextResponse(response), metadata), nil
+			return backgroundedBashResponse(bgShell, params, startTime, fmt.Sprintf("Command is taking longer than expected and has been moved to background.\n\nBackground shell ID: %s\n\nUse job_output tool to view output or job_kill to terminate.", bgShell.ID)), nil
 		},
 	)
+}
+
+// completedBashResponse builds the tool response for a command that has
+// already finished, whether it ran in the foreground or exited during the
+// background fast-failure check.
+func completedBashResponse(bgShell *shell.BackgroundShell, params BashParams, startTime time.Time, stdout, stderr string, execErr error) fantasy.ToolResponse {
+	if shell.ExitCode(execErr) == 0 && !shell.IsInterrupt(execErr) && execErr != nil {
+		return fantasy.NewTextErrorResponse(fmt.Sprintf("[Job %s] error executing command: %s", bgShell.ID, execErr))
+	}
+
+	stdout = formatOutput(stdout, stderr, execErr)
+	metadata := BashResponseMetadata{
+		StartTime:        startTime.UnixMilli(),
+		EndTime:          time.Now().UnixMilli(),
+		Output:           stdout,
+		Description:      params.Description,
+		Background:       params.RunInBackground,
+		WorkingDirectory: bgShell.WorkingDir,
+	}
+	if stdout == "" {
+		return fantasy.WithResponseMetadata(fantasy.NewTextResponse(BashNoOutput), metadata)
+	}
+	stdout += fmt.Sprintf("\n\n<cwd>%s</cwd>", normalizeWorkingDir(bgShell.WorkingDir))
+	return fantasy.WithResponseMetadata(fantasy.NewTextResponse(stdout), metadata)
+}
+
+// backgroundedBashResponse builds the tool response for a command left
+// running as a background job.
+func backgroundedBashResponse(bgShell *shell.BackgroundShell, params BashParams, startTime time.Time, text string) fantasy.ToolResponse {
+	metadata := BashResponseMetadata{
+		StartTime:        startTime.UnixMilli(),
+		EndTime:          time.Now().UnixMilli(),
+		Description:      params.Description,
+		WorkingDirectory: bgShell.WorkingDir,
+		Background:       true,
+		ShellID:          bgShell.ID,
+	}
+	return fantasy.WithResponseMetadata(fantasy.NewTextResponse(text), metadata)
 }
 
 // formatOutput formats the output of a completed command with error handling
@@ -471,8 +449,8 @@ func formatOutput(stdout, stderr string, execErr error) string {
 	interrupted := shell.IsInterrupt(execErr)
 	exitCode := shell.ExitCode(execErr)
 
-	stdout = truncateOutput(stdout)
-	stderr = truncateOutput(stderr)
+	stdout = TruncateOutput(stdout)
+	stderr = TruncateOutput(stderr)
 
 	errorMessage := stderr
 	if errorMessage == "" && execErr != nil {
@@ -522,15 +500,11 @@ func TruncateOutput(content string) string {
 	return fmt.Sprintf("%s\n\n... [%d lines truncated] ...\n\n%s", start, truncatedLinesCount, end)
 }
 
-func truncateOutput(content string) string {
-	return TruncateOutput(content)
-}
-
 func countLines(s string) int {
 	if s == "" {
 		return 0
 	}
-	return len(strings.Split(s, "\n"))
+	return strings.Count(s, "\n") + 1
 }
 
 func normalizeWorkingDir(path string) string {

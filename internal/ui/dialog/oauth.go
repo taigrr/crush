@@ -80,22 +80,23 @@ func newOAuth(
 ) (*OAuth, tea.Cmd) {
 	t := com.Styles
 
-	m := OAuth{}
-	m.com = com
-	m.isOnboarding = isOnboarding
-	m.provider = provider
-	m.model = model
-	m.modelType = modelType
-	m.oAuthProvider = oAuthProvider
-	m.width = 60
-	m.State = OAuthStateInitializing
+	m := OAuth{
+		com:           com,
+		isOnboarding:  isOnboarding,
+		provider:      provider,
+		model:         model,
+		modelType:     modelType,
+		oAuthProvider: oAuthProvider,
+		width:         60,
+		State:         OAuthStateInitializing,
 
-	m.spinner = spinner.New(
-		spinner.WithSpinner(spinner.Dot),
-		spinner.WithStyle(t.Dialog.OAuth.Spinner),
-	)
+		spinner: spinner.New(
+			spinner.WithSpinner(spinner.Dot),
+			spinner.WithStyle(t.Dialog.OAuth.Spinner),
+		),
 
-	m.help = help.New()
+		help: help.New(),
+	}
 	m.help.Styles = t.DialogHelpStyles()
 
 	m.keyMap.Copy = key.NewBinding(

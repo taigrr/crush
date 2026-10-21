@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -85,7 +84,7 @@ func TestRunStop(t *testing.T) {
 	t.Run("no hooks means stop", func(t *testing.T) {
 		t.Parallel()
 		r := NewRunner(nil, t.TempDir(), t.TempDir())
-		res, err := r.RunStop(context.Background(), "sess", StopInput{})
+		res, err := r.RunStop(t.Context(), "sess", StopInput{})
 		require.NoError(t, err)
 		require.False(t, res.Continue)
 	})
@@ -94,7 +93,7 @@ func TestRunStop(t *testing.T) {
 		t.Parallel()
 		hookCfg := config.HookConfig{Command: `echo "not finished" >&2; exit 2`}
 		r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-		res, err := r.RunStop(context.Background(), "sess", StopInput{})
+		res, err := r.RunStop(t.Context(), "sess", StopInput{})
 		require.NoError(t, err)
 		require.True(t, res.Continue)
 		require.Equal(t, "not finished", res.Reason)
@@ -104,7 +103,7 @@ func TestRunStop(t *testing.T) {
 		t.Parallel()
 		hookCfg := config.HookConfig{Command: `echo '{"decision":"deny","reason":"keep working"}'`}
 		r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-		res, err := r.RunStop(context.Background(), "sess", StopInput{})
+		res, err := r.RunStop(t.Context(), "sess", StopInput{})
 		require.NoError(t, err)
 		require.True(t, res.Continue)
 		require.Equal(t, "keep working", res.Reason)
@@ -114,7 +113,7 @@ func TestRunStop(t *testing.T) {
 		t.Parallel()
 		hookCfg := config.HookConfig{Command: `echo '{"decision":"allow"}'`}
 		r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-		res, err := r.RunStop(context.Background(), "sess", StopInput{})
+		res, err := r.RunStop(t.Context(), "sess", StopInput{})
 		require.NoError(t, err)
 		require.False(t, res.Continue)
 	})
@@ -123,7 +122,7 @@ func TestRunStop(t *testing.T) {
 		t.Parallel()
 		hookCfg := config.HookConfig{Command: `exit 0`}
 		r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
-		res, err := r.RunStop(context.Background(), "sess", StopInput{})
+		res, err := r.RunStop(t.Context(), "sess", StopInput{})
 		require.NoError(t, err)
 		require.False(t, res.Continue)
 	})

@@ -530,7 +530,7 @@ func readinessHTTPClient(hostURL *url.URL) (*http.Client, string, error) {
 	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return c.Dial(ctx, network, addr)
 	}
-	if hostURL.Scheme == "unix" || hostURL.Scheme == "npipe" {
+	if isLocalSocket(hostURL) {
 		tr.DisableCompression = true
 	}
 
@@ -539,7 +539,7 @@ func readinessHTTPClient(hostURL *url.URL) (*http.Client, string, error) {
 	// For unix sockets / named pipes we still need a syntactically valid
 	// HTTP URL; the actual address is resolved by the dialer.
 	host := hostURL.Host
-	if hostURL.Scheme == "unix" || hostURL.Scheme == "npipe" {
+	if isLocalSocket(hostURL) {
 		host = client.DummyHost
 	}
 	reqURL := (&url.URL{Scheme: "http", Host: host, Path: "/v1/health"}).String()
@@ -553,7 +553,7 @@ func probeHealth(ctx context.Context, h *http.Client, reqURL string, hostURL *ur
 	if err != nil {
 		return err
 	}
-	if hostURL.Scheme == "unix" || hostURL.Scheme == "npipe" {
+	if isLocalSocket(hostURL) {
 		req.Host = client.DummyHost
 	}
 	rsp, err := h.Do(req)
@@ -729,4 +729,10 @@ func ResolveCwd(cmd *cobra.Command) (string, error) {
 		return "", fmt.Errorf("failed to get current working directory: %v", err)
 	}
 	return cwd, nil
+}
+
+// isLocalSocket reports whether u addresses a Unix socket or Windows named
+// pipe rather than a TCP host.
+func isLocalSocket(u *url.URL) bool {
+	return u.Scheme == "unix" || u.Scheme == "npipe"
 }

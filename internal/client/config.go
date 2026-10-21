@@ -18,15 +18,8 @@ func (c *Client) SetConfigField(ctx context.Context, id string, scope config.Sco
 		Scope config.Scope `json:"scope"`
 		Key   string       `json:"key"`
 		Value any          `json:"value"`
-	}{Scope: scope, Key: key, Value: value}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to set config field: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to set config field: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}{Scope: scope, Key: key, Value: value}), jsonHeader())
+	return checkResponse(rsp, err, "set config field")
 }
 
 // RemoveConfigField removes a config key on the server.
@@ -34,15 +27,8 @@ func (c *Client) RemoveConfigField(ctx context.Context, id string, scope config.
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/config/remove", id), nil, jsonBody(struct {
 		Scope config.Scope `json:"scope"`
 		Key   string       `json:"key"`
-	}{Scope: scope, Key: key}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to remove config field: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to remove config field: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}{Scope: scope, Key: key}), jsonHeader())
+	return checkResponse(rsp, err, "remove config field")
 }
 
 // UpdatePreferredModel updates the preferred model on the server.
@@ -51,15 +37,8 @@ func (c *Client) UpdatePreferredModel(ctx context.Context, id string, scope conf
 		Scope     config.Scope             `json:"scope"`
 		ModelType config.SelectedModelType `json:"model_type"`
 		Model     config.SelectedModel     `json:"model"`
-	}{Scope: scope, ModelType: modelType, Model: model}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to update preferred model: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to update preferred model: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}{Scope: scope, ModelType: modelType, Model: model}), jsonHeader())
+	return checkResponse(rsp, err, "update preferred model")
 }
 
 // SetCompactMode sets compact mode on the server.
@@ -67,15 +46,8 @@ func (c *Client) SetCompactMode(ctx context.Context, id string, scope config.Sco
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/config/compact", id), nil, jsonBody(struct {
 		Scope   config.Scope `json:"scope"`
 		Enabled bool         `json:"enabled"`
-	}{Scope: scope, Enabled: enabled}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to set compact mode: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to set compact mode: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}{Scope: scope, Enabled: enabled}), jsonHeader())
+	return checkResponse(rsp, err, "set compact mode")
 }
 
 // SetProviderAPIKey sets a provider API key on the server. The wire
@@ -114,15 +86,8 @@ func (c *Client) SetProviderAPIKey(ctx context.Context, id string, scope config.
 		ProviderID: providerID,
 		Kind:       kind,
 		APIKey:     raw,
-	}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to set provider API key: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to set provider API key: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}), jsonHeader())
+	return checkResponse(rsp, err, "set provider API key")
 }
 
 // ImportCopilot attempts to import a GitHub Copilot token on the
@@ -152,15 +117,8 @@ func (c *Client) RefreshOAuthToken(ctx context.Context, id string, scope config.
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/config/refresh-oauth", id), nil, jsonBody(struct {
 		Scope      config.Scope `json:"scope"`
 		ProviderID string       `json:"provider_id"`
-	}{Scope: scope, ProviderID: providerID}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to refresh OAuth token: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to refresh OAuth token: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}{Scope: scope, ProviderID: providerID}), jsonHeader())
+	return checkResponse(rsp, err, "refresh OAuth token")
 }
 
 // ProjectNeedsInitialization checks if the project needs
@@ -187,14 +145,7 @@ func (c *Client) ProjectNeedsInitialization(ctx context.Context, id string) (boo
 // server.
 func (c *Client) MarkProjectInitialized(ctx context.Context, id string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/project/init", id), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to mark project initialized: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to mark project initialized: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "mark project initialized")
 }
 
 // GetInitializePrompt retrieves the initialization prompt from the
@@ -220,37 +171,15 @@ func (c *Client) GetInitializePrompt(ctx context.Context, id string) (string, er
 // ListSkills retrieves the visible skills for a workspace.
 func (c *Client) ListSkills(ctx context.Context, id string) ([]proto.SkillInfo, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/skills", id), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list skills: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to list skills: status code %d", rsp.StatusCode)
-	}
-	var skills []proto.SkillInfo
-	if err := json.NewDecoder(rsp.Body).Decode(&skills); err != nil {
-		return nil, fmt.Errorf("failed to decode skills: %w", err)
-	}
-	return skills, nil
+	return decodeResponse[[]proto.SkillInfo](rsp, err, "list skills")
 }
 
 // ReadSkill reads a skill's content by ID from the server.
 func (c *Client) ReadSkill(ctx context.Context, id, skillID string) (*proto.ReadSkillResponse, error) {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/skills/read", id), nil, jsonBody(proto.ReadSkillRequest{
 		SkillID: skillID,
-	}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return nil, fmt.Errorf("failed to read skill: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to read skill: status code %d", rsp.StatusCode)
-	}
-	var result proto.ReadSkillResponse
-	if err := json.NewDecoder(rsp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode skill response: %w", err)
-	}
-	return &result, nil
+	}), jsonHeader())
+	return decodeResponse[*proto.ReadSkillResponse](rsp, err, "read skill")
 }
 
 // MCPResourceContents holds the contents of an MCP resource.
@@ -264,74 +193,35 @@ type MCPResourceContents struct {
 // EnableDockerMCP enables the Docker MCP server on the workspace.
 func (c *Client) EnableDockerMCP(ctx context.Context, id string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/mcp/docker/enable", id), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to enable docker MCP: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to enable docker MCP: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "enable docker MCP")
 }
 
 // DisableDockerMCP disables the Docker MCP server on the workspace.
 func (c *Client) DisableDockerMCP(ctx context.Context, id string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/mcp/docker/disable", id), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to disable docker MCP: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to disable docker MCP: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "disable docker MCP")
 }
 
 // RefreshMCPTools refreshes tools for a named MCP server.
 func (c *Client) RefreshMCPTools(ctx context.Context, id, name string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/mcp/refresh-tools", id), nil, jsonBody(struct {
 		Name string `json:"name"`
-	}{Name: name}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to refresh MCP tools: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to refresh MCP tools: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}{Name: name}), jsonHeader())
+	return checkResponse(rsp, err, "refresh MCP tools")
 }
 
 // MCPAuthenticate initiates the OAuth flow for a named MCP server.
 func (c *Client) MCPAuthenticate(ctx context.Context, id, name string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/mcp/authenticate", id), nil, jsonBody(struct {
 		Name string `json:"name"`
-	}{Name: name}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to authenticate MCP: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to authenticate MCP: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}{Name: name}), jsonHeader())
+	return checkResponse(rsp, err, "authenticate MCP")
 }
 
 // MCPPendingAuth returns MCP servers awaiting OAuth authorization.
 func (c *Client) MCPPendingAuth(ctx context.Context, id string) ([]proto.PendingAuthServer, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/mcp/pending-auth", id), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get pending MCP auth: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get pending MCP auth: status code %d", rsp.StatusCode)
-	}
-	var pending []proto.PendingAuthServer
-	if err := json.NewDecoder(rsp.Body).Decode(&pending); err != nil {
-		return nil, fmt.Errorf("failed to decode pending MCP auth: %w", err)
-	}
-	return pending, nil
+	return decodeResponse[[]proto.PendingAuthServer](rsp, err, "get pending MCP auth")
 }
 
 // MCPAuthURL returns the current OAuth authorization URL for a named MCP server.
@@ -358,19 +248,8 @@ func (c *Client) ReadMCPResource(ctx context.Context, id, name, uri string) ([]M
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/mcp/read-resource", id), nil, jsonBody(struct {
 		Name string `json:"name"`
 		URI  string `json:"uri"`
-	}{Name: name, URI: uri}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return nil, fmt.Errorf("failed to read MCP resource: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to read MCP resource: status code %d", rsp.StatusCode)
-	}
-	var contents []MCPResourceContents
-	if err := json.NewDecoder(rsp.Body).Decode(&contents); err != nil {
-		return nil, fmt.Errorf("failed to decode MCP resource: %w", err)
-	}
-	return contents, nil
+	}{Name: name, URI: uri}), jsonHeader())
+	return decodeResponse[[]MCPResourceContents](rsp, err, "read MCP resource")
 }
 
 // GetMCPPrompt retrieves a prompt from a named MCP server.
@@ -379,7 +258,7 @@ func (c *Client) GetMCPPrompt(ctx context.Context, id, clientID, promptID string
 		ClientID string            `json:"client_id"`
 		PromptID string            `json:"prompt_id"`
 		Args     map[string]string `json:"args"`
-	}{ClientID: clientID, PromptID: promptID, Args: args}), http.Header{"Content-Type": []string{"application/json"}})
+	}{ClientID: clientID, PromptID: promptID, Args: args}), jsonHeader())
 	if err != nil {
 		return "", fmt.Errorf("failed to get MCP prompt: %w", err)
 	}

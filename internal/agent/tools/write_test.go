@@ -28,7 +28,7 @@ func TestWriteToolWritesEmptyNewFile(t *testing.T) {
 	t.Parallel()
 
 	workingDir := t.TempDir()
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 
 	tool := NewWriteTool(nil, &mockPermissionService{}, &mockHistoryService{}, mockFileTrackerService{}, func(context.Context) string { return workingDir })
 

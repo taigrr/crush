@@ -56,7 +56,7 @@ func TestMantleLiveGeneration(t *testing.T) {
 	provider, err := openai.New(openaiProviderOptions(base, token, nil, "bedrock-mantle", false)...)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 
 	lm, err := provider.LanguageModel(ctx, model)

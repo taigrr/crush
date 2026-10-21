@@ -66,7 +66,7 @@ func (m *mockBashPermissionService) SubscribeNotifications(ctx context.Context) 
 func TestBashTool_DefaultAutoBackgroundThreshold(t *testing.T) {
 	workingDir := t.TempDir()
 	tool := newBashToolForTest(workingDir)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 
 	resp := runBashTool(t, tool, ctx, BashParams{
 		Description: "default threshold",
@@ -84,7 +84,7 @@ func TestBashTool_DefaultAutoBackgroundThreshold(t *testing.T) {
 func TestBashTool_CustomAutoBackgroundThreshold(t *testing.T) {
 	workingDir := t.TempDir()
 	tool := newBashToolForTest(workingDir)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 
 	resp := runBashTool(t, tool, ctx, BashParams{
 		Description:         "custom threshold",
@@ -172,7 +172,7 @@ func newBashToolWithRecordingPerms(workingDir string, allow bool) (fantasy.Agent
 func TestBashTool_ChainedCommandsRequirePermission(t *testing.T) {
 	workingDir := t.TempDir()
 	tool, perms := newBashToolWithRecordingPerms(workingDir, true)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 
 	// ls && echo should trigger permission check.
 	resp := runBashTool(t, tool, ctx, BashParams{
@@ -197,7 +197,7 @@ func TestBashTool_ChainedCommandsRequirePermission(t *testing.T) {
 func TestBashTool_ChainedCommandsDenied(t *testing.T) {
 	workingDir := t.TempDir()
 	tool, perms := newBashToolWithRecordingPerms(workingDir, false)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 
 	resp := runBashTool(t, tool, ctx, BashParams{
 		Description: "chained ls denied",
@@ -239,7 +239,7 @@ func TestBashTool_BackgroundJobCompletionNotifies(t *testing.T) {
 	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
 	tool := NewBashTool(permissions, func(context.Context) string { return workingDir }, attribution, "test-model", notify)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 
 	resp := runBashTool(t, tool, ctx, BashParams{
 		Description:     "slow job",
@@ -274,7 +274,7 @@ func TestBashTool_BackgroundJobNotifyCarriesRunPolicy(t *testing.T) {
 	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
 	tool := NewBashTool(permissions, func(context.Context) string { return workingDir }, attribution, "test-model", notify)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 	ctx = permission.WithPolicy(ctx, permission.SessionPolicyDeny)
 
 	resp := runBashTool(t, tool, ctx, BashParams{
@@ -303,7 +303,7 @@ func TestBashTool_KilledBackgroundJobDoesNotNotify(t *testing.T) {
 	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
 	tool := NewBashTool(permissions, func(context.Context) string { return workingDir }, attribution, "test-model", notify)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 
 	resp := runBashTool(t, tool, ctx, BashParams{
 		Description:     "killed job",
@@ -359,7 +359,7 @@ func TestBashTool_DescriptionIsOptional(t *testing.T) {
 func TestBashTool_MissingDescriptionFallsBackToCommand(t *testing.T) {
 	workingDir := t.TempDir()
 	tool := newBashToolForTest(workingDir)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 
 	resp := runBashTool(t, tool, ctx, BashParams{
 		Command: "echo fallback-output\necho second",
@@ -375,7 +375,7 @@ func TestBashTool_MissingDescriptionFallsBackToCommand(t *testing.T) {
 func TestBashTool_ExplicitDescriptionPreserved(t *testing.T) {
 	workingDir := t.TempDir()
 	tool := newBashToolForTest(workingDir)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 
 	resp := runBashTool(t, tool, ctx, BashParams{
 		Description: "explicit",

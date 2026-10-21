@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,7 +23,7 @@ func TestArchiveSession_AttachedUsesIDPathNoRootQuery(t *testing.T) {
 	defer srv.Close()
 
 	c := captureClient(t, srv)
-	require.NoError(t, c.ArchiveSession(context.Background(), "ws1", "", "sess1"))
+	require.NoError(t, c.ArchiveSession(t.Context(), "ws1", "", "sess1"))
 	require.Equal(t, "/v1/workspaces/ws1/sessions/sess1/archive", gotPath)
 	require.Empty(t, gotRoot)
 }
@@ -46,7 +45,7 @@ func TestArchiveSession_AttachedWithRootStillUsesIDPath(t *testing.T) {
 	defer srv.Close()
 
 	c := captureClient(t, srv)
-	require.NoError(t, c.ArchiveSession(context.Background(), "ws1", "/proj/a", "sess1"))
+	require.NoError(t, c.ArchiveSession(t.Context(), "ws1", "/proj/a", "sess1"))
 	require.Equal(t, "/v1/workspaces/ws1/sessions/sess1/archive", gotPath)
 	require.Equal(t, "/proj/a", gotRoot)
 }
@@ -66,7 +65,7 @@ func TestArchiveSession_DetachedUsesRootQueryAndPlaceholderID(t *testing.T) {
 	defer srv.Close()
 
 	c := captureClient(t, srv)
-	require.NoError(t, c.ArchiveSession(context.Background(), "", "/proj/detached", "sess1"))
+	require.NoError(t, c.ArchiveSession(t.Context(), "", "/proj/detached", "sess1"))
 	require.Equal(t, "/v1/workspaces/-/sessions/sess1/archive", gotPath)
 	require.Equal(t, "/proj/detached", gotRoot)
 }
@@ -85,7 +84,7 @@ func TestMarkSessionSeen_DetachedUsesRootQuery(t *testing.T) {
 	defer srv.Close()
 
 	c := captureClient(t, srv)
-	require.NoError(t, c.MarkSessionSeen(context.Background(), "", "/proj/detached", "sess1"))
+	require.NoError(t, c.MarkSessionSeen(t.Context(), "", "/proj/detached", "sess1"))
 	require.Equal(t, "/v1/workspaces/-/sessions/sess1/seen", gotPath)
 	require.Equal(t, "/proj/detached", gotRoot)
 }

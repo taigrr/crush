@@ -5,7 +5,9 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/taigrr/fantasy"
 
@@ -295,7 +297,11 @@ func runSwarmNew(ctx context.Context, be SwarmBackend, sender swarmSender, param
 		// Compensating cleanup: archive the empty session we just
 		// created so retries don't leak ghosts. Failures here are
 		// best-effort; the outer error is what the LLM sees.
-		_ = be.ArchiveSessionInWorkspace(context.Background(), workspaceID, newSess.ID)
+		archiveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		if err := be.ArchiveSessionInWorkspace(archiveCtx, workspaceID, newSess.ID); err != nil {
+			slog.Warn("Failed to archive swarm session after failed send", "session_id", newSess.ID, "error", err)
+		}
+		cancel()
 		return fantasy.NewTextErrorResponse(fmt.Sprintf("swarm: failed to send initial message to new session (session archived): %s", softErr)), nil
 	}
 	modelNote := ""

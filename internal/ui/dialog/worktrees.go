@@ -108,20 +108,10 @@ func (w *Worktrees) HandleMsg(msg tea.Msg) Action {
 			return ActionClose{}
 		case key.Matches(msg, w.keyMap.Previous):
 			w.list.Focus()
-			if w.list.IsSelectedFirst() {
-				w.list.SelectLast()
-			} else {
-				w.list.SelectPrev()
-			}
-			w.list.ScrollToSelected()
+			selectPrevWrap(w.list)
 		case key.Matches(msg, w.keyMap.Next):
 			w.list.Focus()
-			if w.list.IsSelectedLast() {
-				w.list.SelectFirst()
-			} else {
-				w.list.SelectNext()
-			}
-			w.list.ScrollToSelected()
+			selectNextWrap(w.list)
 		case key.Matches(msg, w.keyMap.Select):
 			if item := w.list.SelectedItem(); item != nil {
 				if wtItem, ok := item.(*worktreeItem); ok {
@@ -165,9 +155,7 @@ func (w *Worktrees) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	height := max(0, min(defaultDialogHeight, area.Dy()-t.Dialog.View.GetVerticalBorderSize()))
 
 	innerWidth := width - w.com.Styles.Dialog.View.GetHorizontalFrameSize()
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
-		t.Dialog.HelpView.GetVerticalFrameSize() +
-		t.Dialog.View.GetVerticalFrameSize()
+	heightOffset := listDialogChromeHeight(t)
 
 	w.list.SetSize(innerWidth, height-heightOffset)
 	w.help.SetWidth(innerWidth)

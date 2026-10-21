@@ -1,7 +1,6 @@
 package db
 
 import (
-	"context"
 	"database/sql"
 	"testing"
 	"time"
@@ -16,7 +15,7 @@ import (
 // open read-only, close it, then open read-write fresh.
 func TestPeekSessions_ReadsWithoutBlockingWriteOpen(t *testing.T) {
 	t.Cleanup(ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 	dataDir := t.TempDir()
 
 	// Create a workspace DB with one session via the normal RW path.
@@ -49,14 +48,14 @@ func TestPeekSessions_ReadsWithoutBlockingWriteOpen(t *testing.T) {
 
 func TestPeekSessions_MissingDBIsEmpty(t *testing.T) {
 	t.Parallel()
-	peeked, err := PeekSessions(context.Background(), t.TempDir())
+	peeked, err := PeekSessions(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	require.Empty(t, peeked)
 }
 
 func TestPeekSessions_ReportsUnreadAndWorkingDir(t *testing.T) {
 	t.Cleanup(ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 	dataDir := t.TempDir()
 
 	conn, err := Connect(ctx, dataDir)

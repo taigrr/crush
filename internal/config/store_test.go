@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -317,8 +316,6 @@ func TestReloadFromDisk_UsesNewConfigValues(t *testing.T) {
 	// providers are visible.
 	t.Setenv("CRUSH_GLOBAL_CONFIG", dir)
 	t.Setenv("CRUSH_GLOBAL_DATA", dir)
-	resetProviderState()
-	t.Cleanup(resetProviderState)
 
 	// Create initial config with one model preference
 	initialConfig := `{
@@ -366,7 +363,7 @@ func TestReloadFromDisk_UsesNewConfigValues(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte(updatedConfig), 0o600))
 
 	// Reload from disk
-	ctx := context.Background()
+	ctx := t.Context()
 	err = store.ReloadFromDisk(ctx)
 	require.NoError(t, err)
 
@@ -499,7 +496,7 @@ func TestAutoReloadDisabledDuringReload(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	require.NoError(t, os.WriteFile(configPath, []byte(`{"options": {"debug": true}}`), 0o600))
 
-	err = store.ReloadFromDisk(context.Background())
+	err = store.ReloadFromDisk(t.Context())
 	require.NoError(t, err)
 }
 
@@ -698,7 +695,7 @@ func TestRefreshOAuthToken_UsesDiskTokenWhenDifferent(t *testing.T) {
 	})
 
 	// Refresh should use the disk token without making an external call
-	err := store.RefreshOAuthToken(context.Background(), ScopeGlobal, "hyper")
+	err := store.RefreshOAuthToken(t.Context(), ScopeGlobal, "hyper")
 	require.NoError(t, err)
 
 	// Verify the in-memory token was updated to the disk token

@@ -149,6 +149,24 @@ func (o *ToolRenderOpts) HasEmptyResult() bool {
 	return o.Result == nil || o.Result.Content == ""
 }
 
+// renderPlainTool renders the standard tool layout: a header, then any
+// early state (canceled, error, permission), then the result as plain text.
+func renderPlainTool(sty *styles.Styles, opts *ToolRenderOpts, name string, width int, params ...string) string {
+	header := toolHeader(sty, opts.Status, name, width, opts.Compact, params...)
+	if opts.Compact {
+		return header
+	}
+	if earlyState, ok := toolEarlyStateContent(sty, opts, width); ok {
+		return joinToolParts(header, earlyState)
+	}
+	if opts.HasEmptyResult() {
+		return header
+	}
+	bodyWidth := width - toolBodyLeftPaddingTotal
+	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
+	return joinToolParts(header, body)
+}
+
 // ToolRenderer represents an interface for rendering tool calls.
 type ToolRenderer interface {
 	RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string

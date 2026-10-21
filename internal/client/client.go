@@ -145,6 +145,49 @@ func (c *Client) dialer(ctx context.Context, network, address string) (net.Conn,
 	}
 }
 
+// checkResponse closes rsp and reports a transport error or a non-200
+// status as an error wrapped with op.
+func checkResponse(rsp *http.Response, err error, op string) error {
+	if err != nil {
+		return fmt.Errorf("failed to %s: %w", op, err)
+	}
+	defer rsp.Body.Close()
+	return checkStatus(rsp, op)
+}
+
+// decodeResponse is checkResponse followed by decoding the JSON body into T.
+func decodeResponse[T any](rsp *http.Response, err error, op string) (T, error) {
+	var v T
+	if err != nil {
+		return v, fmt.Errorf("failed to %s: %w", op, err)
+	}
+	defer rsp.Body.Close()
+	if err := checkStatus(rsp, op); err != nil {
+		return v, err
+	}
+	if err := json.NewDecoder(rsp.Body).Decode(&v); err != nil {
+		return v, fmt.Errorf("failed to %s: decode response: %w", op, err)
+	}
+	return v, nil
+}
+
+// jsonHeader returns a fresh header set for a JSON request body.
+func jsonHeader() http.Header {
+	return http.Header{"Content-Type": []string{"application/json"}}
+}
+
+// clientQuery returns query values carrying this client's ID.
+func (c *Client) clientQuery() url.Values {
+	return url.Values{"client_id": []string{c.clientID}}
+}
+
+func checkStatus(rsp *http.Response, op string) error {
+	if rsp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to %s: status code %d", op, rsp.StatusCode)
+	}
+	return nil
+}
+
 func (c *Client) get(ctx context.Context, path string, query url.Values, headers http.Header) (*http.Response, error) {
 	return c.sendReq(ctx, http.MethodGet, path, query, nil, headers)
 }

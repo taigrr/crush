@@ -1,7 +1,6 @@
 package sync
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -23,7 +22,7 @@ func TestFingerprint_Stable(t *testing.T) {
 
 func TestIdentityAndCursors(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 	conn, err := db.Connect(ctx, db.TempDataDir(t))
 	require.NoError(t, err)
 
@@ -49,7 +48,7 @@ func TestIdentityAndCursors(t *testing.T) {
 
 func TestPendingChanges_CollapsesAndDeletes(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 	conn, err := db.Connect(ctx, db.TempDataDir(t))
 	require.NoError(t, err)
 

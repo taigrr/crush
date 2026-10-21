@@ -57,7 +57,7 @@ type e2eHarness struct {
 func (h *e2eHarness) installServer(t *testing.T) {
 	t.Helper()
 	srv := &Server{}
-	srv.backend = backend.New(context.Background(), nil, func() {
+	srv.backend = backend.New(t.Context(), nil, func() {
 		h.shutdownHit.Store(true)
 	})
 	srv.installHandler()
@@ -95,7 +95,7 @@ func newE2EHarness(t *testing.T) *e2eHarness {
 	// Register the App teardown FIRST so LIFO order puts it AFTER
 	// the cleanups that installServer registers below (hs.Close +
 	// sseWG.Wait).
-	appCtx, cancel := context.WithCancel(context.Background())
+	appCtx, cancel := context.WithCancel(t.Context())
 	a := app.NewForTest(appCtx)
 	t.Cleanup(func() {
 		cancel()

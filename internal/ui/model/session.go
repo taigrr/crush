@@ -83,27 +83,11 @@ type SessionFile struct {
 // UI never blocks on the call.
 func (m *UI) loadSession(sessionID string) tea.Cmd {
 	load := func() tea.Msg {
-		session, err := m.com.Workspace.GetSession(context.Background(), sessionID)
+		msg, err := m.fetchSession(sessionID)
 		if err != nil {
 			return util.ReportError(err)
 		}
-
-		sessionFiles, err := m.loadSessionFiles(sessionID)
-		if err != nil {
-			return util.ReportError(err)
-		}
-
-		readFiles, err := m.com.Workspace.FileTrackerListReadFiles(context.Background(), sessionID)
-		if err != nil {
-			slog.Error("Failed to load read files for session", "error", err)
-		}
-
-		return loadSessionMsg{
-			session:   &session,
-			files:     sessionFiles,
-			readFiles: readFiles,
-			yolo:      m.com.Workspace.PermissionSkipRequests(),
-		}
+		return msg
 	}
 	return tea.Batch(load, m.reportCurrentSession(sessionID))
 }
@@ -126,29 +110,38 @@ func (m *UI) reportCurrentSession(sessionID string) tea.Cmd {
 // This is used when switching to a worktree from a different session.
 func (m *UI) loadSessionAndSwitchWorktree(sessionID, worktreeID string) tea.Cmd {
 	return func() tea.Msg {
-		session, err := m.com.Workspace.GetSession(context.Background(), sessionID)
+		msg, err := m.fetchSession(sessionID)
 		if err != nil {
 			return util.ReportError(err)
 		}
-
-		sessionFiles, err := m.loadSessionFiles(sessionID)
-		if err != nil {
-			return util.ReportError(err)
-		}
-
-		readFiles, err := m.com.Workspace.FileTrackerListReadFiles(context.Background(), sessionID)
-		if err != nil {
-			slog.Error("Failed to load read files for session", "error", err)
-		}
-
-		return loadSessionAndSwitchWorktreeMsg{
-			session:    &session,
-			files:      sessionFiles,
-			readFiles:  readFiles,
-			yolo:       m.com.Workspace.PermissionSkipRequests(),
-			worktreeID: worktreeID,
-		}
+		return loadSessionAndSwitchWorktreeMsg{loadSessionMsg: msg, worktreeID: worktreeID}
 	}
+}
+
+// fetchSession gathers everything a session load needs. It runs inside a
+// tea.Cmd, never on the Update goroutine.
+func (m *UI) fetchSession(sessionID string) (loadSessionMsg, error) {
+	session, err := m.com.Workspace.GetSession(context.Background(), sessionID)
+	if err != nil {
+		return loadSessionMsg{}, err
+	}
+
+	sessionFiles, err := m.loadSessionFiles(sessionID)
+	if err != nil {
+		return loadSessionMsg{}, err
+	}
+
+	readFiles, err := m.com.Workspace.FileTrackerListReadFiles(context.Background(), sessionID)
+	if err != nil {
+		slog.Error("Failed to load read files for session", "error", err)
+	}
+
+	return loadSessionMsg{
+		session:   &session,
+		files:     sessionFiles,
+		readFiles: readFiles,
+		yolo:      m.com.Workspace.PermissionSkipRequests(),
+	}, nil
 }
 
 func (m *UI) loadSessionFiles(sessionID string) ([]SessionFile, error) {

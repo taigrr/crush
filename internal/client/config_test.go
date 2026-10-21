@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -39,7 +38,7 @@ func TestSetProviderAPIKeyStringSendsKind(t *testing.T) {
 	defer srv.Close()
 
 	c := captureClient(t, srv)
-	require.NoError(t, c.SetProviderAPIKey(context.Background(), "ws1", config.ScopeGlobal, "openai", "sk-xyz"))
+	require.NoError(t, c.SetProviderAPIKey(t.Context(), "ws1", config.ScopeGlobal, "openai", "sk-xyz"))
 
 	require.Equal(t, proto.APIKeyKindString, got.Kind)
 	require.Equal(t, "openai", got.ProviderID)
@@ -63,7 +62,7 @@ func TestSetProviderAPIKeyOAuthSendsKind(t *testing.T) {
 
 	tok := &oauth.Token{AccessToken: "a", RefreshToken: "r", ExpiresIn: 60, ExpiresAt: 1234567890}
 	c := captureClient(t, srv)
-	require.NoError(t, c.SetProviderAPIKey(context.Background(), "ws1", config.ScopeGlobal, "hyper", tok))
+	require.NoError(t, c.SetProviderAPIKey(t.Context(), "ws1", config.ScopeGlobal, "hyper", tok))
 
 	require.Equal(t, proto.APIKeyKindOAuth, got.Kind)
 	decoded, err := got.DecodeAPIKey()
@@ -82,7 +81,7 @@ func TestSetProviderAPIKeyUnsupportedTypeFailsLocally(t *testing.T) {
 	defer srv.Close()
 
 	c := captureClient(t, srv)
-	err := c.SetProviderAPIKey(context.Background(), "ws1", config.ScopeGlobal, "x", 42)
+	err := c.SetProviderAPIKey(t.Context(), "ws1", config.ScopeGlobal, "x", 42)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported api key type")
 	require.False(t, called, "server should not have been reached")
@@ -96,6 +95,6 @@ func TestSetProviderAPIKeyNilOAuthFailsLocally(t *testing.T) {
 	})))
 
 	var tok *oauth.Token
-	err := c.SetProviderAPIKey(context.Background(), "ws1", config.ScopeGlobal, "x", tok)
+	err := c.SetProviderAPIKey(t.Context(), "ws1", config.ScopeGlobal, "x", tok)
 	require.Error(t, err)
 }

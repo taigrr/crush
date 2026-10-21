@@ -53,10 +53,8 @@ func (c *controllerV1) handleGetVersion(w http.ResponseWriter, _ *http.Request) 
 //	@Failure		400	{object}	proto.Error
 //	@Router			/control [post]
 func (c *controllerV1) handlePostControl(w http.ResponseWriter, r *http.Request) {
-	var req proto.ServerControl
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.ServerControl](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -104,11 +102,7 @@ func (c *controllerV1) handleGetWorkspaces(w http.ResponseWriter, _ *http.Reques
 //	@Router			/workspace-overviews [get]
 func (c *controllerV1) handleGetWorkspaceOverviews(w http.ResponseWriter, r *http.Request) {
 	overviews, err := c.backend.ListWorkspaceOverviews(r.Context())
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, overviews)
+	c.respond(w, r, overviews, err)
 }
 
 // handleGetWorkspace returns a single workspace by ID.
@@ -124,11 +118,7 @@ func (c *controllerV1) handleGetWorkspaceOverviews(w http.ResponseWriter, r *htt
 func (c *controllerV1) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	ws, err := c.backend.GetWorkspaceProto(id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, ws)
+	c.respond(w, r, ws, err)
 }
 
 // handlePostWorkspaces creates a new workspace.
@@ -143,10 +133,8 @@ func (c *controllerV1) handleGetWorkspace(w http.ResponseWriter, r *http.Request
 //	@Failure		500		{object}	proto.Error
 //	@Router			/workspaces [post]
 func (c *controllerV1) handlePostWorkspaces(w http.ResponseWriter, r *http.Request) {
-	var args proto.Workspace
-	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	args, ok := decodeJSON[proto.Workspace](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -196,10 +184,8 @@ func (c *controllerV1) handlePostWorkspaceCurrentSession(w http.ResponseWriter, 
 	if !ok {
 		return
 	}
-	var req proto.CurrentSession
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.CurrentSession](c, w, r)
+	if !ok {
 		return
 	}
 	if err := c.backend.SetCurrentSession(id, clientID, req.SessionID); err != nil {
@@ -241,11 +227,7 @@ func (c *controllerV1) handleDeleteWorkspaces(w http.ResponseWriter, r *http.Req
 func (c *controllerV1) handleGetWorkspaceConfig(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	cfg, err := c.backend.GetWorkspaceConfig(id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, cfg)
+	c.respond(w, r, cfg, err)
 }
 
 // handleGetWorkspaceProviders lists available providers for a workspace.
@@ -261,11 +243,7 @@ func (c *controllerV1) handleGetWorkspaceConfig(w http.ResponseWriter, r *http.R
 func (c *controllerV1) handleGetWorkspaceProviders(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	providers, err := c.backend.GetWorkspaceProviders(id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, providers)
+	c.respond(w, r, providers, err)
 }
 
 // handleGetWorkspaceEvents streams workspace events as Server-Sent Events.
@@ -478,11 +456,7 @@ func (c *controllerV1) handleGetWorkspaceLSPDiagnostics(w http.ResponseWriter, r
 	id := r.PathValue("id")
 	lspName := r.PathValue("lsp")
 	diagnostics, err := c.backend.GetLSPDiagnostics(id, lspName)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, diagnostics)
+	c.respond(w, r, diagnostics, err)
 }
 
 // handleGetWorkspaceSessions lists sessions for a workspace.
@@ -514,34 +488,21 @@ func (c *controllerV1) handleGetWorkspaceSessions(w http.ResponseWriter, r *http
 
 func (c *controllerV1) handleGetSessionImportSources(w http.ResponseWriter, r *http.Request) {
 	sources, err := c.backend.ListSessionImportSources()
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, sources)
+	c.respond(w, r, sources, err)
 }
 
 func (c *controllerV1) handleGetSessionImportCandidates(w http.ResponseWriter, r *http.Request) {
 	candidates, err := c.backend.DiscoverSessionImports(r.Context(), sessionimport.Source(r.URL.Query().Get("source")))
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, candidates)
+	c.respond(w, r, candidates, err)
 }
 
 func (c *controllerV1) handlePostSessionImport(w http.ResponseWriter, r *http.Request) {
-	var request proto.SessionImportRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	request, ok := decodeJSON[proto.SessionImportRequest](c, w, r)
+	if !ok {
 		return
 	}
 	results, err := c.backend.ImportSessions(r.Context(), r.PathValue("id"), request.Paths, sessionimport.Source(request.Source))
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, results)
+	c.respond(w, r, results, err)
 }
 
 // handlePostWorkspaceSessions creates a new session in a workspace.
@@ -560,10 +521,8 @@ func (c *controllerV1) handlePostSessionImport(w http.ResponseWriter, r *http.Re
 func (c *controllerV1) handlePostWorkspaceSessions(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var args proto.Session
-	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	args, ok := decodeJSON[proto.Session](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -620,11 +579,7 @@ func (c *controllerV1) handleGetWorkspaceSessionHistory(w http.ResponseWriter, r
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	history, err := c.backend.ListSessionHistory(r.Context(), id, sid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, history)
+	c.respond(w, r, history, err)
 }
 
 // handleGetWorkspaceSessionMessages returns all messages for a session.
@@ -666,10 +621,8 @@ func (c *controllerV1) handleGetWorkspaceSessionMessages(w http.ResponseWriter, 
 func (c *controllerV1) handlePutWorkspaceSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var sess session.Session
-	if err := json.NewDecoder(r.Body).Decode(&sess); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	sess, ok := decodeJSON[session.Session](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -815,11 +768,7 @@ func (c *controllerV1) handleUnarchiveWorkspaceSession(w http.ResponseWriter, r 
 func (c *controllerV1) handleGetWorkspaceArchivedSessions(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	sessions, err := c.backend.ListArchivedSessions(r.Context(), id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, sessions)
+	c.respond(w, r, sessions, err)
 }
 
 // handleGetWorkspaceSessionUserMessages returns user messages for a session.
@@ -879,11 +828,7 @@ func (c *controllerV1) handleGetWorkspaceSessionFileTrackerFiles(w http.Response
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	files, err := c.backend.FileTrackerListReadFiles(r.Context(), id, sid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, files)
+	c.respond(w, r, files, err)
 }
 
 // handlePostWorkspaceFileTrackerRead records a file read event.
@@ -901,10 +846,8 @@ func (c *controllerV1) handleGetWorkspaceSessionFileTrackerFiles(w http.Response
 func (c *controllerV1) handlePostWorkspaceFileTrackerRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.FileTrackerReadRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.FileTrackerReadRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -933,11 +876,7 @@ func (c *controllerV1) handleGetWorkspaceFileTrackerLastRead(w http.ResponseWrit
 	path := r.URL.Query().Get("path")
 
 	t, err := c.backend.FileTrackerLastReadTime(r.Context(), id, sid, path)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, t)
+	c.respond(w, r, t, err)
 }
 
 // handlePostWorkspaceLSPStart starts an LSP server for a path.
@@ -955,10 +894,8 @@ func (c *controllerV1) handleGetWorkspaceFileTrackerLastRead(w http.ResponseWrit
 func (c *controllerV1) handlePostWorkspaceLSPStart(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.LSPStartRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.LSPStartRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -1000,11 +937,7 @@ func (c *controllerV1) handlePostWorkspaceLSPStopAll(w http.ResponseWriter, r *h
 func (c *controllerV1) handleGetWorkspaceAgent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	info, err := c.backend.GetAgentInfo(id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, info)
+	c.respond(w, r, info, err)
 }
 
 // handlePostWorkspaceAgent sends a message to the agent.
@@ -1023,10 +956,8 @@ func (c *controllerV1) handleGetWorkspaceAgent(w http.ResponseWriter, r *http.Re
 func (c *controllerV1) handlePostWorkspaceAgent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var msg proto.AgentMessage
-	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	msg, ok := decodeJSON[proto.AgentMessage](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -1096,11 +1027,7 @@ func (c *controllerV1) handleGetWorkspaceAgentSession(w http.ResponseWriter, r *
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	agentSession, err := c.backend.GetAgentSession(r.Context(), id, sid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, agentSession)
+	c.respond(w, r, agentSession, err)
 }
 
 // handlePostWorkspaceAgentSessionCancel cancels a running agent session.
@@ -1157,11 +1084,7 @@ func (c *controllerV1) handleGetWorkspaceAgentSessionPromptQueued(w http.Respons
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	queued, err := c.backend.QueuedPrompts(id, sid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, queued)
+	c.respond(w, r, queued, err)
 }
 
 // handleGetWorkspaceEmbeddingsPending returns how many past messages
@@ -1169,11 +1092,7 @@ func (c *controllerV1) handleGetWorkspaceAgentSessionPromptQueued(w http.Respons
 func (c *controllerV1) handleGetWorkspaceEmbeddingsPending(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	pending, err := c.backend.PendingEmbeddingCount(r.Context(), id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, pending)
+	c.respond(w, r, pending, err)
 }
 
 // handlePostWorkspaceEmbeddingsBackfill embeds past messages lacking a
@@ -1181,40 +1100,26 @@ func (c *controllerV1) handleGetWorkspaceEmbeddingsPending(w http.ResponseWriter
 func (c *controllerV1) handlePostWorkspaceEmbeddingsBackfill(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	embedded, err := c.backend.BackfillEmbeddings(r.Context(), id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, embedded)
+	c.respond(w, r, embedded, err)
 }
 
 // handleGetWorkspaceEmbeddingsStatus returns the embedding index state.
 func (c *controllerV1) handleGetWorkspaceEmbeddingsStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	status, err := c.backend.EmbeddingStatus(r.Context(), id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, status)
+	c.respond(w, r, status, err)
 }
 
 // handlePostWorkspaceHistorySearch runs hybrid history search over a
 // workspace and returns per-session hits.
 func (c *controllerV1) handlePostWorkspaceHistorySearch(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	var params proto.SearchHistoryParams
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	params, ok := decodeJSON[proto.SearchHistoryParams](c, w, r)
+	if !ok {
 		return
 	}
 	res, err := c.backend.SearchHistory(r.Context(), id, params)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, res)
+	c.respond(w, r, res, err)
 }
 
 // handlePostPeekMessages returns a session's messages from any known
@@ -1234,10 +1139,8 @@ func (c *controllerV1) handlePostWorkspaceHistorySearch(w http.ResponseWriter, r
 //	@Failure		500		{object}	proto.Error
 //	@Router			/peek-messages [post]
 func (c *controllerV1) handlePostPeekMessages(w http.ResponseWriter, r *http.Request) {
-	var params proto.PeekMessagesParams
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	params, ok := decodeJSON[proto.PeekMessagesParams](c, w, r)
+	if !ok {
 		return
 	}
 	if params.Root == "" || params.SessionID == "" {
@@ -1270,10 +1173,8 @@ func (c *controllerV1) handlePostPeekMessages(w http.ResponseWriter, r *http.Req
 //	@Failure		500		{object}	proto.Error
 //	@Router			/peek-session-info [post]
 func (c *controllerV1) handlePostPeekSessionInfo(w http.ResponseWriter, r *http.Request) {
-	var params proto.PeekMessagesParams
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	params, ok := decodeJSON[proto.PeekMessagesParams](c, w, r)
+	if !ok {
 		return
 	}
 	if params.Root == "" || params.SessionID == "" {
@@ -1352,11 +1253,7 @@ func (c *controllerV1) handleGetWorkspaceAgentSessionGoal(w http.ResponseWriter,
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	status, err := c.backend.GoalStatus(id, sid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, status)
+	c.respond(w, r, status, err)
 }
 
 // handlePostWorkspaceAgentSessionGoal sets (or clears, when the condition
@@ -1376,10 +1273,8 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionGoal(w http.ResponseWriter
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 
-	var req proto.SetGoalRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.SetGoalRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -1406,10 +1301,8 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionWorkingDir(w http.Response
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 
-	var req proto.SetWorkingDirRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.SetWorkingDirRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -1496,20 +1389,14 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionShell(w http.ResponseWrite
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 
-	var req proto.ShellCommandRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.ShellCommandRequest](c, w, r)
+	if !ok {
 		return
 	}
 	req.SessionID = sid
 
 	resp, err := c.backend.RunShellCommand(r.Context(), id, req)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, resp)
+	c.respond(w, r, resp, err)
 }
 
 // handleGetWorkspaceAgentSessionPromptList returns the list of queued prompts.
@@ -1527,11 +1414,7 @@ func (c *controllerV1) handleGetWorkspaceAgentSessionPromptList(w http.ResponseW
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	prompts, err := c.backend.QueuedPromptsList(id, sid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, prompts)
+	c.respond(w, r, prompts, err)
 }
 
 // handleGetWorkspaceAgentDefaultSmallModel returns the default small model for a provider.
@@ -1549,11 +1432,7 @@ func (c *controllerV1) handleGetWorkspaceAgentDefaultSmallModel(w http.ResponseW
 	id := r.PathValue("id")
 	providerID := r.URL.Query().Get("provider_id")
 	model, err := c.backend.GetDefaultSmallModel(id, providerID)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, model)
+	c.respond(w, r, model, err)
 }
 
 // handleGetSwarmResolve resolves a swarm address across workspaces.
@@ -1576,11 +1455,7 @@ func (c *controllerV1) handleGetSwarmResolve(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	target, err := c.backend.ResolveSwarmTarget(r.Context(), address)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, target)
+	c.respond(w, r, target, err)
 }
 
 // handleGetWorkspaceSessionPending returns what a session is blocked on.
@@ -1597,11 +1472,7 @@ func (c *controllerV1) handleGetSwarmResolve(w http.ResponseWriter, r *http.Requ
 //	@Router			/workspaces/{id}/sessions/{sid}/pending [get]
 func (c *controllerV1) handleGetWorkspaceSessionPending(w http.ResponseWriter, r *http.Request) {
 	pending, err := c.backend.PendingPrompts(r.Context(), r.PathValue("id"), r.PathValue("sid"))
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, pending)
+	c.respond(w, r, pending, err)
 }
 
 // handlePostWorkspacePermissionsGrant grants a permission request.
@@ -1619,10 +1490,8 @@ func (c *controllerV1) handleGetWorkspaceSessionPending(w http.ResponseWriter, r
 func (c *controllerV1) handlePostWorkspacePermissionsGrant(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.PermissionGrant
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.PermissionGrant](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -1649,10 +1518,8 @@ func (c *controllerV1) handlePostWorkspacePermissionsGrant(w http.ResponseWriter
 func (c *controllerV1) handlePostWorkspaceQuestionsAnswer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.QuestionAnswer
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.QuestionAnswer](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -1679,10 +1546,8 @@ func (c *controllerV1) handlePostWorkspaceQuestionsAnswer(w http.ResponseWriter,
 func (c *controllerV1) handlePostWorkspacePermissionsSkip(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.PermissionSkipRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.PermissionSkipRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -1727,10 +1592,8 @@ func (c *controllerV1) handleGetWorkspacePermissionsSkip(w http.ResponseWriter, 
 func (c *controllerV1) handlePostWorkspacePermissionsSysadmin(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.PermissionSysadminRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.PermissionSysadminRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -1814,6 +1677,27 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
 	}
 	c.server.logError(r, err.Error())
 	jsonError(w, status, err.Error())
+}
+
+// decodeJSON decodes the request body into a T, writing a 400 response and
+// returning false when the body is malformed.
+func decodeJSON[T any](c *controllerV1, w http.ResponseWriter, r *http.Request) (T, bool) {
+	var v T
+	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
+		c.server.logError(r, "Failed to decode request", "error", err)
+		jsonError(w, http.StatusBadRequest, "failed to decode request")
+		return v, false
+	}
+	return v, true
+}
+
+// respond writes v as JSON, or maps err to an error response when non-nil.
+func (c *controllerV1) respond(w http.ResponseWriter, r *http.Request, v any, err error) {
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	jsonEncode(w, v)
 }
 
 func jsonEncode(w http.ResponseWriter, v any) {

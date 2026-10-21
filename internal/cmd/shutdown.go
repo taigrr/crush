@@ -51,7 +51,7 @@ for example before upgrading Crush or freeing system resources.`,
 
 		// Best-effort wait for the socket to be released so the user
 		// knows the server is actually gone before we return.
-		if hostURL.Scheme == "unix" || hostURL.Scheme == "npipe" {
+		if isLocalSocket(hostURL) {
 			for range 20 {
 				if _, statErr := os.Stat(hostURL.Host); errors.Is(statErr, fs.ErrNotExist) {
 					break

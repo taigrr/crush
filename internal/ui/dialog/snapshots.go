@@ -97,20 +97,10 @@ func (s *Snapshots) HandleMsg(msg tea.Msg) Action {
 			return ActionClose{}
 		case key.Matches(msg, s.keyMap.Previous):
 			s.list.Focus()
-			if s.list.IsSelectedFirst() {
-				s.list.SelectLast()
-			} else {
-				s.list.SelectPrev()
-			}
-			s.list.ScrollToSelected()
+			selectPrevWrap(s.list)
 		case key.Matches(msg, s.keyMap.Next):
 			s.list.Focus()
-			if s.list.IsSelectedLast() {
-				s.list.SelectFirst()
-			} else {
-				s.list.SelectNext()
-			}
-			s.list.ScrollToSelected()
+			selectNextWrap(s.list)
 		case key.Matches(msg, s.keyMap.Select):
 			if item := s.list.SelectedItem(); item != nil {
 				if snapItem, ok := item.(*snapshotItem); ok {
@@ -139,9 +129,7 @@ func (s *Snapshots) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	height := max(0, min(defaultDialogHeight, area.Dy()-t.Dialog.View.GetVerticalBorderSize()))
 
 	innerWidth := width - s.com.Styles.Dialog.View.GetHorizontalFrameSize()
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
-		t.Dialog.HelpView.GetVerticalFrameSize() +
-		t.Dialog.View.GetVerticalFrameSize()
+	heightOffset := listDialogChromeHeight(t)
 
 	s.list.SetSize(innerWidth, height-heightOffset)
 	s.help.SetWidth(innerWidth)

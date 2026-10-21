@@ -17,10 +17,6 @@ import (
 // preview, swaps in the new session and files, syncs dialogs, starts LSPs,
 // loads the message history, and refreshes prompt history and layout.
 func (m *UI) handleLoadSession(msg loadSessionMsg) []tea.Cmd {
-	var cmds []tea.Cmd
-	if m.forceCompactMode {
-		m.isCompact = true
-	}
 	// Re-sync the cached yolo indicator from the value fetched off the
 	// Update goroutine alongside this session load (msg.yolo).
 	// m.yoloMode is otherwise only refreshed on this client's own
@@ -30,13 +26,31 @@ func (m *UI) handleLoadSession(msg loadSessionMsg) []tea.Cmd {
 	// navigation rather than staying stale indefinitely, without a
 	// blocking RPC on the hot Update path.
 	m.setEditorPrompt(msg.yolo)
+	cmds, _ := m.applySessionLoad(msg, true)
+	return cmds
+}
+
+// handleLoadSessionAndSwitchWorktree performs the same session load as
+// handleLoadSession (without the yolo re-sync or pill auto-expand) and then
+// switches to the session's worktree.
+func (m *UI) handleLoadSessionAndSwitchWorktree(msg loadSessionAndSwitchWorktreeMsg) []tea.Cmd {
+	cmds, ok := m.applySessionLoad(msg.loadSessionMsg, false)
+	if !ok {
+		return cmds
+	}
+	return append(cmds, m.switchWorktree(msg.session.ID, msg.worktreeID))
+}
+
+// applySessionLoad is the shared body of the session-load handlers. It
+// reports false when the message history could not be loaded, in which
+// case the returned commands carry the error.
+func (m *UI) applySessionLoad(msg loadSessionMsg, expandPills bool) ([]tea.Cmd, bool) {
+	var cmds []tea.Cmd
+	if m.forceCompactMode {
+		m.isCompact = true
+	}
 	// A real commit supersedes any live preview.
-	m.previewSessionID = ""
-	m.pendingPreviewID = ""
-	m.pendingPreviewRoot = ""
-	m.previewSess = nil
-	m.previewFiles = nil
-	m.previewGen++
+	m.clearPreview()
 	m.setState(uiChat, m.focus)
 	m.session = msg.session
 	m.sessionFiles = msg.files
@@ -52,14 +66,15 @@ func (m *UI) handleLoadSession(msg loadSessionMsg) []tea.Cmd {
 	cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
 	msgs, err := m.com.Workspace.ListMessages(context.Background(), m.session.ID)
 	if err != nil {
-		cmds = append(cmds, util.ReportError(err))
-		return cmds
+		return append(cmds, util.ReportError(err)), false
 	}
 	if cmd := m.setSessionMessages(msgs); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	if cmd := m.autoExpandPillsIfReasonable(); cmd != nil {
-		cmds = append(cmds, cmd)
+	if expandPills {
+		if cmd := m.autoExpandPillsIfReasonable(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	if hasInProgressTodo(m.session.Todos) {
 		// only start spinner if there is an in-progress todo
@@ -73,58 +88,17 @@ func (m *UI) handleLoadSession(msg loadSessionMsg) []tea.Cmd {
 	m.historyReset()
 	cmds = append(cmds, m.loadPromptHistory())
 	m.updateLayoutAndSize()
-	return cmds
+	return cmds, true
 }
 
-// handleLoadSessionAndSwitchWorktree performs the same session load as
-// handleLoadSession (without the yolo re-sync or pill auto-expand) and then
-// switches to the session's worktree.
-func (m *UI) handleLoadSessionAndSwitchWorktree(msg loadSessionAndSwitchWorktreeMsg) []tea.Cmd {
-	var cmds []tea.Cmd
-	// First do all the session loading (same as loadSessionMsg).
-	if m.forceCompactMode {
-		m.isCompact = true
-	}
-	// A real commit supersedes any live preview.
+// clearPreview drops any live or pending session preview.
+func (m *UI) clearPreview() {
 	m.previewSessionID = ""
 	m.pendingPreviewID = ""
 	m.pendingPreviewRoot = ""
 	m.previewSess = nil
 	m.previewFiles = nil
 	m.previewGen++
-	m.setState(uiChat, m.focus)
-	m.session = msg.session
-	m.sessionFiles = msg.files
-	m.rightSidebarOffset = 0
-	m.com.Workspace.SetActiveSessionID(m.session.ID)
-	if cmd := m.syncPermissionDialogForSession(); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	if cmd := m.syncQuestionDialogForSession(); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
-	msgs, err := m.com.Workspace.ListMessages(context.Background(), m.session.ID)
-	if err != nil {
-		cmds = append(cmds, util.ReportError(err))
-		return cmds
-	}
-	if cmd := m.setSessionMessages(msgs); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-	if hasInProgressTodo(m.session.Todos) {
-		if m.isSessionBusy() {
-			m.todoIsSpinning = true
-			cmds = append(cmds, m.todoSpinner.Tick)
-		}
-		m.updateLayoutAndSize()
-	}
-	m.historyReset()
-	cmds = append(cmds, m.loadPromptHistory())
-	m.updateLayoutAndSize()
-	// Now switch the worktree.
-	cmds = append(cmds, m.switchWorktree(msg.session.ID, msg.worktreeID))
-	return cmds
 }
 
 // setSessionMessages sets the messages for the current session in the chat
@@ -491,20 +465,11 @@ func (m *UI) handleChildSessionMessage(event pubsub.Event[message.Message]) tea.
 
 	// Find the parent agent tool item.
 	var agentItem chat.NestedToolContainer
-	for i := 0; i < m.chat.Len(); i++ {
-		item := m.chat.MessageItem(toolCallID)
-		if item == nil {
-			continue
-		}
-		if agent, ok := item.(chat.NestedToolContainer); ok {
-			if toolMessageItem, ok := item.(chat.ToolMessageItem); ok {
-				if toolMessageItem.ToolCall().ID == toolCallID {
-					// Verify this agent belongs to the correct parent message.
-					// We can't directly check parentMessageID on the item, so we trust the session parsing.
-					agentItem = agent
-					break
-				}
-			}
+	if item := m.chat.MessageItem(toolCallID); item != nil {
+		agent, isContainer := item.(chat.NestedToolContainer)
+		toolMessageItem, isTool := item.(chat.ToolMessageItem)
+		if isContainer && isTool && toolMessageItem.ToolCall().ID == toolCallID {
+			agentItem = agent
 		}
 	}
 

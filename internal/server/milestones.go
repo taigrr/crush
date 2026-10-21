@@ -6,9 +6,5 @@ func (c *controllerV1) handleGetWorkspaceMilestones(w http.ResponseWriter, r *ht
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	milestones, err := c.backend.ListMilestones(r.Context(), id, sid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, milestones)
+	c.respond(w, r, milestones, err)
 }

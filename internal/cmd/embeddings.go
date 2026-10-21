@@ -1,10 +1,11 @@
 package cmd
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
@@ -97,11 +98,8 @@ func embeddingModels(cfg *config.ConfigStore) []embeddingModelRow {
 			})
 		}
 	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].Provider != rows[j].Provider {
-			return rows[i].Provider < rows[j].Provider
-		}
-		return rows[i].Model < rows[j].Model
+	slices.SortFunc(rows, func(a, b embeddingModelRow) int {
+		return cmp.Or(cmp.Compare(a.Provider, b.Provider), cmp.Compare(a.Model, b.Model))
 	})
 	return rows
 }

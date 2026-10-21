@@ -228,11 +228,17 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	app.serviceEventsWG.Go(func() {
 		app.assignSwarmIdentityOnCreate(app.eventsCtx, sessionEvents)
 	})
-	go func() {
-		if err := app.backfillSwarmIdentities(context.Background()); err != nil {
+	app.serviceEventsWG.Go(func() {
+		// Detached from eventsCtx so shutdown does not abort the scan
+		// mid-way, but tracked on serviceEventsWG so it finishes before
+		// the database is released, and bounded so it cannot stall
+		// shutdown indefinitely.
+		backfillCtx, cancel := context.WithTimeout(context.WithoutCancel(app.eventsCtx), swarmBackfillTimeout)
+		defer cancel()
+		if err := app.backfillSwarmIdentities(backfillCtx); err != nil {
 			slog.Warn("Swarm identity backfill failed", "error", err)
 		}
-	}()
+	})
 
 	// Check for updates in the background.
 	go app.checkForUpdates(ctx)

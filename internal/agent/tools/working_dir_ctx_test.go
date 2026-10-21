@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"testing"
 )
 
@@ -10,7 +9,7 @@ func TestWorkingDirContext(t *testing.T) {
 
 	t.Run("round trips a non-empty dir", func(t *testing.T) {
 		t.Parallel()
-		ctx := WithWorkingDir(context.Background(), "/proj/wt")
+		ctx := WithWorkingDir(t.Context(), "/proj/wt")
 		if got := GetWorkingDirFromContext(ctx); got != "/proj/wt" {
 			t.Fatalf("GetWorkingDirFromContext() = %q, want %q", got, "/proj/wt")
 		}
@@ -18,7 +17,7 @@ func TestWorkingDirContext(t *testing.T) {
 
 	t.Run("empty dir is ignored", func(t *testing.T) {
 		t.Parallel()
-		ctx := WithWorkingDir(context.Background(), "")
+		ctx := WithWorkingDir(t.Context(), "")
 		if got := GetWorkingDirFromContext(ctx); got != "" {
 			t.Fatalf("GetWorkingDirFromContext() = %q, want empty", got)
 		}
@@ -26,14 +25,14 @@ func TestWorkingDirContext(t *testing.T) {
 
 	t.Run("absent key yields empty", func(t *testing.T) {
 		t.Parallel()
-		if got := GetWorkingDirFromContext(context.Background()); got != "" {
+		if got := GetWorkingDirFromContext(t.Context()); got != "" {
 			t.Fatalf("GetWorkingDirFromContext() = %q, want empty", got)
 		}
 	})
 
 	t.Run("later value overrides earlier", func(t *testing.T) {
 		t.Parallel()
-		ctx := WithWorkingDir(context.Background(), "/a")
+		ctx := WithWorkingDir(t.Context(), "/a")
 		ctx = WithWorkingDir(ctx, "/b")
 		if got := GetWorkingDirFromContext(ctx); got != "/b" {
 			t.Fatalf("GetWorkingDirFromContext() = %q, want %q", got, "/b")

@@ -1,7 +1,6 @@
 package historysearch
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,7 +16,7 @@ import (
 // the archived session's title (rather than "(untitled)").
 func TestSearch_IncludesArchivedSessions(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dataDir := db.TempDataDir(t)
 	conn, err := db.Connect(ctx, dataDir)

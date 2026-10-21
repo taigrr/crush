@@ -76,7 +76,7 @@ func TestGetContextValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := tt.setup(context.Background())
+			ctx := tt.setup(t.Context())
 
 			var got any
 			switch tt.defaultValue.(type) {
@@ -103,17 +103,17 @@ func TestGetSessionFromContext(t *testing.T) {
 	}{
 		{
 			name: "returns session ID when present",
-			ctx:  context.WithValue(context.Background(), SessionIDContextKey, "session-123"),
+			ctx:  context.WithValue(t.Context(), SessionIDContextKey, "session-123"),
 			want: "session-123",
 		},
 		{
 			name: "returns empty string when not present",
-			ctx:  context.Background(),
+			ctx:  t.Context(),
 			want: "",
 		},
 		{
 			name: "returns empty string when wrong type",
-			ctx:  context.WithValue(context.Background(), SessionIDContextKey, 123),
+			ctx:  context.WithValue(t.Context(), SessionIDContextKey, 123),
 			want: "",
 		},
 	}
@@ -136,17 +136,17 @@ func TestGetMessageFromContext(t *testing.T) {
 	}{
 		{
 			name: "returns message ID when present",
-			ctx:  context.WithValue(context.Background(), MessageIDContextKey, "msg-456"),
+			ctx:  context.WithValue(t.Context(), MessageIDContextKey, "msg-456"),
 			want: "msg-456",
 		},
 		{
 			name: "returns empty string when not present",
-			ctx:  context.Background(),
+			ctx:  t.Context(),
 			want: "",
 		},
 		{
 			name: "returns empty string when wrong type",
-			ctx:  context.WithValue(context.Background(), MessageIDContextKey, 456),
+			ctx:  context.WithValue(t.Context(), MessageIDContextKey, 456),
 			want: "",
 		},
 	}
@@ -169,22 +169,22 @@ func TestGetSupportsImagesFromContext(t *testing.T) {
 	}{
 		{
 			name: "returns true when present and true",
-			ctx:  context.WithValue(context.Background(), SupportsImagesContextKey, true),
+			ctx:  context.WithValue(t.Context(), SupportsImagesContextKey, true),
 			want: true,
 		},
 		{
 			name: "returns false when present and false",
-			ctx:  context.WithValue(context.Background(), SupportsImagesContextKey, false),
+			ctx:  context.WithValue(t.Context(), SupportsImagesContextKey, false),
 			want: false,
 		},
 		{
 			name: "returns false when not present",
-			ctx:  context.Background(),
+			ctx:  t.Context(),
 			want: false,
 		},
 		{
 			name: "returns false when wrong type",
-			ctx:  context.WithValue(context.Background(), SupportsImagesContextKey, "true"),
+			ctx:  context.WithValue(t.Context(), SupportsImagesContextKey, "true"),
 			want: false,
 		},
 	}
@@ -207,17 +207,17 @@ func TestGetModelNameFromContext(t *testing.T) {
 	}{
 		{
 			name: "returns model name when present",
-			ctx:  context.WithValue(context.Background(), ModelNameContextKey, "claude-opus-4"),
+			ctx:  context.WithValue(t.Context(), ModelNameContextKey, "claude-opus-4"),
 			want: "claude-opus-4",
 		},
 		{
 			name: "returns empty string when not present",
-			ctx:  context.Background(),
+			ctx:  t.Context(),
 			want: "",
 		},
 		{
 			name: "returns empty string when wrong type",
-			ctx:  context.WithValue(context.Background(), ModelNameContextKey, 789),
+			ctx:  context.WithValue(t.Context(), ModelNameContextKey, 789),
 			want: "",
 		},
 	}

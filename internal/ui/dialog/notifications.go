@@ -126,22 +126,10 @@ func (n *Notifications) HandleMsg(msg tea.Msg) Action {
 			return ActionClose{}
 		case key.Matches(msg, n.keyMap.Previous):
 			n.list.Focus()
-			if n.list.IsSelectedFirst() {
-				n.list.SelectLast()
-				n.list.ScrollToBottom()
-				break
-			}
-			n.list.SelectPrev()
-			n.list.ScrollToSelected()
+			selectPrevWrap(n.list)
 		case key.Matches(msg, n.keyMap.Next):
 			n.list.Focus()
-			if n.list.IsSelectedLast() {
-				n.list.SelectFirst()
-				n.list.ScrollToTop()
-				break
-			}
-			n.list.SelectNext()
-			n.list.ScrollToSelected()
+			selectNextWrap(n.list)
 		case key.Matches(msg, n.keyMap.Select):
 			selectedItem := n.list.SelectedItem()
 			if selectedItem == nil {
@@ -153,13 +141,7 @@ func (n *Notifications) HandleMsg(msg tea.Msg) Action {
 			}
 			return ActionSelectNotificationStyle{Style: notifItem.style.ID}
 		default:
-			var cmd tea.Cmd
-			n.input, cmd = n.input.Update(msg)
-			value := n.input.Value()
-			n.list.SetFilter(value)
-			n.list.ScrollToTop()
-			n.list.SetSelected(0)
-			return ActionCmd{cmd}
+			return filterOnInput(&n.input, n.list, msg)
 		}
 	}
 	return nil
@@ -176,10 +158,7 @@ func (n *Notifications) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	width := max(0, min(notificationsDialogMaxWidth, area.Dx()))
 	height := max(0, min(notificationsDialogMaxHeight, area.Dy()))
 	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize()
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
-		t.Dialog.InputPrompt.GetVerticalFrameSize() + inputContentHeight +
-		t.Dialog.HelpView.GetVerticalFrameSize() +
-		t.Dialog.View.GetVerticalFrameSize()
+	heightOffset := filterDialogChromeHeight(t)
 
 	n.input.SetWidth(innerWidth - t.Dialog.InputPrompt.GetHorizontalFrameSize() - 1)
 	n.list.SetSize(innerWidth, height-heightOffset)

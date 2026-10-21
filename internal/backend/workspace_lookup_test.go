@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -41,7 +40,7 @@ func TestResolveWorkspaceByPath_Found(t *testing.T) {
 
 	b := &Backend{pathIndex: map[string]string{key: "ws-1"}}
 
-	id, found, err := b.ResolveWorkspaceByPath(context.Background(), dir)
+	id, found, err := b.ResolveWorkspaceByPath(t.Context(), dir)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, "ws-1", id)
@@ -56,7 +55,7 @@ func TestResolveWorkspaceByPath_NotFound(t *testing.T) {
 	t.Parallel()
 	b := &Backend{pathIndex: map[string]string{}}
 
-	id, found, err := b.ResolveWorkspaceByPath(context.Background(), t.TempDir())
+	id, found, err := b.ResolveWorkspaceByPath(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Empty(t, id)
@@ -68,7 +67,7 @@ func TestResolveWorkspaceByPath_EmptyPath(t *testing.T) {
 	t.Parallel()
 	b := &Backend{pathIndex: map[string]string{}}
 
-	_, found, err := b.ResolveWorkspaceByPath(context.Background(), "   ")
+	_, found, err := b.ResolveWorkspaceByPath(t.Context(), "   ")
 	require.ErrorIs(t, err, ErrPathRequired)
 	require.False(t, found)
 }

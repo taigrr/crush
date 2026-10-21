@@ -170,20 +170,10 @@ func (m *Models) HandleMsg(msg tea.Msg) Action {
 			return ActionClose{}
 		case key.Matches(msg, m.keyMap.Previous):
 			m.list.Focus()
-			if m.list.IsSelectedFirst() {
-				m.list.SelectLast()
-			} else {
-				m.list.SelectPrev()
-			}
-			m.list.ScrollToSelected()
+			selectPrevWrap(m.list)
 		case key.Matches(msg, m.keyMap.Next):
 			m.list.Focus()
-			if m.list.IsSelectedLast() {
-				m.list.SelectFirst()
-			} else {
-				m.list.SelectNext()
-			}
-			m.list.ScrollToSelected()
+			selectNextWrap(m.list)
 		case key.Matches(msg, m.keyMap.Select, m.keyMap.Edit):
 			selectedItem := m.list.SelectedItem()
 			if selectedItem == nil {
@@ -260,10 +250,7 @@ func (m *Models) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	width := max(0, min(defaultModelsDialogMaxWidth, area.Dx()-t.Dialog.View.GetHorizontalBorderSize()))
 	height := max(0, min(defaultDialogHeight, area.Dy()-t.Dialog.View.GetVerticalBorderSize()))
 	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize()
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
-		t.Dialog.InputPrompt.GetVerticalFrameSize() + inputContentHeight +
-		t.Dialog.HelpView.GetVerticalFrameSize() +
-		t.Dialog.View.GetVerticalFrameSize()
+	heightOffset := filterDialogChromeHeight(t)
 
 	m.input.SetWidth(max(0, innerWidth-t.Dialog.InputPrompt.GetHorizontalFrameSize()-1)) // (1) cursor padding
 	m.help.SetWidth(innerWidth)

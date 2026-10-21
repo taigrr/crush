@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -33,7 +32,7 @@ func TestSearchHistoryEncodesRequestAndDecodesResult(t *testing.T) {
 
 	c := captureClient(t, srv)
 	on := true
-	res, err := c.SearchHistory(context.Background(), "ws1", proto.SearchHistoryParams{
+	res, err := c.SearchHistory(t.Context(), "ws1", proto.SearchHistoryParams{
 		Query:    "hello",
 		Semantic: &on,
 	})
@@ -61,7 +60,7 @@ func TestSearchHistoryReturnsErrorOnNon200(t *testing.T) {
 	defer srv.Close()
 
 	c := captureClient(t, srv)
-	_, err := c.SearchHistory(context.Background(), "ws1", proto.SearchHistoryParams{Query: "x"})
+	_, err := c.SearchHistory(t.Context(), "ws1", proto.SearchHistoryParams{Query: "x"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "status code 500")
 }

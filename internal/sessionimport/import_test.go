@@ -1,7 +1,6 @@
 package sessionimport
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -252,7 +251,7 @@ func TestDiscoverFindsAndSortsSessions(t *testing.T) {
 func TestImportIsTransactionalAndIdempotent(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Cleanup(db.ResetPool)
-	database, err := db.Connect(context.Background(), dataDir)
+	database, err := db.Connect(t.Context(), dataDir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Release(dataDir)) })
 
@@ -269,10 +268,10 @@ func TestImportIsTransactionalAndIdempotent(t *testing.T) {
 		},
 	}
 
-	first, err := Import(context.Background(), database, imported)
+	first, err := Import(t.Context(), database, imported)
 	require.NoError(t, err)
 	require.False(t, first.AlreadyExist)
-	second, err := Import(context.Background(), database, imported)
+	second, err := Import(t.Context(), database, imported)
 	require.NoError(t, err)
 	require.True(t, second.AlreadyExist)
 	require.Equal(t, first.ID, second.ID)
@@ -280,7 +279,7 @@ func TestImportIsTransactionalAndIdempotent(t *testing.T) {
 	var count int
 	require.NoError(t, database.QueryRow("SELECT message_count FROM sessions WHERE id = ?", first.ID).Scan(&count))
 	require.Equal(t, 2, count)
-	rows, err := message.NewService(db.New(database)).List(context.Background(), first.ID)
+	rows, err := message.NewService(db.New(database)).List(t.Context(), first.ID)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
 	require.Equal(t, int64(100), rows[0].CreatedAt)
@@ -289,7 +288,7 @@ func TestImportIsTransactionalAndIdempotent(t *testing.T) {
 func TestImportReSyncAppendsNewSourceMessages(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Cleanup(db.ResetPool)
-	database, err := db.Connect(context.Background(), dataDir)
+	database, err := db.Connect(t.Context(), dataDir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Release(dataDir)) })
 
@@ -304,7 +303,7 @@ func TestImportReSyncAppendsNewSourceMessages(t *testing.T) {
 			{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "two"}, finish()}, CreatedAt: 101},
 		},
 	}
-	first, err := Import(context.Background(), database, base)
+	first, err := Import(t.Context(), database, base)
 	require.NoError(t, err)
 	require.Equal(t, 2, first.Imported)
 
@@ -313,14 +312,14 @@ func TestImportReSyncAppendsNewSourceMessages(t *testing.T) {
 		append([]Message(nil), base.Messages...),
 		Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "three"}, finish()}, CreatedAt: 102},
 	)
-	second, err := Import(context.Background(), database, grown)
+	second, err := Import(t.Context(), database, grown)
 	require.NoError(t, err)
 	require.Equal(t, first.ID, second.ID)
 	require.Equal(t, 1, second.Imported)
 	require.False(t, second.AlreadyExist)
 	require.False(t, second.Modified)
 
-	rows, err := message.NewService(db.New(database)).List(context.Background(), first.ID)
+	rows, err := message.NewService(db.New(database)).List(t.Context(), first.ID)
 	require.NoError(t, err)
 	require.Len(t, rows, 3)
 
@@ -332,7 +331,7 @@ func TestImportReSyncAppendsNewSourceMessages(t *testing.T) {
 	require.Greater(t, updatedAt, int64(102))
 
 	// Re-importing the unchanged, grown session is a no-op.
-	third, err := Import(context.Background(), database, grown)
+	third, err := Import(t.Context(), database, grown)
 	require.NoError(t, err)
 	require.Equal(t, 0, third.Imported)
 	require.True(t, third.AlreadyExist)
@@ -341,7 +340,7 @@ func TestImportReSyncAppendsNewSourceMessages(t *testing.T) {
 func TestImportDoesNotClobberSessionModifiedInCrush(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Cleanup(db.ResetPool)
-	database, err := db.Connect(context.Background(), dataDir)
+	database, err := db.Connect(t.Context(), dataDir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Release(dataDir)) })
 
@@ -354,7 +353,7 @@ func TestImportDoesNotClobberSessionModifiedInCrush(t *testing.T) {
 			{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "hi"}, finish()}, CreatedAt: 101},
 		},
 	}
-	first, err := Import(context.Background(), database, imported)
+	first, err := Import(t.Context(), database, imported)
 	require.NoError(t, err)
 
 	// Simulate the user continuing the conversation inside Crush: a
@@ -369,7 +368,7 @@ func TestImportDoesNotClobberSessionModifiedInCrush(t *testing.T) {
 		append([]Message(nil), imported.Messages...),
 		Message{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "new source turn"}, finish()}, CreatedAt: 102},
 	)
-	second, err := Import(context.Background(), database, grown)
+	second, err := Import(t.Context(), database, grown)
 	require.NoError(t, err)
 	require.True(t, second.Modified)
 	require.True(t, second.AlreadyExist)
@@ -383,7 +382,7 @@ func TestImportDoesNotClobberSessionModifiedInCrush(t *testing.T) {
 func TestImportDoesNotRepopulateClearedSession(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Cleanup(db.ResetPool)
-	database, err := db.Connect(context.Background(), dataDir)
+	database, err := db.Connect(t.Context(), dataDir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Release(dataDir)) })
 
@@ -396,14 +395,14 @@ func TestImportDoesNotRepopulateClearedSession(t *testing.T) {
 			{Role: message.Assistant, Parts: []message.ContentPart{message.TextContent{Text: "hi"}, finish()}, CreatedAt: 101},
 		},
 	}
-	first, err := Import(context.Background(), database, imported)
+	first, err := Import(t.Context(), database, imported)
 	require.NoError(t, err)
 
 	// User deletes every imported message but keeps the session.
 	_, err = database.Exec("DELETE FROM messages WHERE session_id = ?", first.ID)
 	require.NoError(t, err)
 
-	second, err := Import(context.Background(), database, imported)
+	second, err := Import(t.Context(), database, imported)
 	require.NoError(t, err)
 	require.True(t, second.Modified)
 	require.Equal(t, 0, second.Imported)

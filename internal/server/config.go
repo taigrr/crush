@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/taigrr/crush/internal/proto"
@@ -22,10 +21,8 @@ import (
 func (c *controllerV1) handlePostWorkspaceConfigSet(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigSetRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.ConfigSetRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -51,10 +48,8 @@ func (c *controllerV1) handlePostWorkspaceConfigSet(w http.ResponseWriter, r *ht
 func (c *controllerV1) handlePostWorkspaceConfigRemove(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigRemoveRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.ConfigRemoveRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -80,10 +75,8 @@ func (c *controllerV1) handlePostWorkspaceConfigRemove(w http.ResponseWriter, r 
 func (c *controllerV1) handlePostWorkspaceConfigModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigModelRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.ConfigModelRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -109,10 +102,8 @@ func (c *controllerV1) handlePostWorkspaceConfigModel(w http.ResponseWriter, r *
 func (c *controllerV1) handlePostWorkspaceConfigCompact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigCompactRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.ConfigCompactRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -138,10 +129,8 @@ func (c *controllerV1) handlePostWorkspaceConfigCompact(w http.ResponseWriter, r
 func (c *controllerV1) handlePostWorkspaceConfigProviderKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigProviderKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.ConfigProviderKeyRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -194,10 +183,8 @@ func (c *controllerV1) handlePostWorkspaceConfigImportCopilot(w http.ResponseWri
 func (c *controllerV1) handlePostWorkspaceConfigRefreshOAuth(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ConfigRefreshOAuthRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.ConfigRefreshOAuthRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -297,11 +284,7 @@ func (c *controllerV1) handleGetWorkspaceProjectInitPrompt(w http.ResponseWriter
 func (c *controllerV1) handleGetWorkspaceSkills(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	skills, err := c.backend.ListSkills(id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, skills)
+	c.respond(w, r, skills, err)
 }
 
 // handlePostWorkspaceSkillRead reads a skill's content by ID.
@@ -320,10 +303,8 @@ func (c *controllerV1) handleGetWorkspaceSkills(w http.ResponseWriter, r *http.R
 func (c *controllerV1) handlePostWorkspaceSkillRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.ReadSkillRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.ReadSkillRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -386,10 +367,8 @@ func (c *controllerV1) handlePostWorkspaceMCPDisableDocker(w http.ResponseWriter
 func (c *controllerV1) handlePostWorkspaceMCPRefreshTools(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPNameRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.MCPNameRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -404,10 +383,8 @@ func (c *controllerV1) handlePostWorkspaceMCPRefreshTools(w http.ResponseWriter,
 func (c *controllerV1) handlePostWorkspaceMCPAuthenticate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPNameRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.MCPNameRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -453,19 +430,13 @@ func (c *controllerV1) handleGetWorkspaceMCPAuthURL(w http.ResponseWriter, r *ht
 func (c *controllerV1) handlePostWorkspaceMCPReadResource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPReadResourceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.MCPReadResourceRequest](c, w, r)
+	if !ok {
 		return
 	}
 
 	contents, err := c.backend.ReadMCPResource(r.Context(), id, req.Name, req.URI)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, contents)
+	c.respond(w, r, contents, err)
 }
 
 // handlePostWorkspaceMCPGetPrompt retrieves a prompt from an MCP server.
@@ -484,10 +455,8 @@ func (c *controllerV1) handlePostWorkspaceMCPReadResource(w http.ResponseWriter,
 func (c *controllerV1) handlePostWorkspaceMCPGetPrompt(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPGetPromptRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.MCPGetPromptRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -542,10 +511,8 @@ func (c *controllerV1) handleGetWorkspaceMCPStates(w http.ResponseWriter, r *htt
 func (c *controllerV1) handlePostWorkspaceMCPRefreshPrompts(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPNameRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.MCPNameRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -568,10 +535,8 @@ func (c *controllerV1) handlePostWorkspaceMCPRefreshPrompts(w http.ResponseWrite
 func (c *controllerV1) handlePostWorkspaceMCPRefreshResources(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var req proto.MCPNameRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[proto.MCPNameRequest](c, w, r)
+	if !ok {
 		return
 	}
 

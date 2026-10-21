@@ -186,7 +186,7 @@ func frameTestItems(prefix string) []chat.MessageItem {
 	items := make([]chat.MessageItem, 0, 200)
 	for i := range 200 {
 		items = append(items, &focusableTestItem{
-			testMessageItem: testMessageItem{id: strconv.Itoa(i), text: prefix + " " + strconv.Itoa(i)},
+			id: strconv.Itoa(i), text: prefix + " " + strconv.Itoa(i),
 		})
 	}
 	return items

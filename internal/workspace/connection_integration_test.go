@@ -31,7 +31,7 @@ func TestClientWorkspace_ConnectionDropIsReportedAndRetried(t *testing.T) {
 	dataDir := db.TempDataDir(t)
 
 	c := rt.newClient(t, cwd)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	wsProto, err := c.CreateWorkspace(ctx, proto.Workspace{Path: cwd, DataDir: dataDir})

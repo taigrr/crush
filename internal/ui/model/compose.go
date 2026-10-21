@@ -1,6 +1,7 @@
 package model
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -26,10 +27,7 @@ func (m *UI) attachSkill(skillID, name string) tea.Cmd {
 		if err != nil {
 			return util.NewErrorMsg(err)
 		}
-		fileName := result.Name
-		if fileName == "" {
-			fileName = name
-		}
+		fileName := cmp.Or(result.Name, name)
 		return message.Attachment{
 			FilePath: fileName,
 			FileName: fileName,

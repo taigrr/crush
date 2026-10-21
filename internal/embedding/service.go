@@ -1,9 +1,10 @@
 package embedding
 
 import (
+	"cmp"
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -368,11 +369,8 @@ func (s *service) semanticRanks(ctx context.Context, query string, docs []Docume
 		}
 		scoredList = append(scoredList, scored{id: d.SourceID, score: sim})
 	}
-	sort.Slice(scoredList, func(i, j int) bool {
-		if scoredList[i].score != scoredList[j].score {
-			return scoredList[i].score > scoredList[j].score
-		}
-		return scoredList[i].id < scoredList[j].id
+	slices.SortFunc(scoredList, func(a, b scored) int {
+		return cmp.Or(cmp.Compare(b.score, a.score), cmp.Compare(a.id, b.id))
 	})
 
 	out := make([]ranked, len(scoredList))

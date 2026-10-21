@@ -107,7 +107,7 @@ func (s *runCoordinator) capturedCtx() context.Context {
 // through teardown when the test exits.
 func buildAgentWorkspace(t *testing.T, coord agent.Coordinator) (*controllerV1, string) {
 	t.Helper()
-	b := backend.New(context.Background(), nil, nil)
+	b := backend.New(t.Context(), nil, nil)
 	a := &app.App{AgentCoordinator: coord}
 
 	ws := &backend.Workspace{
@@ -207,7 +207,7 @@ func TestPostAgent_DetachesRequestContext(t *testing.T) {
 	})
 	c, wsID := buildAgentWorkspace(t, coord)
 
-	reqCtx, cancelReq := context.WithCancel(context.Background())
+	reqCtx, cancelReq := context.WithCancel(t.Context())
 
 	// The handler returns immediately; the run keeps executing on its
 	// own goroutine bound to the workspace context.

@@ -1,7 +1,6 @@
 package grok
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"net/http"
@@ -35,7 +34,7 @@ func TestGeneratePKCE(t *testing.T) {
 func TestStartLoginBuildsAuthURL(t *testing.T) {
 	t.Parallel()
 
-	session, err := newLoginSession(context.Background(), defaultAuthURL, defaultTokenURL)
+	session, err := newLoginSession(t.Context(), defaultAuthURL, defaultTokenURL)
 	require.NoError(t, err)
 	defer session.Close()
 
@@ -73,7 +72,7 @@ func TestLoginSessionExchangeCode(t *testing.T) {
 		codeVerifier: "verifier-abc",
 	}
 
-	token, err := session.exchangeCode(context.Background(), "auth-code-1")
+	token, err := session.exchangeCode(t.Context(), "auth-code-1")
 	require.NoError(t, err)
 	require.Equal(t, "acc", token.AccessToken)
 	require.Equal(t, "ref", token.RefreshToken)
@@ -91,7 +90,7 @@ func TestLoginSessionExchangeCode(t *testing.T) {
 func TestLoginSessionWaitRejectsStateMismatch(t *testing.T) {
 	t.Parallel()
 
-	session, err := newLoginSession(context.Background(), defaultAuthURL, defaultTokenURL)
+	session, err := newLoginSession(t.Context(), defaultAuthURL, defaultTokenURL)
 	require.NoError(t, err)
 
 	u, err := url.Parse(session.AuthURL)
@@ -101,7 +100,7 @@ func TestLoginSessionWaitRejectsStateMismatch(t *testing.T) {
 	// Fire a callback with a wrong state once Wait is serving.
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := session.Wait(context.Background())
+		_, err := session.Wait(t.Context())
 		errCh <- err
 	}()
 

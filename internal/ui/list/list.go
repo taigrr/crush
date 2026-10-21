@@ -179,7 +179,7 @@ func (l *List) ScrollPosition() (offsetIdx, offsetLine int) {
 // Offset returns the current scroll offset in lines from the top.
 func (l *List) Offset() int {
 	offset := 0
-	for idx := 0; idx < l.offsetIdx; idx++ {
+	for idx := range l.offsetIdx {
 		item := l.getItem(idx)
 		offset += item.height
 		if l.gap > 0 && idx < len(l.items)-1 {

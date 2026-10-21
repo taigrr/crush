@@ -22,7 +22,7 @@ func newIdleTestAgent() *sessionAgent {
 func TestWaitForIdle_ReturnsImmediatelyWhenNotBusy(t *testing.T) {
 	t.Parallel()
 	a := newIdleTestAgent()
-	require.NoError(t, a.WaitForIdle(context.Background()))
+	require.NoError(t, a.WaitForIdle(t.Context()))
 }
 
 func TestWaitForIdle_WakesWhenActiveRequestCleared(t *testing.T) {
@@ -34,7 +34,7 @@ func TestWaitForIdle_WakesWhenActiveRequestCleared(t *testing.T) {
 	require.True(t, a.IsBusy())
 
 	done := make(chan error, 1)
-	go func() { done <- a.WaitForIdle(context.Background()) }()
+	go func() { done <- a.WaitForIdle(t.Context()) }()
 
 	// Give the waiter a moment to block on the idle channel, then clear.
 	time.Sleep(20 * time.Millisecond)
@@ -53,7 +53,7 @@ func TestWaitForIdle_RespectsContextCancel(t *testing.T) {
 	a := newIdleTestAgent()
 	a.activeRequests.Set("s1", func() {})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- a.WaitForIdle(ctx) }()
 
@@ -81,7 +81,7 @@ func TestClearActiveRequest_ConcurrentWaiters(t *testing.T) {
 	for range waiters {
 		go func() {
 			defer wg.Done()
-			_ = a.WaitForIdle(context.Background())
+			_ = a.WaitForIdle(t.Context())
 		}()
 	}
 
@@ -111,7 +111,7 @@ func TestWaitForIdle_WakesWhenAcceptedRunReleased(t *testing.T) {
 	require.True(t, sa.IsBusy(), "an accepted reservation counts as busy")
 
 	done := make(chan error, 1)
-	go func() { done <- sa.WaitForIdle(context.Background()) }()
+	go func() { done <- sa.WaitForIdle(t.Context()) }()
 
 	time.Sleep(20 * time.Millisecond)
 	accept.Close()
@@ -135,7 +135,7 @@ func TestEndAccepted_OnlyLastReleaseSignals(t *testing.T) {
 	second := sa.BeginAccepted("s1")
 
 	done := make(chan error, 1)
-	go func() { done <- sa.WaitForIdle(context.Background()) }()
+	go func() { done <- sa.WaitForIdle(t.Context()) }()
 
 	time.Sleep(20 * time.Millisecond)
 	first.Close()
@@ -167,7 +167,7 @@ func TestWaitForIdle_NoLostWakeupWhenReleaseRacesBusyCheck(t *testing.T) {
 	for i := range 500 {
 		a.activeRequests.Set("s1", func() {})
 		done := make(chan error, 1)
-		go func() { done <- a.WaitForIdle(context.Background()) }()
+		go func() { done <- a.WaitForIdle(t.Context()) }()
 		go a.clearActiveRequest("s1")
 		select {
 		case err := <-done:

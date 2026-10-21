@@ -1,9 +1,10 @@
 package backend
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
-	"sort"
+	"slices"
 
 	"github.com/taigrr/crush/internal/app"
 	"github.com/taigrr/crush/internal/db"
@@ -72,7 +73,7 @@ func (b *Backend) searchAllWorkspaces(ctx context.Context, requestingWorkspaceID
 	for root := range attached {
 		attachedRoots = append(attachedRoots, root)
 	}
-	sort.Strings(attachedRoots)
+	slices.Sort(attachedRoots)
 
 	// entry for the same root isn't searched twice.
 	seen := make(map[string]struct{})
@@ -198,18 +199,13 @@ func mergeCrossWorkspaceHits(hits []proto.SessionHit, semanticUsed bool, session
 	// both the display order AND which sessions survive the cap would be
 	// nondeterministic. Break ties by workspace root, then session id,
 	// then message id so identical searches always yield identical output.
-	sort.Slice(hits, func(i, j int) bool {
-		a, b := hits[i], hits[j]
-		if a.Score != b.Score {
-			return a.Score > b.Score
-		}
-		if a.WorkspaceRoot != b.WorkspaceRoot {
-			return a.WorkspaceRoot < b.WorkspaceRoot
-		}
-		if a.SessionID != b.SessionID {
-			return a.SessionID < b.SessionID
-		}
-		return a.MessageID < b.MessageID
+	slices.SortFunc(hits, func(a, b proto.SessionHit) int {
+		return cmp.Or(
+			cmp.Compare(b.Score, a.Score),
+			cmp.Compare(a.WorkspaceRoot, b.WorkspaceRoot),
+			cmp.Compare(a.SessionID, b.SessionID),
+			cmp.Compare(a.MessageID, b.MessageID),
+		)
 	})
 
 	type sessionKey struct{ root, id string }

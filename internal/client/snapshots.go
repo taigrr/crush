@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/fork"
@@ -34,65 +33,25 @@ func (c *Client) SnapshotsEnabled(ctx context.Context, workspaceID string) (bool
 // ListSnapshots returns all snapshots for a session.
 func (c *Client) ListSnapshots(ctx context.Context, workspaceID, sessionID string) ([]*checkpoint.Snapshot, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/snapshots", workspaceID, sessionID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list snapshots: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to list snapshots: status code %d", rsp.StatusCode)
-	}
-	var snapshots []*checkpoint.Snapshot
-	if err := json.NewDecoder(rsp.Body).Decode(&snapshots); err != nil {
-		return nil, fmt.Errorf("failed to decode snapshots: %w", err)
-	}
-	return snapshots, nil
+	return decodeResponse[[]*checkpoint.Snapshot](rsp, err, "list snapshots")
 }
 
 // GetSnapshot retrieves a snapshot by ID.
 func (c *Client) GetSnapshot(ctx context.Context, workspaceID, snapshotID string) (*checkpoint.Snapshot, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/snapshots/%s", workspaceID, snapshotID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get snapshot: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get snapshot: status code %d", rsp.StatusCode)
-	}
-	var snapshot checkpoint.Snapshot
-	if err := json.NewDecoder(rsp.Body).Decode(&snapshot); err != nil {
-		return nil, fmt.Errorf("failed to decode snapshot: %w", err)
-	}
-	return &snapshot, nil
+	return decodeResponse[*checkpoint.Snapshot](rsp, err, "get snapshot")
 }
 
 // GetSnapshotByMessage retrieves a snapshot by message ID.
 func (c *Client) GetSnapshotByMessage(ctx context.Context, workspaceID, messageID string) (*checkpoint.Snapshot, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/messages/%s/snapshot", workspaceID, messageID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get snapshot by message: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get snapshot by message: status code %d", rsp.StatusCode)
-	}
-	var snapshot checkpoint.Snapshot
-	if err := json.NewDecoder(rsp.Body).Decode(&snapshot); err != nil {
-		return nil, fmt.Errorf("failed to decode snapshot: %w", err)
-	}
-	return &snapshot, nil
+	return decodeResponse[*checkpoint.Snapshot](rsp, err, "get snapshot by message")
 }
 
 // RestoreSnapshot restores a workspace to a snapshot.
 func (c *Client) RestoreSnapshot(ctx context.Context, workspaceID, snapshotID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/snapshots/%s/restore", workspaceID, snapshotID), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to restore snapshot: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to restore snapshot: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "restore snapshot")
 }
 
 // DiffFromCurrentSnapshot returns the diff from current filesystem to a snapshot.
@@ -136,18 +95,7 @@ func (c *Client) SnapshotGC(ctx context.Context, workspaceID string) (int64, err
 // SnapshotStats returns snapshot storage statistics.
 func (c *Client) SnapshotStats(ctx context.Context, workspaceID string) (*checkpoint.Stats, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/snapshots/stats", workspaceID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get snapshot stats: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get snapshot stats: status code %d", rsp.StatusCode)
-	}
-	var stats checkpoint.Stats
-	if err := json.NewDecoder(rsp.Body).Decode(&stats); err != nil {
-		return nil, fmt.Errorf("failed to decode stats: %w", err)
-	}
-	return &stats, nil
+	return decodeResponse[*checkpoint.Stats](rsp, err, "get snapshot stats")
 }
 
 // WorktreesEnabled returns whether worktrees are enabled for a workspace.
@@ -172,69 +120,25 @@ func (c *Client) WorktreesEnabled(ctx context.Context, workspaceID string) (bool
 // ListWorktrees returns all worktrees for a session.
 func (c *Client) ListWorktrees(ctx context.Context, workspaceID, sessionID string) ([]*worktree.Worktree, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/worktrees", workspaceID, sessionID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list worktrees: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to list worktrees: status code %d", rsp.StatusCode)
-	}
-	var worktrees []*worktree.Worktree
-	if err := json.NewDecoder(rsp.Body).Decode(&worktrees); err != nil {
-		return nil, fmt.Errorf("failed to decode worktrees: %w", err)
-	}
-	return worktrees, nil
+	return decodeResponse[[]*worktree.Worktree](rsp, err, "list worktrees")
 }
 
 // ListAllWorktrees returns all worktrees for a workspace.
 func (c *Client) ListAllWorktrees(ctx context.Context, workspaceID string) ([]*worktree.Worktree, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/worktrees", workspaceID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list all worktrees: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to list all worktrees: status code %d", rsp.StatusCode)
-	}
-	var worktrees []*worktree.Worktree
-	if err := json.NewDecoder(rsp.Body).Decode(&worktrees); err != nil {
-		return nil, fmt.Errorf("failed to decode worktrees: %w", err)
-	}
-	return worktrees, nil
+	return decodeResponse[[]*worktree.Worktree](rsp, err, "list all worktrees")
 }
 
 // GetWorktree retrieves a worktree by ID.
 func (c *Client) GetWorktree(ctx context.Context, workspaceID, worktreeID string) (*worktree.Worktree, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/worktrees/%s", workspaceID, worktreeID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get worktree: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get worktree: status code %d", rsp.StatusCode)
-	}
-	var wt worktree.Worktree
-	if err := json.NewDecoder(rsp.Body).Decode(&wt); err != nil {
-		return nil, fmt.Errorf("failed to decode worktree: %w", err)
-	}
-	return &wt, nil
+	return decodeResponse[*worktree.Worktree](rsp, err, "get worktree")
 }
 
 // GetActiveWorktree retrieves the active worktree for a session.
 func (c *Client) GetActiveWorktree(ctx context.Context, workspaceID, sessionID string) (*worktree.Worktree, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/worktrees/active", workspaceID, sessionID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get active worktree: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get active worktree: status code %d", rsp.StatusCode)
-	}
-	var wt worktree.Worktree
-	if err := json.NewDecoder(rsp.Body).Decode(&wt); err != nil {
-		return nil, fmt.Errorf("failed to decode worktree: %w", err)
-	}
-	return &wt, nil
+	return decodeResponse[*worktree.Worktree](rsp, err, "get active worktree")
 }
 
 // CreateWorktree creates a new worktree.
@@ -246,46 +150,21 @@ func (c *Client) CreateWorktree(ctx context.Context, workspaceID, sessionID, nam
 		Name:           name,
 		FromSnapshotID: fromSnapshotID,
 	}
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/worktrees", workspaceID, sessionID), nil, jsonBody(body), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create worktree: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to create worktree: status code %d", rsp.StatusCode)
-	}
-	var wt worktree.Worktree
-	if err := json.NewDecoder(rsp.Body).Decode(&wt); err != nil {
-		return nil, fmt.Errorf("failed to decode worktree: %w", err)
-	}
-	return &wt, nil
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/worktrees", workspaceID, sessionID), nil, jsonBody(body), jsonHeader())
+	return decodeResponse[*worktree.Worktree](rsp, err, "create worktree")
 }
 
 // SwitchWorktree switches to a different worktree.
 func (c *Client) SwitchWorktree(ctx context.Context, workspaceID, sessionID, worktreeID string) error {
-	q := url.Values{"client_id": []string{c.clientID}}
+	q := c.clientQuery()
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/worktrees/%s/switch", workspaceID, sessionID, worktreeID), q, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to switch worktree: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to switch worktree: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "switch worktree")
 }
 
 // DeleteWorktree deletes a worktree.
 func (c *Client) DeleteWorktree(ctx context.Context, workspaceID, worktreeID string) error {
 	rsp, err := c.delete(ctx, fmt.Sprintf("/workspaces/%s/worktrees/%s", workspaceID, worktreeID), nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to delete worktree: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to delete worktree: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "delete worktree")
 }
 
 // MergeWorktree merges or rebases a worktree onto a target branch.
@@ -297,47 +176,18 @@ func (c *Client) MergeWorktree(ctx context.Context, workspaceID, worktreeID, tar
 		TargetBranch: targetBranch,
 		Rebase:       rebase,
 	}
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/worktrees/%s/merge", workspaceID, worktreeID), nil, jsonBody(body), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to merge worktree: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to merge worktree: status code %d", rsp.StatusCode)
-	}
-	return nil
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/worktrees/%s/merge", workspaceID, worktreeID), nil, jsonBody(body), jsonHeader())
+	return checkResponse(rsp, err, "merge worktree")
 }
 
 // ListGitBranches returns all git branches in the workspace.
 func (c *Client) ListGitBranches(ctx context.Context, workspaceID string) ([]string, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/git/branches", workspaceID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list git branches: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to list git branches: status code %d", rsp.StatusCode)
-	}
-	var branches []string
-	if err := json.NewDecoder(rsp.Body).Decode(&branches); err != nil {
-		return nil, fmt.Errorf("failed to decode git branches: %w", err)
-	}
-	return branches, nil
+	return decodeResponse[[]string](rsp, err, "list git branches")
 }
 
 // ForkConversation creates a fork of a conversation.
 func (c *Client) ForkConversation(ctx context.Context, workspaceID string, params fork.ForkParams) (*fork.ForkResult, error) {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/fork", workspaceID), nil, jsonBody(params), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return nil, fmt.Errorf("failed to fork conversation: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fork conversation: status code %d", rsp.StatusCode)
-	}
-	var result fork.ForkResult
-	if err := json.NewDecoder(rsp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode fork result: %w", err)
-	}
-	return &result, nil
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/fork", workspaceID), nil, jsonBody(params), jsonHeader())
+	return decodeResponse[*fork.ForkResult](rsp, err, "fork conversation")
 }

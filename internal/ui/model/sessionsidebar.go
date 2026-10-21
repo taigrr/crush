@@ -1,6 +1,7 @@
 package model
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -471,10 +472,10 @@ func (s *SessionsSidebar) rebuildInboxRows() {
 		}
 	}
 	byUpdatedDesc := func(refs []ref) {
-		sort.SliceStable(refs, func(i, j int) bool {
-			a := s.overviews[refs[i].wi].Sessions[refs[i].si]
-			b := s.overviews[refs[j].wi].Sessions[refs[j].si]
-			return a.UpdatedAt > b.UpdatedAt
+		slices.SortStableFunc(refs, func(x, y ref) int {
+			a := s.overviews[x.wi].Sessions[x.si]
+			b := s.overviews[y.wi].Sessions[y.si]
+			return cmp.Compare(b.UpdatedAt, a.UpdatedAt)
 		})
 	}
 	byUpdatedDesc(blocked)
@@ -1024,7 +1025,7 @@ func (s *SessionsSidebar) lookupSession(id string) (target SessionTarget, busy, 
 
 // sortTargets orders targets by session id for deterministic processing.
 func sortTargets(targets []SessionTarget) {
-	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
+	slices.SortFunc(targets, func(a, b SessionTarget) int { return cmp.Compare(a.ID, b.ID) })
 }
 
 func (s *SessionsSidebar) SetCurrentRoot(root string) {

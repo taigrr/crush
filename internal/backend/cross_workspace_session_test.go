@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -18,7 +17,7 @@ import (
 // only by its files, not open anywhere.
 func newDetachedWorkspaceDB(t *testing.T, ids ...string) string {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	dataDir := t.TempDir()
 	conn, err := db.Connect(ctx, dataDir)
 	require.NoError(t, err)
@@ -44,7 +43,7 @@ func reopenSession(t *testing.T, dataDir, id string) session.Session {
 	require.NotNil(t, conn)
 	t.Cleanup(func() { _ = conn.Close() })
 	svc := session.NewService(db.New(conn), conn)
-	s, err := svc.Get(context.Background(), id)
+	s, err := svc.Get(t.Context(), id)
 	require.NoError(t, err)
 	return s
 }
@@ -61,7 +60,7 @@ func newTestBackendWithRegistry(t *testing.T) *Backend {
 // visible on reopen.
 func TestArchiveSession_DetachedWorkspace(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dataDir := newDetachedWorkspaceDB(t, "s1")
 	b := newTestBackendWithRegistry(t)
@@ -78,7 +77,7 @@ func TestArchiveSession_DetachedWorkspace(t *testing.T) {
 // detached workspace bumps last_seen_at so its unread state clears.
 func TestMarkSessionSeen_DetachedWorkspace(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dataDir := newDetachedWorkspaceDB(t, "s1")
 	b := newTestBackendWithRegistry(t)
@@ -96,7 +95,7 @@ func TestMarkSessionSeen_DetachedWorkspace(t *testing.T) {
 // session service.
 func TestWithWorkspaceSession_DetachedBranch(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	b := newTestBackendWithRegistry(t)
 	dataDir := newDetachedWorkspaceDB(t, "s1")
@@ -119,7 +118,7 @@ func TestWithWorkspaceSession_DetachedBranch(t *testing.T) {
 // prunes snapshot refs via a checkpoint service not wired in this stub.
 func TestMarkSessionSeen_AttachedByRootUsesLiveService(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dataDir := t.TempDir()
 	conn, err := db.Connect(ctx, dataDir)
@@ -154,7 +153,7 @@ func TestMarkSessionSeen_AttachedByRootUsesLiveService(t *testing.T) {
 
 func mustGet(t *testing.T, svc session.Service, id string) session.Session {
 	t.Helper()
-	s, err := svc.Get(context.Background(), id)
+	s, err := svc.Get(t.Context(), id)
 	require.NoError(t, err)
 	return s
 }
@@ -163,7 +162,7 @@ func mustGet(t *testing.T, svc session.Service, id string) session.Session {
 // panic) when neither an attached id nor a matching registry root resolves.
 func TestArchiveSession_UnknownWorkspace(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 	b := newTestBackendWithRegistry(t)
 
 	err := b.ArchiveSession(ctx, "no-such-id", "/proj/missing", "s1")
@@ -175,7 +174,7 @@ func TestArchiveSession_UnknownWorkspace(t *testing.T) {
 // error rather than panicking, so a batch can continue.
 func TestArchiveSession_DetachedMissingDBFailsGracefully(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 	b := newTestBackendWithRegistry(t)
 	// Register a data dir with no crush.db in it.
 	require.NoError(t, b.registry.Add(registry.Entry{Root: "/proj/empty", DataDir: t.TempDir()}))
@@ -189,7 +188,7 @@ func TestArchiveSession_DetachedMissingDBFailsGracefully(t *testing.T) {
 // detached workspace; the good one still lands even though the other fails.
 func TestArchiveSession_DetachedOneFailureDoesNotBlockOthers(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 	b := newTestBackendWithRegistry(t)
 
 	dataDir := newDetachedWorkspaceDB(t, "ok")

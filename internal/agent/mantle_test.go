@@ -2,7 +2,6 @@ package agent
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"net/http"
 	"testing"
@@ -31,7 +30,7 @@ func TestMantleErrorTransport_RewritesStatusAndPreservesBody(t *testing.T) {
 		return newJSONResponse(http.StatusOK, body), nil
 	})}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example/v1/chat/completions", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://example/v1/chat/completions", nil)
 	require.NoError(t, err)
 	resp, err := tr.RoundTrip(req)
 	require.NoError(t, err)
@@ -51,7 +50,7 @@ func TestMantleErrorTransport_LeavesSuccessUntouched(t *testing.T) {
 		return newJSONResponse(http.StatusOK, body), nil
 	})}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example/v1/chat/completions", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://example/v1/chat/completions", nil)
 	require.NoError(t, err)
 	resp, err := tr.RoundTrip(req)
 	require.NoError(t, err)
@@ -74,7 +73,7 @@ func TestMantleErrorTransport_IgnoresNonJSON(t *testing.T) {
 		}, nil
 	})}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example/v1/chat/completions", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://example/v1/chat/completions", nil)
 	require.NoError(t, err)
 	resp, err := tr.RoundTrip(req)
 	require.NoError(t, err)

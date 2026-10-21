@@ -24,85 +24,34 @@ import (
 // ListWorkspaces retrieves all workspaces from the server.
 func (c *Client) ListWorkspaces(ctx context.Context) ([]proto.Workspace, error) {
 	rsp, err := c.get(ctx, "/workspaces", nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list workspaces: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to list workspaces: status code %d", rsp.StatusCode)
-	}
-	var workspaces []proto.Workspace
-	if err := json.NewDecoder(rsp.Body).Decode(&workspaces); err != nil {
-		return nil, fmt.Errorf("failed to decode workspaces: %w", err)
-	}
-	return workspaces, nil
+	return decodeResponse[[]proto.Workspace](rsp, err, "list workspaces")
 }
 
 // ListWorkspaceOverviews lists all known workspaces (attached and
 // registry-known) with their sessions for the cross-workspace picker.
 func (c *Client) ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error) {
 	rsp, err := c.get(ctx, "/workspace-overviews", nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list workspace overviews: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to list workspace overviews: status code %d", rsp.StatusCode)
-	}
-	var overviews []proto.WorkspaceOverview
-	if err := json.NewDecoder(rsp.Body).Decode(&overviews); err != nil {
-		return nil, fmt.Errorf("failed to decode workspace overviews: %w", err)
-	}
-	return overviews, nil
+	return decodeResponse[[]proto.WorkspaceOverview](rsp, err, "list workspace overviews")
 }
 
 // CreateWorkspace creates a new workspace on the server.
 func (c *Client) CreateWorkspace(ctx context.Context, ws proto.Workspace) (*proto.Workspace, error) {
 	ws.ClientID = c.clientID
-	rsp, err := c.post(ctx, "/workspaces", nil, jsonBody(ws), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create workspace: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to create workspace: status code %d", rsp.StatusCode)
-	}
-	var created proto.Workspace
-	if err := json.NewDecoder(rsp.Body).Decode(&created); err != nil {
-		return nil, fmt.Errorf("failed to decode workspace: %w", err)
-	}
-	return &created, nil
+	rsp, err := c.post(ctx, "/workspaces", nil, jsonBody(ws), jsonHeader())
+	return decodeResponse[*proto.Workspace](rsp, err, "create workspace")
 }
 
 // GetWorkspace retrieves a workspace from the server.
 func (c *Client) GetWorkspace(ctx context.Context, id string) (*proto.Workspace, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s", id), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get workspace: status code %d", rsp.StatusCode)
-	}
-	var ws proto.Workspace
-	if err := json.NewDecoder(rsp.Body).Decode(&ws); err != nil {
-		return nil, fmt.Errorf("failed to decode workspace: %w", err)
-	}
-	return &ws, nil
+	return decodeResponse[*proto.Workspace](rsp, err, "get workspace")
 }
 
 // DeleteWorkspace deletes a workspace on the server.
 func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
-	q := url.Values{"client_id": []string{c.clientID}}
+	q := c.clientQuery()
 	rsp, err := c.delete(ctx, fmt.Sprintf("/workspaces/%s", id), q, nil)
-	if err != nil {
-		return fmt.Errorf("failed to delete workspace: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to delete workspace: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "delete workspace")
 }
 
 // SetCurrentSession reports the client's current-session selection
@@ -111,50 +60,20 @@ func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
 // as a query parameter so the server can route the update to the
 // correct [clientState] entry.
 func (c *Client) SetCurrentSession(ctx context.Context, workspaceID, sessionID string) error {
-	q := url.Values{"client_id": []string{c.clientID}}
+	q := c.clientQuery()
 	rsp, err := c.post(
 		ctx,
 		fmt.Sprintf("/workspaces/%s/current-session", workspaceID),
 		q,
 		jsonBody(proto.CurrentSession{SessionID: sessionID}),
-		http.Header{"Content-Type": []string{"application/json"}},
+		jsonHeader(),
 	)
-	if err != nil {
-		return fmt.Errorf("failed to set current session: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to set current session: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "set current session")
 }
 
 // SubscribeEvents subscribes to server-sent events for a workspace.
 func (c *Client) SubscribeEvents(ctx context.Context, id string) (<-chan any, error) {
-	events := make(chan any, 100)
-	q := url.Values{"client_id": []string{c.clientID}}
-	//nolint:bodyclose
-	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/events", id), q, http.Header{
-		"Accept":        []string{"text/event-stream"},
-		"Cache-Control": []string{"no-cache"},
-		"Connection":    []string{"keep-alive"},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to subscribe to events: %w", err)
-	}
-
-	if rsp.StatusCode != http.StatusOK {
-		rsp.Body.Close()
-		return nil, fmt.Errorf("failed to subscribe to events: status code %d", rsp.StatusCode)
-	}
-
-	go func() {
-		defer rsp.Body.Close()
-		defer close(events)
-		streamEvents(ctx, rsp.Body, events, readErrorRetryDelay)
-	}()
-
-	return events, nil
+	return c.subscribe(ctx, fmt.Sprintf("/workspaces/%s/events", id), "subscribe to events")
 }
 
 // SubscribeGlobalEvents subscribes to the server's observe-only global
@@ -163,29 +82,32 @@ func (c *Client) SubscribeEvents(ctx context.Context, id string) (<-chan any, er
 // SubscribeEvents it is not scoped to a workspace and does not attach the
 // client to (or pin alive) any workspace.
 func (c *Client) SubscribeGlobalEvents(ctx context.Context) (<-chan any, error) {
-	events := make(chan any, 100)
-	q := url.Values{"client_id": []string{c.clientID}}
+	return c.subscribe(ctx, "/events", "subscribe to global events")
+}
+
+// subscribe opens an SSE stream at path and pumps decoded events into the
+// returned channel until ctx is done or the stream ends.
+func (c *Client) subscribe(ctx context.Context, path, op string) (<-chan any, error) {
 	//nolint:bodyclose
-	rsp, err := c.get(ctx, "/events", q, http.Header{
+	rsp, err := c.get(ctx, path, c.clientQuery(), http.Header{
 		"Accept":        []string{"text/event-stream"},
 		"Cache-Control": []string{"no-cache"},
 		"Connection":    []string{"keep-alive"},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to subscribe to global events: %w", err)
+		return nil, fmt.Errorf("failed to %s: %w", op, err)
 	}
-
-	if rsp.StatusCode != http.StatusOK {
+	if err := checkStatus(rsp, op); err != nil {
 		rsp.Body.Close()
-		return nil, fmt.Errorf("failed to subscribe to global events: status code %d", rsp.StatusCode)
+		return nil, err
 	}
 
+	events := make(chan any, 100)
 	go func() {
 		defer rsp.Body.Close()
 		defer close(events)
 		streamEvents(ctx, rsp.Body, events, readErrorRetryDelay)
 	}()
-
 	return events, nil
 }
 
@@ -338,69 +260,25 @@ func sendEvent(ctx context.Context, evc chan any, ev any) bool {
 // GetLSPDiagnostics retrieves LSP diagnostics for a specific LSP client.
 func (c *Client) GetLSPDiagnostics(ctx context.Context, id string, lspName string) (map[protocol.DocumentURI][]protocol.Diagnostic, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/lsps/%s/diagnostics", id, lspName), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get LSP diagnostics: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get LSP diagnostics: status code %d", rsp.StatusCode)
-	}
-	var diagnostics map[protocol.DocumentURI][]protocol.Diagnostic
-	if err := json.NewDecoder(rsp.Body).Decode(&diagnostics); err != nil {
-		return nil, fmt.Errorf("failed to decode LSP diagnostics: %w", err)
-	}
-	return diagnostics, nil
+	return decodeResponse[map[protocol.DocumentURI][]protocol.Diagnostic](rsp, err, "get LSP diagnostics")
 }
 
 // GetLSPs retrieves the LSP client states for a workspace.
 func (c *Client) GetLSPs(ctx context.Context, id string) (map[string]proto.LSPClientInfo, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/lsps", id), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get LSPs: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get LSPs: status code %d", rsp.StatusCode)
-	}
-	var lsps map[string]proto.LSPClientInfo
-	if err := json.NewDecoder(rsp.Body).Decode(&lsps); err != nil {
-		return nil, fmt.Errorf("failed to decode LSPs: %w", err)
-	}
-	return lsps, nil
+	return decodeResponse[map[string]proto.LSPClientInfo](rsp, err, "get LSPs")
 }
 
 // MCPGetStates retrieves the MCP client states for a workspace.
 func (c *Client) MCPGetStates(ctx context.Context, id string) (map[string]proto.MCPClientInfo, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/mcp/states", id), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get MCP states: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get MCP states: status code %d", rsp.StatusCode)
-	}
-	var states map[string]proto.MCPClientInfo
-	if err := json.NewDecoder(rsp.Body).Decode(&states); err != nil {
-		return nil, fmt.Errorf("failed to decode MCP states: %w", err)
-	}
-	return states, nil
+	return decodeResponse[map[string]proto.MCPClientInfo](rsp, err, "get MCP states")
 }
 
 // SkillsGetStates retrieves the skill discovery states for a workspace.
 func (c *Client) SkillsGetStates(ctx context.Context, id string) ([]proto.SkillState, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/skills/states", id), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get skill states: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get skill states: status code %d", rsp.StatusCode)
-	}
-	var states []proto.SkillState
-	if err := json.NewDecoder(rsp.Body).Decode(&states); err != nil {
-		return nil, fmt.Errorf("failed to decode skill states: %w", err)
-	}
-	return states, nil
+	return decodeResponse[[]proto.SkillState](rsp, err, "get skill states")
 }
 
 // MCPRefreshPrompts refreshes prompts for a named MCP client.
@@ -409,15 +287,8 @@ func (c *Client) MCPRefreshPrompts(ctx context.Context, id, name string) error {
 		jsonBody(struct {
 			Name string `json:"name"`
 		}{Name: name}),
-		http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to refresh MCP prompts: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to refresh MCP prompts: status code %d", rsp.StatusCode)
-	}
-	return nil
+		jsonHeader())
+	return checkResponse(rsp, err, "refresh MCP prompts")
 }
 
 // MCPRefreshResources refreshes resources for a named MCP client.
@@ -426,46 +297,21 @@ func (c *Client) MCPRefreshResources(ctx context.Context, id, name string) error
 		jsonBody(struct {
 			Name string `json:"name"`
 		}{Name: name}),
-		http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to refresh MCP resources: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to refresh MCP resources: status code %d", rsp.StatusCode)
-	}
-	return nil
+		jsonHeader())
+	return checkResponse(rsp, err, "refresh MCP resources")
 }
 
 // GetAgentSessionQueuedPrompts retrieves the number of queued prompts for a
 // session.
 func (c *Client) GetAgentSessionQueuedPrompts(ctx context.Context, id string, sessionID string) (int, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/prompts/queued", id, sessionID), nil, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get session agent queued prompts: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("failed to get session agent queued prompts: status code %d", rsp.StatusCode)
-	}
-	var count int
-	if err := json.NewDecoder(rsp.Body).Decode(&count); err != nil {
-		return 0, fmt.Errorf("failed to decode session agent queued prompts: %w", err)
-	}
-	return count, nil
+	return decodeResponse[int](rsp, err, "get session agent queued prompts")
 }
 
 // ClearAgentSessionQueuedPrompts clears the queued prompts for a session.
 func (c *Client) ClearAgentSessionQueuedPrompts(ctx context.Context, id string, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/prompts/clear", id, sessionID), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to clear session agent queued prompts: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to clear session agent queued prompts: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "clear session agent queued prompts")
 }
 
 // DropQueuedRun removes the still-queued prompt sent with runID without
@@ -491,72 +337,28 @@ func (c *Client) DropQueuedRun(ctx context.Context, id, sessionID, runID string)
 // a backfill under the active embedding model.
 func (c *Client) EmbeddingsPending(ctx context.Context, id string) (int, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/embeddings/pending", id), nil, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get pending embeddings: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("failed to get pending embeddings: status code %d", rsp.StatusCode)
-	}
-	var count int
-	if err := json.NewDecoder(rsp.Body).Decode(&count); err != nil {
-		return 0, fmt.Errorf("failed to decode pending embeddings: %w", err)
-	}
-	return count, nil
+	return decodeResponse[int](rsp, err, "get pending embeddings")
 }
 
 // BackfillEmbeddings embeds past messages lacking a vector and returns
 // the count embedded.
 func (c *Client) BackfillEmbeddings(ctx context.Context, id string) (int, error) {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/embeddings/backfill", id), nil, nil, nil)
-	if err != nil {
-		return 0, fmt.Errorf("failed to backfill embeddings: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("failed to backfill embeddings: status code %d", rsp.StatusCode)
-	}
-	var count int
-	if err := json.NewDecoder(rsp.Body).Decode(&count); err != nil {
-		return 0, fmt.Errorf("failed to decode backfill result: %w", err)
-	}
-	return count, nil
+	return decodeResponse[int](rsp, err, "backfill embeddings")
 }
 
 // EmbeddingStatus returns the embedding index state for a workspace.
 func (c *Client) EmbeddingStatus(ctx context.Context, id string) (proto.EmbeddingStatus, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/embeddings/status", id), nil, nil)
-	if err != nil {
-		return proto.EmbeddingStatus{}, fmt.Errorf("failed to get embedding status: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return proto.EmbeddingStatus{}, fmt.Errorf("failed to get embedding status: status code %d", rsp.StatusCode)
-	}
-	var status proto.EmbeddingStatus
-	if err := json.NewDecoder(rsp.Body).Decode(&status); err != nil {
-		return proto.EmbeddingStatus{}, fmt.Errorf("failed to decode embedding status: %w", err)
-	}
-	return status, nil
+	return decodeResponse[proto.EmbeddingStatus](rsp, err, "get embedding status")
 }
 
 // SearchHistory runs hybrid history search over a workspace and returns
 // per-session hits.
 func (c *Client) SearchHistory(ctx context.Context, id string, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error) {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/history/search", id), nil, jsonBody(params),
-		http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return proto.SearchHistoryResult{}, fmt.Errorf("failed to search history: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return proto.SearchHistoryResult{}, fmt.Errorf("failed to search history: status code %d", rsp.StatusCode)
-	}
-	var res proto.SearchHistoryResult
-	if err := json.NewDecoder(rsp.Body).Decode(&res); err != nil {
-		return proto.SearchHistoryResult{}, fmt.Errorf("failed to decode search result: %w", err)
-	}
-	return res, nil
+		jsonHeader())
+	return decodeResponse[proto.SearchHistoryResult](rsp, err, "search history")
 }
 
 // PeekMessages returns a session's messages from the workspace rooted at
@@ -565,7 +367,7 @@ func (c *Client) SearchHistory(ctx context.Context, id string, params proto.Sear
 // session outside the currently-attached workspace.
 func (c *Client) PeekMessages(ctx context.Context, root, sessionID string) ([]proto.Message, error) {
 	rsp, err := c.post(ctx, "/peek-messages", nil, jsonBody(proto.PeekMessagesParams{Root: root, SessionID: sessionID}),
-		http.Header{"Content-Type": []string{"application/json"}})
+		jsonHeader())
 	if err != nil {
 		return nil, fmt.Errorf("failed to peek messages: %w", err)
 	}
@@ -587,7 +389,7 @@ func (c *Client) PeekMessages(ctx context.Context, root, sessionID string) ([]pr
 // info-sidebar for a session outside the currently-attached workspace.
 func (c *Client) PeekSessionInfo(ctx context.Context, root, sessionID string) (proto.PeekSessionInfoResult, error) {
 	rsp, err := c.post(ctx, "/peek-session-info", nil, jsonBody(proto.PeekMessagesParams{Root: root, SessionID: sessionID}),
-		http.Header{"Content-Type": []string{"application/json"}})
+		jsonHeader())
 	if err != nil {
 		return proto.PeekSessionInfoResult{}, fmt.Errorf("failed to peek session info: %w", err)
 	}
@@ -605,18 +407,7 @@ func (c *Client) PeekSessionInfo(ctx context.Context, root, sessionID string) (p
 // GetAgentSessionGoal retrieves the active autonomous goal for a session.
 func (c *Client) GetAgentSessionGoal(ctx context.Context, id, sessionID string) (proto.GoalStatus, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal", id, sessionID), nil, nil)
-	if err != nil {
-		return proto.GoalStatus{}, fmt.Errorf("failed to get session goal: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return proto.GoalStatus{}, fmt.Errorf("failed to get session goal: status code %d", rsp.StatusCode)
-	}
-	var status proto.GoalStatus
-	if err := json.NewDecoder(rsp.Body).Decode(&status); err != nil {
-		return proto.GoalStatus{}, fmt.Errorf("failed to decode session goal: %w", err)
-	}
-	return status, nil
+	return decodeResponse[proto.GoalStatus](rsp, err, "get session goal")
 }
 
 // SetAgentSessionGoal sets (or clears, when condition is blank) the
@@ -624,15 +415,8 @@ func (c *Client) GetAgentSessionGoal(ctx context.Context, id, sessionID string) 
 func (c *Client) SetAgentSessionGoal(ctx context.Context, id, sessionID, condition string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal", id, sessionID), nil, jsonBody(proto.SetGoalRequest{
 		Condition: condition,
-	}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to set session goal: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to set session goal: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}), jsonHeader())
+	return checkResponse(rsp, err, "set session goal")
 }
 
 // SetAgentSessionWorkingDir sets the working directory tools run in for a
@@ -640,58 +424,26 @@ func (c *Client) SetAgentSessionGoal(ctx context.Context, id, sessionID, conditi
 func (c *Client) SetAgentSessionWorkingDir(ctx context.Context, id, sessionID, dir string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/cwd", id, sessionID), nil, jsonBody(proto.SetWorkingDirRequest{
 		WorkingDir: dir,
-	}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to set session working dir: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to set session working dir: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}), jsonHeader())
+	return checkResponse(rsp, err, "set session working dir")
 }
 
 // ClearAgentSessionGoal clears the active autonomous goal for a session.
 func (c *Client) ClearAgentSessionGoal(ctx context.Context, id, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal/clear", id, sessionID), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to clear session goal: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to clear session goal: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "clear session goal")
 }
 
 // GetAgentInfo retrieves the agent status for a workspace.
 func (c *Client) GetAgentInfo(ctx context.Context, id string) (*proto.AgentInfo, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent", id), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get agent status: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get agent status: status code %d", rsp.StatusCode)
-	}
-	var info proto.AgentInfo
-	if err := json.NewDecoder(rsp.Body).Decode(&info); err != nil {
-		return nil, fmt.Errorf("failed to decode agent status: %w", err)
-	}
-	return &info, nil
+	return decodeResponse[*proto.AgentInfo](rsp, err, "get agent status")
 }
 
 // UpdateAgent triggers an agent model update on the server.
 func (c *Client) UpdateAgent(ctx context.Context, id string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/update", id), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to update agent: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to update agent: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "update agent")
 }
 
 // SendMessage sends a message to the agent for a workspace.
@@ -714,7 +466,7 @@ func (c *Client) SendMessage(ctx context.Context, id string, sessionID, runID, p
 // always overwritten with this client's ID.
 func (c *Client) SendAgentMessage(ctx context.Context, id string, msg proto.AgentMessage) error {
 	msg.ClientID = c.clientID
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent", id), nil, jsonBody(msg), http.Header{"Content-Type": []string{"application/json"}})
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent", id), nil, jsonBody(msg), jsonHeader())
 	if err != nil {
 		return fmt.Errorf("failed to send message to agent: %w", err)
 	}
@@ -733,19 +485,8 @@ func (c *Client) RunShellCommand(ctx context.Context, id, sessionID, command str
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/shell", id, sessionID), nil, jsonBody(proto.ShellCommandRequest{
 		Command:  command,
 		ClientID: c.clientID,
-	}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return proto.ShellCommandResponse{}, fmt.Errorf("failed to run shell command: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return proto.ShellCommandResponse{}, fmt.Errorf("failed to run shell command: status code %d", rsp.StatusCode)
-	}
-	var resp proto.ShellCommandResponse
-	if err := json.NewDecoder(rsp.Body).Decode(&resp); err != nil {
-		return proto.ShellCommandResponse{}, fmt.Errorf("failed to decode shell command response: %w", err)
-	}
-	return resp, nil
+	}), jsonHeader())
+	return decodeResponse[proto.ShellCommandResponse](rsp, err, "run shell command")
 }
 
 // decodeErrorMessage attempts to decode the response body as a
@@ -787,74 +528,31 @@ func (c *Client) ResolveSwarmAddress(ctx context.Context, address string) (proto
 // session (or any of its sub-agent sessions) is blocked on.
 func (c *Client) GetPendingPrompts(ctx context.Context, id, sessionID string) (proto.PendingPrompts, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/pending", id, sessionID), nil, nil)
-	if err != nil {
-		return proto.PendingPrompts{}, fmt.Errorf("failed to get pending prompts: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return proto.PendingPrompts{}, fmt.Errorf("failed to get pending prompts: status code %d", rsp.StatusCode)
-	}
-	var pending proto.PendingPrompts
-	if err := json.NewDecoder(rsp.Body).Decode(&pending); err != nil {
-		return proto.PendingPrompts{}, fmt.Errorf("failed to decode pending prompts: %w", err)
-	}
-	return pending, nil
+	return decodeResponse[proto.PendingPrompts](rsp, err, "get pending prompts")
 }
 
 // GetAgentSessionInfo retrieves the agent session info for a workspace.
 func (c *Client) GetAgentSessionInfo(ctx context.Context, id string, sessionID string) (*proto.AgentSession, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s", id, sessionID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session agent info: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get session agent info: status code %d", rsp.StatusCode)
-	}
-	var info proto.AgentSession
-	if err := json.NewDecoder(rsp.Body).Decode(&info); err != nil {
-		return nil, fmt.Errorf("failed to decode session agent info: %w", err)
-	}
-	return &info, nil
+	return decodeResponse[*proto.AgentSession](rsp, err, "get session agent info")
 }
 
 // AgentSummarizeSession requests a session summarization.
 func (c *Client) AgentSummarizeSession(ctx context.Context, id string, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/summarize", id, sessionID), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to summarize session: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to summarize session: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "summarize session")
 }
 
 // AgentGenerateTitle requests a session title regeneration.
 func (c *Client) AgentGenerateTitle(ctx context.Context, id string, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/title", id, sessionID), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to regenerate session title: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to regenerate session title: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "regenerate session title")
 }
 
 // InitiateAgentProcessing triggers agent initialization on the server.
 func (c *Client) InitiateAgentProcessing(ctx context.Context, id string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/init", id), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to initiate session agent processing: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to initiate session agent processing: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "initiate session agent processing")
 }
 
 // ListMessages retrieves all messages for a session as proto types.
@@ -877,35 +575,13 @@ func (c *Client) ListMessages(ctx context.Context, id string, sessionID string) 
 // GetSession retrieves a specific session as a proto type.
 func (c *Client) GetSession(ctx context.Context, id string, sessionID string) (*proto.Session, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s", id, sessionID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get session: status code %d", rsp.StatusCode)
-	}
-	var sess proto.Session
-	if err := json.NewDecoder(rsp.Body).Decode(&sess); err != nil {
-		return nil, fmt.Errorf("failed to decode session: %w", err)
-	}
-	return &sess, nil
+	return decodeResponse[*proto.Session](rsp, err, "get session")
 }
 
 // ListSessionHistoryFiles retrieves history files for a session as proto types.
 func (c *Client) ListSessionHistoryFiles(ctx context.Context, id string, sessionID string) ([]proto.File, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/history", id, sessionID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session history files: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get session history files: status code %d", rsp.StatusCode)
-	}
-	var files []proto.File
-	if err := json.NewDecoder(rsp.Body).Decode(&files); err != nil {
-		return nil, fmt.Errorf("failed to decode session history files: %w", err)
-	}
-	return files, nil
+	return decodeResponse[[]proto.File](rsp, err, "get session history files")
 }
 
 // CreateSession creates a new session in a workspace as a proto type.
@@ -917,7 +593,7 @@ func (c *Client) CreateSession(ctx context.Context, id string, title string) (*p
 // name, "provider/model", or a bare model id) instead of the workspace's
 // large model. An empty modelRef uses the large model.
 func (c *Client) CreateSessionWithModel(ctx context.Context, id, title, modelRef string) (*proto.Session, error) {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions", id), nil, jsonBody(proto.Session{Title: title, ModelRef: modelRef}), http.Header{"Content-Type": []string{"application/json"}})
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions", id), nil, jsonBody(proto.Session{Title: title, ModelRef: modelRef}), jsonHeader())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
@@ -938,68 +614,24 @@ func (c *Client) CreateSessionWithModel(ctx context.Context, id, title, modelRef
 // ListSessions lists all sessions in a workspace as proto types.
 func (c *Client) ListSessions(ctx context.Context, id string) ([]proto.Session, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions", id), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get sessions: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get sessions: status code %d", rsp.StatusCode)
-	}
-	var sessions []proto.Session
-	if err := json.NewDecoder(rsp.Body).Decode(&sessions); err != nil {
-		return nil, fmt.Errorf("failed to decode sessions: %w", err)
-	}
-	return sessions, nil
+	return decodeResponse[[]proto.Session](rsp, err, "get sessions")
 }
 
 func (c *Client) ListSessionImportSources(ctx context.Context) ([]proto.SessionImportSources, error) {
 	rsp, err := c.get(ctx, "/session-import/sources", nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list session import sources: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to list session import sources: status code %d", rsp.StatusCode)
-	}
-	var sources []proto.SessionImportSources
-	if err := json.NewDecoder(rsp.Body).Decode(&sources); err != nil {
-		return nil, fmt.Errorf("failed to decode session import sources: %w", err)
-	}
-	return sources, nil
+	return decodeResponse[[]proto.SessionImportSources](rsp, err, "list session import sources")
 }
 
 func (c *Client) DiscoverSessionImports(ctx context.Context, source string) ([]proto.SessionImportCandidate, error) {
 	query := url.Values{}
 	query.Set("source", source)
 	rsp, err := c.get(ctx, "/session-import/candidates", query, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover session imports: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to discover session imports: status code %d", rsp.StatusCode)
-	}
-	var candidates []proto.SessionImportCandidate
-	if err := json.NewDecoder(rsp.Body).Decode(&candidates); err != nil {
-		return nil, fmt.Errorf("failed to decode session imports: %w", err)
-	}
-	return candidates, nil
+	return decodeResponse[[]proto.SessionImportCandidate](rsp, err, "discover session imports")
 }
 
 func (c *Client) ImportSessions(ctx context.Context, id string, paths []string, from string) ([]proto.SessionImportResult, error) {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/session-import", id), nil, jsonBody(proto.SessionImportRequest{Paths: paths, Source: from}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return nil, fmt.Errorf("failed to import sessions: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to import sessions: status code %d", rsp.StatusCode)
-	}
-	var results []proto.SessionImportResult
-	if err := json.NewDecoder(rsp.Body).Decode(&results); err != nil {
-		return nil, fmt.Errorf("failed to decode session import results: %w", err)
-	}
-	return results, nil
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/session-import", id), nil, jsonBody(proto.SessionImportRequest{Paths: paths, Source: from}), jsonHeader())
+	return decodeResponse[[]proto.SessionImportResult](rsp, err, "import sessions")
 }
 
 // GrantPermission grants a permission on a workspace. The returned
@@ -1008,7 +640,7 @@ func (c *Client) ImportSessions(ctx context.Context, id string, paths []string, 
 // value is not an error — it just means another subscriber resolved
 // the same request first.
 func (c *Client) GrantPermission(ctx context.Context, id string, req proto.PermissionGrant) (bool, error) {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/permissions/grant", id), nil, jsonBody(req), http.Header{"Content-Type": []string{"application/json"}})
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/permissions/grant", id), nil, jsonBody(req), jsonHeader())
 	if err != nil {
 		return false, fmt.Errorf("failed to grant permission: %w", err)
 	}
@@ -1029,7 +661,7 @@ func (c *Client) GrantPermission(ctx context.Context, id string, req proto.Permi
 // (false). A false value is not an error — it just means another
 // subscriber resolved the same request first.
 func (c *Client) AnswerQuestion(ctx context.Context, id string, req proto.QuestionAnswer) (bool, error) {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/questions/answer", id), nil, jsonBody(req), http.Header{"Content-Type": []string{"application/json"}})
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/questions/answer", id), nil, jsonBody(req), jsonHeader())
 	if err != nil {
 		return false, fmt.Errorf("failed to answer question: %w", err)
 	}
@@ -1046,15 +678,8 @@ func (c *Client) AnswerQuestion(ctx context.Context, id string, req proto.Questi
 
 // SetPermissionsSkipRequests sets the skip-requests flag for a workspace.
 func (c *Client) SetPermissionsSkipRequests(ctx context.Context, id string, skip bool) error {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/permissions/skip", id), nil, jsonBody(proto.PermissionSkipRequest{Skip: skip}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to set permissions skip requests: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to set permissions skip requests: status code %d", rsp.StatusCode)
-	}
-	return nil
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/permissions/skip", id), nil, jsonBody(proto.PermissionSkipRequest{Skip: skip}), jsonHeader())
+	return checkResponse(rsp, err, "set permissions skip requests")
 }
 
 // GetPermissionsSkipRequests retrieves the skip-requests flag for a workspace.
@@ -1076,15 +701,8 @@ func (c *Client) GetPermissionsSkipRequests(ctx context.Context, id string) (boo
 
 // SetPermissionsSysadminMode toggles ephemeral sysadmin mode for a workspace.
 func (c *Client) SetPermissionsSysadminMode(ctx context.Context, id string, enabled bool) error {
-	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/permissions/sysadmin", id), nil, jsonBody(proto.PermissionSysadminRequest{Sysadmin: enabled}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to set permissions sysadmin mode: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to set permissions sysadmin mode: status code %d", rsp.StatusCode)
-	}
-	return nil
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/permissions/sysadmin", id), nil, jsonBody(proto.PermissionSysadminRequest{Sysadmin: enabled}), jsonHeader())
+	return checkResponse(rsp, err, "set permissions sysadmin mode")
 }
 
 // GetPermissionsSysadminMode retrieves the sysadmin mode flag for a workspace.
@@ -1107,31 +725,13 @@ func (c *Client) GetPermissionsSysadminMode(ctx context.Context, id string) (boo
 // ReloadConfig reloads the workspace config from disk on the server.
 func (c *Client) ReloadConfig(ctx context.Context, id string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/config/reload", id), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to reload config: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to reload config: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "reload config")
 }
 
 // GetConfig retrieves the workspace-specific configuration.
 func (c *Client) GetConfig(ctx context.Context, id string) (*config.Config, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/config", id), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get config: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get config: status code %d", rsp.StatusCode)
-	}
-	var cfg config.Config
-	if err := json.NewDecoder(rsp.Body).Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("failed to decode config: %w", err)
-	}
-	return &cfg, nil
+	return decodeResponse[*config.Config](rsp, err, "get config")
 }
 
 func jsonBody(v any) *bytes.Buffer {
@@ -1143,32 +743,14 @@ func jsonBody(v any) *bytes.Buffer {
 
 // SaveSession updates a session in a workspace, returning a proto type.
 func (c *Client) SaveSession(ctx context.Context, id string, sess proto.Session) (*proto.Session, error) {
-	rsp, err := c.put(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s", id, sess.ID), nil, jsonBody(sess), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return nil, fmt.Errorf("failed to save session: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to save session: status code %d", rsp.StatusCode)
-	}
-	var saved proto.Session
-	if err := json.NewDecoder(rsp.Body).Decode(&saved); err != nil {
-		return nil, fmt.Errorf("failed to decode session: %w", err)
-	}
-	return &saved, nil
+	rsp, err := c.put(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s", id, sess.ID), nil, jsonBody(sess), jsonHeader())
+	return decodeResponse[*proto.Session](rsp, err, "save session")
 }
 
 // DeleteSession deletes a session from a workspace.
 func (c *Client) DeleteSession(ctx context.Context, id string, sessionID string) error {
 	rsp, err := c.delete(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s", id, sessionID), nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to delete session: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to delete session: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "delete session")
 }
 
 // detachedWorkspacePathID is the placeholder used in the {id} path
@@ -1203,28 +785,14 @@ func rootQuery(root string) url.Values {
 // request is routed to the detached workspace at root.
 func (c *Client) ArchiveSession(ctx context.Context, id, root, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/archive", workspacePathID(id), sessionID), rootQuery(root), nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to archive session: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to archive session: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "archive session")
 }
 
 // MarkSessionSeen marks a session as read in a workspace. When id is empty
 // the request is routed to the detached workspace at root.
 func (c *Client) MarkSessionSeen(ctx context.Context, id, root, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/seen", workspacePathID(id), sessionID), rootQuery(root), nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to mark session seen: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to mark session seen: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "mark session seen")
 }
 
 // SetSessionFavorite pins or unpins a session in a workspace. When id is
@@ -1236,28 +804,14 @@ func (c *Client) SetSessionFavorite(ctx context.Context, id, root, sessionID str
 	}
 	q.Set("favorite", strconv.FormatBool(favorite))
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/favorite", workspacePathID(id), sessionID), q, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to set session favorite: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to set session favorite: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "set session favorite")
 }
 
 // UnarchiveSession unarchives a session in a workspace. When id is empty
 // the request is routed to the detached workspace at root.
 func (c *Client) UnarchiveSession(ctx context.Context, id, root, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/unarchive", workspacePathID(id), sessionID), rootQuery(root), nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to unarchive session: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to unarchive session: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "unarchive session")
 }
 
 // ListArchivedSessions retrieves archived sessions for a workspace.
@@ -1314,62 +868,26 @@ func (c *Client) ListAllUserMessages(ctx context.Context, id string) ([]proto.Me
 // CancelAgentSession cancels an ongoing agent operation for a session.
 func (c *Client) CancelAgentSession(ctx context.Context, id string, sessionID string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/cancel", id, sessionID), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to cancel agent session: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to cancel agent session: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "cancel agent session")
 }
 
 // CancelAgent cancels all ongoing agent operations for a workspace.
 func (c *Client) CancelAgent(ctx context.Context, id string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/cancel", id), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to cancel agent: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to cancel agent: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "cancel agent")
 }
 
 // GetAgentSessionQueuedPromptsList retrieves the list of queued prompt
 // strings for a session.
 func (c *Client) GetAgentSessionQueuedPromptsList(ctx context.Context, id string, sessionID string) ([]string, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/prompts/list", id, sessionID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get queued prompts list: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get queued prompts list: status code %d", rsp.StatusCode)
-	}
-	var prompts []string
-	if err := json.NewDecoder(rsp.Body).Decode(&prompts); err != nil {
-		return nil, fmt.Errorf("failed to decode queued prompts list: %w", err)
-	}
-	return prompts, nil
+	return decodeResponse[[]string](rsp, err, "get queued prompts list")
 }
 
 // GetDefaultSmallModel retrieves the default small model for a provider.
 func (c *Client) GetDefaultSmallModel(ctx context.Context, id string, providerID string) (*config.SelectedModel, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/default-small-model", id), url.Values{"provider_id": []string{providerID}}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get default small model: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get default small model: status code %d", rsp.StatusCode)
-	}
-	var model config.SelectedModel
-	if err := json.NewDecoder(rsp.Body).Decode(&model); err != nil {
-		return nil, fmt.Errorf("failed to decode default small model: %w", err)
-	}
-	return &model, nil
+	return decodeResponse[*config.SelectedModel](rsp, err, "get default small model")
 }
 
 // FileTrackerRecordRead records a file read for a session.
@@ -1377,15 +895,8 @@ func (c *Client) FileTrackerRecordRead(ctx context.Context, id string, sessionID
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/filetracker/read", id), nil, jsonBody(struct {
 		SessionID string `json:"session_id"`
 		Path      string `json:"path"`
-	}{SessionID: sessionID, Path: path}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to record file read: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to record file read: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}{SessionID: sessionID, Path: path}), jsonHeader())
+	return checkResponse(rsp, err, "record file read")
 }
 
 // FileTrackerLastReadTime returns the last read time for a file in a
@@ -1395,61 +906,25 @@ func (c *Client) FileTrackerLastReadTime(ctx context.Context, id string, session
 		"session_id": []string{sessionID},
 		"path":       []string{path},
 	}, nil)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to get last read time: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return time.Time{}, fmt.Errorf("failed to get last read time: status code %d", rsp.StatusCode)
-	}
-	var t time.Time
-	if err := json.NewDecoder(rsp.Body).Decode(&t); err != nil {
-		return time.Time{}, fmt.Errorf("failed to decode last read time: %w", err)
-	}
-	return t, nil
+	return decodeResponse[time.Time](rsp, err, "get last read time")
 }
 
 // FileTrackerListReadFiles returns the list of read files for a session.
 func (c *Client) FileTrackerListReadFiles(ctx context.Context, id string, sessionID string) ([]string, error) {
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/filetracker/files", id, sessionID), nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get read files: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get read files: status code %d", rsp.StatusCode)
-	}
-	var files []string
-	if err := json.NewDecoder(rsp.Body).Decode(&files); err != nil {
-		return nil, fmt.Errorf("failed to decode read files: %w", err)
-	}
-	return files, nil
+	return decodeResponse[[]string](rsp, err, "get read files")
 }
 
 // LSPStart starts an LSP server for a path.
 func (c *Client) LSPStart(ctx context.Context, id string, path string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/lsps/start", id), nil, jsonBody(struct {
 		Path string `json:"path"`
-	}{Path: path}), http.Header{"Content-Type": []string{"application/json"}})
-	if err != nil {
-		return fmt.Errorf("failed to start LSP: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to start LSP: status code %d", rsp.StatusCode)
-	}
-	return nil
+	}{Path: path}), jsonHeader())
+	return checkResponse(rsp, err, "start LSP")
 }
 
 // LSPStopAll stops all LSP servers for a workspace.
 func (c *Client) LSPStopAll(ctx context.Context, id string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/lsps/stop", id), nil, nil, nil)
-	if err != nil {
-		return fmt.Errorf("failed to stop LSPs: %w", err)
-	}
-	defer rsp.Body.Close()
-	if rsp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to stop LSPs: status code %d", rsp.StatusCode)
-	}
-	return nil
+	return checkResponse(rsp, err, "stop LSPs")
 }

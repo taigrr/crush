@@ -30,7 +30,7 @@ func (r *recordingEmbedder) Embed(_ context.Context, _ embedding.SourceType, id,
 
 func TestIndexMessageFiltering(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	finishedUser := message.Message{ID: "u1", SessionID: "s", Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "hello"}, message.Finish{}}}
 	require.True(t, finishedUser.IsFinished())

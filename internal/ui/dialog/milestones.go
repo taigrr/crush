@@ -102,19 +102,9 @@ func (m *Milestones) HandleMsg(msg tea.Msg) Action {
 				return ActionScrollToTurn{TurnNumber: int(item.milestone.TurnNumber)}
 			}
 		case key.Matches(msg, m.keyMap.Previous):
-			if m.list.IsSelectedFirst() {
-				m.list.SelectLast()
-			} else {
-				m.list.SelectPrev()
-			}
-			m.list.ScrollToSelected()
+			selectPrevWrap(m.list)
 		case key.Matches(msg, m.keyMap.Next):
-			if m.list.IsSelectedLast() {
-				m.list.SelectFirst()
-			} else {
-				m.list.SelectNext()
-			}
-			m.list.ScrollToSelected()
+			selectNextWrap(m.list)
 		}
 	}
 	return nil
@@ -127,9 +117,7 @@ func (m *Milestones) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	height := max(0, min(defaultDialogHeight, area.Dy()-t.Dialog.View.GetVerticalBorderSize()))
 
 	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize()
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
-		t.Dialog.HelpView.GetVerticalFrameSize() +
-		t.Dialog.View.GetVerticalFrameSize()
+	heightOffset := listDialogChromeHeight(t)
 
 	m.list.SetSize(innerWidth, height-heightOffset)
 	m.help.SetWidth(innerWidth)

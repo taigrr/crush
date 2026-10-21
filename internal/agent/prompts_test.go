@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -34,7 +33,7 @@ func TestSystemPrompts_NoPanic(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		result, err := p.Build(context.Background(), "test-provider", "test-model", cfg)
+		result, err := p.Build(t.Context(), "test-provider", "test-model", cfg)
 		require.NoError(t, err)
 		require.NotEmpty(t, result)
 	})
@@ -48,7 +47,7 @@ func TestSystemPrompts_NoPanic(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		result, err := p.Build(context.Background(), "test-provider", "test-model", cfg)
+		result, err := p.Build(t.Context(), "test-provider", "test-model", cfg)
 		require.NoError(t, err)
 		require.NotEmpty(t, result)
 	})
@@ -70,7 +69,7 @@ func TestSystemPrompts_NoPanic(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		result, err := p.Build(context.Background(), "test-provider", "test-model", cfg)
+		result, err := p.Build(t.Context(), "test-provider", "test-model", cfg)
 		require.NoError(t, err)
 		require.NotEmpty(t, result)
 	})

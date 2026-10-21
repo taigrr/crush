@@ -167,13 +167,7 @@ func (m *UI) insertMCPResourceCompletion(item completions.ResourceCompletionValu
 			return nil
 		}
 
-		mimeType := item.MIMEType
-		if mimeType == "" && content.MIMEType != "" {
-			mimeType = content.MIMEType
-		}
-		if mimeType == "" {
-			mimeType = "text/plain"
-		}
+		mimeType := cmp.Or(item.MIMEType, content.MIMEType, "text/plain")
 
 		return message.Attachment{
 			FilePath: item.URI,

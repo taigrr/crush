@@ -1,12 +1,13 @@
 package themes
 
 import (
+	"cmp"
 	"fmt"
 	"image/color"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -295,8 +296,8 @@ func LoadUserThemes(dir string) (themes []UserTheme, errs []error) {
 		themes = append(themes, theme)
 	}
 
-	sort.Slice(themes, func(i, j int) bool {
-		return normalizeThemeName(themes[i].Name) < normalizeThemeName(themes[j].Name)
+	slices.SortFunc(themes, func(a, b UserTheme) int {
+		return cmp.Compare(normalizeThemeName(a.Name), normalizeThemeName(b.Name))
 	})
 	return themes, errs
 }

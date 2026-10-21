@@ -252,7 +252,7 @@ func NewViewTool(
 
 			if hasMore {
 				output += fmt.Sprintf("\n\n(File has more lines. Use 'offset' parameter to read beyond line %d)",
-					params.Offset+len(strings.Split(content, "\n")))
+					params.Offset+strings.Count(content, "\n")+1)
 			}
 			output += "\n</file>\n"
 			output += getDiagnostics(filePath, lspManager)

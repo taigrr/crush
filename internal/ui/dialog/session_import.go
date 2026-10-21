@@ -180,29 +180,17 @@ func (s *SessionImport) handleSessionsKey(msg tea.KeyPressMsg) Action {
 		s.loading = true
 		return ActionCmd{s.importCmd(paths)}
 	default:
-		var cmd tea.Cmd
-		s.input, cmd = s.input.Update(msg)
-		s.list.SetFilter(s.input.Value())
-		s.list.ScrollToTop()
-		s.list.SetSelected(0)
-		return ActionCmd{cmd}
+		return filterOnInput(&s.input, s.list, msg)
 	}
 	return nil
 }
 
 func (s *SessionImport) move(delta int) {
 	if delta < 0 {
-		if s.list.IsSelectedFirst() {
-			s.list.SelectLast()
-		} else {
-			s.list.SelectPrev()
-		}
-	} else if s.list.IsSelectedLast() {
-		s.list.SelectFirst()
+		selectPrevWrap(s.list)
 	} else {
-		s.list.SelectNext()
+		selectNextWrap(s.list)
 	}
-	s.list.ScrollToSelected()
 }
 
 func (s *SessionImport) discoverCmd(source sessionimport.SourceInfo) tea.Cmd {

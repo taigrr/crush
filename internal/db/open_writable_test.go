@@ -1,7 +1,6 @@
 package db
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -31,7 +30,7 @@ func TestOpenWritable_MissingDirectoryReturnsNil(t *testing.T) {
 // that an UPDATE persists, visible on a fresh read-only reopen.
 func TestOpenWritable_WritesLandWithoutMigrations(t *testing.T) {
 	t.Cleanup(ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create a real (migrated) database, then fully release it so it is
 	// closed on disk — the detached scenario.
@@ -69,7 +68,7 @@ func TestOpenWritable_WritesLandWithoutMigrations(t *testing.T) {
 // a one-shot write cannot interleave with an attach/teardown in-process.
 func TestOpenWritable_RefusesWhenPooled(t *testing.T) {
 	t.Cleanup(ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dataDir := t.TempDir()
 	conn, err := Connect(ctx, dataDir)

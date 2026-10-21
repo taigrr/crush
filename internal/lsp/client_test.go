@@ -103,9 +103,9 @@ func TestNilClient(t *testing.T) {
 	require.False(t, c.HandlesFile("/some/file.go"))
 	require.Equal(t, DiagnosticCounts{}, c.GetDiagnosticCounts())
 	require.Nil(t, c.GetDiagnostics())
-	require.Nil(t, c.OpenFileOnDemand(context.Background(), "/some/file.go"))
-	require.Nil(t, c.NotifyChange(context.Background(), "/some/file.go"))
-	c.WaitForDiagnostics(context.Background(), time.Second)
+	require.Nil(t, c.OpenFileOnDemand(t.Context(), "/some/file.go"))
+	require.Nil(t, c.NotifyChange(t.Context(), "/some/file.go"))
+	c.WaitForDiagnostics(t.Context(), time.Second)
 }
 
 func newTestClient() *Client {
@@ -198,5 +198,5 @@ func TestWaitForDiagnostics_NilClient(t *testing.T) {
 
 	var c *Client
 	// Should not panic.
-	c.WaitForDiagnostics(context.Background(), time.Second)
+	c.WaitForDiagnostics(t.Context(), time.Second)
 }

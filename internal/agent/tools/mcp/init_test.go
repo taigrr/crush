@@ -30,11 +30,11 @@ func TestMCPSession_CancelOnClose(t *testing.T) {
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server"}, nil)
-	serverSession, err := server.Connect(context.Background(), serverTransport, nil)
+	serverSession, err := server.Connect(t.Context(), serverTransport, nil)
 	require.NoError(t, err)
 	defer serverSession.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "crush-test"}, nil)
 	clientSession, err := client.Connect(ctx, clientTransport, nil)

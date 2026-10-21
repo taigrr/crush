@@ -1,7 +1,6 @@
 package db
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -10,7 +9,7 @@ import (
 
 func TestChangelog_RecordsSessionMutations(t *testing.T) {
 	t.Cleanup(ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 	conn, err := Connect(ctx, TempDataDir(t))
 	require.NoError(t, err)
 

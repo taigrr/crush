@@ -7,10 +7,7 @@ import (
 	"github.com/taigrr/catwalk/pkg/embedded"
 )
 
-var (
-	providerOnce sync.Once
-	providerList []catwalk.Provider
-)
+var embeddedProviders = sync.OnceValue(embedded.GetAll)
 
 // UpdateProviders is a no-op kept for CLI compatibility.
 func UpdateProviders(_ string) error {
@@ -34,8 +31,5 @@ func Providers(cfg *Config) ([]catwalk.Provider, error) {
 	if cfg != nil && cfg.Options != nil && cfg.Options.DisableDefaultProviders {
 		return nil, nil
 	}
-	providerOnce.Do(func() {
-		providerList = embedded.GetAll()
-	})
-	return providerList, nil
+	return embeddedProviders(), nil
 }

@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sort"
 
 	"github.com/taigrr/crush/internal/db"
@@ -40,7 +41,7 @@ func (b *Backend) ListWorkspaceOverviews(ctx context.Context) ([]proto.Workspace
 	for root := range attached {
 		attachedRoots = append(attachedRoots, root)
 	}
-	sort.Strings(attachedRoots)
+	slices.Sort(attachedRoots)
 	for _, root := range attachedRoots {
 		ws := attached[root]
 		ov := proto.WorkspaceOverview{

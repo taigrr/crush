@@ -21,7 +21,7 @@ import (
 // a full app.New boot.
 func insertAttachedMessageWorkspace(t *testing.T, b *Backend, root, sessionID string) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 	dataDir := t.TempDir()
 	conn, err := db.Connect(ctx, dataDir)
 	require.NoError(t, err)
@@ -64,7 +64,7 @@ func TestPeekSessionMessages_Attached(t *testing.T) {
 	b, _ := newTestBackend(t)
 	insertAttachedMessageWorkspace(t, b, "/proj/attached", "s1")
 
-	msgs, err := b.PeekSessionMessages(context.Background(), "/proj/attached", "s1")
+	msgs, err := b.PeekSessionMessages(t.Context(), "/proj/attached", "s1")
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	require.Equal(t, "hi from attached", msgs[0].Content().String())
@@ -74,7 +74,7 @@ func TestPeekSessionMessages_Attached(t *testing.T) {
 // but not-attached workspace is read READ-ONLY, without attaching it.
 func TestPeekSessionMessages_Detached(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dataDir := t.TempDir()
 	conn, err := db.Connect(ctx, dataDir)
@@ -107,7 +107,7 @@ func TestPeekSessionMessages_Detached(t *testing.T) {
 // returns ErrPreviewWorkspaceNotFound rather than a generic error.
 func TestPeekSessionMessages_UnknownWorkspace(t *testing.T) {
 	b := newTestBackendWithRegistry(t)
-	_, err := b.PeekSessionMessages(context.Background(), "/nowhere", "s1")
+	_, err := b.PeekSessionMessages(t.Context(), "/nowhere", "s1")
 	require.ErrorIs(t, err, ErrPreviewWorkspaceNotFound)
 }
 
@@ -118,7 +118,7 @@ func TestPeekSessionInfo_Attached(t *testing.T) {
 	b, _ := newTestBackend(t)
 	insertAttachedMessageWorkspace(t, b, "/proj/attached", "s1")
 
-	sess, files, err := b.PeekSessionInfo(context.Background(), "/proj/attached", "s1")
+	sess, files, err := b.PeekSessionInfo(t.Context(), "/proj/attached", "s1")
 	require.NoError(t, err)
 	require.Equal(t, "attached", sess.Title)
 	require.Empty(t, files)
@@ -129,7 +129,7 @@ func TestPeekSessionInfo_Attached(t *testing.T) {
 // attaching it.
 func TestPeekSessionInfo_Detached(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dataDir := t.TempDir()
 	conn, err := db.Connect(ctx, dataDir)
@@ -155,6 +155,6 @@ func TestPeekSessionInfo_Detached(t *testing.T) {
 // returns ErrPreviewWorkspaceNotFound.
 func TestPeekSessionInfo_UnknownWorkspace(t *testing.T) {
 	b := newTestBackendWithRegistry(t)
-	_, _, err := b.PeekSessionInfo(context.Background(), "/nowhere", "s1")
+	_, _, err := b.PeekSessionInfo(t.Context(), "/nowhere", "s1")
 	require.ErrorIs(t, err, ErrPreviewWorkspaceNotFound)
 }

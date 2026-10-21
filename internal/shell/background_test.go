@@ -359,7 +359,7 @@ func TestBackgroundShell_Killed(t *testing.T) {
 	t.Run("set when killed", func(t *testing.T) {
 		t.Parallel()
 		manager := newBackgroundShellManager()
-		bgShell, err := manager.Start(context.Background(), t.TempDir(), nil, "sleep 30", "")
+		bgShell, err := manager.Start(t.Context(), t.TempDir(), nil, "sleep 30", "")
 		require.NoError(t, err)
 		require.NoError(t, manager.Kill(bgShell.ID))
 		bgShell.Wait()
@@ -369,7 +369,7 @@ func TestBackgroundShell_Killed(t *testing.T) {
 	t.Run("unset on natural non-zero exit", func(t *testing.T) {
 		t.Parallel()
 		manager := newBackgroundShellManager()
-		bgShell, err := manager.Start(context.Background(), t.TempDir(), nil, "exit 3", "")
+		bgShell, err := manager.Start(t.Context(), t.TempDir(), nil, "exit 3", "")
 		require.NoError(t, err)
 		bgShell.Wait()
 		_, _, _, execErr := bgShell.GetOutput()

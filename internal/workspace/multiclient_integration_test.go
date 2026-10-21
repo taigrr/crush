@@ -68,7 +68,7 @@ func TestClientWorkspace_ConfigChangedRefreshesSiblingCache(t *testing.T) {
 
 	cA := rt.newClient(t, cwd)
 	cB := rt.newClient(t, cwd)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	wsProto, err := cA.CreateWorkspace(ctx, proto.Workspace{Path: cwd, DataDir: dataDir})
@@ -145,7 +145,7 @@ func TestClientWorkspace_ConfigChangedSignalArrives(t *testing.T) {
 	dataDir := db.TempDataDir(t)
 
 	c := rt.newClient(t, cwd)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 
 	wsProto, err := c.CreateWorkspace(ctx, proto.Workspace{Path: cwd, DataDir: dataDir})

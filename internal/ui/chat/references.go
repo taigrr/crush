@@ -44,20 +44,5 @@ func (r *ReferencesToolRenderContext) RenderTool(sty *styles.Styles, width int, 
 		toolParams = append(toolParams, "path", fsext.PrettyPath(params.Path))
 	}
 
-	header := toolHeader(sty, opts.Status, "Find References", cappedWidth, opts.Compact, toolParams...)
-	if opts.Compact {
-		return header
-	}
-
-	if earlyState, ok := toolEarlyStateContent(sty, opts, cappedWidth); ok {
-		return joinToolParts(header, earlyState)
-	}
-
-	if opts.HasEmptyResult() {
-		return header
-	}
-
-	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
-	return joinToolParts(header, body)
+	return renderPlainTool(sty, opts, "Find References", cappedWidth, toolParams...)
 }

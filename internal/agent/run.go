@@ -357,19 +357,21 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 
 	// Create snapshot of filesystem state (best-effort, don't block on failure).
 	if a.checkpoints != nil && a.checkpoints.IsEnabled() && !a.isSubAgent {
-		go func() {
+		snapshotParent := context.WithoutCancel(ctx)
+		wg.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("Panic in snapshot goroutine", "recover", r, "session_id", call.SessionID)
 				}
 			}()
-			// Use background context since this shouldn't be cancelled with the request.
-			snapshotCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			// Detached from the request so a cancel does not abort the
+			// snapshot, but tracked on the turn's wait group and bounded.
+			snapshotCtx, cancel := context.WithTimeout(snapshotParent, 30*time.Second)
 			defer cancel()
 			if _, err := a.checkpoints.CreateSnapshot(snapshotCtx, call.SessionID, userMsg.ID, call.Prompt); err != nil {
 				slog.Debug("Failed to create snapshot", "error", err, "session_id", call.SessionID)
 			}
-		}()
+		})
 	}
 
 	// Add the session to the context.
@@ -460,7 +462,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		maxOutputTokens = &call.MaxOutputTokens
 	}
 
-	result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
+	stallTimeout := streamStallTimeoutFor(largeModel.Model.Provider())
+	streamCtx, watchdog := newStreamWatchdog(genCtx, stallTimeout)
+	result, err = agent.Stream(streamCtx, fantasy.AgentStreamCall{
 		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
 		Files:            files,
 		Messages:         history,
@@ -472,6 +476,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		TopK:             call.TopK,
 		FrequencyPenalty: call.FrequencyPenalty,
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
+			watchdog.touch()
 			sessionLock.Lock()
 			prepared.Messages = dropToolCallsFromHistory(options.Messages, incompleteToolCallIDs)
 			sessionLock.Unlock()
@@ -536,6 +541,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				prepared.Tools,
 				newCacheWarmer(largeModel, prepared.Messages, prepared.Tools, call.ProviderOptions),
 			)
+			prepared.Tools = wrapToolsWithWatchdog(prepared.Tools, watchdog)
 
 			sessionLock.Lock()
 			stepMessages = cloneFantasyMessages(prepared.Messages)
@@ -608,7 +614,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// even if the request is canceled mid-stream
 			return a.messages.Update(ctx, *currentAssistant)
 		},
+		OnChunk: func(fantasy.StreamPart) error {
+			watchdog.touch()
+			return nil
+		},
 		OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {
+			watchdog.touch()
 			slog.Warn("Provider request failed, retrying", providerRetryLogFields(err, delay)...)
 			// Reset streamed content so the retried response doesn't
 			// concatenate with partial content from the failed attempt.
@@ -647,6 +658,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			return createMsgErr
 		},
 		OnStepFinish: func(stepResult fantasy.StepResult) error {
+			watchdog.touch()
 			finishReason := message.FinishReasonUnknown
 			switch stepResult.FinishReason {
 			case fantasy.FinishReasonLength:
@@ -752,6 +764,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			},
 		},
 	})
+	if stalled := stallErr(streamCtx); err != nil && stalled != nil && genCtx.Err() == nil {
+		slog.Warn("Provider stream stalled, aborting turn", "session_id", call.SessionID, "timeout", stallTimeout)
+		err = stalled
+	}
+	watchdog.stop()
 	if err != nil {
 		isHyper := largeModel.ModelCfg.Provider == hyper.Name
 		isCancelErr := errors.Is(err, context.Canceled)
@@ -844,18 +861,18 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				return nil, createErr
 			}
 		}
-		var providerErr *fantasy.ProviderError
+		providerErr, isProviderErr := errors.AsType[*fantasy.ProviderError](err)
 		const defaultTitle = "Provider Error"
 		linkStyle := lipgloss.NewStyle().Foreground(charmtone.Guac).Underline(true)
 		if isCancelErr {
 			currentAssistant.AddFinish(message.FinishReasonCanceled, "User canceled request", "")
-		} else if isHyper && errors.As(err, &providerErr) && providerErr.StatusCode == http.StatusUnauthorized {
+		} else if isHyper && isProviderErr && providerErr.StatusCode == http.StatusUnauthorized {
 			currentAssistant.AddFinish(message.FinishReasonError, "Unauthorized", `Please re-authenticate with Hyper. You can also run "crush auth" to re-authenticate.`)
-		} else if isHyper && errors.As(err, &providerErr) && providerErr.StatusCode == http.StatusPaymentRequired {
+		} else if isHyper && isProviderErr && providerErr.StatusCode == http.StatusPaymentRequired {
 			url := hyper.BaseURL()
 			link := linkStyle.Hyperlink(url, "id=hyper").Render(url)
 			currentAssistant.AddFinish(message.FinishReasonError, "No credits", "You're out of credits. Add more at "+link)
-		} else if errors.As(err, &providerErr) {
+		} else if isProviderErr {
 			if providerErr.Message == "The requested model is not supported." {
 				url := "https://github.com/settings/copilot/features"
 				link := linkStyle.Hyperlink(url, "id=copilot").Render(url)

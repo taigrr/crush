@@ -173,9 +173,10 @@ func parseStdout(stdout string) HookResult {
 		Halt:    parsed.Halt,
 		Reason:  parsed.Reason,
 		Context: parseContext(parsed.Context),
+
+		Decision:     parseDecision(parsed.Decision),
+		UpdatedInput: rawToString(parsed.UpdatedInput),
 	}
-	result.Decision = parseDecision(parsed.Decision)
-	result.UpdatedInput = rawToString(parsed.UpdatedInput)
 	return result
 }
 

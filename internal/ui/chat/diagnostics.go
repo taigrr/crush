@@ -49,20 +49,5 @@ func (d *DiagnosticsToolRenderContext) RenderTool(sty *styles.Styles, width int,
 		mainParam = fsext.PrettyPath(params.FilePath)
 	}
 
-	header := toolHeader(sty, opts.Status, "Diagnostics", cappedWidth, opts.Compact, mainParam)
-	if opts.Compact {
-		return header
-	}
-
-	if earlyState, ok := toolEarlyStateContent(sty, opts, cappedWidth); ok {
-		return joinToolParts(header, earlyState)
-	}
-
-	if opts.HasEmptyResult() {
-		return header
-	}
-
-	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
-	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, opts.Result.Content, bodyWidth, opts.ExpandedContent))
-	return joinToolParts(header, body)
+	return renderPlainTool(sty, opts, "Diagnostics", cappedWidth, mainParam)
 }

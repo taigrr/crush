@@ -45,7 +45,7 @@ func TestManager_SubscribeReceivesPublishedStates(t *testing.T) {
 	mgr := NewManager(nil, nil, nil)
 	t.Cleanup(mgr.Shutdown)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	ch := mgr.SubscribeEvents(ctx)
 
@@ -70,7 +70,7 @@ func TestManager_ConcurrentWorkspacesAreIsolated(t *testing.T) {
 	t.Cleanup(mgrA.Shutdown)
 	t.Cleanup(mgrB.Shutdown)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	chA := mgrA.SubscribeEvents(ctx)
 	chB := mgrB.SubscribeEvents(ctx)

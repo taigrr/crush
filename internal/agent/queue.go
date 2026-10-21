@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -115,6 +116,15 @@ func (a *sessionAgent) enqueueCall(call SessionAgentCall) {
 	a.messageQueue.Set(call.SessionID, existing)
 }
 
+// setQueue stores q as the session's queue, deleting the entry when empty.
+func (a *sessionAgent) setQueue(sessionID string, q []SessionAgentCall) {
+	if len(q) == 0 {
+		a.messageQueue.Del(sessionID)
+		return
+	}
+	a.messageQueue.Set(sessionID, q)
+}
+
 // drainQueueForStep partitions the session's queued calls for the current
 // streaming step under the per-session dispatch mutex so the filtering is
 // atomic against a concurrent Cancel: canceledBySeq requires the caller to
@@ -155,11 +165,7 @@ func (a *sessionAgent) drainQueueForStep(sessionID string, activePolicy permissi
 		}
 		fold = append(fold, queued)
 	}
-	if len(keep) == 0 {
-		a.messageQueue.Del(sessionID)
-	} else {
-		a.messageQueue.Set(sessionID, keep)
-	}
+	a.setQueue(sessionID, keep)
 	return fold, canceledWithRunID
 }
 
@@ -173,14 +179,7 @@ func (a *sessionAgent) drainQueueForStep(sessionID string, activePolicy permissi
 // must-deliver publish alive even when the run context that triggered the
 // drop is already canceled.
 func (a *sessionAgent) publishCanceledQueueDrops(drops []SessionAgentCall) {
-	var hasRunID bool
-	for _, d := range drops {
-		if d.RunID != "" {
-			hasRunID = true
-			break
-		}
-	}
-	if !hasRunID {
+	if !slices.ContainsFunc(drops, func(d SessionAgentCall) bool { return d.RunID != "" }) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -355,11 +354,7 @@ func (a *sessionAgent) DropQueued(sessionID, runID string) bool {
 		kept = append(kept, q)
 	}
 	if len(dropped) > 0 {
-		if len(kept) == 0 {
-			a.messageQueue.Del(sessionID)
-		} else {
-			a.messageQueue.Set(sessionID, kept)
-		}
+		a.setQueue(sessionID, kept)
 	}
 	mu.Unlock()
 	a.publishCanceledQueueDrops(dropped)

@@ -98,9 +98,3 @@ func TestFormatDocumentSymbols(t *testing.T) {
 		})
 	}
 }
-
-// ptrSym is a tiny helper that returns &v so we can place DocumentSymbols
-// directly into a []DocumentSymbolResult literal.
-//
-//go:fix inline
-func ptrSym(s protocol.DocumentSymbol) *protocol.DocumentSymbol { return new(s) }

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/taigrr/crush/internal/fork"
@@ -48,11 +47,7 @@ func (c *controllerV1) handleGetWorkspaceSnapshots(w http.ResponseWriter, r *htt
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	snapshots, err := c.backend.ListSnapshots(r.Context(), id, sid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, snapshots)
+	c.respond(w, r, snapshots, err)
 }
 
 // handleGetWorkspaceSnapshot retrieves a specific snapshot.
@@ -70,11 +65,7 @@ func (c *controllerV1) handleGetWorkspaceSnapshot(w http.ResponseWriter, r *http
 	id := r.PathValue("id")
 	snapid := r.PathValue("snapid")
 	snapshot, err := c.backend.GetSnapshot(r.Context(), id, snapid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, snapshot)
+	c.respond(w, r, snapshot, err)
 }
 
 // handleGetWorkspaceSnapshotByMessage retrieves a snapshot by message ID.
@@ -92,11 +83,7 @@ func (c *controllerV1) handleGetWorkspaceSnapshotByMessage(w http.ResponseWriter
 	id := r.PathValue("id")
 	msgid := r.PathValue("msgid")
 	snapshot, err := c.backend.GetSnapshotByMessage(r.Context(), id, msgid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, snapshot)
+	c.respond(w, r, snapshot, err)
 }
 
 // handlePostWorkspaceSnapshotRestore restores a snapshot.
@@ -174,11 +161,7 @@ func (c *controllerV1) handlePostWorkspaceSnapshotGC(w http.ResponseWriter, r *h
 func (c *controllerV1) handleGetWorkspaceSnapshotStats(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	stats, err := c.backend.SnapshotStats(r.Context(), id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, stats)
+	c.respond(w, r, stats, err)
 }
 
 // handleGetWorkspaceWorktreesEnabled returns whether worktrees are enabled.
@@ -216,11 +199,7 @@ func (c *controllerV1) handleGetWorkspaceWorktrees(w http.ResponseWriter, r *htt
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	worktrees, err := c.backend.ListWorktrees(r.Context(), id, sid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, worktrees)
+	c.respond(w, r, worktrees, err)
 }
 
 // handleGetAllWorkspaceWorktrees lists all worktrees for a workspace.
@@ -236,11 +215,7 @@ func (c *controllerV1) handleGetWorkspaceWorktrees(w http.ResponseWriter, r *htt
 func (c *controllerV1) handleGetAllWorkspaceWorktrees(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	worktrees, err := c.backend.ListAllWorktrees(r.Context(), id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, worktrees)
+	c.respond(w, r, worktrees, err)
 }
 
 // handleGetWorkspaceWorktree retrieves a specific worktree.
@@ -258,11 +233,7 @@ func (c *controllerV1) handleGetWorkspaceWorktree(w http.ResponseWriter, r *http
 	id := r.PathValue("id")
 	wtid := r.PathValue("wtid")
 	wt, err := c.backend.GetWorktree(r.Context(), id, wtid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, wt)
+	c.respond(w, r, wt, err)
 }
 
 // handleGetWorkspaceActiveWorktree retrieves the active worktree for a session.
@@ -280,11 +251,7 @@ func (c *controllerV1) handleGetWorkspaceActiveWorktree(w http.ResponseWriter, r
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	wt, err := c.backend.GetActiveWorktree(r.Context(), id, sid)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, wt)
+	c.respond(w, r, wt, err)
 }
 
 // CreateWorktreeRequest is the request body for creating a worktree.
@@ -311,19 +278,13 @@ func (c *controllerV1) handlePostWorkspaceWorktree(w http.ResponseWriter, r *htt
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 
-	var req CreateWorktreeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[CreateWorktreeRequest](c, w, r)
+	if !ok {
 		return
 	}
 
 	wt, err := c.backend.CreateWorktree(r.Context(), id, sid, req.Name, req.FromSnapshotID)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, wt)
+	c.respond(w, r, wt, err)
 }
 
 // handlePostWorkspaceWorktreeSwitch switches to a different worktree.
@@ -392,10 +353,8 @@ func (c *controllerV1) handlePostWorkspaceWorktreeMerge(w http.ResponseWriter, r
 	id := r.PathValue("id")
 	wtid := r.PathValue("wtid")
 
-	var req MergeWorktreeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	req, ok := decodeJSON[MergeWorktreeRequest](c, w, r)
+	if !ok {
 		return
 	}
 
@@ -419,11 +378,7 @@ func (c *controllerV1) handlePostWorkspaceWorktreeMerge(w http.ResponseWriter, r
 func (c *controllerV1) handleGetWorkspaceGitBranches(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	branches, err := c.backend.ListGitBranches(r.Context(), id)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, branches)
+	c.respond(w, r, branches, err)
 }
 
 // handlePostWorkspaceFork creates a fork of a conversation.
@@ -442,17 +397,11 @@ func (c *controllerV1) handleGetWorkspaceGitBranches(w http.ResponseWriter, r *h
 func (c *controllerV1) handlePostWorkspaceFork(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	var params fork.ForkParams
-	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
-		c.server.logError(r, "Failed to decode request", "error", err)
-		jsonError(w, http.StatusBadRequest, "failed to decode request")
+	params, ok := decodeJSON[fork.ForkParams](c, w, r)
+	if !ok {
 		return
 	}
 
 	result, err := c.backend.ForkConversation(r.Context(), id, params)
-	if err != nil {
-		c.handleError(w, r, err)
-		return
-	}
-	jsonEncode(w, result)
+	c.respond(w, r, result, err)
 }

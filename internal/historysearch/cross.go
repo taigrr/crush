@@ -1,8 +1,9 @@
 package historysearch
 
 import (
+	"cmp"
 	"context"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/taigrr/crush/internal/embedding"
@@ -105,18 +106,13 @@ func SearchAcross(
 
 	// Rank by fused score desc with a deterministic tie-break (root,
 	// session, message) so identical queries yield identical output.
-	sort.Slice(merged, func(i, j int) bool {
-		a, b := merged[i], merged[j]
-		if a.score != b.score {
-			return a.score > b.score
-		}
-		if a.Root != b.Root {
-			return a.Root < b.Root
-		}
-		if a.SessionID != b.SessionID {
-			return a.SessionID < b.SessionID
-		}
-		return a.MessageID < b.MessageID
+	slices.SortFunc(merged, func(a, b CrossHit) int {
+		return cmp.Or(
+			cmp.Compare(b.score, a.score),
+			cmp.Compare(a.Root, b.Root),
+			cmp.Compare(a.SessionID, b.SessionID),
+			cmp.Compare(a.MessageID, b.MessageID),
+		)
 	})
 
 	type sessionKey struct{ root, id string }

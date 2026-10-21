@@ -1,10 +1,11 @@
 package tools
 
 import (
+	"cmp"
 	"context"
 	_ "embed"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -65,8 +66,8 @@ func NewListSessionsTool(sessions session.Service, isBusy SessionBusyFunc) fanta
 			}
 
 			// Most recent activity first.
-			sort.Slice(all, func(i, j int) bool {
-				return all[i].UpdatedAt > all[j].UpdatedAt
+			slices.SortFunc(all, func(a, b session.Session) int {
+				return cmp.Compare(b.UpdatedAt, a.UpdatedAt)
 			})
 
 			current := GetSessionFromContext(ctx)

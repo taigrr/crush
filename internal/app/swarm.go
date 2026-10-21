@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/pubsub"
@@ -36,6 +37,9 @@ func (app *App) SwarmConfig() swarm.Config {
 // are skipped. Sub-sessions (title, summary, task tool children) are
 // included so they can be looked up by address if needed, but the
 // swarm tool refuses to send to them.
+// swarmBackfillTimeout bounds the startup swarm identity backfill.
+const swarmBackfillTimeout = 30 * time.Second
+
 func (app *App) backfillSwarmIdentities(ctx context.Context) error {
 	sessions, err := app.Sessions.List(ctx)
 	if err != nil {

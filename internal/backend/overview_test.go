@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -16,7 +15,7 @@ import (
 // reading its database read-only, without attaching it.
 func TestListWorkspaceOverviews_PeeksUnattachedRegistryWorkspace(t *testing.T) {
 	t.Cleanup(db.ResetPool)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Build a real workspace database with one session.
 	dataDir := t.TempDir()

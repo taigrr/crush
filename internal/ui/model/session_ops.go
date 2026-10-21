@@ -21,12 +21,7 @@ func (m *UI) newSession() tea.Cmd {
 	m.rightSidebarOffset = 0
 	m.sessionFiles = nil
 	m.sessionFileReads = nil
-	m.previewSessionID = ""
-	m.pendingPreviewID = ""
-	m.pendingPreviewRoot = ""
-	m.previewSess = nil
-	m.previewFiles = nil
-	m.previewGen++
+	m.clearPreview()
 	m.leftSidebar.SetActiveSession("")
 	// Clear active session for worktree-aware working directory.
 	m.com.Workspace.SetActiveSessionID("")

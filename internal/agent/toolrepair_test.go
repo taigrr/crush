@@ -181,7 +181,7 @@ func TestRepairToolCall(t *testing.T) {
 				ToolName:   tc.toolName,
 				Input:      tc.input,
 			}
-			repaired, err := repairToolCall(context.Background(), fantasy.ToolCallRepairOptions{
+			repaired, err := repairToolCall(t.Context(), fantasy.ToolCallRepairOptions{
 				OriginalToolCall: original,
 				ValidationError:  errors.New("validation failed"),
 				AvailableTools:   toolSet,

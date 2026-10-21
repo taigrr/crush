@@ -1,6 +1,7 @@
 package model
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -196,7 +197,7 @@ func (m *UI) describeModels() string {
 	for r := range cfg.Models {
 		roles = append(roles, string(r))
 	}
-	sort.Slice(roles, func(i, j int) bool { return roleOrder(roles[i]) < roleOrder(roles[j]) })
+	slices.SortFunc(roles, func(a, b string) int { return cmp.Compare(roleOrder(a), roleOrder(b)) })
 	for _, r := range roles {
 		fmt.Fprintf(&b, "%s: %s\n", r, describeSelection(cfg.Models[config.SelectedModelType(r)]))
 	}
@@ -241,7 +242,7 @@ func (m *UI) modelArgCompletions(args string) []completions.ArgCompletionValue {
 				custom = append(custom, string(r))
 			}
 		}
-		sort.Strings(custom)
+		slices.Sort(custom)
 		for _, r := range custom {
 			out = append(out, completions.ArgCompletionValue{Text: r, Description: "role — now " + cfg.Models[config.SelectedModelType(r)].Model, Continue: true})
 		}
@@ -300,7 +301,7 @@ func (m *UI) modelCompletions() []completions.ArgCompletionValue {
 	for r := range cfg.Models {
 		roleNames = append(roleNames, string(r))
 	}
-	sort.Slice(roleNames, func(i, j int) bool { return roleOrder(roleNames[i]) < roleOrder(roleNames[j]) })
+	slices.SortFunc(roleNames, func(a, b string) int { return cmp.Compare(roleOrder(a), roleOrder(b)) })
 	inRole := map[string]string{}
 	for _, r := range roleNames {
 		sel := cfg.Models[config.SelectedModelType(r)]

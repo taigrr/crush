@@ -117,22 +117,10 @@ func (r *Reasoning) HandleMsg(msg tea.Msg) Action {
 			return ActionClose{}
 		case key.Matches(msg, r.keyMap.Previous):
 			r.list.Focus()
-			if r.list.IsSelectedFirst() {
-				r.list.SelectLast()
-				r.list.ScrollToBottom()
-				break
-			}
-			r.list.SelectPrev()
-			r.list.ScrollToSelected()
+			selectPrevWrap(r.list)
 		case key.Matches(msg, r.keyMap.Next):
 			r.list.Focus()
-			if r.list.IsSelectedLast() {
-				r.list.SelectFirst()
-				r.list.ScrollToTop()
-				break
-			}
-			r.list.SelectNext()
-			r.list.ScrollToSelected()
+			selectNextWrap(r.list)
 		case key.Matches(msg, r.keyMap.Select):
 			selectedItem := r.list.SelectedItem()
 			if selectedItem == nil {
@@ -144,13 +132,7 @@ func (r *Reasoning) HandleMsg(msg tea.Msg) Action {
 			}
 			return ActionSelectReasoningEffort{Effort: reasoningItem.effort}
 		default:
-			var cmd tea.Cmd
-			r.input, cmd = r.input.Update(msg)
-			value := r.input.Value()
-			r.list.SetFilter(value)
-			r.list.ScrollToTop()
-			r.list.SetSelected(0)
-			return ActionCmd{cmd}
+			return filterOnInput(&r.input, r.list, msg)
 		}
 	}
 	return nil
@@ -167,10 +149,7 @@ func (r *Reasoning) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	width := max(0, min(reasoningDialogMaxWidth, area.Dx()))
 	height := max(0, min(reasoningDialogMaxHeight, area.Dy()))
 	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize()
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
-		t.Dialog.InputPrompt.GetVerticalFrameSize() + inputContentHeight +
-		t.Dialog.HelpView.GetVerticalFrameSize() +
-		t.Dialog.View.GetVerticalFrameSize()
+	heightOffset := filterDialogChromeHeight(t)
 
 	r.input.SetWidth(innerWidth - t.Dialog.InputPrompt.GetHorizontalFrameSize() - 1)
 	r.list.SetSize(innerWidth, height-heightOffset)

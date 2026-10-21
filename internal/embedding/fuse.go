@@ -1,6 +1,9 @@
 package embedding
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 // MatchType records which signal(s) produced a hit.
 type MatchType string
@@ -82,11 +85,8 @@ func reciprocalRankFusion(exact, semantic []ranked) []fused {
 		}
 		out = append(out, fused{key: key, score: a.score, match: m})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].score != out[j].score {
-			return out[i].score > out[j].score
-		}
-		return out[i].key < out[j].key
+	slices.SortFunc(out, func(a, b fused) int {
+		return cmp.Or(cmp.Compare(b.score, a.score), cmp.Compare(a.key, b.key))
 	})
 	return out
 }

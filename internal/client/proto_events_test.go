@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,7 +40,7 @@ func TestStreamEventsGivesUpAfterConsecutiveReadErrors(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		// tiny retry delay so the test doesn't sleep the real 2s per error.
-		streamEvents(context.Background(), rd, events, time.Millisecond)
+		streamEvents(t.Context(), rd, events, time.Millisecond)
 		close(events)
 		close(done)
 	}()
@@ -155,7 +154,7 @@ func TestSubscribeEventsDeliversFinalUnterminatedEvent(t *testing.T) {
 	defer srv.Close()
 
 	c := captureClient(t, srv)
-	events, err := c.SubscribeEvents(context.Background(), "ws1")
+	events, err := c.SubscribeEvents(t.Context(), "ws1")
 	require.NoError(t, err)
 
 	select {

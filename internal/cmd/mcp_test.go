@@ -154,7 +154,7 @@ func TestMCPConnector_WaitingCallerHonorsContext(t *testing.T) {
 	f := &fakeDialer{gate: make(chan struct{})}
 	m := newTestConnector(f)
 	dir := t.TempDir()
-	go func() { _, _, _ = m.Connect(context.Background(), dir) }()
+	go func() { _, _, _ = m.Connect(t.Context(), dir) }()
 	require.Eventually(t, func() bool { return f.calls.Load() == 1 }, time.Second, 5*time.Millisecond)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -181,7 +181,7 @@ func TestMCPConnector_CloseDuringDialReleasesConnection(t *testing.T) {
 	m := newTestConnector(f)
 	errc := make(chan error, 1)
 	go func() {
-		_, _, err := m.Connect(context.Background(), t.TempDir())
+		_, _, err := m.Connect(t.Context(), t.TempDir())
 		errc <- err
 	}()
 	require.Eventually(t, func() bool { return f.calls.Load() == 1 }, time.Second, 5*time.Millisecond)

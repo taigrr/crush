@@ -389,7 +389,7 @@ func (c *Config) fuzzyModel(ref string) (SelectedModel, error) {
 // appears in id or name ("fable 5.1" against "claude-fable-5-1" fails on
 // "5.1", but "fable 5-1" passes).
 func containsAllFields(id, name, q string) bool {
-	for _, f := range strings.Fields(q) {
+	for f := range strings.FieldsSeq(q) {
 		if !strings.Contains(id, f) && !strings.Contains(name, f) {
 			return false
 		}

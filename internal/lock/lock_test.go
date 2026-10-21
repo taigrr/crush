@@ -50,7 +50,7 @@ func TestFile_AcquiresWhenFree(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "test.lock")
 
-	release, err := File(context.Background(), path)
+	release, err := File(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(release)
 }
@@ -69,7 +69,7 @@ func TestFile_BlocksThenSucceeds(t *testing.T) {
 		release()
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	release2, err := File(ctx, path)
 	require.NoError(t, err, "should acquire after first releases")
@@ -84,7 +84,7 @@ func TestFile_RespectsContextDeadline(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(release)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 	start := time.Now()
 	_, err = File(ctx, path)
@@ -102,7 +102,7 @@ func TestFile_RespectsContextCancellation(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(release)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
 		_, err := File(ctx, path)
@@ -138,7 +138,7 @@ func TestFile_ConcurrentAcquirers(t *testing.T) {
 	for range n {
 		go func() {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			release, err := File(ctx, path)
 			if err != nil {

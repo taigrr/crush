@@ -45,9 +45,9 @@ func TestToolErrorContract(t *testing.T) {
 	ft := mockFileTrackerService{}
 
 	sessionCtx := func() context.Context {
-		return context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+		return context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 	}
-	emptyCtx := func() context.Context { return context.Background() }
+	emptyCtx := func() context.Context { return t.Context() }
 
 	mustJSON := func(v any) string {
 		b, err := json.Marshal(v)
@@ -204,7 +204,7 @@ func TestToolPermissionCancellationIsFatal(t *testing.T) {
 	perms := permCancelService{mockPermissionService: &mockPermissionService{}}
 	hist := &mockHistoryService{}
 	ft := mockFileTrackerService{}
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "s1")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "s1")
 
 	tool := NewEditTool(nil, perms, hist, ft, wd)
 	input, err := json.Marshal(EditParams{FilePath: filepath.Join(workingDir, "new.txt"), NewString: "hi"})
@@ -355,7 +355,7 @@ func TestFileMutationHistoryFailureIsRecoverable(t *testing.T) {
 			// It's harmless for creation paths (they don't call Get).
 			hist := historyCreateFailService{mockHistoryService: &mockHistoryService{}, failGet: true}
 			ft := mockFileTrackerService{}
-			ctx := context.WithValue(context.Background(), SessionIDContextKey, "s1")
+			ctx := context.WithValue(t.Context(), SessionIDContextKey, "s1")
 
 			tool := s.newTool(workingDir, perms, hist, ft)
 			target, input := s.setup(t, workingDir)
@@ -433,7 +433,7 @@ func TestSwarmContextCancellationIsFatal(t *testing.T) {
 	sess := stubSessionsForSwarm{sess: session.Session{ID: "sender", Color: "aliceblue", Animal: "tiger"}}
 	cfg := func() swarm.Config { return swarm.Config{} }
 
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "sender")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "sender")
 	resp, err := runSwarm(ctx, be, sess, cfg, "ws", SwarmParams{
 		Address: "someone-else",
 		Prompt:  "hello",
@@ -452,7 +452,7 @@ func TestEditHistoryFailureIsRecoverable(t *testing.T) {
 	perms := &mockPermissionService{}
 	hist := historyCreateFailService{mockHistoryService: &mockHistoryService{}}
 	ft := mockFileTrackerService{}
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "s1")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "s1")
 
 	tool := NewEditTool(nil, perms, hist, ft, wd)
 	target := filepath.Join(workingDir, "newfile.txt")
@@ -492,7 +492,7 @@ func TestNetworkToolCancellationIsFatal(t *testing.T) {
 	wd := func(context.Context) string { return workingDir }
 	tool := NewFetchTool(&mockPermissionService{}, wd, srv.Client())
 
-	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), SessionIDContextKey, "s1"))
+	ctx, cancel := context.WithCancel(context.WithValue(t.Context(), SessionIDContextKey, "s1"))
 	// Cancel shortly after the request starts. Timer is generous
 	// enough to avoid races under -race but short enough to keep the
 	// test snappy.

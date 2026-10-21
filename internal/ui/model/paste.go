@@ -63,12 +63,10 @@ func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
 				return util.ReportWarn("Paste is too big (>5mb)")
 			}
 			name := fmt.Sprintf("paste_%d.txt", idx)
-			mimeBufferSize := min(512, len(content))
-			mimeType := http.DetectContentType(content[:mimeBufferSize])
 			return message.Attachment{
 				FileName: name,
 				FilePath: name,
-				MimeType: mimeType,
+				MimeType: mimeOf(content),
 				Content:  content,
 			}
 		}
@@ -86,16 +84,7 @@ func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
 			if _, err := os.Stat(path); os.IsNotExist(err) {
 				return false
 			}
-
-			lowerPath := strings.ToLower(path)
-			isValid := false
-			for _, ext := range common.AllowedImageTypes {
-				if strings.HasSuffix(lowerPath, ext) {
-					isValid = true
-					break
-				}
-			}
-			if !isValid {
+			if !common.IsImagePath(path) {
 				return false
 			}
 		}
@@ -148,13 +137,10 @@ func (m *UI) handleFilePathPaste(path string) tea.Cmd {
 			return util.ReportError(err)
 		}
 
-		mimeBufferSize := min(512, len(content))
-		mimeType := http.DetectContentType(content[:mimeBufferSize])
-		fileName := filepath.Base(path)
 		return message.Attachment{
 			FilePath: path,
-			FileName: fileName,
-			MimeType: mimeType,
+			FileName: filepath.Base(path),
+			MimeType: mimeOf(content),
 			Content:  content,
 		}
 	}
@@ -196,15 +182,7 @@ func (m *UI) pasteImageFromClipboard(idx int) tea.Msg {
 		return util.NewInfoMsg("No image found in clipboard")
 	}
 
-	lowerPath := strings.ToLower(path)
-	isAllowed := false
-	for _, ext := range common.AllowedImageTypes {
-		if strings.HasSuffix(lowerPath, ext) {
-			isAllowed = true
-			break
-		}
-	}
-	if !isAllowed {
+	if !common.IsImagePath(path) {
 		return util.NewInfoMsg("File type is not a supported image format")
 	}
 

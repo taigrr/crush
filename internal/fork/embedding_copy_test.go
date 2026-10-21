@@ -1,7 +1,6 @@
 package fork
 
 import (
-	"context"
 	"database/sql"
 	"testing"
 
@@ -17,7 +16,7 @@ import (
 // up to but not including the fork-point message.
 func TestCopyMessagesUpToReplaysEmbeddings(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	conn, err := db.Connect(ctx, db.TempDataDir(t))
 	require.NoError(t, err)

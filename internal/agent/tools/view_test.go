@@ -117,7 +117,7 @@ func TestViewToolAllowsSmallSectionsOfLargeFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte(strings.Join(lines, "\n")), 0o644))
 
 	tool := newViewToolForTest(workingDir)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 	resp := runViewTool(t, tool, ctx, ViewParams{
 		FilePath: filePath,
 		Offset:   1,
@@ -145,7 +145,7 @@ func TestViewToolBlocksOversizedReturnedSections(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte(strings.Join(lines, "\n")), 0o644))
 
 	tool := newViewToolForTest(workingDir)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 	resp := runViewTool(t, tool, ctx, ViewParams{
 		FilePath: filePath,
 	})
@@ -162,7 +162,7 @@ func TestViewToolBlocksOversizedImages(t *testing.T) {
 	require.NoError(t, os.WriteFile(filePath, []byte(strings.Repeat("a", MaxViewSize+1)), 0o644))
 
 	tool := newViewToolForTest(workingDir)
-	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	ctx := context.WithValue(t.Context(), SessionIDContextKey, "test-session")
 	ctx = context.WithValue(ctx, SupportsImagesContextKey, true)
 	resp := runViewTool(t, tool, ctx, ViewParams{
 		FilePath: filePath,

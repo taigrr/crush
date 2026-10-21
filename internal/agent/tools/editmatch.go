@@ -1,9 +1,10 @@
 package tools
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -186,7 +187,7 @@ func mergeRegions(regions []lineRange) []lineRange {
 	if len(regions) == 0 {
 		return regions
 	}
-	sort.Slice(regions, func(i, j int) bool { return regions[i].start < regions[j].start })
+	slices.SortFunc(regions, func(a, b lineRange) int { return cmp.Compare(a.start, b.start) })
 	merged := []lineRange{regions[0]}
 	for _, r := range regions[1:] {
 		top := &merged[len(merged)-1]
@@ -523,10 +524,7 @@ func closestRegions(content, oldString string, limit int) []lineRange {
 		fileTokens[i] = tokenSet(normFile[i])
 	}
 
-	n := len(normOld)
-	if n > len(fileLines) {
-		n = len(fileLines)
-	}
+	n := min(len(normOld), len(fileLines))
 	type scored struct {
 		start int
 		score float64
@@ -548,7 +546,7 @@ func closestRegions(content, oldString string, limit int) []lineRange {
 	if len(windows) == 0 {
 		return nil
 	}
-	sort.SliceStable(windows, func(a, b int) bool { return windows[a].score > windows[b].score })
+	slices.SortStableFunc(windows, func(a, b scored) int { return cmp.Compare(b.score, a.score) })
 
 	var regions []lineRange
 	for _, w := range windows {

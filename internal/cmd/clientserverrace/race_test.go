@@ -161,7 +161,7 @@ func TestClientServerSpawnRace(t *testing.T) {
 				return
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), clientTimeout)
+			ctx, cancel := context.WithTimeout(t.Context(), clientTimeout)
 			defer cancel()
 
 			// `crush run` exercises connectToServer (which is where
@@ -295,7 +295,7 @@ func buildCrushBinary(t *testing.T, repoRoot string) string {
 
 	binPath := filepath.Join(binDir, "crush")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "go", "build", "-o", binPath, ".")
@@ -329,7 +329,7 @@ func shutdownServer(t *testing.T, socketPath string) {
 	hc := &http.Client{Transport: tr, Timeout: 5 * time.Second}
 	defer tr.CloseIdleConnections()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	body := strings.NewReader(`{"command":"shutdown"}`)

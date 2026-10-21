@@ -201,23 +201,11 @@ func (d *Theme) HandleMsg(msg tea.Msg) Action {
 			return ActionClose{}
 		case key.Matches(msg, d.keyMap.Previous):
 			d.list.Focus()
-			if d.list.IsSelectedFirst() {
-				d.list.SelectLast()
-				d.list.ScrollToBottom()
-			} else {
-				d.list.SelectPrev()
-				d.list.ScrollToSelected()
-			}
+			selectPrevWrap(d.list)
 			return d.previewAction()
 		case key.Matches(msg, d.keyMap.Next):
 			d.list.Focus()
-			if d.list.IsSelectedLast() {
-				d.list.SelectFirst()
-				d.list.ScrollToTop()
-			} else {
-				d.list.SelectNext()
-				d.list.ScrollToSelected()
-			}
+			selectNextWrap(d.list)
 			return d.previewAction()
 		case key.Matches(msg, d.keyMap.Select):
 			selectedItem := d.list.SelectedItem()
@@ -230,13 +218,7 @@ func (d *Theme) HandleMsg(msg tea.Msg) Action {
 			}
 			return ActionSelectTheme{Name: item.name, Styles: item.styles}
 		default:
-			var cmd tea.Cmd
-			d.input, cmd = d.input.Update(msg)
-			value := d.input.Value()
-			d.list.SetFilter(value)
-			d.list.ScrollToTop()
-			d.list.SetSelected(0)
-			return ActionCmd{cmd}
+			return filterOnInput(&d.input, d.list, msg)
 		}
 	}
 	return nil
@@ -253,10 +235,7 @@ func (d *Theme) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	width := max(0, min(themeDialogMaxWidth, area.Dx()))
 	height := max(0, min(themeDialogMaxHeight, area.Dy()))
 	innerWidth := width - t.Dialog.View.GetHorizontalFrameSize()
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
-		t.Dialog.InputPrompt.GetVerticalFrameSize() + inputContentHeight +
-		t.Dialog.HelpView.GetVerticalFrameSize() +
-		t.Dialog.View.GetVerticalFrameSize()
+	heightOffset := filterDialogChromeHeight(t)
 
 	d.input.SetWidth(innerWidth - t.Dialog.InputPrompt.GetHorizontalFrameSize() - 1)
 	d.list.SetSize(innerWidth, height-heightOffset)

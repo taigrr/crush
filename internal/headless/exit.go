@@ -62,8 +62,7 @@ func ExitCode(err error) int {
 	if err == nil {
 		return ExitOK
 	}
-	var exitErr *ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*ExitError](err); ok {
 		return exitErr.Code
 	}
 	return ExitFailure
@@ -72,6 +71,6 @@ func ExitCode(err error) int {
 // IsSilent reports whether err has already been reported to the user in
 // the selected output format.
 func IsSilent(err error) bool {
-	var exitErr *ExitError
-	return errors.As(err, &exitErr) && exitErr.Silent
+	exitErr, ok := errors.AsType[*ExitError](err)
+	return ok && exitErr.Silent
 }

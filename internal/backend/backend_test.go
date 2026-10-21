@@ -32,7 +32,7 @@ func newTestBackend(t *testing.T) (*Backend, *atomic.Int32) {
 	b := &Backend{
 		workspaces:  csync.NewMap[string, *Workspace](),
 		pathIndex:   make(map[string]string),
-		ctx:         context.Background(),
+		ctx:         t.Context(),
 		createGrace: 50 * time.Millisecond,
 		shutdownFn:  func() { shutdownCount.Add(1) },
 		yoloByRoot:  make(map[string]bool),
@@ -520,7 +520,7 @@ func TestReconnectReloadsStaleConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(cfgPath,
 		[]byte(`{"options":{"tui":{"compact_mode":false}}}`), 0o644))
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -560,7 +560,7 @@ func TestPathDedupe_FullCreate(t *testing.T) {
 	cwd := t.TempDir()
 	dataDir := t.TempDir()
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -608,7 +608,7 @@ func TestPathDedupe_PerClientWorkingDir(t *testing.T) {
 	require.NoError(t, os.MkdirAll(sub, 0o755))
 	dataDir := t.TempDir()
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -637,7 +637,7 @@ func TestPathDedupe_DifferentPaths_DifferentWorkspaces(t *testing.T) {
 	dataA := t.TempDir()
 	dataB := t.TempDir()
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -661,7 +661,7 @@ func TestPathDedupe_FirstWinsKeepsOriginalEnv(t *testing.T) {
 	cwd := t.TempDir()
 	dataDir := t.TempDir()
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -702,7 +702,7 @@ func TestPathDedupe_Symlink(t *testing.T) {
 	require.NoError(t, os.Symlink(real, link))
 	dataDir := t.TempDir()
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -725,7 +725,7 @@ func TestPathDedupe_NonExistentPath(t *testing.T) {
 	missing := filepath.Join(parent, "does-not-exist")
 	dataDir := t.TempDir()
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -745,7 +745,7 @@ func TestCreateWorkspace_IdempotentSameClient(t *testing.T) {
 
 	cwd := t.TempDir()
 	dataDir := t.TempDir()
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -773,7 +773,7 @@ func TestPathDedupe_ParallelCreates(t *testing.T) {
 	cwd := t.TempDir()
 	dataDir := t.TempDir()
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -816,7 +816,7 @@ func TestPathDedupe_ParallelCreates(t *testing.T) {
 func TestCreateWorkspace_RejectsBadClientID(t *testing.T) {
 	t.Parallel()
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 
 	_, _, err := b.CreateWorkspace(protoWS("/tmp/x", t.TempDir(), ""))
 	require.ErrorIs(t, err, ErrInvalidClientID)
@@ -924,7 +924,7 @@ func TestFirstWinsMismatch_LogsOnFlagDifferences(t *testing.T) {
 			dataDir := t.TempDir()
 
 			buf := captureDebugLogs(t)
-			b := New(context.Background(), nil, func() {})
+			b := New(t.Context(), nil, func() {})
 			b.SetCreateGrace(2 * time.Second)
 			t.Cleanup(func() { drainBackend(t, b) })
 
@@ -961,7 +961,7 @@ func TestFirstWinsMismatch_NoLogWhenIdentical(t *testing.T) {
 	dataDir := t.TempDir()
 
 	buf := captureDebugLogs(t)
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -1483,7 +1483,7 @@ func TestPathDedupe_LinkedWorktreeSharesProjectWorkspace(t *testing.T) {
 	gitRun(projectDir, "worktree", "add", "-b", "feat-x", wtPath, "HEAD")
 
 	dataDir := t.TempDir()
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -1539,7 +1539,7 @@ func TestPathDedupe_UserWorktreeIsOwnWorkspace(t *testing.T) {
 	_, err = filepath.EvalSymlinks(siblingDir)
 	require.NoError(t, err)
 
-	b := New(context.Background(), nil, func() {})
+	b := New(t.Context(), nil, func() {})
 	b.SetCreateGrace(2 * time.Second)
 	t.Cleanup(func() { drainBackend(t, b) })
 
@@ -1635,7 +1635,7 @@ func TestSetCurrentSession_AutoSwitchesWorktreeFromCwd(t *testing.T) {
 	b, _ := newTestBackend(t)
 	ws, _ := insertTestWorkspace(t, b, "/proj")
 	ws.App = &app.App{Worktrees: fake}
-	ws.ctx = context.Background()
+	ws.ctx = t.Context()
 
 	cid := newClientID(t)
 	require.NoError(t, b.AttachClient(ws.ID, cid))
@@ -1667,7 +1667,7 @@ func TestSetCurrentSession_NoAutoSwitchAtProjectRoot(t *testing.T) {
 	b, _ := newTestBackend(t)
 	ws, _ := insertTestWorkspace(t, b, "/proj")
 	ws.App = &app.App{Worktrees: fake}
-	ws.ctx = context.Background()
+	ws.ctx = t.Context()
 
 	cid := newClientID(t)
 	require.NoError(t, b.AttachClient(ws.ID, cid))

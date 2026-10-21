@@ -98,7 +98,7 @@ func (s *stubSessions) Get(_ context.Context, id string) (session.Session, error
 func buildBusyWorkspace(t *testing.T, sessionID string, busy bool) (*controllerV1, string) {
 	t.Helper()
 
-	b := backend.New(context.Background(), nil, nil)
+	b := backend.New(t.Context(), nil, nil)
 	wsID := uuid.New().String()
 	coord := &stubCoordinator{busy: map[string]bool{sessionID: busy}}
 	a := &app.App{AgentCoordinator: coord}
@@ -207,7 +207,7 @@ func TestProtoSessionIsBusyBackwardCompat(t *testing.T) {
 func buildMultiSessionWorkspace(t *testing.T, sessionIDs ...string) (*controllerV1, *backend.Workspace) {
 	t.Helper()
 
-	b := backend.New(context.Background(), nil, nil)
+	b := backend.New(t.Context(), nil, nil)
 	a := &app.App{AgentCoordinator: &stubCoordinator{}}
 	sessions := make([]session.Session, len(sessionIDs))
 	for i, sid := range sessionIDs {

@@ -1,7 +1,6 @@
 package worktree
 
 import (
-	"context"
 	"database/sql"
 	"os"
 	"os/exec"
@@ -72,7 +71,7 @@ func TestService_CreateUsesRealGitWorktree(t *testing.T) {
 	t.Parallel()
 	projectDir := newGitProject(t)
 	svc := newWorktreeService(t, projectDir)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	wt, err := svc.Create(ctx, "s1", "feature-x", "")
 	require.NoError(t, err)
@@ -117,7 +116,7 @@ func TestService_CreateUsesRealGitWorktree(t *testing.T) {
 func TestService_CreateRejectsNonGitProject(t *testing.T) {
 	t.Parallel()
 	svc := newWorktreeService(t, t.TempDir()) // not a git repo
-	_, err := svc.Create(context.Background(), "s1", "feature-x", "")
+	_, err := svc.Create(t.Context(), "s1", "feature-x", "")
 	require.ErrorIs(t, err, ErrNotGitRepo)
 }
 
@@ -125,7 +124,7 @@ func TestService_DeleteRemovesGitWorktree(t *testing.T) {
 	t.Parallel()
 	projectDir := newGitProject(t)
 	svc := newWorktreeService(t, projectDir)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	wt, err := svc.Create(ctx, "s1", "feature-y", "")
 	require.NoError(t, err)
@@ -145,7 +144,7 @@ func TestService_MergeBringsWorktreeCommitIntoTarget(t *testing.T) {
 	t.Parallel()
 	projectDir := newGitProject(t)
 	svc := newWorktreeService(t, projectDir)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	wt, err := svc.Create(ctx, "s1", "feature-z", "")
 	require.NoError(t, err)
@@ -184,7 +183,7 @@ func TestService_MergeRefusesDirtyWorkingTree(t *testing.T) {
 	t.Parallel()
 	projectDir := newGitProject(t)
 	svc := newWorktreeService(t, projectDir)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	wt, err := svc.Create(ctx, "s1", "feature-d", "")
 	require.NoError(t, err)
@@ -213,7 +212,7 @@ func TestService_FromLinkedWorktreeStaysAtProjectRoot(t *testing.T) {
 	t.Parallel()
 	projectDir := newGitProject(t)
 	svc := newWorktreeService(t, projectDir)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	first, err := svc.Create(ctx, "s1", "feature-a", "")
 	require.NoError(t, err)
@@ -257,7 +256,7 @@ func TestService_GetByPath_FindsContainingWorktree(t *testing.T) {
 	t.Parallel()
 	projectDir := newGitProject(t)
 	svc := newWorktreeService(t, projectDir)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	wt, err := svc.Create(ctx, "s1", "feat-q", "")
 	require.NoError(t, err)

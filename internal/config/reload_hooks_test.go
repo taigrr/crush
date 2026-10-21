@@ -1,7 +1,6 @@
 package config_test
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,7 +44,7 @@ func TestReloadFromDisk_CompilesHookMatchers(t *testing.T) {
 	// Sanity: hook filtering works immediately after Load.
 	assertHookFilters(t, store)
 
-	require.NoError(t, store.ReloadFromDisk(context.Background()))
+	require.NoError(t, store.ReloadFromDisk(t.Context()))
 
 	// The actual regression check: filtering must still work after a
 	// reload, not silently collapse to match-everything.
@@ -62,11 +61,11 @@ func assertHookFilters(t *testing.T, store *config.ConfigStore) {
 
 	runner := hooks.NewRunner(preHooks, t.TempDir(), t.TempDir())
 
-	nonMatch, err := runner.Run(context.Background(), hooks.EventPreToolUse, "sess", "view", `{}`)
+	nonMatch, err := runner.Run(t.Context(), hooks.EventPreToolUse, "sess", "view", `{}`)
 	require.NoError(t, err)
 	require.Equal(t, 0, nonMatch.HookCount, "view must not match ^bash$ matcher")
 
-	match, err := runner.Run(context.Background(), hooks.EventPreToolUse, "sess", "bash", `{}`)
+	match, err := runner.Run(t.Context(), hooks.EventPreToolUse, "sess", "bash", `{}`)
 	require.NoError(t, err)
 	require.Equal(t, 1, match.HookCount, "bash must match ^bash$ matcher")
 }

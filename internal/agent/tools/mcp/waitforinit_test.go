@@ -43,14 +43,14 @@ func TestWaitForInit_BlocksUntilInitCompletes(t *testing.T) {
 	gate := swapInitGate(t)
 
 	// Init not done yet: WaitForInit must block until the context expires.
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	require.ErrorIs(t, WaitForInit(ctx), context.DeadlineExceeded,
 		"WaitForInit must block while initialization is in flight")
 
 	// Once initialization completes (the gate closes), WaitForInit returns nil.
 	close(gate)
-	require.NoError(t, WaitForInit(context.Background()),
+	require.NoError(t, WaitForInit(t.Context()),
 		"WaitForInit must return once initialization has completed")
 }
 
@@ -71,7 +71,7 @@ func TestWaitForInit_ReturnsWhenNotArmed(t *testing.T) {
 		initMu.Unlock()
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	require.NoError(t, WaitForInit(ctx),
 		"WaitForInit must return immediately when initialization was never armed")
@@ -107,7 +107,7 @@ func TestWaitForInit_ToolsVisibleAfterInit(t *testing.T) {
 		close(gate)
 	}()
 
-	require.NoError(t, WaitForInit(context.Background()))
+	require.NoError(t, WaitForInit(t.Context()))
 
 	tools, ok := allTools.Get(name)
 	require.True(t, ok, "a slow server's tools must be visible after WaitForInit returns")

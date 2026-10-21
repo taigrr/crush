@@ -143,20 +143,10 @@ func (m *MergeWorktree) HandleMsg(msg tea.Msg) Action {
 			return nil
 		case key.Matches(msg, m.keyMap.Previous):
 			m.list.Focus()
-			if m.list.IsSelectedFirst() {
-				m.list.SelectLast()
-			} else {
-				m.list.SelectPrev()
-			}
-			m.list.ScrollToSelected()
+			selectPrevWrap(m.list)
 		case key.Matches(msg, m.keyMap.Next):
 			m.list.Focus()
-			if m.list.IsSelectedLast() {
-				m.list.SelectFirst()
-			} else {
-				m.list.SelectNext()
-			}
-			m.list.ScrollToSelected()
+			selectNextWrap(m.list)
 		case key.Matches(msg, m.keyMap.Select):
 			if item := m.list.SelectedItem(); item != nil {
 				if brItem, ok := item.(*branchItem); ok {
@@ -189,9 +179,7 @@ func (m *MergeWorktree) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	height := max(0, min(defaultDialogHeight, area.Dy()-t.Dialog.View.GetVerticalBorderSize()))
 
 	innerWidth := width - m.com.Styles.Dialog.View.GetHorizontalFrameSize()
-	heightOffset := t.Dialog.Title.GetVerticalFrameSize() + titleContentHeight +
-		t.Dialog.HelpView.GetVerticalFrameSize() +
-		t.Dialog.View.GetVerticalFrameSize() + 2 // Extra for rebase toggle
+	heightOffset := listDialogChromeHeight(t) + 2 // Extra for rebase toggle
 
 	m.list.SetSize(innerWidth, height-heightOffset)
 	m.help.SetWidth(innerWidth)
