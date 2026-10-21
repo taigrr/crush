@@ -55,7 +55,7 @@ func decode(name string, r io.ReadCloser) (beep.StreamSeekCloser, beep.Format, e
 // default for s is used. Any error is returned (and callers typically
 // just log it) — playback failures are never fatal.
 func Play(s Sound, path string) error {
-	if muted.Load() {
+	if silenced() {
 		return nil
 	}
 	if err := initSpeaker(); err != nil {

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"sync/atomic"
+	"testing"
 )
 
 // muted is the server-wide master mute switch. It gates every playback
@@ -26,6 +27,12 @@ func SetMuted(m bool) { muted.Store(m) }
 
 // Muted reports whether the server-wide master mute switch is on.
 func Muted() bool { return muted.Load() }
+
+// silenced reports whether playback must be skipped: either the user muted
+// sounds, or this is a test binary. Tests fire notification events
+// constantly and config loading can unmute, so test binaries are never
+// allowed to reach the audio device.
+func silenced() bool { return muted.Load() || testing.Testing() }
 
 // Sound identifies a bundled notification sound. Each value maps to an
 // embedded WAV file and to a configurable event in the user's config.
@@ -84,7 +91,7 @@ func open(s Sound, path string) (io.ReadCloser, string, error) {
 // block on playback (e.g. an end-of-turn chime fired from a run's
 // completion path).
 func PlayAsync(s Sound, path string) {
-	if muted.Load() {
+	if silenced() {
 		return
 	}
 	go func() {
