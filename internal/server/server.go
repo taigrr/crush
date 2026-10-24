@@ -63,8 +63,7 @@ type Server struct {
 	Addr    string
 	network string
 
-	h  *http.Server
-	ln net.Listener
+	h *http.Server
 
 	backend *backend.Backend
 	logger  *slog.Logger
@@ -74,6 +73,13 @@ type Server struct {
 func (s *Server) SetLogger(logger *slog.Logger) {
 	s.logger = logger
 }
+
+const (
+	// serverReadHeaderTimeout bounds receipt of a request's headers.
+	serverReadHeaderTimeout = 10 * time.Second
+	// serverIdleTimeout closes keep-alive connections idle this long.
+	serverIdleTimeout = 2 * time.Minute
+)
 
 // NewServer creates a new [Server] with the given network and address.
 func NewServer(cfg *config.ConfigStore, network, address string) *Server {
@@ -225,6 +231,13 @@ func (s *Server) installHandler() {
 	s.h = &http.Server{
 		Protocols: &p,
 		Handler:   s.recoverHandler(s.loggingHandler(mux)),
+		// Bound how long a client may take to send request headers so a
+		// slow or stalled TCP client cannot hold a connection open
+		// indefinitely. There is deliberately no WriteTimeout or
+		// ReadTimeout: SSE event streams and long agent requests stay
+		// open for as long as the client is attached.
+		ReadHeaderTimeout: serverReadHeaderTimeout,
+		IdleTimeout:       serverIdleTimeout,
 	}
 }
 
@@ -248,10 +261,9 @@ func (s *Server) Serve(ln net.Listener) error {
 }
 
 // ListenAndServe starts the server and begins accepting connections.
+// The underlying http.Server tracks and closes its own listeners on
+// Close and Shutdown.
 func (s *Server) ListenAndServe() error {
-	if s.ln != nil {
-		return fmt.Errorf("server already started")
-	}
 	ln, err := listen(s.network, s.Addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", s.Addr, err)
@@ -259,23 +271,14 @@ func (s *Server) ListenAndServe() error {
 	return s.Serve(ln)
 }
 
-func (s *Server) closeListener() {
-	if s.ln != nil {
-		s.ln.Close()
-		s.ln = nil
-	}
-}
-
 // Close force closes all listeners and connections.
 func (s *Server) Close() error {
-	defer func() { s.closeListener() }()
 	return s.h.Close()
 }
 
 // Shutdown gracefully shuts down the server without interrupting active
 // connections.
 func (s *Server) Shutdown(ctx context.Context) error {
-	defer func() { s.closeListener() }()
 	return s.h.Shutdown(ctx)
 }
 
