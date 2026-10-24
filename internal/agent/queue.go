@@ -97,12 +97,10 @@ func (a *sessionAgent) sessionMu(sessionID string) *sync.Mutex {
 // returns, so by the time the queue drains nobody is left to consume the
 // buffered terminal event. The recursive Run falls back to the default
 // broker publish, which is what existing subscribers expect for queued
-// turns.
+// turns. Callers must hold a.sessionMu(call.SessionID) so the append is
+// ordered against the dispatch-path drains, which read and rewrite the
+// queue under that lock; the Update keeps the append itself atomic.
 func (a *sessionAgent) enqueueCall(call SessionAgentCall) {
-	existing, ok := a.messageQueue.Get(call.SessionID)
-	if !ok {
-		existing = []SessionAgentCall{}
-	}
 	queued := call
 	if call.Accepted != nil {
 		// Preserve the accept sequence after the handle is stripped so
@@ -112,8 +110,28 @@ func (a *sessionAgent) enqueueCall(call SessionAgentCall) {
 	}
 	queued.OnComplete = nil
 	queued.Accepted = nil
-	existing = append(existing, queued)
-	a.messageQueue.Set(call.SessionID, existing)
+	a.messageQueue.Update(call.SessionID, func(existing []SessionAgentCall, _ bool) ([]SessionAgentCall, bool) {
+		return append(existing, queued), true
+	})
+}
+
+// enqueueIfActive queues call when its session already has an active
+// turn and reports whether it did. The busy check and the append happen
+// under the session's dispatch lock: dispatchNextQueued drains the queue
+// under that same lock after releasing the active turn, so a call either
+// observes the session as idle and runs itself, or lands in the queue
+// before the drain reads it. Checking and appending without the lock
+// let a call slip in after the final drain and sit in an idle session's
+// queue until some later prompt woke it.
+func (a *sessionAgent) enqueueIfActive(call SessionAgentCall) bool {
+	mu := a.sessionMu(call.SessionID)
+	mu.Lock()
+	defer mu.Unlock()
+	if !a.isSessionActive(call.SessionID) {
+		return false
+	}
+	a.enqueueCall(call)
+	return true
 }
 
 // setQueue stores q as the session's queue, deleting the entry when empty.
@@ -201,8 +219,14 @@ func (a *sessionAgent) publishCanceledQueueDrops(drops []SessionAgentCall) {
 // so callers waiting on those RunIDs (e.g. `crush run`) are not left
 // hanging when their queued prompt is discarded without running.
 func (a *sessionAgent) clearQueueAndNotify(sessionID string) {
-	queued, ok := a.messageQueue.Get(sessionID)
-	a.messageQueue.Del(sessionID)
+	// Under the dispatch lock so the clear cannot land between a
+	// dispatch-path read and rewrite of the queue (which would resurrect
+	// the cleared prompts), and Take so nothing enqueued concurrently is
+	// deleted without its terminal notification.
+	mu := a.sessionMu(sessionID)
+	mu.Lock()
+	queued, ok := a.messageQueue.Take(sessionID)
+	mu.Unlock()
 	if !ok {
 		return
 	}

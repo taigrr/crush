@@ -195,15 +195,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		mu.Unlock()
 
 		defer a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
-	} else if a.isSessionActive(call.SessionID) {
-		// Queue the message if busy. Strip OnComplete: the caller that
-		// supplied the hook (typically coordinator.Run) has its own
-		// retry/coalesce scope that ends when it returns, so by the time
-		// the queue drains nobody is left to consume the buffered
-		// terminal event. The recursive Run will fall back to the
-		// default broker publish, which is what existing subscribers
+	} else if a.enqueueIfActive(call) {
+		// Queued behind the active turn. enqueueCall strips OnComplete:
+		// the caller that supplied the hook (typically coordinator.Run)
+		// has its own retry/coalesce scope that ends when it returns, so
+		// by the time the queue drains nobody is left to consume the
+		// buffered terminal event. The recursive Run will fall back to
+		// the default broker publish, which is what existing subscribers
 		// expect for queued turns.
-		a.enqueueCall(call)
 		return nil, nil
 	}
 
@@ -917,9 +916,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		// If the agent wasn't done...
 		if len(currentAssistant.ToolCalls()) > 0 {
 			call.Prompt = fmt.Sprintf("The previous session was interrupted because it got too long, the initial user request was: `%s`", call.Prompt)
+			// Under the dispatch lock so this append cannot interleave
+			// with enqueueCall or a dispatch-path read-modify-write.
+			mu := a.sessionMu(call.SessionID)
+			mu.Lock()
 			a.messageQueue.Update(call.SessionID, func(existing []SessionAgentCall, _ bool) ([]SessionAgentCall, bool) {
 				return append(existing, call), true
 			})
+			mu.Unlock()
 		}
 	}
 
