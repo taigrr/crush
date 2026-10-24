@@ -8,18 +8,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"os"
-	"strings"
 	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/exp/charmtone"
-	"github.com/charmbracelet/x/term"
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/agent"
 	"github.com/taigrr/crush/internal/agent/notify"
@@ -30,7 +23,6 @@ import (
 	"github.com/taigrr/crush/internal/embedding"
 	"github.com/taigrr/crush/internal/filetracker"
 	"github.com/taigrr/crush/internal/fork"
-	"github.com/taigrr/crush/internal/format"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/historysearch"
 	"github.com/taigrr/crush/internal/log"
@@ -45,12 +37,9 @@ import (
 	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/shell"
 	"github.com/taigrr/crush/internal/skills"
-	"github.com/taigrr/crush/internal/ui/anim"
-	"github.com/taigrr/crush/internal/ui/styles/themes"
 	"github.com/taigrr/crush/internal/update"
 	"github.com/taigrr/crush/internal/version"
 	"github.com/taigrr/crush/internal/worktree"
-	"github.com/taigrr/fantasy"
 )
 
 // UpdateAvailableMsg is sent when a new version is available.
@@ -483,37 +472,6 @@ func (app *App) RunCompletions() *pubsub.Broker[notify.RunComplete] {
 	return app.runCompletions
 }
 
-// resolveSession resolves which session to use for a non-interactive run
-// If continueSessionID is set, it looks up that session by ID
-// If useLast is set, it returns the most recently updated top-level session
-// Otherwise, it creates a new session
-func (app *App) resolveSession(ctx context.Context, continueSessionID string, useLast bool) (session.Session, error) {
-	switch {
-	case continueSessionID != "":
-		if app.Sessions.IsAgentToolSession(continueSessionID) {
-			return session.Session{}, fmt.Errorf("cannot continue an agent tool session: %s", continueSessionID)
-		}
-		sess, err := app.Sessions.Get(ctx, continueSessionID)
-		if err != nil {
-			return session.Session{}, fmt.Errorf("session not found: %s", continueSessionID)
-		}
-		if sess.ParentSessionID != "" {
-			return session.Session{}, fmt.Errorf("cannot continue a child session: %s", continueSessionID)
-		}
-		return sess, nil
-
-	case useLast:
-		sess, err := app.Sessions.GetLast(ctx)
-		if err != nil {
-			return session.Session{}, fmt.Errorf("no sessions found to continue")
-		}
-		return sess, nil
-
-	default:
-		return app.Sessions.Create(ctx, agent.DefaultSessionName)
-	}
-}
-
 // ArchiveSession archives a session and deletes its snapshot refs to allow GC.
 func (app *App) ArchiveSession(ctx context.Context, sessionID string) error {
 	// Delete snapshot refs first so git objects become unreachable.
@@ -541,201 +499,6 @@ func (app *App) MarkSessionSeen(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// streamDelta computes the incremental text to print for a streamed assistant
-// message. content is the full accumulated message content; readBytes is how
-// many bytes were already consumed for this message. It returns the new
-// delta to print, the updated read-bytes count, and whether anything has been
-// printed yet (carried across calls via alreadyPrinted).
-//
-// The first bytes of a message have their leading whitespace trimmed because
-// models often emit indentation/formatting we don't want at the start. A
-// whitespace-only delta is suppressed until something real has been printed,
-// after which deltas are forwarded verbatim. It is an error for content to be
-// shorter than readBytes, which would indicate the message shrank.
-func streamDelta(content string, readBytes int, alreadyPrinted bool) (delta string, newReadBytes int, printed bool, err error) {
-	if len(content) < readBytes {
-		return "", readBytes, alreadyPrinted, fmt.Errorf("message content is shorter than read bytes: %d < %d", len(content), readBytes)
-	}
-
-	part := content[readBytes:]
-	if readBytes == 0 {
-		part = strings.TrimLeft(part, " \t")
-	}
-
-	printed = alreadyPrinted
-	if alreadyPrinted || strings.TrimSpace(part) != "" {
-		printed = true
-	} else {
-		// Suppress whitespace-only output until real content appears, but
-		// still advance the cursor so later diffs are correct.
-		part = ""
-	}
-	return part, len(content), printed, nil
-}
-
-// RunNonInteractive runs the application in non-interactive mode with the
-// given prompt, printing to stdout.
-func (app *App) RunNonInteractive(ctx context.Context, output io.Writer, prompt, largeModel, smallModel string, hideSpinner bool, continueSessionID string, useLast bool) error {
-	slog.Info("Running in non-interactive mode")
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	if largeModel != "" || smallModel != "" {
-		if err := app.overrideModelsForNonInteractive(ctx, largeModel, smallModel); err != nil {
-			return fmt.Errorf("failed to override models: %w", err)
-		}
-	}
-
-	var (
-		spinner   *format.Spinner
-		stdoutTTY bool
-		stderrTTY bool
-		stdinTTY  bool
-		progress  bool
-	)
-
-	if f, ok := output.(*os.File); ok {
-		stdoutTTY = term.IsTerminal(f.Fd())
-	}
-	stderrTTY = term.IsTerminal(os.Stderr.Fd())
-	stdinTTY = term.IsTerminal(os.Stdin.Fd())
-	progress = app.config.Config().Options.Progress == nil || *app.config.Config().Options.Progress
-
-	if !hideSpinner && stderrTTY {
-		t := themes.ThemeForProvider(app.config.Config().Models[config.SelectedModelTypeLarge].Provider)
-
-		// Detect background color to set the appropriate color for the
-		// spinner's 'Generating...' text. Without this, that text would be
-		// unreadable in light terminals.
-		hasDarkBG := true
-		if f, ok := output.(*os.File); ok && stdinTTY && stdoutTTY {
-			hasDarkBG = lipgloss.HasDarkBackground(os.Stdin, f)
-		}
-		defaultFG := lipgloss.LightDark(hasDarkBG)(charmtone.Pepper, t.WorkingLabelColor)
-
-		spinner = format.NewSpinner(ctx, cancel, anim.Settings{
-			Size:         10,
-			Label:        "Generating",
-			LabelColor:   defaultFG,
-			GradColorA:   t.WorkingGradFromColor,
-			GradColorB:   t.WorkingGradToColor,
-			CycleColors:  true,
-			LowBandwidth: app.config.Config().LowBandwidthEnabled(),
-		})
-		spinner.Start()
-	}
-
-	// Helper function to stop spinner once.
-	stopSpinner := func() {
-		if !hideSpinner && spinner != nil {
-			spinner.Stop()
-			spinner = nil
-		}
-	}
-
-	// Wait for MCP initialization to complete before reading MCP tools.
-	if err := mcp.WaitForInit(ctx); err != nil {
-		return fmt.Errorf("failed to wait for MCP initialization: %w", err)
-	}
-
-	// force update of agent models before running so mcp tools are loaded
-	app.AgentCoordinator.UpdateModels(ctx)
-
-	defer stopSpinner()
-
-	sess, err := app.resolveSession(ctx, continueSessionID, useLast)
-	if err != nil {
-		return fmt.Errorf("failed to create session for non-interactive mode: %w", err)
-	}
-
-	if continueSessionID != "" || useLast {
-		slog.Info("Continuing session for non-interactive run", "session_id", sess.ID)
-	} else {
-		slog.Info("Created session for non-interactive run", "session_id", sess.ID)
-	}
-
-	// Automatically approve all permission requests for this non-interactive
-	// session.
-	app.Permissions.AutoApproveSession(sess.ID)
-
-	type response struct {
-		result *fantasy.AgentResult
-		err    error
-	}
-	done := make(chan response, 1)
-
-	go func(ctx context.Context, sessionID, prompt string) {
-		result, err := app.AgentCoordinator.Run(ctx, sess.ID, prompt)
-		if err != nil {
-			done <- response{
-				err: fmt.Errorf("failed to start agent processing stream: %w", err),
-			}
-			return
-		}
-		done <- response{
-			result: result,
-		}
-	}(ctx, sess.ID, prompt)
-
-	messageEvents := app.Messages.Subscribe(ctx)
-	messageReadBytes := make(map[string]int)
-	var printed bool
-
-	defer func() {
-		if progress && stderrTTY {
-			_, _ = fmt.Fprintf(os.Stderr, ansi.ResetProgressBar)
-		}
-
-		// Always print a newline at the end. If output is a TTY this will
-		// prevent the prompt from overwriting the last line of output.
-		_, _ = fmt.Fprintln(output)
-	}()
-
-	for {
-		if progress && stderrTTY {
-			// HACK: Reinitialize the terminal progress bar on every iteration
-			// so it doesn't get hidden by the terminal due to inactivity.
-			_, _ = fmt.Fprintf(os.Stderr, ansi.SetIndeterminateProgressBar)
-		}
-
-		select {
-		case result := <-done:
-			stopSpinner()
-			if result.err != nil {
-				if errors.Is(result.err, context.Canceled) || errors.Is(result.err, agent.ErrRequestCancelled) {
-					slog.Debug("Non-interactive: agent processing cancelled", "session_id", sess.ID)
-					return nil
-				}
-				return fmt.Errorf("agent processing failed: %w", result.err)
-			}
-			return nil
-
-		case event := <-messageEvents:
-			msg := event.Payload
-			if msg.SessionID == sess.ID && msg.Role == message.Assistant && len(msg.Parts) > 0 {
-				stopSpinner()
-
-				content := msg.Content().String()
-				part, n, nowPrinted, err := streamDelta(content, messageReadBytes[msg.ID], printed)
-				if err != nil {
-					slog.Error("Non-interactive: message content is shorter than read bytes", "message_length", len(content), "read_bytes", messageReadBytes[msg.ID])
-					return err
-				}
-				if part != "" {
-					fmt.Fprint(output, part)
-				}
-				printed = nowPrinted
-				messageReadBytes[msg.ID] = n
-			}
-
-		case <-ctx.Done():
-			stopSpinner()
-			return ctx.Err()
-		}
-	}
-}
-
 func (app *App) UpdateAgentModel(ctx context.Context) error {
 	if app.AgentCoordinator == nil {
 		return fmt.Errorf("agent configuration is missing")
@@ -746,58 +509,6 @@ func (app *App) UpdateAgentModel(ctx context.Context) error {
 	// with "agent busy". Returns immediately so the RPC doesn't hang.
 	_, err := app.AgentCoordinator.UpdateModelsWhenIdle(ctx)
 	return err
-}
-
-// overrideModelsForNonInteractive parses the model strings and temporarily
-// overrides the model configurations, then rebuilds the agent.
-// Format: "model-name" (searches all providers) or "provider/model-name".
-// Model matching is case-insensitive.
-// If largeModel is provided but smallModel is not, the small model defaults to
-// the provider's default small model.
-func (app *App) overrideModelsForNonInteractive(ctx context.Context, largeModel, smallModel string) error {
-	providers := app.config.Config().Providers.Copy()
-
-	largeMatches, smallMatches, err := findModels(providers, largeModel, smallModel)
-	if err != nil {
-		return err
-	}
-
-	var largeProviderID string
-
-	// Override large model.
-	if largeModel != "" {
-		found, err := validateMatches(largeMatches, largeModel, "large")
-		if err != nil {
-			return err
-		}
-		largeProviderID = found.provider
-		slog.Info("Overriding large model for non-interactive run", "provider", found.provider, "model", found.modelID)
-		app.config.Config().Models[config.SelectedModelTypeLarge] = config.SelectedModel{
-			Provider: found.provider,
-			Model:    found.modelID,
-		}
-	}
-
-	// Override small model.
-	switch {
-	case smallModel != "":
-		found, err := validateMatches(smallMatches, smallModel, "small")
-		if err != nil {
-			return err
-		}
-		slog.Info("Overriding small model for non-interactive run", "provider", found.provider, "model", found.modelID)
-		app.config.Config().Models[config.SelectedModelTypeSmall] = config.SelectedModel{
-			Provider: found.provider,
-			Model:    found.modelID,
-		}
-
-	case largeModel != "":
-		// No small model specified, but large model was - use provider's default.
-		smallCfg := app.GetDefaultSmallModel(largeProviderID)
-		app.config.Config().Models[config.SelectedModelTypeSmall] = smallCfg
-	}
-
-	return app.AgentCoordinator.UpdateModels(ctx)
 }
 
 // GetDefaultSmallModel returns the default small model for the given
