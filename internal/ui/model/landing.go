@@ -41,7 +41,7 @@ func (m *UI) landingView() string {
 
 	// Git branch line (worktree lookups are session-scoped, so the
 	// landing screen only shows the plain branch).
-	if branch := m.com.Workspace.GitBranch(); branch != "" {
+	if branch := m.com.Workspace.GitBranchForDir(m.com.Workspace.WorkingDir()); branch != "" {
 		parts = append(parts, t.Sidebar.WorkingDir.Render(styles.GitBranchIcon+" "+branch))
 	}
 

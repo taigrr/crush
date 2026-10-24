@@ -48,6 +48,11 @@ type ClientWorkspace struct {
 	ws              proto.Workspace
 	activeSessionID string
 
+	// branchMu guards branches, the per-directory git branch cache
+	// served by GitBranchForDir.
+	branchMu sync.Mutex
+	branches map[string]*gitBranchEntry
+
 	// Subscription state for runtime workspace switching. program is the
 	// bubbletea program events are forwarded to; subCancel cancels the
 	// current event stream; switchRequested tells the subscribe loop the
@@ -742,19 +747,86 @@ func (w *ClientWorkspace) invalidateWorktreeCache() {
 	w.mu.Unlock()
 }
 
+// GitBranch synchronously reads the current branch of the working
+// directory. It runs git, so it is for one-shot callers (e.g. choosing a
+// dialog's default), not render paths; those use GitBranchForDir.
 func (w *ClientWorkspace) GitBranch() string {
-	return w.GitBranchForDir(w.WorkingDir())
+	return readGitBranch(w.WorkingDir())
 }
 
 // GitBranchForDir returns the current git branch for the given directory,
 // or empty when dir is blank or not inside a git repository. Display code
 // uses this to show the branch of an attached session's own working
 // directory, which may differ from this client's launch cwd.
+//
+// The header and sidebar call this on every render, so it never runs git
+// on the caller's goroutine: it returns the last known branch and, when
+// that is missing or older than gitBranchTTL, starts one background
+// refresh per directory. A changed result is announced to the program
+// with GitBranchChangedMsg so the UI repaints.
 func (w *ClientWorkspace) GitBranchForDir(dir string) string {
 	if dir == "" {
 		return ""
 	}
-	cmd := exec.CommandContext(context.Background(), "git", "branch", "--show-current")
+	w.branchMu.Lock()
+	defer w.branchMu.Unlock()
+	if w.branches == nil {
+		w.branches = make(map[string]*gitBranchEntry)
+	}
+	entry, ok := w.branches[dir]
+	if !ok {
+		entry = &gitBranchEntry{}
+		w.branches[dir] = entry
+	}
+	if !entry.refreshing && time.Since(entry.at) > gitBranchTTL {
+		entry.refreshing = true
+		go w.refreshGitBranch(dir, entry)
+	}
+	return entry.branch
+}
+
+// gitBranchTTL is how long a cached branch is served before a background
+// refresh is started.
+const gitBranchTTL = 3 * time.Second
+
+// gitBranchTimeout bounds a single git invocation.
+const gitBranchTimeout = 2 * time.Second
+
+// GitBranchChangedMsg is sent to the program when a background refresh
+// finds a different branch, so views showing it repaint.
+type GitBranchChangedMsg struct{}
+
+type gitBranchEntry struct {
+	branch     string
+	at         time.Time
+	refreshing bool
+}
+
+func (w *ClientWorkspace) refreshGitBranch(dir string, entry *gitBranchEntry) {
+	branch := readGitBranch(dir)
+
+	w.branchMu.Lock()
+	changed := entry.branch != branch
+	entry.branch = branch
+	entry.at = time.Now()
+	entry.refreshing = false
+	w.branchMu.Unlock()
+
+	if !changed {
+		return
+	}
+	w.subMu.Lock()
+	program := w.program
+	w.subMu.Unlock()
+	if program != nil {
+		program.Send(GitBranchChangedMsg{})
+	}
+}
+
+func readGitBranch(dir string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), gitBranchTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "branch", "--show-current")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
