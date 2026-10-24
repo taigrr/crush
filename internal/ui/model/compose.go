@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -105,17 +106,20 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 		m.setState(uiChat, m.focus)
 	}
 
-	ctx := context.Background()
+	// Snapshot model state before handing off to commands, which run off
+	// the Update goroutine and must not read the model.
+	sessionID := m.session.ID
+	reads := slices.Clone(m.sessionFileReads)
+	workspace := m.com.Workspace
 	cmds = append(cmds, func() tea.Msg {
-		for _, path := range m.sessionFileReads {
-			m.com.Workspace.FileTrackerRecordRead(ctx, m.session.ID, path)
-			m.com.Workspace.LSPStart(ctx, path)
+		ctx := context.Background()
+		for _, path := range reads {
+			workspace.FileTrackerRecordRead(ctx, sessionID, path)
+			workspace.LSPStart(ctx, path)
 		}
 		return nil
 	})
 
-	// Capture session ID to avoid race with main goroutine updating m.session.
-	sessionID := m.session.ID
 	cmds = append(cmds, func() tea.Msg {
 		// AgentRun is fire-and-forget: it returns once the prompt has
 		// been accepted (HTTP 202) or synchronously with a validation

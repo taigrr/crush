@@ -67,6 +67,10 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sendProgressBar = slices.Contains(msg, "WT_SESSION")
 		}
 		cmds = append(cmds, common.QueryCmd(uv.Environ(msg)))
+	case fileCompletionMsg:
+		if cmd := m.handleFileCompletion(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case serverVersionMsg:
 		m.versionMismatch = msg.mismatch
 		m.serverVersionStr = msg.version

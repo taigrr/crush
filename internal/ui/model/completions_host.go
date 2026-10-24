@@ -77,6 +77,26 @@ func (m *UI) insertArgCompletion(text string) tea.Cmd {
 	return m.handleTextareaHeightChange(prevHeight)
 }
 
+// fileCompletionMsg reports a file chosen from @-completion that was read
+// for attachment. attachment is nil when the file could not be read.
+type fileCompletionMsg struct {
+	absPath    string
+	attachment *message.Attachment
+}
+
+// handleFileCompletion records the read on the model and forwards the
+// attachment, if any, to the attachments component.
+func (m *UI) handleFileCompletion(msg fileCompletionMsg) tea.Cmd {
+	if !slices.Contains(m.sessionFileReads, msg.absPath) {
+		m.sessionFileReads = append(m.sessionFileReads, msg.absPath)
+	}
+	if msg.attachment == nil {
+		return nil
+	}
+	attachment := *msg.attachment
+	return func() tea.Msg { return attachment }
+}
+
 // insertFileCompletion inserts the selected file path into the textarea,
 // replacing the @query, and adds the file as an attachment.
 func (m *UI) insertFileCompletion(path string) tea.Cmd {
@@ -86,36 +106,42 @@ func (m *UI) insertFileCompletion(path string) tea.Cmd {
 	}
 	heightCmd := m.handleTextareaHeightChange(prevHeight)
 
+	// Snapshot the model state the command needs: it runs off the Update
+	// goroutine, so it must not read or write m directly. The read is
+	// recorded back on the model when fileCompletionMsg is handled.
+	var sessionID string
+	if m.hasSession() {
+		sessionID = m.session.ID
+	}
+	priorReads := slices.Clone(m.sessionFileReads)
+	workspace := m.com.Workspace
 	fileCmd := func() tea.Msg {
 		absPath, _ := filepath.Abs(path)
 
-		if m.hasSession() {
+		if sessionID != "" {
 			// Skip attachment if file was already read and hasn't been modified.
-			lastRead := m.com.Workspace.FileTrackerLastReadTime(context.Background(), m.session.ID, absPath)
+			lastRead := workspace.FileTrackerLastReadTime(context.Background(), sessionID, absPath)
 			if !lastRead.IsZero() {
 				if info, err := os.Stat(path); err == nil && !info.ModTime().After(lastRead) {
 					return nil
 				}
 			}
-		} else if slices.Contains(m.sessionFileReads, absPath) {
+		} else if slices.Contains(priorReads, absPath) {
 			return nil
 		}
 
-		m.sessionFileReads = append(m.sessionFileReads, absPath)
-
-		// Add file as attachment.
-		content, err := os.ReadFile(path)
-		if err != nil {
-			// If it fails, let the LLM handle it later.
-			return nil
+		done := fileCompletionMsg{absPath: absPath}
+		// Add file as attachment. If reading fails, let the LLM handle it
+		// later.
+		if content, err := os.ReadFile(path); err == nil {
+			done.attachment = &message.Attachment{
+				FilePath: path,
+				FileName: filepath.Base(path),
+				MimeType: mimeOf(content),
+				Content:  content,
+			}
 		}
-
-		return message.Attachment{
-			FilePath: path,
-			FileName: filepath.Base(path),
-			MimeType: mimeOf(content),
-			Content:  content,
-		}
+		return done
 	}
 	return tea.Batch(heightCmd, fileCmd)
 }
