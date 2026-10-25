@@ -49,10 +49,12 @@ func (s *stubCoordinator) ClearGoal(string)       {}
 func (s *stubCoordinator) GoalStatus(string) (string, int, int, bool) {
 	return "", 0, 0, false
 }
-func (s *stubCoordinator) QueuedPrompts(string) int          { return 0 }
-func (s *stubCoordinator) QueuedPromptsList(string) []string { return nil }
-func (s *stubCoordinator) ClearQueue(string)                 {}
-func (s *stubCoordinator) DropQueued(string, string) bool    { return false }
+func (s *stubCoordinator) QueuedPrompts(string) int           { return 0 }
+func (s *stubCoordinator) QueuedPromptsList(string) []string  { return nil }
+func (s *stubCoordinator) ClearQueue(string)                  {}
+func (s *stubCoordinator) DropQueued(string, string) bool     { return false }
+func (s *stubCoordinator) PromoteNextQueuedToBTW(string) bool { return false }
+func (s *stubCoordinator) CancelToolCalls(string) int         { return 0 }
 func (s *stubCoordinator) Summarize(context.Context, string) error {
 	return nil
 }

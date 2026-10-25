@@ -48,6 +48,8 @@ func (m *mockSessionAgent) QueuedPrompts(sessionID string) int          { return
 func (m *mockSessionAgent) QueuedPromptsList(sessionID string) []string { return nil }
 func (m *mockSessionAgent) ClearQueue(sessionID string)                 {}
 func (m *mockSessionAgent) DropQueued(string, string) bool              { return false }
+func (m *mockSessionAgent) PromoteNextQueuedToBTW(string) bool          { return false }
+func (m *mockSessionAgent) CancelToolCalls(string) int                  { return 0 }
 func (m *mockSessionAgent) Summarize(context.Context, string, *Model, fantasy.ProviderOptions) error {
 	return nil
 }

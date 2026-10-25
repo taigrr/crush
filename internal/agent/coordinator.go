@@ -110,6 +110,12 @@ type Coordinator interface {
 	// DropQueued removes a still-queued call by RunID without touching
 	// the session's active turn. It reports whether one was queued.
 	DropQueued(sessionID, runID string) bool
+	// PromoteNextQueuedToBTW turns the next prompt waiting for its own
+	// turn into a /btw aside folded into the active turn.
+	PromoteNextQueuedToBTW(sessionID string) bool
+	// CancelToolCalls cancels in-flight tool calls without canceling the
+	// turn or its queue.
+	CancelToolCalls(sessionID string) int
 	Summarize(context.Context, string) error
 	RegenerateTitle(ctx context.Context, sessionID string) error
 	Model() Model
@@ -1819,6 +1825,14 @@ func (c *coordinator) ClearQueue(sessionID string) {
 
 func (c *coordinator) DropQueued(sessionID, runID string) bool {
 	return c.currentAgent.DropQueued(sessionID, runID)
+}
+
+func (c *coordinator) PromoteNextQueuedToBTW(sessionID string) bool {
+	return c.currentAgent.PromoteNextQueuedToBTW(sessionID)
+}
+
+func (c *coordinator) CancelToolCalls(sessionID string) int {
+	return c.currentAgent.CancelToolCalls(sessionID)
 }
 
 func (c *coordinator) IsBusy() bool {

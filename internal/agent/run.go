@@ -190,6 +190,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		runCtx := context.WithValue(ctx, tools.SessionIDContextKey, call.SessionID)
 		genCtx, cancel = context.WithCancel(runCtx)
 		a.activeRequests.Set(call.SessionID, cancel)
+		a.activeTurns.set(call.SessionID, activeTurn{runID: call.RunID, policy: call.PermissionPolicy})
 		activeRegistered = true
 		call.Accepted.Close()
 		mu.Unlock()
@@ -383,6 +384,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	if !activeRegistered {
 		genCtx, cancel = context.WithCancel(ctx)
 		a.activeRequests.Set(call.SessionID, cancel)
+		a.activeTurns.set(call.SessionID, activeTurn{runID: call.RunID, policy: call.PermissionPolicy})
 
 		defer a.releaseActiveOnce(call.SessionID, cancel, &activeReleased)
 	}
@@ -541,6 +543,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				newCacheWarmer(largeModel, prepared.Messages, prepared.Tools, call.ProviderOptions),
 			)
 			prepared.Tools = wrapToolsWithWatchdog(prepared.Tools, watchdog)
+			prepared.Tools = wrapToolsWithUserCancel(prepared.Tools, &a.toolCancels, call.SessionID)
 
 			sessionLock.Lock()
 			stepMessages = cloneFantasyMessages(prepared.Messages)

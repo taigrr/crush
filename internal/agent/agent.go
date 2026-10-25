@@ -147,6 +147,13 @@ type SessionAgent interface {
 	QueuedPromptsList(sessionID string) []string
 	ClearQueue(sessionID string)
 	DropQueued(sessionID, runID string) bool
+	// PromoteNextQueuedToBTW turns the next prompt waiting for its own
+	// turn into a /btw aside folded into the active turn. It reports
+	// whether one was promoted.
+	PromoteNextQueuedToBTW(sessionID string) bool
+	// CancelToolCalls cancels the session's in-flight tool calls without
+	// canceling the turn or its queue, reporting how many were canceled.
+	CancelToolCalls(sessionID string) int
 	// Summarize compacts the session's history. model, when non-nil, is
 	// the model the turn ran on (a per-call override); nil runs the
 	// agent's large model.
@@ -174,6 +181,12 @@ type sessionAgent struct {
 	systemPromptPrefix *csync.Value[string]
 	systemPrompt       *csync.Value[string]
 	tools              *csync.Slice[fantasy.AgentTool]
+	// toolCancels lets the user cancel in-flight tool calls without
+	// canceling the turn (see CancelToolCalls).
+	toolCancels toolCancelRegistry
+	// activeTurns records each session's streaming turn (RunID and
+	// permission policy) while it holds its active request.
+	activeTurns activeTurnRegistry
 
 	isSubAgent           bool
 	sessions             session.Service

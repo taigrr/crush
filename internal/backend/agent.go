@@ -399,6 +399,33 @@ func (b *Backend) DropQueuedRun(workspaceID, sessionID, runID string) (bool, err
 	return ws.AgentCoordinator.DropQueued(sessionID, runID), nil
 }
 
+// PromoteNextQueuedToBTW converts the session's next queued prompt that
+// is waiting for its own turn into a /btw aside folded into the active
+// turn. It reports whether one was promoted.
+func (b *Backend) PromoteNextQueuedToBTW(workspaceID, sessionID string) (bool, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return false, err
+	}
+	if ws.AgentCoordinator == nil {
+		return false, nil
+	}
+	return ws.AgentCoordinator.PromoteNextQueuedToBTW(sessionID), nil
+}
+
+// CancelToolCalls cancels the session's in-flight tool calls without
+// canceling its turn or queue. It reports how many were canceled.
+func (b *Backend) CancelToolCalls(workspaceID, sessionID string) (int, error) {
+	ws, err := b.GetWorkspace(workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	if ws.AgentCoordinator == nil {
+		return 0, nil
+	}
+	return ws.AgentCoordinator.CancelToolCalls(sessionID), nil
+}
+
 // SetGoal sets (or, when condition is blank, clears) the autonomous goal
 // for a session.
 func (b *Backend) SetGoal(workspaceID, sessionID, condition string) error {

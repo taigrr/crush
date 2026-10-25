@@ -237,6 +237,59 @@ func (m *UI) sendBTWMessage(content string) tea.Cmd {
 	}
 }
 
+// queueControlTimeout bounds the /btw-next and /cancel-tool server calls.
+const queueControlTimeout = 10 * time.Second
+
+// promoteNextQueuedToBTW converts the session's next queued message into a
+// /btw aside, so it is folded into the active turn at its next step
+// instead of waiting for the turn to end.
+func (m *UI) promoteNextQueuedToBTW() tea.Cmd {
+	if !m.isSessionBusy() {
+		return util.ReportWarn("No turn is running")
+	}
+	sessionID := m.session.ID
+	workspace := m.com.Workspace
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
+		defer cancel()
+		promoted, err := workspace.AgentPromoteNextQueuedToBTW(ctx, sessionID)
+		switch {
+		case err != nil:
+			return util.InfoMsg{Type: util.InfoTypeError, Msg: err.Error()}
+		case !promoted:
+			return util.InfoMsg{Type: util.InfoTypeWarn, Msg: "No queued message can be folded into the active turn"}
+		default:
+			return util.InfoMsg{Type: util.InfoTypeInfo, Msg: "Next queued message will be folded into the active turn"}
+		}
+	}
+}
+
+// cancelToolCalls cancels the session's running tool calls. The turn and
+// its queued messages are left alone: the model receives a "canceled"
+// result for each call and carries on, picking up any /btw asides.
+func (m *UI) cancelToolCalls() tea.Cmd {
+	if !m.isSessionBusy() {
+		return util.ReportWarn("No turn is running")
+	}
+	sessionID := m.session.ID
+	workspace := m.com.Workspace
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), queueControlTimeout)
+		defer cancel()
+		canceled, err := workspace.AgentCancelToolCalls(ctx, sessionID)
+		switch {
+		case err != nil:
+			return util.InfoMsg{Type: util.InfoTypeError, Msg: err.Error()}
+		case canceled == 0:
+			return util.InfoMsg{Type: util.InfoTypeWarn, Msg: "No tool call is running"}
+		case canceled == 1:
+			return util.InfoMsg{Type: util.InfoTypeInfo, Msg: "Canceled the running tool call"}
+		default:
+			return util.InfoMsg{Type: util.InfoTypeInfo, Msg: fmt.Sprintf("Canceled %d running tool calls", canceled)}
+		}
+	}
+}
+
 // continueTurn re-kicks an idle session, instructing the model to resume
 // the previous task as if its last turn never ended. The agent loop
 // requires a triggering prompt, so a minimal continuation directive is

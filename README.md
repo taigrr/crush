@@ -97,7 +97,7 @@ deeper technical breakdown see [FEATURES.md](./FEATURES.md).
   (single/multiple choice, yes/no, free text) that hard-fails headless
   instead of hanging.
 - **Slash commands**: `/goal`, `/export`, `/continue`, `/rename`, `/cwd`,
-  `/model`, `/review`, `/mcp-auth`, `/btw`.
+  `/model`, `/review`, `/mcp-auth`, `/btw`, `/btw-next`, `/cancel-tool`.
 - **Session export** to Markdown (including review findings), and smart
   paste (images, long text, and file paths become attachments).
 - **Milestones**: auto-generated progress markers across a session.

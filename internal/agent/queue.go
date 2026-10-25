@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -357,6 +358,75 @@ func (a *sessionAgent) cancelLocked(sessionID string) {
 	}
 }
 
+// btwPrefix marks a prompt as a "by the way" aside, matching what the
+// /btw command sends.
+const btwPrefix = "[btw] "
+
+// promotedRunText is the terminal text reported for a prompt's RunID when
+// the prompt is promoted into a /btw aside: it gets no turn (and no reply)
+// of its own, so a caller waiting on the RunID is told where it went.
+const promotedRunText = "(this prompt was sent as a /btw aside into the session's active turn; its reply is part of that turn)"
+
+// PromoteNextQueuedToBTW converts the next queued prompt that is waiting
+// for its own turn (one carrying a RunID) into a /btw aside: its RunID is
+// cleared so drainQueueForStep folds it into the active turn at the next
+// step boundary instead of holding it until the turn ends, and its prompt
+// gets the /btw prefix so the model and transcript show it as an aside.
+//
+// Only a prompt the active turn will actually fold is eligible: the
+// session must have a streaming turn, and the prompt must share that
+// turn's permission policy (drainQueueForStep refuses to fold across
+// policies), must not be covered by a pending cancel (it would be dropped,
+// not folded), and must not be the active turn's own re-queued
+// continuation (same RunID), whose lifecycle the turn still owns.
+//
+// The prompt will never get a turn of its own, so its RunID receives a
+// terminal RunComplete now, carrying promotedRunText; a caller waiting on
+// that RunID (e.g. `crush run`) would otherwise hang. It reports whether a
+// prompt was promoted.
+func (a *sessionAgent) PromoteNextQueuedToBTW(sessionID string) bool {
+	mu := a.sessionMu(sessionID)
+	mu.Lock()
+	turn, active := a.activeTurns.get(sessionID)
+	if !active || !a.isSessionActive(sessionID) {
+		mu.Unlock()
+		return false
+	}
+	var promoted SessionAgentCall
+	var found bool
+	a.messageQueue.Update(sessionID, func(q []SessionAgentCall, present bool) ([]SessionAgentCall, bool) {
+		i := slices.IndexFunc(q, func(c SessionAgentCall) bool {
+			return c.RunID != "" &&
+				c.RunID != turn.runID &&
+				c.PermissionPolicy == turn.policy &&
+				!a.canceledBySeq(sessionID, c.acceptSeq)
+		})
+		if i < 0 {
+			return q, present
+		}
+		q = slices.Clone(q)
+		promoted = q[i]
+		found = true
+		q[i].RunID = ""
+		if !strings.HasPrefix(q[i].Prompt, btwPrefix) {
+			q[i].Prompt = btwPrefix + q[i].Prompt
+		}
+		return q, true
+	})
+	mu.Unlock()
+	if !found {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	a.publishRunComplete(ctx, promoted, notify.RunComplete{
+		SessionID: sessionID,
+		RunID:     promoted.RunID,
+		Text:      promotedRunText,
+	})
+	return true
+}
+
 // DropQueued removes the queued call carrying runID from sessionID's
 // queue, publishing its cancelled RunComplete. It reports whether such a
 // call was queued. Unlike Cancel it never touches the active turn, so a
@@ -523,6 +593,7 @@ func (a *sessionAgent) isSessionActive(sessionID string) bool {
 // WaitForIdle waiters. Every place that releases an active request must go
 // through here so the idle wakeup is never missed.
 func (a *sessionAgent) clearActiveRequest(sessionID string) {
+	a.activeTurns.clear(sessionID)
 	a.activeRequests.Del(sessionID)
 	a.signalIdle()
 }

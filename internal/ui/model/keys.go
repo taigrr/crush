@@ -99,6 +99,13 @@ type KeyMap struct {
 	// ArchiveSession opens the confirmation modal to archive the current
 	// (active) session from the main window.
 	ArchiveSession key.Binding
+	// PromoteQueued folds the next queued message into the active turn as
+	// a /btw aside (same as /btw-next). Active only while a turn runs.
+	PromoteQueued key.Binding
+	// CancelTool cancels the running tool call(s) without ending the turn
+	// or clearing the queue (same as /cancel-tool). Active only while a
+	// turn runs.
+	CancelTool key.Binding
 }
 
 func DefaultKeyMap() KeyMap {
@@ -150,6 +157,19 @@ func DefaultKeyMap() KeyMap {
 		ArchiveSession: key.NewBinding(
 			key.WithKeys("ctrl+x"),
 			key.WithHelp("ctrl+x", "archive session"),
+		),
+		// ctrl+shift needs a terminal that disambiguates keys (kitty
+		// keyboard protocol); elsewhere it arrives as plain ctrl+p/ctrl+c.
+		// Many such terminals also claim ctrl+shift+c (copy) and
+		// ctrl+shift+p for themselves, so help advertises alt, which
+		// reaches the app almost everywhere.
+		PromoteQueued: key.NewBinding(
+			key.WithKeys("ctrl+shift+p", "alt+p"),
+			key.WithHelp("alt+p", "send next queued now"),
+		),
+		CancelTool: key.NewBinding(
+			key.WithKeys("ctrl+shift+c", "alt+c"),
+			key.WithHelp("alt+c", "cancel tool call"),
 		),
 	}
 

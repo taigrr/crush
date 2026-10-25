@@ -314,6 +314,23 @@ func (c *Client) ClearAgentSessionQueuedPrompts(ctx context.Context, id string, 
 	return checkResponse(rsp, err, "clear session agent queued prompts")
 }
 
+// PromoteNextQueuedToBTW converts the session's next queued prompt into a
+// /btw aside folded into the active turn. It reports whether one was
+// promoted.
+func (c *Client) PromoteNextQueuedToBTW(ctx context.Context, id, sessionID string) (bool, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/prompts/promote-btw", id, sessionID), nil, nil, nil)
+	out, err := decodeResponse[proto.PromoteQueuedResponse](rsp, err, "promote queued prompt")
+	return out.Promoted, err
+}
+
+// CancelToolCalls cancels the session's in-flight tool calls without
+// canceling its turn or queue. It reports how many were canceled.
+func (c *Client) CancelToolCalls(ctx context.Context, id, sessionID string) (int, error) {
+	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/tools/cancel", id, sessionID), nil, nil, nil)
+	out, err := decodeResponse[proto.CancelToolCallsResponse](rsp, err, "cancel tool calls")
+	return out.Canceled, err
+}
+
 // DropQueuedRun removes the still-queued prompt sent with runID without
 // cancelling the session's active turn. It reports whether the prompt was
 // still queued.

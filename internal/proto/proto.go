@@ -529,3 +529,15 @@ type SwarmTarget struct {
 type DropQueuedRunResponse struct {
 	Dropped bool `json:"dropped"`
 }
+
+// PromoteQueuedResponse reports whether a queued prompt was converted
+// into a /btw aside.
+type PromoteQueuedResponse struct {
+	Promoted bool `json:"promoted"`
+}
+
+// CancelToolCallsResponse reports how many in-flight tool calls were
+// canceled.
+type CancelToolCallsResponse struct {
+	Canceled int `json:"canceled"`
+}

@@ -202,6 +202,12 @@ type Workspace interface {
 	AgentQueuedPrompts(sessionID string) int
 	AgentQueuedPromptsList(sessionID string) []string
 	AgentClearQueue(sessionID string)
+	// AgentPromoteNextQueuedToBTW converts the next queued prompt into a
+	// /btw aside folded into the active turn.
+	AgentPromoteNextQueuedToBTW(ctx context.Context, sessionID string) (bool, error)
+	// AgentCancelToolCalls cancels in-flight tool calls without canceling
+	// the turn or its queue, reporting how many were canceled.
+	AgentCancelToolCalls(ctx context.Context, sessionID string) (int, error)
 	AgentSummarize(ctx context.Context, sessionID string) error
 	// AgentGenerateTitle regenerates a session's title on demand.
 	AgentGenerateTitle(ctx context.Context, sessionID string) error

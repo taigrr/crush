@@ -1238,6 +1238,41 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionRunDrop(w http.ResponseWri
 	jsonEncode(w, proto.DropQueuedRunResponse{Dropped: dropped})
 }
 
+// handlePostWorkspaceAgentSessionPromptPromoteBTW converts the next queued
+// prompt into a /btw aside.
+//
+//	@Summary		Promote next queued prompt to /btw
+//	@Description	Converts the next queued prompt waiting for its own turn into a /btw aside folded into the active turn at its next step.
+//	@Tags			agent
+//	@Produce		json
+//	@Param			id	path		string	true	"Workspace ID"
+//	@Param			sid	path		string	true	"Session ID"
+//	@Success		200	{object}	proto.PromoteQueuedResponse
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/prompts/promote-btw [post]
+func (c *controllerV1) handlePostWorkspaceAgentSessionPromptPromoteBTW(w http.ResponseWriter, r *http.Request) {
+	promoted, err := c.backend.PromoteNextQueuedToBTW(r.PathValue("id"), r.PathValue("sid"))
+	c.respond(w, r, proto.PromoteQueuedResponse{Promoted: promoted}, err)
+}
+
+// handlePostWorkspaceAgentSessionToolsCancel cancels in-flight tool calls.
+//
+//	@Summary		Cancel in-flight tool calls
+//	@Description	Cancels the session's running tool calls without canceling its turn or queued prompts. Each canceled call returns a canceled result to the model.
+//	@Tags			agent
+//	@Produce		json
+//	@Param			id	path		string	true	"Workspace ID"
+//	@Param			sid	path		string	true	"Session ID"
+//	@Success		200	{object}	proto.CancelToolCallsResponse
+//	@Failure		404	{object}	proto.Error
+//	@Failure		500	{object}	proto.Error
+//	@Router			/workspaces/{id}/agent/sessions/{sid}/tools/cancel [post]
+func (c *controllerV1) handlePostWorkspaceAgentSessionToolsCancel(w http.ResponseWriter, r *http.Request) {
+	canceled, err := c.backend.CancelToolCalls(r.PathValue("id"), r.PathValue("sid"))
+	c.respond(w, r, proto.CancelToolCallsResponse{Canceled: canceled}, err)
+}
+
 // handleGetWorkspaceAgentSessionGoal returns the active autonomous goal.
 //
 //	@Summary		Get goal status

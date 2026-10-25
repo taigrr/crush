@@ -88,6 +88,17 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				}
 			}
 			return true
+		case key.Matches(msg, m.keyMap.PromoteQueued):
+			// Only meaningful mid-turn; otherwise let the key fall through.
+			if m.state == uiChat && m.hasSession() && m.isSessionBusy() {
+				cmds = append(cmds, m.promoteNextQueuedToBTW())
+				return true
+			}
+		case key.Matches(msg, m.keyMap.CancelTool):
+			if m.state == uiChat && m.hasSession() && m.isSessionBusy() {
+				cmds = append(cmds, m.cancelToolCalls())
+				return true
+			}
 		case key.Matches(msg, m.keyMap.ToggleYolo):
 			yolo := !m.com.Workspace.PermissionSkipRequests()
 			m.com.Workspace.PermissionSetSkipRequests(yolo)

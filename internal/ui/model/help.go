@@ -159,7 +159,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 			} else if m.pillsExpanded && m.com.Workspace.AgentQueuedPrompts(m.session.ID) > 0 {
 				cancelBinding.SetHelp("esc", "clear queue")
 			}
-			binds = append(binds, []key.Binding{cancelBinding})
+			binds = append(binds, []key.Binding{cancelBinding, k.CancelTool, k.PromoteQueued})
 		}
 
 		mainBinds := []key.Binding{}

@@ -55,6 +55,24 @@ var builtinSlashCommands = []slashCommand{
 		},
 	},
 	{
+		name:            "btw-next",
+		aliases:         []string{"send-now"},
+		description:     "Fold the next queued message into the active turn as a /btw aside",
+		requiresSession: true,
+		run: func(m *UI, _ string) tea.Cmd {
+			return m.promoteNextQueuedToBTW()
+		},
+	},
+	{
+		name:            "cancel-tool",
+		aliases:         []string{"stop-tool"},
+		description:     "Cancel the running tool call(s) without ending the turn or clearing the queue",
+		requiresSession: true,
+		run: func(m *UI, _ string) tea.Cmd {
+			return m.cancelToolCalls()
+		},
+	},
+	{
 		name:            "export",
 		argHint:         "[filename]",
 		description:     "Export the conversation to a Markdown file",

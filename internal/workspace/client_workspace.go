@@ -441,6 +441,14 @@ func (w *ClientWorkspace) AgentQueuedPromptsList(sessionID string) []string {
 	return prompts
 }
 
+func (w *ClientWorkspace) AgentPromoteNextQueuedToBTW(ctx context.Context, sessionID string) (bool, error) {
+	return w.client.PromoteNextQueuedToBTW(ctx, w.workspaceID(), sessionID)
+}
+
+func (w *ClientWorkspace) AgentCancelToolCalls(ctx context.Context, sessionID string) (int, error) {
+	return w.client.CancelToolCalls(ctx, w.workspaceID(), sessionID)
+}
+
 func (w *ClientWorkspace) AgentClearQueue(sessionID string) {
 	_ = w.client.ClearAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
 }

@@ -430,14 +430,16 @@ New: `internal/ui/model/slash.go`
 Inline, `/`-prefixed commands typed at the chat prompt — distinct from the
 command palette and user-defined custom commands:
 
-| Command     | Action                                            |
-| ----------- | ------------------------------------------------- |
-| `/btw`      | Inject an out-of-band note into the conversation  |
-| `/export`   | Export the session transcript to Markdown         |
-| `/continue` | Continue the last session                         |
-| `/goal`     | Start autonomous goal mode (see above)            |
-| `/rename`   | Rename the current session                        |
-| `/cwd`      | Show or change the session working directory      |
+| Command        | Action                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------- |
+| `/btw`         | Inject an out-of-band note into the conversation                                                         |
+| `/btw-next`    | Fold the next queued message into the active turn as a `/btw` aside (`ctrl+shift+p` / `alt+p`)           |
+| `/cancel-tool` | Cancel the running tool call(s) without ending the turn or clearing the queue (`ctrl+shift+c` / `alt+c`) |
+| `/export`      | Export the session transcript to Markdown                                                                |
+| `/continue`    | Continue the last session                                                                                |
+| `/goal`        | Start autonomous goal mode (see above)                                                                   |
+| `/rename`      | Rename the current session                                                                               |
+| `/cwd`         | Show or change the session working directory                                                             |
 
 ---
 
