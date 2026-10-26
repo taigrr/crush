@@ -426,11 +426,12 @@ func (e *LSPEventType) UnmarshalText(data []byte) error {
 
 // LSPEvent represents an event in the LSP system.
 type LSPEvent struct {
-	Type            LSPEventType    `json:"type"`
-	Name            string          `json:"name"`
-	State           lsp.ServerState `json:"state"`
-	Error           error           `json:"error,omitempty"`
-	DiagnosticCount int             `json:"diagnostic_count,omitempty"`
+	Type            LSPEventType         `json:"type"`
+	Name            string               `json:"name"`
+	State           lsp.ServerState      `json:"state"`
+	Error           error                `json:"error,omitempty"`
+	DiagnosticCount int                  `json:"diagnostic_count,omitempty"`
+	Diagnostics     lsp.DiagnosticCounts `json:"diagnostics"`
 }
 
 // MarshalJSON implements the [json.Marshaler] interface.
@@ -471,11 +472,12 @@ func (e *LSPEvent) UnmarshalJSON(data []byte) error {
 
 // LSPClientInfo holds information about an LSP client's state.
 type LSPClientInfo struct {
-	Name            string          `json:"name"`
-	State           lsp.ServerState `json:"state"`
-	Error           error           `json:"error,omitempty"`
-	DiagnosticCount int             `json:"diagnostic_count,omitempty"`
-	ConnectedAt     time.Time       `json:"connected_at"`
+	Name            string               `json:"name"`
+	State           lsp.ServerState      `json:"state"`
+	Error           error                `json:"error,omitempty"`
+	DiagnosticCount int                  `json:"diagnostic_count,omitempty"`
+	Diagnostics     lsp.DiagnosticCounts `json:"diagnostics"`
+	ConnectedAt     time.Time            `json:"connected_at"`
 }
 
 // MarshalJSON implements the [json.Marshaler] interface.

@@ -5593,6 +5593,23 @@ const docTemplate = `{
                 }
             }
         },
+        "lsp.DiagnosticCounts": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "integer"
+                },
+                "hint": {
+                    "type": "integer"
+                },
+                "information": {
+                    "type": "integer"
+                },
+                "warning": {
+                    "type": "integer"
+                }
+            }
+        },
         "lsp.ServerState": {
             "type": "integer",
             "enum": [
@@ -5973,6 +5990,9 @@ const docTemplate = `{
                 },
                 "diagnostic_count": {
                     "type": "integer"
+                },
+                "diagnostics": {
+                    "$ref": "#/definitions/lsp.DiagnosticCounts"
                 },
                 "error": {},
                 "name": {

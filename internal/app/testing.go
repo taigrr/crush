@@ -37,6 +37,7 @@ func NewForTest(ctx context.Context) *App {
 		tuiWG:              &sync.WaitGroup{},
 		agentNotifications: pubsub.NewBroker[notify.Notification](),
 		runCompletions:     pubsub.NewBroker[notify.RunComplete](),
+		lsp:                newLSPStatus(),
 	}
 
 	eventsCtx, cancel := context.WithCancel(ctx)

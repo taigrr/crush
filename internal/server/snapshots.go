@@ -1,10 +1,12 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/taigrr/crush/internal/fork"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/worktree"
 )
 
 // swag resolves "proto.Error" in the @Failure annotations below through this
@@ -251,6 +253,12 @@ func (c *controllerV1) handleGetWorkspaceActiveWorktree(w http.ResponseWriter, r
 	id := r.PathValue("id")
 	sid := r.PathValue("sid")
 	wt, err := c.backend.GetActiveWorktree(r.Context(), id, sid)
+	if errors.Is(err, worktree.ErrNoActiveWorktree) {
+		// Not having a worktree is the normal state, not a failure:
+		// answer null rather than an error the server logs on every poll.
+		jsonEncode(w, nil)
+		return
+	}
 	c.respond(w, r, wt, err)
 }
 

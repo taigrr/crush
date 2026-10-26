@@ -86,8 +86,10 @@ type App struct {
 	workingDir string
 
 	// global context and cleanup functions
-	globalCtx          context.Context
-	cleanupFuncs       []func(context.Context) error
+	globalCtx    context.Context
+	cleanupFuncs []func(context.Context) error
+	// lsp tracks this workspace's LSP client states and events.
+	lsp                *lspStatus
 	agentNotifications *pubsub.Broker[notify.Notification]
 	// runCompletions is the authoritative per-run completion signal,
 	// emitted once per top-level agent turn after all message
@@ -196,6 +198,7 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 
 		events:             pubsub.NewBroker[tea.Msg](),
 		serviceEventsWG:    &sync.WaitGroup{},
+		lsp:                newLSPStatus(),
 		tuiWG:              &sync.WaitGroup{},
 		agentNotifications: pubsub.NewBroker[notify.Notification](),
 		runCompletions:     pubsub.NewBroker[notify.RunComplete](),
@@ -263,15 +266,15 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	// Set up callback for LSP state updates.
 	app.LSPManager.SetCallback(func(name string, client *lsp.Client) {
 		if client == nil {
-			updateLSPState(name, lsp.StateUnstarted, nil, nil, 0)
+			app.lsp.updateLSPState(name, lsp.StateUnstarted, nil, nil, 0)
 			return
 		}
-		client.SetDiagnosticsCallback(updateLSPDiagnostics)
+		client.SetDiagnosticsCallback(app.lsp.updateLSPDiagnostics)
 		var warn error
 		if client.GetServerState() == lsp.StateWarn {
 			warn = errors.New(client.RootWarning())
 		}
-		updateLSPState(name, client.GetServerState(), warn, client, 0)
+		app.lsp.updateLSPState(name, client.GetServerState(), warn, client, 0)
 	})
 	go app.LSPManager.TrackConfigured()
 
@@ -563,7 +566,7 @@ func (app *App) setupEvents() {
 	app.subscribe(ctx, "agent-notifications", app.agentNotifications.Subscribe)
 	app.subscribeMustDeliver(ctx, "run-completions", app.runCompletions.Subscribe)
 	app.subscribe(ctx, "mcp", mcp.SubscribeEvents)
-	app.subscribe(ctx, "lsp", SubscribeLSPEvents)
+	app.subscribe(ctx, "lsp", app.SubscribeLSPEvents)
 	if app.Skills != nil {
 		app.subscribe(ctx, "skills", app.Skills.SubscribeEvents)
 	}

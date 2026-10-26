@@ -35,7 +35,9 @@ type LSPClientInfo struct {
 	State           lsp.ServerState
 	Error           error
 	DiagnosticCount int
-	ConnectedAt     time.Time
+	// Diagnostics breaks DiagnosticCount down by severity.
+	Diagnostics lsp.DiagnosticCounts
+	ConnectedAt time.Time
 }
 
 // LSPEventType represents the type of LSP event.
@@ -53,6 +55,7 @@ type LSPEvent struct {
 	State           lsp.ServerState
 	Error           error
 	DiagnosticCount int
+	Diagnostics     lsp.DiagnosticCounts
 }
 
 // ConnectionState describes a client's connection to the server's live
@@ -268,7 +271,6 @@ type Workspace interface {
 	LSPStart(ctx context.Context, path string)
 	LSPStopAll(ctx context.Context)
 	LSPGetStates() map[string]LSPClientInfo
-	LSPGetDiagnosticCounts(name string) lsp.DiagnosticCounts
 
 	// Skills
 	SkillsGetStates() []*skills.SkillState

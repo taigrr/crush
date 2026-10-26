@@ -20,6 +20,22 @@ type LSPInfo struct {
 	Diagnostics map[protocol.DiagnosticSeverity]int
 }
 
+// applyLSPEvent folds an LSP event into the cached client states. Diagnostic
+// updates (the frequent case) carry everything needed and are applied in
+// place; a state change, or diagnostics for a client not seen yet, refreshes
+// the full state set since it may add or drop clients.
+func (m *UI) applyLSPEvent(ev workspace.LSPEvent) {
+	if ev.Type == workspace.LSPEventDiagnosticsChanged {
+		if info, ok := m.lspStates[ev.Name]; ok {
+			info.DiagnosticCount = ev.DiagnosticCount
+			info.Diagnostics = ev.Diagnostics
+			m.lspStates[ev.Name] = info
+			return
+		}
+	}
+	m.lspStates = m.com.Workspace.LSPGetStates()
+}
+
 // lspInfo renders the LSP status section showing active LSP clients and their
 // diagnostic counts.
 func (m *UI) lspInfo(width, maxItems int, isSection bool) string {
@@ -32,7 +48,7 @@ func (m *UI) lspInfo(width, maxItems int, isSection bool) string {
 	var lsps []LSPInfo
 	for _, state := range states {
 		lspErrs := map[protocol.DiagnosticSeverity]int{}
-		counts := m.com.Workspace.LSPGetDiagnosticCounts(state.Name)
+		counts := state.Diagnostics
 		lspErrs[protocol.SeverityError] = counts.Error
 		lspErrs[protocol.SeverityWarning] = counts.Warning
 		lspErrs[protocol.SeverityHint] = counts.Hint

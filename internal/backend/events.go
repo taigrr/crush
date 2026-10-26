@@ -25,12 +25,12 @@ func (b *Backend) SubscribeEvents(ctx context.Context, workspaceID string) (<-ch
 
 // GetLSPStates returns the state of all LSP clients.
 func (b *Backend) GetLSPStates(workspaceID string) (map[string]app.LSPClientInfo, error) {
-	_, err := b.GetWorkspace(workspaceID)
+	ws, err := b.GetWorkspace(workspaceID)
 	if err != nil {
 		return nil, err
 	}
 
-	return app.GetLSPStates(), nil
+	return ws.GetLSPStates(), nil
 }
 
 // GetLSPDiagnostics returns diagnostics for a specific LSP client in

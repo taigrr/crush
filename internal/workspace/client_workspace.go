@@ -10,7 +10,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
@@ -20,7 +19,6 @@ import (
 	"github.com/taigrr/crush/internal/fork"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/log"
-	"github.com/taigrr/crush/internal/lsp"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/oauth"
 	"github.com/taigrr/crush/internal/permission"
@@ -100,12 +98,16 @@ type ClientWorkspace struct {
 	// progression (e.g. that a switch resets it to the base delay).
 	backoffObserver func(time.Duration)
 
-	// Cached active worktree to avoid HTTP round-trips on every
-	// WorkingDir() call. cachedWorktreeValid distinguishes "checked
-	// and no worktree" from "never checked".
-	cachedWorktree      *worktree.Worktree
-	cachedWorktreeValid bool
-	cachedWorktreeTime  time.Time
+	// worktrees caches each session's active worktree (nil meaning
+	// "checked, none") so WorkingDir and the header/sidebar, which ask on
+	// every render, do not make an HTTP round-trip each time. It is keyed
+	// by session because render paths ask about sessions other than the
+	// active one (e.g. a previewed session). Guarded by mu.
+	worktrees map[string]worktreeCacheEntry
+	// worktreesEnabled caches WorktreesEnabled; guarded by mu and
+	// cleared with the worktree cache.
+	worktreesEnabled   bool
+	worktreesEnabledAt time.Time
 }
 
 // NewClientWorkspace creates a new ClientWorkspace that proxies all
@@ -641,33 +643,11 @@ func (w *ClientWorkspace) LSPGetStates() map[string]LSPClientInfo {
 			State:           v.State,
 			Error:           v.Error,
 			DiagnosticCount: v.DiagnosticCount,
+			Diagnostics:     v.Diagnostics,
 			ConnectedAt:     v.ConnectedAt,
 		}
 	}
 	return result
-}
-
-func (w *ClientWorkspace) LSPGetDiagnosticCounts(name string) lsp.DiagnosticCounts {
-	diags, err := w.client.GetLSPDiagnostics(context.Background(), w.workspaceID(), name)
-	if err != nil {
-		return lsp.DiagnosticCounts{}
-	}
-	var counts lsp.DiagnosticCounts
-	for _, fileDiags := range diags {
-		for _, d := range fileDiags {
-			switch d.Severity {
-			case protocol.SeverityError:
-				counts.Error++
-			case protocol.SeverityWarning:
-				counts.Warning++
-			case protocol.SeverityInformation:
-				counts.Information++
-			case protocol.SeverityHint:
-				counts.Hint++
-			}
-		}
-	}
-	return counts
 }
 
 func (w *ClientWorkspace) SkillsGetStates() []*skills.SkillState {
@@ -697,35 +677,21 @@ func (w *ClientWorkspace) WorkingDir() string {
 	// If there's an active session with an active worktree, use the worktree path.
 	w.mu.RLock()
 	sessionID := w.activeSessionID
-	cached := w.cachedWorktree
-	cachedValid := w.cachedWorktreeValid
-	cachedAt := w.cachedWorktreeTime
 	w.mu.RUnlock()
 
 	if sessionID == "" {
 		return w.EffectiveWorkingDir()
 	}
-
-	// Return cached result if still fresh (including cached "no worktree").
-	if cachedValid && time.Since(cachedAt) < worktreeCacheTTL {
-		if cached != nil {
-			return cached.Path
-		}
-		return w.EffectiveWorkingDir()
-	}
-
-	wt, err := w.client.GetActiveWorktree(context.Background(), w.workspaceID(), sessionID)
-
-	w.mu.Lock()
-	w.cachedWorktree = wt
-	w.cachedWorktreeValid = true
-	w.cachedWorktreeTime = time.Now()
-	w.mu.Unlock()
-
+	wt, err := w.GetActiveWorktree(context.Background(), sessionID)
 	if err != nil || wt == nil {
 		return w.EffectiveWorkingDir()
 	}
 	return wt.Path
+}
+
+type worktreeCacheEntry struct {
+	worktree *worktree.Worktree
+	at       time.Time
 }
 
 // BaseDir returns the project base directory (not worktree-aware).
@@ -749,9 +715,8 @@ func (w *ClientWorkspace) EffectiveWorkingDir() string {
 // WorkingDir() call fetches fresh data from the server.
 func (w *ClientWorkspace) invalidateWorktreeCache() {
 	w.mu.Lock()
-	w.cachedWorktree = nil
-	w.cachedWorktreeValid = false
-	w.cachedWorktreeTime = time.Time{}
+	w.worktrees = nil
+	w.worktreesEnabledAt = time.Time{}
 	w.mu.Unlock()
 }
 
@@ -851,9 +816,8 @@ func (w *ClientWorkspace) Resolver() config.VariableResolver {
 func (w *ClientWorkspace) SetActiveSessionID(sessionID string) {
 	w.mu.Lock()
 	w.activeSessionID = sessionID
-	w.cachedWorktree = nil
-	w.cachedWorktreeValid = false
-	w.cachedWorktreeTime = time.Time{}
+	w.worktrees = nil
+	w.worktreesEnabledAt = time.Time{}
 	w.mu.Unlock()
 }
 
@@ -1064,11 +1028,23 @@ func (w *ClientWorkspace) DiffFromCurrentSnapshot(ctx context.Context, snapshotI
 
 // -- Worktrees --
 
+// WorktreesEnabled reports whether the workspace has worktrees enabled.
+// The header and sidebar ask on every render, so the answer is cached for
+// worktreeCacheTTL; it only changes with configuration.
 func (w *ClientWorkspace) WorktreesEnabled() bool {
+	w.mu.RLock()
+	enabled, at := w.worktreesEnabled, w.worktreesEnabledAt
+	w.mu.RUnlock()
+	if !at.IsZero() && time.Since(at) < worktreeCacheTTL {
+		return enabled
+	}
 	enabled, err := w.client.WorktreesEnabled(context.Background(), w.workspaceID())
 	if err != nil {
 		return false
 	}
+	w.mu.Lock()
+	w.worktreesEnabled, w.worktreesEnabledAt = enabled, time.Now()
+	w.mu.Unlock()
 	return enabled
 }
 
@@ -1084,36 +1060,30 @@ func (w *ClientWorkspace) GetWorktree(ctx context.Context, worktreeID string) (*
 	return w.client.GetWorktree(ctx, w.workspaceID(), worktreeID)
 }
 
+// GetActiveWorktree returns sessionID's active worktree, or nil when it has
+// none. Results (including "none") are cached per session for
+// worktreeCacheTTL; worktree mutations through this client invalidate the
+// cache. Errors are not cached, so a transient failure is retried.
 func (w *ClientWorkspace) GetActiveWorktree(ctx context.Context, sessionID string) (*worktree.Worktree, error) {
 	w.mu.RLock()
-	cached := w.cachedWorktree
-	cachedValid := w.cachedWorktreeValid
-	cachedAt := w.cachedWorktreeTime
-	currentSession := w.activeSessionID
+	entry, ok := w.worktrees[sessionID]
 	w.mu.RUnlock()
-
-	// If asking about a different session than the active one, bypass cache.
-	if sessionID != currentSession {
-		return w.client.GetActiveWorktree(ctx, w.workspaceID(), sessionID)
-	}
-
-	// Return cached result if still fresh.
-	if cachedValid && time.Since(cachedAt) < worktreeCacheTTL {
-		if cached == nil {
-			return nil, fmt.Errorf("no active worktree")
-		}
-		return cached, nil
+	if ok && time.Since(entry.at) < worktreeCacheTTL {
+		return entry.worktree, nil
 	}
 
 	wt, err := w.client.GetActiveWorktree(ctx, w.workspaceID(), sessionID)
+	if err != nil {
+		return nil, err
+	}
 
 	w.mu.Lock()
-	w.cachedWorktree = wt
-	w.cachedWorktreeValid = true
-	w.cachedWorktreeTime = time.Now()
+	if w.worktrees == nil {
+		w.worktrees = make(map[string]worktreeCacheEntry)
+	}
+	w.worktrees[sessionID] = worktreeCacheEntry{worktree: wt, at: time.Now()}
 	w.mu.Unlock()
-
-	return wt, err
+	return wt, nil
 }
 
 func (w *ClientWorkspace) CreateWorktree(ctx context.Context, sessionID, name, fromSnapshotID string) (*worktree.Worktree, error) {
@@ -1530,8 +1500,8 @@ func (w *ClientWorkspace) SwitchWorkspace(ctx context.Context, path string) erro
 	sameWorkspace := w.ws.ID == created.ID
 	w.ws = *created
 	w.activeSessionID = ""
-	w.cachedWorktree = nil
-	w.cachedWorktreeValid = false
+	w.worktrees = nil
+	w.worktreesEnabledAt = time.Time{}
 	w.mu.Unlock()
 
 	if sameWorkspace {
@@ -1624,6 +1594,7 @@ func translateEvent(ev any) tea.Msg {
 				State:           e.Payload.State,
 				Error:           e.Payload.Error,
 				DiagnosticCount: e.Payload.DiagnosticCount,
+				Diagnostics:     e.Payload.Diagnostics,
 			},
 		}
 	case pubsub.Event[proto.MCPEvent]:

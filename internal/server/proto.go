@@ -435,6 +435,7 @@ func (c *controllerV1) handleGetWorkspaceLSPs(w http.ResponseWriter, r *http.Req
 			State:           v.State,
 			Error:           v.Error,
 			DiagnosticCount: v.DiagnosticCount,
+			Diagnostics:     v.Diagnostics,
 			ConnectedAt:     v.ConnectedAt,
 		}
 	}

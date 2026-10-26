@@ -73,6 +73,7 @@ func (h *header) drawHeader(
 	detailsOpen bool,
 	width int,
 	hyperCredits *int,
+	lspStates map[string]workspace.LSPClientInfo,
 ) {
 	t := h.com.Styles
 	if width != h.width || compact != h.compact {
@@ -96,7 +97,7 @@ func (h *header) drawHeader(
 
 	availDetailWidth := width - leftPadding - rightPadding - lipgloss.Width(b.String()) - minHeaderDiags - diagToDetailsSpacing
 	lspErrorCount := 0
-	for _, info := range h.com.Workspace.LSPGetStates() {
+	for _, info := range lspStates {
 		lspErrorCount += info.DiagnosticCount
 	}
 	details := renderHeaderDetails(

@@ -36,6 +36,7 @@ func wrapEvent(ev any) *pubsub.Payload {
 				State:           e.Payload.State,
 				Error:           e.Payload.Error,
 				DiagnosticCount: e.Payload.DiagnosticCount,
+				Diagnostics:     e.Payload.Diagnostics,
 			},
 		})
 	case pubsub.Event[mcp.Event]:

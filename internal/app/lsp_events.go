@@ -24,6 +24,7 @@ type LSPEvent struct {
 	State           lsp.ServerState
 	Error           error
 	DiagnosticCount int
+	Diagnostics     lsp.DiagnosticCounts
 }
 
 // LSPClientInfo holds information about an LSP client's state
@@ -33,63 +34,85 @@ type LSPClientInfo struct {
 	Error           error
 	Client          *lsp.Client
 	DiagnosticCount int
-	ConnectedAt     time.Time
+	// Diagnostics breaks DiagnosticCount down by severity so clients can
+	// render it from state instead of fetching every diagnostic.
+	Diagnostics lsp.DiagnosticCounts
+	ConnectedAt time.Time
 }
 
-var (
-	lspStates = csync.NewMap[string, LSPClientInfo]()
-	lspBroker = pubsub.NewBroker[LSPEvent]()
-)
-
-// SubscribeLSPEvents returns a channel for LSP events
-func SubscribeLSPEvents(ctx context.Context) <-chan pubsub.Event[LSPEvent] {
-	return lspBroker.Subscribe(ctx)
+// lspStatus holds one workspace's LSP client states and the broker that
+// announces their changes. It is per App, not process-wide: a server hosts
+// many workspaces, and each must report only its own LSP clients. A shared
+// map leaked every workspace's clients into every other one, so a client
+// asked its workspace for diagnostics of LSPs it never started.
+type lspStatus struct {
+	states *csync.Map[string, LSPClientInfo]
+	broker *pubsub.Broker[LSPEvent]
 }
 
-// GetLSPStates returns the current state of all LSP clients
-func GetLSPStates() map[string]LSPClientInfo {
-	return lspStates.Copy()
+func newLSPStatus() *lspStatus {
+	return &lspStatus{
+		states: csync.NewMap[string, LSPClientInfo](),
+		broker: pubsub.NewBroker[LSPEvent](),
+	}
+}
+
+// SubscribeLSPEvents returns a channel for this workspace's LSP events.
+func (app *App) SubscribeLSPEvents(ctx context.Context) <-chan pubsub.Event[LSPEvent] {
+	return app.lsp.broker.Subscribe(ctx)
+}
+
+// GetLSPStates returns the current state of this workspace's LSP clients.
+func (app *App) GetLSPStates() map[string]LSPClientInfo {
+	if app.lsp == nil {
+		return map[string]LSPClientInfo{}
+	}
+	return app.lsp.states.Copy()
 }
 
 // updateLSPState updates the state of an LSP client and publishes an event
-func updateLSPState(name string, state lsp.ServerState, err error, client *lsp.Client, diagnosticCount int) {
+func (s *lspStatus) updateLSPState(name string, state lsp.ServerState, err error, client *lsp.Client, diagnosticCount int) {
 	info := LSPClientInfo{
 		Name:            name,
 		State:           state,
 		Error:           err,
 		Client:          client,
 		DiagnosticCount: diagnosticCount,
+		Diagnostics:     client.GetDiagnosticCounts(),
 	}
 	if state == lsp.StateReady || state == lsp.StateWarn {
 		info.ConnectedAt = time.Now()
-	} else if existing, ok := lspStates.Get(name); ok {
+	} else if existing, ok := s.states.Get(name); ok {
 		info.ConnectedAt = existing.ConnectedAt
 	}
-	lspStates.Set(name, info)
+	s.states.Set(name, info)
 
 	// Publish state change event
-	lspBroker.Publish(pubsub.UpdatedEvent, LSPEvent{
+	s.broker.Publish(pubsub.UpdatedEvent, LSPEvent{
 		Type:            LSPEventStateChanged,
 		Name:            name,
 		State:           state,
 		Error:           err,
 		DiagnosticCount: diagnosticCount,
+		Diagnostics:     info.Diagnostics,
 	})
 }
 
 // updateLSPDiagnostics updates the diagnostic count for an LSP client and publishes an event
-func updateLSPDiagnostics(name string, diagnosticCount int) {
-	if info, exists := lspStates.Get(name); exists {
+func (s *lspStatus) updateLSPDiagnostics(name string, diagnosticCount int) {
+	if info, exists := s.states.Get(name); exists {
 		info.DiagnosticCount = diagnosticCount
-		lspStates.Set(name, info)
+		info.Diagnostics = info.Client.GetDiagnosticCounts()
+		s.states.Set(name, info)
 
 		// Publish diagnostics change event
-		lspBroker.Publish(pubsub.UpdatedEvent, LSPEvent{
+		s.broker.Publish(pubsub.UpdatedEvent, LSPEvent{
 			Type:            LSPEventDiagnosticsChanged,
 			Name:            name,
 			State:           info.State,
 			Error:           info.Error,
 			DiagnosticCount: diagnosticCount,
+			Diagnostics:     info.Diagnostics,
 		})
 	}
 }

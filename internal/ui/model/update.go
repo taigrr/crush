@@ -291,7 +291,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case pubsub.Event[workspace.LSPEvent]:
-		m.lspStates = m.com.Workspace.LSPGetStates()
+		m.applyLSPEvent(msg.Payload)
 	case pubsub.Event[workspace.ConnectionEvent]:
 		// The connection state itself lives in the workspace (single
 		// source of truth, read live by the header and sidebar). This

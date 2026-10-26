@@ -596,6 +596,17 @@ definitions:
       updated_at:
         type: integer
     type: object
+  lsp.DiagnosticCounts:
+    properties:
+      error:
+        type: integer
+      hint:
+        type: integer
+      information:
+        type: integer
+      warning:
+        type: integer
+    type: object
   lsp.ServerState:
     enum:
     - 0
@@ -873,6 +884,8 @@ definitions:
         type: string
       diagnostic_count:
         type: integer
+      diagnostics:
+        $ref: '#/definitions/lsp.DiagnosticCounts'
       error: {}
       name:
         type: string
