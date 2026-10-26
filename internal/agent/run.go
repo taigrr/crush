@@ -464,7 +464,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	}
 
 	stallTimeout := streamStallTimeoutFor(largeModel.Model.Provider())
-	streamCtx, watchdog := newStreamWatchdog(genCtx, stallTimeout)
+	streamCtx, watchdog := newStreamWatchdog(genCtx, stallTimeout, toolInputStallTimeout)
 	result, err = agent.Stream(streamCtx, fantasy.AgentStreamCall{
 		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
 		Files:            files,
@@ -477,7 +477,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		TopK:             call.TopK,
 		FrequencyPenalty: call.FrequencyPenalty,
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
-			watchdog.touch()
+			watchdog.beginStep()
 			sessionLock.Lock()
 			prepared.Messages = dropToolCallsFromHistory(options.Messages, incompleteToolCallIDs)
 			sessionLock.Unlock()
@@ -616,8 +616,8 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// even if the request is canceled mid-stream
 			return a.messages.Update(ctx, *currentAssistant)
 		},
-		OnChunk: func(fantasy.StreamPart) error {
-			watchdog.touch()
+		OnChunk: func(part fantasy.StreamPart) error {
+			watchdog.observe(part)
 			return nil
 		},
 		OnRetry: func(err *fantasy.ProviderError, delay time.Duration) {

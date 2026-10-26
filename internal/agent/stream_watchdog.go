@@ -9,7 +9,6 @@ import (
 
 	"github.com/taigrr/fantasy"
 	"github.com/taigrr/fantasy/providers/anthropic"
-	"github.com/taigrr/fantasy/providers/bedrock"
 )
 
 // streamStallTimeout bounds how long a turn may go without any activity
@@ -21,15 +20,28 @@ import (
 var streamStallTimeout = 2 * time.Minute
 
 // keepaliveStreamStallTimeout applies to providers whose streams carry
-// keepalive pings (the Anthropic Messages protocol, including Bedrock),
-// so a long silence there is a real stall rather than slow reasoning.
+// keepalive pings during long generations (Anthropic's own Messages API),
+// so a long silence there is a real stall rather than slow output.
+//
+// Bedrock is deliberately excluded even though it serves the same Messages
+// protocol: it does not forward Anthropic's ping events. Measured against a
+// live Bedrock endpoint, a write tool call with ~30 KB of content arrived
+// after a single silent gap of ~95 s with no events at all, because the
+// tool input is buffered until the model has finished generating it.
 var keepaliveStreamStallTimeout = 30 * time.Second
 
-// streamStallTimeoutFor returns the stall timeout for a fantasy provider
-// name as reported by LanguageModel.Provider.
+// toolInputStallTimeout applies while the model is producing a tool call's
+// input. Providers may buffer that input (Bedrock does, even with
+// fine-grained tool streaming requested), so the stream can be silent for
+// as long as the model takes to generate it, which grows with the size of
+// the argument (e.g. a large file passed to write).
+var toolInputStallTimeout = 10 * time.Minute
+
+// streamStallTimeoutFor returns the idle stall timeout for a fantasy
+// provider name as reported by LanguageModel.Provider.
 func streamStallTimeoutFor(provider string) time.Duration {
 	switch provider {
-	case anthropic.Name, bedrock.Name:
+	case anthropic.Name:
 		return keepaliveStreamStallTimeout
 	default:
 		return streamStallTimeout
@@ -45,22 +57,35 @@ var errStreamStalled = errors.New("provider stream stalled")
 // spent inside tools is excluded: long-running tools (bash, sub-agents)
 // are not provider stalls.
 type streamWatchdog struct {
-	timeout time.Duration
-	cancel  context.CancelCauseFunc
+	timeout          time.Duration
+	toolInputTimeout time.Duration
+	cancel           context.CancelCauseFunc
 
 	mu          sync.Mutex
 	timer       *time.Timer
 	activeTools int
-	stopped     bool
+	// openToolInputs counts tool calls whose input has started but not
+	// ended streaming; while non-zero the longer toolInputTimeout applies.
+	openToolInputs int
+	stopped        bool
 }
 
-func newStreamWatchdog(ctx context.Context, timeout time.Duration) (context.Context, *streamWatchdog) {
+func newStreamWatchdog(ctx context.Context, timeout, toolInputTimeout time.Duration) (context.Context, *streamWatchdog) {
 	ctx, cancel := context.WithCancelCause(ctx)
-	w := &streamWatchdog{timeout: timeout, cancel: cancel}
+	w := &streamWatchdog{timeout: timeout, toolInputTimeout: max(timeout, toolInputTimeout), cancel: cancel}
 	if timeout > 0 {
 		w.timer = time.AfterFunc(timeout, w.fire)
 	}
 	return ctx, w
+}
+
+// currentTimeout is the countdown for the current phase. Callers must
+// hold w.mu.
+func (w *streamWatchdog) currentTimeout() time.Duration {
+	if w.openToolInputs > 0 {
+		return w.toolInputTimeout
+	}
+	return w.timeout
 }
 
 func (w *streamWatchdog) fire() {
@@ -69,17 +94,44 @@ func (w *streamWatchdog) fire() {
 	if w.stopped || w.activeTools > 0 {
 		return
 	}
-	w.cancel(fmt.Errorf("%w: no response from the model for %s", errStreamStalled, w.timeout))
+	w.cancel(fmt.Errorf("%w: no response from the model for %s", errStreamStalled, w.currentTimeout()))
 }
 
 // touch records stream activity and restarts the countdown.
 func (w *streamWatchdog) touch() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.resetLocked()
+}
+
+// observe records a stream part, tracking whether a tool call's input is
+// being generated, and restarts the countdown for the resulting phase.
+func (w *streamWatchdog) observe(part fantasy.StreamPart) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	switch part.Type {
+	case fantasy.StreamPartTypeToolInputStart:
+		w.openToolInputs++
+	case fantasy.StreamPartTypeToolInputEnd:
+		w.openToolInputs = max(0, w.openToolInputs-1)
+	}
+	w.resetLocked()
+}
+
+// beginStep clears tool-input tracking at a step boundary: input left open
+// by a step that ended mid-call must not extend the next step's timeout.
+func (w *streamWatchdog) beginStep() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.openToolInputs = 0
+	w.resetLocked()
+}
+
+func (w *streamWatchdog) resetLocked() {
 	if w.timer == nil || w.stopped || w.activeTools > 0 {
 		return
 	}
-	w.timer.Reset(w.timeout)
+	w.timer.Reset(w.currentTimeout())
 }
 
 // toolStarted pauses the countdown until the matching toolFinished.
@@ -96,8 +148,8 @@ func (w *streamWatchdog) toolFinished() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.activeTools--
-	if w.timer != nil && !w.stopped && w.activeTools == 0 {
-		w.timer.Reset(w.timeout)
+	if w.activeTools == 0 {
+		w.resetLocked()
 	}
 }
 
