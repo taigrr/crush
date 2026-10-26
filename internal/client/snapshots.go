@@ -32,18 +32,21 @@ func (c *Client) SnapshotsEnabled(ctx context.Context, workspaceID string) (bool
 
 // ListSnapshots returns all snapshots for a session.
 func (c *Client) ListSnapshots(ctx context.Context, workspaceID, sessionID string) ([]*checkpoint.Snapshot, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/snapshots", workspaceID, sessionID), nil, nil)
 	return decodeResponse[[]*checkpoint.Snapshot](rsp, err, "list snapshots")
 }
 
 // GetSnapshot retrieves a snapshot by ID.
 func (c *Client) GetSnapshot(ctx context.Context, workspaceID, snapshotID string) (*checkpoint.Snapshot, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/snapshots/%s", workspaceID, snapshotID), nil, nil)
 	return decodeResponse[*checkpoint.Snapshot](rsp, err, "get snapshot")
 }
 
 // GetSnapshotByMessage retrieves a snapshot by message ID.
 func (c *Client) GetSnapshotByMessage(ctx context.Context, workspaceID, messageID string) (*checkpoint.Snapshot, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/messages/%s/snapshot", workspaceID, messageID), nil, nil)
 	return decodeResponse[*checkpoint.Snapshot](rsp, err, "get snapshot by message")
 }
@@ -94,6 +97,7 @@ func (c *Client) SnapshotGC(ctx context.Context, workspaceID string) (int64, err
 
 // SnapshotStats returns snapshot storage statistics.
 func (c *Client) SnapshotStats(ctx context.Context, workspaceID string) (*checkpoint.Stats, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/snapshots/stats", workspaceID), nil, nil)
 	return decodeResponse[*checkpoint.Stats](rsp, err, "get snapshot stats")
 }
@@ -119,24 +123,28 @@ func (c *Client) WorktreesEnabled(ctx context.Context, workspaceID string) (bool
 
 // ListWorktrees returns all worktrees for a session.
 func (c *Client) ListWorktrees(ctx context.Context, workspaceID, sessionID string) ([]*worktree.Worktree, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/worktrees", workspaceID, sessionID), nil, nil)
 	return decodeResponse[[]*worktree.Worktree](rsp, err, "list worktrees")
 }
 
 // ListAllWorktrees returns all worktrees for a workspace.
 func (c *Client) ListAllWorktrees(ctx context.Context, workspaceID string) ([]*worktree.Worktree, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/worktrees", workspaceID), nil, nil)
 	return decodeResponse[[]*worktree.Worktree](rsp, err, "list all worktrees")
 }
 
 // GetWorktree retrieves a worktree by ID.
 func (c *Client) GetWorktree(ctx context.Context, workspaceID, worktreeID string) (*worktree.Worktree, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/worktrees/%s", workspaceID, worktreeID), nil, nil)
 	return decodeResponse[*worktree.Worktree](rsp, err, "get worktree")
 }
 
 // GetActiveWorktree retrieves the active worktree for a session.
 func (c *Client) GetActiveWorktree(ctx context.Context, workspaceID, sessionID string) (*worktree.Worktree, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/worktrees/active", workspaceID, sessionID), nil, nil)
 	return decodeResponse[*worktree.Worktree](rsp, err, "get active worktree")
 }
@@ -150,6 +158,7 @@ func (c *Client) CreateWorktree(ctx context.Context, workspaceID, sessionID, nam
 		Name:           name,
 		FromSnapshotID: fromSnapshotID,
 	}
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/worktrees", workspaceID, sessionID), nil, jsonBody(body), jsonHeader())
 	return decodeResponse[*worktree.Worktree](rsp, err, "create worktree")
 }
@@ -182,12 +191,14 @@ func (c *Client) MergeWorktree(ctx context.Context, workspaceID, worktreeID, tar
 
 // ListGitBranches returns all git branches in the workspace.
 func (c *Client) ListGitBranches(ctx context.Context, workspaceID string) ([]string, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/git/branches", workspaceID), nil, nil)
 	return decodeResponse[[]string](rsp, err, "list git branches")
 }
 
 // ForkConversation creates a fork of a conversation.
 func (c *Client) ForkConversation(ctx context.Context, workspaceID string, params fork.ForkParams) (*fork.ForkResult, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/fork", workspaceID), nil, jsonBody(params), jsonHeader())
 	return decodeResponse[*fork.ForkResult](rsp, err, "fork conversation")
 }
