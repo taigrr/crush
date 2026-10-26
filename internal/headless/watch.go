@@ -210,7 +210,6 @@ func LastOutcome(ctx context.Context, c WatchClient, workspaceID, sessionID stri
 		return Outcome{Status: StatusError, Error: "failed to read session history: " + err.Error(), ExitCode: ExitFailure}
 	}
 	for i, m := range slices.Backward(msgs) {
-
 		if m.Role != proto.Assistant {
 			continue
 		}

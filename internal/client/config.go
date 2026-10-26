@@ -170,12 +170,14 @@ func (c *Client) GetInitializePrompt(ctx context.Context, id string) (string, er
 
 // ListSkills retrieves the visible skills for a workspace.
 func (c *Client) ListSkills(ctx context.Context, id string) ([]proto.SkillInfo, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/skills", id), nil, nil)
 	return decodeResponse[[]proto.SkillInfo](rsp, err, "list skills")
 }
 
 // ReadSkill reads a skill's content by ID from the server.
 func (c *Client) ReadSkill(ctx context.Context, id, skillID string) (*proto.ReadSkillResponse, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/skills/read", id), nil, jsonBody(proto.ReadSkillRequest{
 		SkillID: skillID,
 	}), jsonHeader())
@@ -220,6 +222,7 @@ func (c *Client) MCPAuthenticate(ctx context.Context, id, name string) error {
 
 // MCPPendingAuth returns MCP servers awaiting OAuth authorization.
 func (c *Client) MCPPendingAuth(ctx context.Context, id string) ([]proto.PendingAuthServer, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/mcp/pending-auth", id), nil, nil)
 	return decodeResponse[[]proto.PendingAuthServer](rsp, err, "get pending MCP auth")
 }
@@ -245,6 +248,7 @@ func (c *Client) MCPAuthURL(ctx context.Context, id, name string) (string, error
 
 // ReadMCPResource reads a resource from a named MCP server.
 func (c *Client) ReadMCPResource(ctx context.Context, id, name, uri string) ([]MCPResourceContents, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/mcp/read-resource", id), nil, jsonBody(struct {
 		Name string `json:"name"`
 		URI  string `json:"uri"`

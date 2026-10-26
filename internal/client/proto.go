@@ -23,6 +23,7 @@ import (
 
 // ListWorkspaces retrieves all workspaces from the server.
 func (c *Client) ListWorkspaces(ctx context.Context) ([]proto.Workspace, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, "/workspaces", nil, nil)
 	return decodeResponse[[]proto.Workspace](rsp, err, "list workspaces")
 }
@@ -30,6 +31,7 @@ func (c *Client) ListWorkspaces(ctx context.Context) ([]proto.Workspace, error) 
 // ListWorkspaceOverviews lists all known workspaces (attached and
 // registry-known) with their sessions for the cross-workspace picker.
 func (c *Client) ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, "/workspace-overviews", nil, nil)
 	return decodeResponse[[]proto.WorkspaceOverview](rsp, err, "list workspace overviews")
 }
@@ -37,12 +39,14 @@ func (c *Client) ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceO
 // CreateWorkspace creates a new workspace on the server.
 func (c *Client) CreateWorkspace(ctx context.Context, ws proto.Workspace) (*proto.Workspace, error) {
 	ws.ClientID = c.clientID
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, "/workspaces", nil, jsonBody(ws), jsonHeader())
 	return decodeResponse[*proto.Workspace](rsp, err, "create workspace")
 }
 
 // GetWorkspace retrieves a workspace from the server.
 func (c *Client) GetWorkspace(ctx context.Context, id string) (*proto.Workspace, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s", id), nil, nil)
 	return decodeResponse[*proto.Workspace](rsp, err, "get workspace")
 }
@@ -259,24 +263,28 @@ func sendEvent(ctx context.Context, evc chan any, ev any) bool {
 
 // GetLSPDiagnostics retrieves LSP diagnostics for a specific LSP client.
 func (c *Client) GetLSPDiagnostics(ctx context.Context, id string, lspName string) (map[protocol.DocumentURI][]protocol.Diagnostic, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/lsps/%s/diagnostics", id, lspName), nil, nil)
 	return decodeResponse[map[protocol.DocumentURI][]protocol.Diagnostic](rsp, err, "get LSP diagnostics")
 }
 
 // GetLSPs retrieves the LSP client states for a workspace.
 func (c *Client) GetLSPs(ctx context.Context, id string) (map[string]proto.LSPClientInfo, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/lsps", id), nil, nil)
 	return decodeResponse[map[string]proto.LSPClientInfo](rsp, err, "get LSPs")
 }
 
 // MCPGetStates retrieves the MCP client states for a workspace.
 func (c *Client) MCPGetStates(ctx context.Context, id string) (map[string]proto.MCPClientInfo, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/mcp/states", id), nil, nil)
 	return decodeResponse[map[string]proto.MCPClientInfo](rsp, err, "get MCP states")
 }
 
 // SkillsGetStates retrieves the skill discovery states for a workspace.
 func (c *Client) SkillsGetStates(ctx context.Context, id string) ([]proto.SkillState, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/skills/states", id), nil, nil)
 	return decodeResponse[[]proto.SkillState](rsp, err, "get skill states")
 }
@@ -304,6 +312,7 @@ func (c *Client) MCPRefreshResources(ctx context.Context, id, name string) error
 // GetAgentSessionQueuedPrompts retrieves the number of queued prompts for a
 // session.
 func (c *Client) GetAgentSessionQueuedPrompts(ctx context.Context, id string, sessionID string) (int, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/prompts/queued", id, sessionID), nil, nil)
 	return decodeResponse[int](rsp, err, "get session agent queued prompts")
 }
@@ -318,6 +327,7 @@ func (c *Client) ClearAgentSessionQueuedPrompts(ctx context.Context, id string, 
 // /btw aside folded into the active turn. It reports whether one was
 // promoted.
 func (c *Client) PromoteNextQueuedToBTW(ctx context.Context, id, sessionID string) (bool, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/prompts/promote-btw", id, sessionID), nil, nil, nil)
 	out, err := decodeResponse[proto.PromoteQueuedResponse](rsp, err, "promote queued prompt")
 	return out.Promoted, err
@@ -326,6 +336,7 @@ func (c *Client) PromoteNextQueuedToBTW(ctx context.Context, id, sessionID strin
 // CancelToolCalls cancels the session's in-flight tool calls without
 // canceling its turn or queue. It reports how many were canceled.
 func (c *Client) CancelToolCalls(ctx context.Context, id, sessionID string) (int, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/tools/cancel", id, sessionID), nil, nil, nil)
 	out, err := decodeResponse[proto.CancelToolCallsResponse](rsp, err, "cancel tool calls")
 	return out.Canceled, err
@@ -353,6 +364,7 @@ func (c *Client) DropQueuedRun(ctx context.Context, id, sessionID, runID string)
 // EmbeddingsPending returns how many past messages would be embedded by
 // a backfill under the active embedding model.
 func (c *Client) EmbeddingsPending(ctx context.Context, id string) (int, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/embeddings/pending", id), nil, nil)
 	return decodeResponse[int](rsp, err, "get pending embeddings")
 }
@@ -360,12 +372,14 @@ func (c *Client) EmbeddingsPending(ctx context.Context, id string) (int, error) 
 // BackfillEmbeddings embeds past messages lacking a vector and returns
 // the count embedded.
 func (c *Client) BackfillEmbeddings(ctx context.Context, id string) (int, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/embeddings/backfill", id), nil, nil, nil)
 	return decodeResponse[int](rsp, err, "backfill embeddings")
 }
 
 // EmbeddingStatus returns the embedding index state for a workspace.
 func (c *Client) EmbeddingStatus(ctx context.Context, id string) (proto.EmbeddingStatus, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/embeddings/status", id), nil, nil)
 	return decodeResponse[proto.EmbeddingStatus](rsp, err, "get embedding status")
 }
@@ -373,6 +387,7 @@ func (c *Client) EmbeddingStatus(ctx context.Context, id string) (proto.Embeddin
 // SearchHistory runs hybrid history search over a workspace and returns
 // per-session hits.
 func (c *Client) SearchHistory(ctx context.Context, id string, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/history/search", id), nil, jsonBody(params),
 		jsonHeader())
 	return decodeResponse[proto.SearchHistoryResult](rsp, err, "search history")
@@ -423,6 +438,7 @@ func (c *Client) PeekSessionInfo(ctx context.Context, root, sessionID string) (p
 
 // GetAgentSessionGoal retrieves the active autonomous goal for a session.
 func (c *Client) GetAgentSessionGoal(ctx context.Context, id, sessionID string) (proto.GoalStatus, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/goal", id, sessionID), nil, nil)
 	return decodeResponse[proto.GoalStatus](rsp, err, "get session goal")
 }
@@ -453,6 +469,7 @@ func (c *Client) ClearAgentSessionGoal(ctx context.Context, id, sessionID string
 
 // GetAgentInfo retrieves the agent status for a workspace.
 func (c *Client) GetAgentInfo(ctx context.Context, id string) (*proto.AgentInfo, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent", id), nil, nil)
 	return decodeResponse[*proto.AgentInfo](rsp, err, "get agent status")
 }
@@ -499,6 +516,7 @@ func (c *Client) SendAgentMessage(ctx context.Context, id string, msg proto.Agen
 
 // RunShellCommand runs a shell command in the workspace without triggering the agent.
 func (c *Client) RunShellCommand(ctx context.Context, id, sessionID, command string) (proto.ShellCommandResponse, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/shell", id, sessionID), nil, jsonBody(proto.ShellCommandRequest{
 		Command:  command,
 		ClientID: c.clientID,
@@ -544,12 +562,14 @@ func (c *Client) ResolveSwarmAddress(ctx context.Context, address string) (proto
 // GetPendingPrompts returns the permission requests and questions the
 // session (or any of its sub-agent sessions) is blocked on.
 func (c *Client) GetPendingPrompts(ctx context.Context, id, sessionID string) (proto.PendingPrompts, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/pending", id, sessionID), nil, nil)
 	return decodeResponse[proto.PendingPrompts](rsp, err, "get pending prompts")
 }
 
 // GetAgentSessionInfo retrieves the agent session info for a workspace.
 func (c *Client) GetAgentSessionInfo(ctx context.Context, id string, sessionID string) (*proto.AgentSession, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s", id, sessionID), nil, nil)
 	return decodeResponse[*proto.AgentSession](rsp, err, "get session agent info")
 }
@@ -591,12 +611,14 @@ func (c *Client) ListMessages(ctx context.Context, id string, sessionID string) 
 
 // GetSession retrieves a specific session as a proto type.
 func (c *Client) GetSession(ctx context.Context, id string, sessionID string) (*proto.Session, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s", id, sessionID), nil, nil)
 	return decodeResponse[*proto.Session](rsp, err, "get session")
 }
 
 // ListSessionHistoryFiles retrieves history files for a session as proto types.
 func (c *Client) ListSessionHistoryFiles(ctx context.Context, id string, sessionID string) ([]proto.File, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/history", id, sessionID), nil, nil)
 	return decodeResponse[[]proto.File](rsp, err, "get session history files")
 }
@@ -630,11 +652,13 @@ func (c *Client) CreateSessionWithModel(ctx context.Context, id, title, modelRef
 
 // ListSessions lists all sessions in a workspace as proto types.
 func (c *Client) ListSessions(ctx context.Context, id string) ([]proto.Session, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions", id), nil, nil)
 	return decodeResponse[[]proto.Session](rsp, err, "get sessions")
 }
 
 func (c *Client) ListSessionImportSources(ctx context.Context) ([]proto.SessionImportSources, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, "/session-import/sources", nil, nil)
 	return decodeResponse[[]proto.SessionImportSources](rsp, err, "list session import sources")
 }
@@ -642,11 +666,13 @@ func (c *Client) ListSessionImportSources(ctx context.Context) ([]proto.SessionI
 func (c *Client) DiscoverSessionImports(ctx context.Context, source string) ([]proto.SessionImportCandidate, error) {
 	query := url.Values{}
 	query.Set("source", source)
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, "/session-import/candidates", query, nil)
 	return decodeResponse[[]proto.SessionImportCandidate](rsp, err, "discover session imports")
 }
 
 func (c *Client) ImportSessions(ctx context.Context, id string, paths []string, from string) ([]proto.SessionImportResult, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/session-import", id), nil, jsonBody(proto.SessionImportRequest{Paths: paths, Source: from}), jsonHeader())
 	return decodeResponse[[]proto.SessionImportResult](rsp, err, "import sessions")
 }
@@ -747,6 +773,7 @@ func (c *Client) ReloadConfig(ctx context.Context, id string) error {
 
 // GetConfig retrieves the workspace-specific configuration.
 func (c *Client) GetConfig(ctx context.Context, id string) (*config.Config, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/config", id), nil, nil)
 	return decodeResponse[*config.Config](rsp, err, "get config")
 }
@@ -760,6 +787,7 @@ func jsonBody(v any) *bytes.Buffer {
 
 // SaveSession updates a session in a workspace, returning a proto type.
 func (c *Client) SaveSession(ctx context.Context, id string, sess proto.Session) (*proto.Session, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.put(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s", id, sess.ID), nil, jsonBody(sess), jsonHeader())
 	return decodeResponse[*proto.Session](rsp, err, "save session")
 }
@@ -897,12 +925,14 @@ func (c *Client) CancelAgent(ctx context.Context, id string) error {
 // GetAgentSessionQueuedPromptsList retrieves the list of queued prompt
 // strings for a session.
 func (c *Client) GetAgentSessionQueuedPromptsList(ctx context.Context, id string, sessionID string) ([]string, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/sessions/%s/prompts/list", id, sessionID), nil, nil)
 	return decodeResponse[[]string](rsp, err, "get queued prompts list")
 }
 
 // GetDefaultSmallModel retrieves the default small model for a provider.
 func (c *Client) GetDefaultSmallModel(ctx context.Context, id string, providerID string) (*config.SelectedModel, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/agent/default-small-model", id), url.Values{"provider_id": []string{providerID}}, nil)
 	return decodeResponse[*config.SelectedModel](rsp, err, "get default small model")
 }
@@ -919,6 +949,7 @@ func (c *Client) FileTrackerRecordRead(ctx context.Context, id string, sessionID
 // FileTrackerLastReadTime returns the last read time for a file in a
 // session.
 func (c *Client) FileTrackerLastReadTime(ctx context.Context, id string, sessionID, path string) (time.Time, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/filetracker/lastread", id), url.Values{
 		"session_id": []string{sessionID},
 		"path":       []string{path},
@@ -928,6 +959,7 @@ func (c *Client) FileTrackerLastReadTime(ctx context.Context, id string, session
 
 // FileTrackerListReadFiles returns the list of read files for a session.
 func (c *Client) FileTrackerListReadFiles(ctx context.Context, id string, sessionID string) ([]string, error) {
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
 	rsp, err := c.get(ctx, fmt.Sprintf("/workspaces/%s/sessions/%s/filetracker/files", id, sessionID), nil, nil)
 	return decodeResponse[[]string](rsp, err, "get read files")
 }
