@@ -158,8 +158,11 @@ func TestLookupSwarmAddress_ReattachesTornDownWorkspace(t *testing.T) {
 	// timer) reliably finishes first; short enough that the
 	// require.Eventually below doesn't need to wait long. (75ms was too
 	// tight for slow macOS/Windows CI runners, where the timer fired
-	// mid-CreateSwarmSession and closed the DB under it.)
-	b.SetCreateGrace(750 * time.Millisecond)
+	// mid-CreateSwarmSession and closed the DB under it; 750ms was still
+	// too tight on windows-latest, where the timer fired before
+	// CreateSwarmSession could even look the workspace up and it failed
+	// with ErrSwarmWorkspaceNotFound.)
+	b.SetCreateGrace(3 * time.Second)
 
 	target := t.TempDir()
 	writeSwarmProject(t, target)
@@ -175,7 +178,7 @@ func TestLookupSwarmAddress_ReattachesTornDownWorkspace(t *testing.T) {
 	require.Eventually(t, func() bool {
 		_, err := b.GetWorkspace(gotID)
 		return err != nil
-	}, 10*time.Second, 5*time.Millisecond, "workspace must actually tear down once idle (that's expected/correct now)")
+	}, 30*time.Second, 10*time.Millisecond, "workspace must actually tear down once idle (that's expected/correct now)")
 
 	// The session's data survives teardown untouched: looking it up
 	// by its swarm address must transparently re-attach the
