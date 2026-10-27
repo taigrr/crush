@@ -1048,3 +1048,8 @@ func DecodeEventStream(ctx context.Context, body io.Reader) <-chan any {
 func (c *Client) SessionBundle(ctx context.Context, params proto.SessionBundleParams) (proto.SessionBundle, error) {
 	return clusterCall[proto.SessionBundle](ctx, c, http.MethodPost, "/session-bundle", params)
 }
+
+// SessionBatch applies an operation to many sessions in one request.
+func (c *Client) SessionBatch(ctx context.Context, req proto.SessionBatchRequest) (proto.SessionBatchResult, error) {
+	return clusterCall[proto.SessionBatchResult](ctx, c, http.MethodPost, "/sessions/batch", req)
+}

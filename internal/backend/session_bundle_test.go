@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/db"
+	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/registry"
 )
 
@@ -39,4 +40,14 @@ func TestSessionBundleIncludesNestedSessions(t *testing.T) {
 	require.Len(t, bundle.Messages, 1)
 	require.Len(t, bundle.Children, 2, "nested agents at any depth are included")
 	require.Len(t, bundle.Children["m2$$call2"], 1)
+}
+
+func TestSessionBatchCollectsFailures(t *testing.T) {
+	b, _ := newTestBackend(t)
+	b.registry = registry.NewWithPath(filepath.Join(t.TempDir(), "workspaces.jsonl"))
+	failed, err := b.SessionBatch(t.Context(), proto.SessionBatchArchive, []proto.SessionBatchTarget{{Root: "/nowhere", SessionID: "s1"}})
+	require.NoError(t, err)
+	require.Contains(t, failed, "s1")
+	_, err = b.SessionBatch(t.Context(), "explode", nil)
+	require.Error(t, err)
 }

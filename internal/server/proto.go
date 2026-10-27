@@ -1842,3 +1842,26 @@ func (c *controllerV1) handlePostSessionBundle(w http.ResponseWriter, r *http.Re
 		Children:  children,
 	})
 }
+
+// handlePostSessionBatch archives or marks read many sessions at once.
+//
+//	@Summary		Apply an operation to many sessions
+//	@Tags			sessions
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		proto.SessionBatchRequest	true	"Operation and targets"
+//	@Success		200		{object}	proto.SessionBatchResult
+//	@Failure		400		{object}	proto.Error
+//	@Router			/sessions/batch [post]
+func (c *controllerV1) handlePostSessionBatch(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeJSON[proto.SessionBatchRequest](c, w, r)
+	if !ok {
+		return
+	}
+	failed, err := c.backend.SessionBatch(r.Context(), req.Op, req.Targets)
+	if err != nil {
+		jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	jsonEncode(w, proto.SessionBatchResult{Failed: failed})
+}

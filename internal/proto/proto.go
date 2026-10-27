@@ -572,3 +572,28 @@ type SessionBundle struct {
 	Messages  []Message            `json:"messages"`
 	Children  map[string][]Message `json:"children,omitempty"`
 }
+
+// Session batch operations.
+const (
+	SessionBatchArchive = "archive"
+	SessionBatchSeen    = "seen"
+)
+
+// SessionBatchTarget is one session for a batch operation, addressed by
+// attached workspace ID or by workspace root.
+type SessionBatchTarget struct {
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Root        string `json:"root,omitempty"`
+	SessionID   string `json:"session_id"`
+}
+
+// SessionBatchRequest applies Op to every target.
+type SessionBatchRequest struct {
+	Op      string               `json:"op"`
+	Targets []SessionBatchTarget `json:"targets"`
+}
+
+// SessionBatchResult lists the targets that failed, by session ID.
+type SessionBatchResult struct {
+	Failed map[string]string `json:"failed,omitempty"`
+}

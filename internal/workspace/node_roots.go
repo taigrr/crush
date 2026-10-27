@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/cluster"
@@ -232,4 +233,61 @@ func (w *ClientWorkspace) SessionBundle(ctx context.Context, root, sessionID str
 		Messages:  protoToMessages(b.Messages),
 		Children:  children,
 	}, nil
+}
+
+// BatchTarget is a session for [ClientWorkspace.SessionBatch]: root as
+// the sidebar knows it ("" = current workspace) plus the workspace ID
+// when attached.
+type BatchTarget struct {
+	WorkspaceID string
+	Root        string
+	SessionID   string
+}
+
+// SessionBatch applies op to targets with one request per cluster node
+// (in parallel) and returns the IDs that failed.
+func (w *ClientWorkspace) SessionBatch(ctx context.Context, op string, targets []BatchTarget) []string {
+	type group struct {
+		c   *client.Client
+		req proto.SessionBatchRequest
+	}
+	groups := map[string]*group{}
+	for _, t := range targets {
+		nodeID, c, plain := w.NodeID(), w.c(), ""
+		wsID := t.WorkspaceID
+		if t.Root == "" {
+			wsID = w.workspaceID()
+		} else {
+			nodeID, c, plain = w.resolveRoot(t.Root)
+		}
+		g := groups[nodeID]
+		if g == nil {
+			g = &group{c: c, req: proto.SessionBatchRequest{Op: op}}
+			groups[nodeID] = g
+		}
+		g.req.Targets = append(g.req.Targets, proto.SessionBatchTarget{WorkspaceID: wsID, Root: plain, SessionID: t.SessionID})
+	}
+	var (
+		mu     sync.Mutex
+		wg     sync.WaitGroup
+		failed []string
+	)
+	for _, g := range groups {
+		wg.Go(func() {
+			res, err := g.c.SessionBatch(ctx, g.req)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				for _, t := range g.req.Targets {
+					failed = append(failed, t.SessionID)
+				}
+				return
+			}
+			for id := range res.Failed {
+				failed = append(failed, id)
+			}
+		})
+	}
+	wg.Wait()
+	return failed
 }
