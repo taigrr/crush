@@ -99,3 +99,21 @@ func (s *SessionsSidebar) NeighborSessions() [][2]string {
 	}
 	return out
 }
+
+// EditSessions applies fn to every session row; returning false removes
+// the session. It updates the sidebar immediately after a local action
+// instead of waiting to re-read every node's session list.
+func (s *SessionsSidebar) EditSessions(fn func(*proto.SessionOverview) bool) {
+	ovs := make([]proto.WorkspaceOverview, len(s.overviews))
+	for i, ov := range s.overviews {
+		kept := make([]proto.SessionOverview, 0, len(ov.Sessions))
+		for _, sess := range ov.Sessions {
+			if fn(&sess) {
+				kept = append(kept, sess)
+			}
+		}
+		ov.Sessions = kept
+		ovs[i] = ov
+	}
+	s.SetOverviews(ovs)
+}

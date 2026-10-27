@@ -314,7 +314,9 @@ func targetIDs(targets []SessionTarget) []string {
 // stay selected), how many succeeded, how many selected sessions were
 // skipped (active or busy, never archived), and the neighbor to focus.
 type sessionsArchivedMsg struct {
-	overviews  []proto.WorkspaceOverview
+	overviews []proto.WorkspaceOverview
+	// targets are the session IDs the action covered.
+	targets    []string
 	failed     []string
 	succeeded  int
 	skipped    int
@@ -333,19 +335,10 @@ func (m *UI) archiveSessionsCmd(targets []SessionTarget, survivorID string, skip
 	return func() tea.Msg {
 		failed := m.com.Workspace.SessionBatch(context.Background(), proto.SessionBatchArchive, batchTargets(targets))
 		succeeded := len(targets) - len(failed)
-		overviews, err := m.com.Workspace.ListWorkspaceOverviews(context.Background())
-		if err != nil {
-			// Refresh failed, but archives may have succeeded: still report
-			// so the selection is trimmed to the failures (overviews nil).
-			return sessionsArchivedMsg{
-				failed:     failed,
-				succeeded:  succeeded,
-				skipped:    skipped,
-				survivorID: survivorID,
-			}
-		}
+		// The sidebar drops the archived rows locally (see the handler);
+		// no need to re-read every node's session list here.
 		return sessionsArchivedMsg{
-			overviews:  overviews,
+			targets:    targetIDs(targets),
 			failed:     failed,
 			succeeded:  succeeded,
 			skipped:    skipped,
@@ -371,6 +364,7 @@ func (m *UI) markSelectedSessionsRead() tea.Cmd {
 // unread/green-dot state updates, which IDs failed, and how many succeeded.
 type sessionsMarkedReadMsg struct {
 	overviews []proto.WorkspaceOverview
+	targets   []string
 	failed    []string
 	succeeded int
 }
@@ -385,15 +379,8 @@ func (m *UI) markSessionsReadCmd(targets []SessionTarget) tea.Cmd {
 	return func() tea.Msg {
 		failed := m.com.Workspace.SessionBatch(context.Background(), proto.SessionBatchSeen, batchTargets(targets))
 		succeeded := len(targets) - len(failed)
-		overviews, err := m.com.Workspace.ListWorkspaceOverviews(context.Background())
-		if err != nil {
-			return sessionsMarkedReadMsg{
-				failed:    failed,
-				succeeded: succeeded,
-			}
-		}
 		return sessionsMarkedReadMsg{
-			overviews: overviews,
+			targets:   targetIDs(targets),
 			failed:    failed,
 			succeeded: succeeded,
 		}
@@ -421,15 +408,19 @@ func (m *UI) toggleFavoriteUnderCursor() tea.Cmd {
 		return nil
 	}
 	next := !favorite
+	// Show the change at once; the handler reloads on failure.
+	m.leftSidebar.EditSessions(func(s *proto.SessionOverview) bool {
+		if s.ID == target.ID {
+			s.Favorite = next
+		}
+		return true
+	})
+	ws := m.com.Workspace
 	return func() tea.Msg {
-		if err := m.com.Workspace.SetSessionFavoriteInWorkspace(context.Background(), target.WorkspaceID, target.Root, target.ID, next); err != nil {
+		if err := ws.SetSessionFavoriteInWorkspace(context.Background(), target.WorkspaceID, target.Root, target.ID, next); err != nil {
 			return favoriteToggledMsg{favorite: next, err: err}
 		}
-		overviews, err := m.com.Workspace.ListWorkspaceOverviews(context.Background())
-		if err != nil {
-			return favoriteToggledMsg{favorite: next}
-		}
-		return favoriteToggledMsg{overviews: overviews, favorite: next}
+		return favoriteToggledMsg{favorite: next}
 	}
 }
 

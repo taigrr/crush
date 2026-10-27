@@ -416,6 +416,13 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// selection; re-populating it here (on partial failure) would
 		// resurrect a hidden selection that a later `a` could bulk-archive.
 		sidebarActive := m.leftSidebarVisible && m.focus == uiFocusLeftSidebar
+		if msg.overviews == nil {
+			archived := map[string]bool{}
+			for _, id := range msg.targets {
+				archived[id] = !slices.Contains(msg.failed, id)
+			}
+			m.leftSidebar.EditSessions(func(s *proto.SessionOverview) bool { return !archived[s.ID] })
+		}
 		if msg.overviews != nil {
 			m.leftSidebar.SetOverviews(msg.overviews)
 			m.leftSidebar.SetCurrentRoot(m.com.Workspace.BaseDir())
@@ -449,6 +456,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case sessionsMarkedReadMsg:
 		// Refresh the sidebar so derived unread state (green dots) updates.
+		if msg.overviews == nil {
+			m.leftSidebar.EditSessions(func(s *proto.SessionOverview) bool {
+				if slices.Contains(msg.targets, s.ID) && !slices.Contains(msg.failed, s.ID) {
+					s.Unread = false
+				}
+				return true
+			})
+		}
 		if msg.overviews != nil {
 			m.leftSidebar.SetOverviews(msg.overviews)
 			m.leftSidebar.SetCurrentRoot(m.com.Workspace.BaseDir())
@@ -472,7 +487,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case favoriteToggledMsg:
 		if msg.err != nil {
-			cmds = append(cmds, util.ReportError(fmt.Errorf("Failed to update favorite: %w", msg.err)))
+			cmds = append(cmds, util.ReportError(fmt.Errorf("Failed to update favorite: %w", msg.err)), m.loadWorkspaceOverviews())
 			break
 		}
 		// Refresh the sidebar so the session moves in/out of the Favorite
