@@ -212,6 +212,8 @@ func TestWireFormatReport(t *testing.T) {
 		row("full message, 50ms frames", measure(func() [][]byte { return fullEvents(coalesce(updates, 5)) }))
 		row("append deltas", measure(func() [][]byte { return deltaEvents(updates) }))
 		row("append deltas, 50ms frames", measure(func() [][]byte { return deltaEvents(coalesce(updates, 5)) }))
+		row("wire 2 encoder", measure(func() [][]byte { return encoderEvents(updates, streamOptions{wire: 2}, 0) }))
+		row("wire 2 encoder, frames", measure(func() [][]byte { return encoderEvents(updates, streamOptions{wire: 2, frame: 1}, 5) }))
 	}
 }
 
@@ -229,4 +231,24 @@ func BenchmarkWireDeltas(b *testing.B) {
 	for b.Loop() {
 		_ = deltaEvents(updates)
 	}
+}
+
+// encoderEvents runs updates through the production stream encoder.
+func encoderEvents(updates []message.Message, opts streamOptions, flushEvery int) [][]byte {
+	enc := newStreamEncoder(opts)
+	var out [][]byte
+	add := func(ps []*pubsub.Payload) {
+		for _, p := range ps {
+			data, _ := json.Marshal(p)
+			out = append(out, append(append([]byte("data: "), data...), '\n', '\n'))
+		}
+	}
+	for i, u := range updates {
+		add(enc.add(pubsub.Event[message.Message]{Type: pubsub.UpdatedEvent, Payload: u}))
+		if flushEvery > 0 && i%flushEvery == 0 {
+			add(enc.flush())
+		}
+	}
+	add(enc.flush())
+	return out
 }
