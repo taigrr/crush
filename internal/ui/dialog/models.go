@@ -3,6 +3,7 @@ package dialog
 import (
 	"cmp"
 	"fmt"
+	"log/slog"
 	"slices"
 
 	"charm.land/bubbles/v2/help"
@@ -461,10 +462,14 @@ func (m *Models) setProviderItems() error {
 		}
 
 		if len(validRecentItems) != len(recentItems) {
-			// FIXME: Does this need to be here? Is it mutating the config during a read?
-			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, fmt.Sprintf("recent_models.%s", selectedType), validRecentItems); err != nil {
-				return fmt.Errorf("failed to update recent models: %w", err)
-			}
+			// Prune stale recent models in the background: building the
+			// list must not wait on a (possibly remote) config write.
+			ws, key := m.com.Workspace, fmt.Sprintf("recent_models.%s", selectedType)
+			go func() {
+				if err := ws.SetConfigField(config.ScopeGlobal, key, validRecentItems); err != nil {
+					slog.Warn("Failed to prune recent models", "error", err)
+				}
+			}()
 		}
 
 		if len(recentGroup.Items) > 0 {
