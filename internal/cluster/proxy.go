@@ -63,10 +63,13 @@ func (c *endpointCache) set(id, addr string) {
 // ResolveEndpoint returns a reachable direct endpoint for member,
 // preferring the last one that worked.
 func (n *Node) ResolveEndpoint(ctx context.Context, m Member) (string, error) {
-	var candidates []string
+	// A known-good endpoint is used as is: probing it would add a full
+	// round trip to every proxied call. Failures clear it (see
+	// forgetEndpoint) so the next call probes again.
 	if cached := n.endpoints.get(m.NodeID); cached != "" {
-		candidates = append(candidates, cached)
+		return cached, nil
 	}
+	var candidates []string
 	for _, e := range m.Endpoints {
 		if e.Kind == EndpointDirect && !slices.Contains(candidates, e.Addr) {
 			candidates = append(candidates, e.Addr)
@@ -127,6 +130,9 @@ func (n *Node) ProxyAPI(w http.ResponseWriter, r *http.Request, nodeID string) {
 		FlushInterval: -1,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if !errors.Is(err, context.Canceled) {
+				n.forgetEndpoint(m.NodeID)
+			}
+			if !errors.Is(err, context.Canceled) {
 				slog.Warn("Cluster proxy error", "node", m.Name, "path", r.URL.Path, "error", err)
 			}
 			writeErr(w, http.StatusBadGateway, fmt.Errorf("node %s: %w", m.Name, err))
@@ -159,6 +165,7 @@ func (n *Node) CallAPI(ctx context.Context, m Member, method, path string, out a
 	}
 	hc := &http.Client{Transport: n.proxyTransport()}
 	_, err = n.call(ctx, hc, addr, method, apiPrefix+path, nil, out)
+	n.forgetOnTransportError(m.NodeID, err)
 	return err
 }
 
@@ -173,6 +180,7 @@ func (n *Node) CallAPIJSON(ctx context.Context, m Member, method, path string, i
 	}
 	hc := &http.Client{Transport: n.proxyTransport()}
 	_, err = n.call(ctx, hc, addr, method, apiPrefix+path, in, out)
+	n.forgetOnTransportError(m.NodeID, err)
 	return err
 }
 
@@ -193,6 +201,7 @@ func (n *Node) StreamAPI(ctx context.Context, m Member, path, contentType string
 	req.Header.Set("Content-Type", contentType)
 	rsp, err := (&http.Client{Transport: n.proxyTransport()}).Do(req)
 	if err != nil {
+		n.forgetOnTransportError(m.NodeID, err)
 		return err
 	}
 	defer rsp.Body.Close()
@@ -226,4 +235,20 @@ func (n *Node) MemberByID(nodeID string) (Member, error) {
 		return Member{}, fmt.Errorf("unknown cluster node %q", nodeID)
 	}
 	return m, nil
+}
+
+// forgetEndpoint drops the cached endpoint for nodeID after a failure.
+func (n *Node) forgetEndpoint(nodeID string) {
+	n.endpoints.mu.Lock()
+	defer n.endpoints.mu.Unlock()
+	delete(n.endpoints.addr, nodeID)
+}
+
+// forgetOnTransportError clears the cached endpoint when err means the
+// node could not be reached (as opposed to the node answering an error).
+func (n *Node) forgetOnTransportError(nodeID string, err error) {
+	var se *statusError
+	if err != nil && !errors.As(err, &se) && !errors.Is(err, context.Canceled) {
+		n.forgetEndpoint(nodeID)
+	}
 }
