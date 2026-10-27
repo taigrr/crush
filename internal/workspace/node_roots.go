@@ -8,7 +8,6 @@ import (
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/proto"
-	"github.com/taigrr/crush/internal/transfer"
 )
 
 // nodeRootPrefix marks a workspace root that lives on a cluster node
@@ -144,9 +143,9 @@ func (w *ClientWorkspace) ClusterDashboard(ctx context.Context) ([]cluster.NodeD
 	return w.home.ClusterDashboard(ctx)
 }
 
-// MoveSession moves sessionID, living in the workspace at root (possibly
-// on another node; "" = the current workspace), to targetNode.
-func (w *ClientWorkspace) MoveSession(ctx context.Context, root, sessionID, targetNode string, onConflict transfer.ConflictPolicy, resume bool) (proto.MoveSessionResponse, error) {
+// MoveSession moves req.SessionID, living in the workspace at root (possibly
+// on another node; "" = the current workspace), to req.TargetNode.
+func (w *ClientWorkspace) MoveSession(ctx context.Context, root string, req proto.MoveSessionRequest) (proto.MoveSessionResponse, error) {
 	c, wsID := w.c(), w.workspaceID()
 	if root != "" {
 		nodeID, nc, plain := w.resolveRoot(root)
@@ -159,13 +158,8 @@ func (w *ClientWorkspace) MoveSession(ctx context.Context, root, sessionID, targ
 			c, wsID = nc, ws.ID
 		}
 	}
-	return c.MoveSession(ctx, proto.MoveSessionRequest{
-		WorkspaceID: wsID,
-		SessionID:   sessionID,
-		TargetNode:  targetNode,
-		OnConflict:  onConflict,
-		Resume:      resume,
-	})
+	req.WorkspaceID = wsID
+	return c.MoveSession(ctx, req)
 }
 
 // PlanMigration asks the home server where its jobs would move.

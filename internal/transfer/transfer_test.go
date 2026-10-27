@@ -55,6 +55,7 @@ func writeFile(t *testing.T, p, content string) {
 }
 
 func TestExportImportFreshRoundTrip(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Cleanup(db.ResetPool)
 	ctx := context.Background()
 	src := t.TempDir()

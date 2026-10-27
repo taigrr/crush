@@ -99,6 +99,10 @@ type ExportParams struct {
 	Manifest Manifest
 	Plan     Plan
 	Excludes []string
+	// Have lists files the destination already holds (from preflight).
+	Have []FileSig
+	// IncludeIgnored ships git-ignored files too.
+	IncludeIgnored bool
 	// OnProgress, when set, receives throttled progress updates.
 	OnProgress func(Progress)
 }
@@ -110,6 +114,8 @@ type Progress struct {
 	TotalFiles int    `json:"total_files"`
 	Bytes      int64  `json:"bytes"`
 	TotalBytes int64  `json:"total_bytes"`
+	// CurrentFile is the project-relative path being sent right now.
+	CurrentFile string `json:"current_file,omitempty"`
 }
 
 // Fraction is the completed share in [0,1].
@@ -162,6 +168,12 @@ func Export(ctx context.Context, w io.Writer, p ExportParams) error {
 			excludes = DefaultExcludes
 		}
 		opts := TreeOptions{DataDirRel: m.DataDirRel, Excludes: excludes, Overlay: p.Plan == PlanOverlay}
+		if !p.IncludeIgnored {
+			opts.Ignored = GitIgnored(ctx, m.Root)
+		}
+		if p.Plan == PlanOverlay || p.Plan == PlanBackup {
+			opts.Have = SigIndex(p.Have)
+		}
 		prog := Progress{Stage: "sending files"}
 		var last time.Time
 		report := func(force bool) {
@@ -175,14 +187,19 @@ func Export(ctx context.Context, w io.Writer, p ExportParams) error {
 			prog.TotalFiles, prog.TotalBytes = TreeSize(ctx, m.Root, opts)
 			report(true)
 		}
-		err := WriteTree(ctx, tw, m.Root, opts, func(size int64) {
+		opts.OnCopy = func(rel string, n int64) {
+			prog.CurrentFile = rel
+			prog.Bytes += n
+			report(false)
+		}
+		err := WriteTree(ctx, tw, m.Root, opts, func(int64) {
 			prog.Files++
-			prog.Bytes += size
 			report(false)
 		})
 		if err != nil {
 			return fmt.Errorf("pack project tree: %w", err)
 		}
+		prog.CurrentFile = ""
 		report(true)
 	}
 	if err := tw.Close(); err != nil {
@@ -292,7 +309,7 @@ func Import(ctx context.Context, r io.Reader, p ImportParams) (ImportResult, err
 			return res, err
 		}
 		defer os.RemoveAll(staging)
-		x := &extractor{dest: staging}
+		x := &extractor{dest: staging, reuseFrom: root, reuseInPlace: p.Plan == PlanOverlay}
 		for {
 			hdr, err := tr.Next()
 			if errors.Is(err, io.EOF) {

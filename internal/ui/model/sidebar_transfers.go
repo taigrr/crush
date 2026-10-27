@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/proto"
 )
 
@@ -123,6 +124,9 @@ func (m *UI) transferProgress(width int) string {
 		detail := s.Title
 		if sum := TransferSummary(s); sum != "" {
 			detail = sum
+			if s.CurrentFile != "" {
+				detail += "\n" + ansi.TruncateLeft(s.CurrentFile, max(0, ansi.StringWidth(s.CurrentFile)-width+1), "…")
+			}
 		} else if s.Stage != "" {
 			detail = s.Stage + "…"
 		}

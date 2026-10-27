@@ -91,6 +91,14 @@ func (b *Backend) MoveSession(ctx context.Context, req proto.MoveSessionRequest)
 	}
 	git := transfer.ReadGitState(ctx, root)
 
+	if req.GC && ws.Checkpoints != nil {
+		stage("cleaning up snapshots")
+		if freed, err := ws.Checkpoints.GC(ctx); err != nil {
+			slog.Warn("Snapshot cleanup before move failed", "session", sess.ID, "error", err)
+		} else {
+			slog.Info("Snapshot cleanup before move", "session", sess.ID, "freed", freed)
+		}
+	}
 	preReq := proto.TransferPreflightRequest{
 		Root:          root,
 		SessionID:     sess.ID,
@@ -136,9 +144,11 @@ func (b *Backend) MoveSession(ctx context.Context, req proto.MoveSessionRequest)
 			DB:       ws.DB(),
 			Manifest: manifest,
 			Plan:     pre.Plan,
+			Have:     pre.Have,
 			OnProgress: func(p transfer.Progress) {
 				b.transfers.update(sess.ID, func(s *proto.TransferStatus) {
 					s.Stage, s.Files, s.TotalFiles, s.Bytes, s.TotalBytes = p.Stage, p.Files, p.TotalFiles, p.Bytes, p.TotalBytes
+					s.CurrentFile = p.CurrentFile
 				})
 			},
 		}))
@@ -228,6 +238,11 @@ func (b *Backend) TransferPreflight(ctx context.Context, req proto.TransferPrefl
 		}
 	}
 	resp := proto.TransferPreflightResponse{Plan: plan}
+	if plan == transfer.PlanOverlay || plan == transfer.PlanBackup {
+		opts := transfer.TreeOptions{DataDirRel: ".crush", Excludes: transfer.DefaultExcludes, Overlay: plan == transfer.PlanOverlay}
+		opts.Ignored = transfer.GitIgnored(ctx, root)
+		resp.Have = transfer.IndexTree(ctx, root, opts)
+	}
 	if cb := b.clusterBridge(); cb != nil {
 		resp.NodeID, resp.NodeName = cb.NodeID(), cb.NodeName()
 	}

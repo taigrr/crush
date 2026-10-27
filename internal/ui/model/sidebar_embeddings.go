@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/progress"
@@ -68,7 +69,9 @@ func progressSection(t *styles.Styles, title string, info []string, detail strin
 	header := common.Section(t, t.Resource.Heading.Render(title), width, info...)
 	parts := []string{header, ""}
 	if detail != "" {
-		parts = append(parts, t.Resource.AdditionalText.Render(ansi.Truncate(detail, width, "…")))
+		for line := range strings.SplitSeq(detail, "\n") {
+			parts = append(parts, t.Resource.AdditionalText.Render(ansi.Truncate(line, width, "…")))
+		}
 	}
 	parts = append(parts, bar.ViewAs(percent))
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)

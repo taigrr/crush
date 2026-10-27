@@ -42,12 +42,17 @@ type MoveSession struct {
 	// the chosen node.
 	conflict     string
 	conflictNode cluster.NodeDashboard
-	err          string
+	// confirm, when set, asks whether to clean up snapshots before
+	// moving to the chosen node.
+	confirm *cluster.NodeDashboard
+	// gc is the user's cleanup choice, kept for conflict retries.
+	gc  bool
+	err string
 	// moving is set once a move started; progress then replaces the list.
 	moving   bool
 	progress proto.TransferStatus
 	keyMap   struct {
-		Up, Down, Select, Backup, Keep, Close key.Binding
+		Up, Down, Select, Backup, Keep, GC, Close key.Binding
 	}
 }
 
@@ -78,6 +83,7 @@ func NewMoveSession(com *common.Common, target MoveTarget, rows []cluster.NodeDa
 	d.keyMap.Select = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "move"))
 	d.keyMap.Backup = key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "back up & replace"))
 	d.keyMap.Keep = key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "conversation only"))
+	d.keyMap.GC = key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "clean up, then move"))
 	d.keyMap.Close = CloseKey
 	return d
 }
@@ -121,6 +127,17 @@ func (d *MoveSession) HandleMsg(msg tea.Msg) Action {
 		}
 		return nil
 	}
+	if d.confirm != nil {
+		switch {
+		case key.Matches(kp, d.keyMap.GC):
+			d.gc = true
+			return d.action(*d.confirm, transfer.ConflictRefuse)
+		case key.Matches(kp, d.keyMap.Select):
+			d.gc = false
+			return d.action(*d.confirm, transfer.ConflictRefuse)
+		}
+		return nil
+	}
 	switch {
 	case key.Matches(kp, d.keyMap.Up):
 		d.cursor = max(0, d.cursor-1)
@@ -133,16 +150,18 @@ func (d *MoveSession) HandleMsg(msg tea.Msg) Action {
 				d.err = n.Member.Name + " is offline"
 				return nil
 			}
-			return d.action(n, transfer.ConflictRefuse)
+			d.err = ""
+			d.confirm = &n
+			return nil
 		}
 	}
 	return nil
 }
 
 func (d *MoveSession) action(n cluster.NodeDashboard, policy transfer.ConflictPolicy) Action {
-	d.err, d.conflict, d.moving = "", "", true
+	d.err, d.conflict, d.confirm, d.moving = "", "", nil, true
 	d.progress = proto.TransferStatus{Stage: "starting", TargetName: n.Member.Name}
-	return ActionMoveSession{Target: d.target, Node: n, OnConflict: policy}
+	return ActionMoveSession{Target: d.target, Node: n, OnConflict: policy, GC: d.gc}
 }
 
 // Draw implements [Dialog].
@@ -170,6 +189,15 @@ func (d *MoveSession) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		}
 		lines = append(lines, "Moving to "+cmp.Or(p.TargetName, "destination")+"…",
 			t.Resource.AdditionalText.Render(ansi.Truncate(stage, inner, "…")), "", bar.ViewAs(pct))
+	case d.confirm != nil:
+		lines = append(lines,
+			"Clean up Crush snapshots before moving to "+d.confirm.Member.Name+"?",
+			t.Resource.AdditionalText.Render("Garbage-collects .crush/git so unreachable snapshot data is not sent. It can take a while on large projects."),
+			"",
+			"g      clean up, then move",
+			"enter  move now",
+			"esc    cancel",
+		)
 	case d.conflict != "":
 		lines = append(lines,
 			fmt.Sprintf("%s already has different files at this path:", d.conflictNode.Member.Name),
@@ -209,6 +237,9 @@ func (d *MoveSession) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	if d.conflict != "" {
 		help = "b back up · c conversation only · esc cancel"
 	}
+	if d.confirm != nil {
+		help = "g clean up & move · enter move now · esc cancel"
+	}
 	lines = append(lines, "", t.Resource.AdditionalText.Render(help))
 	view := t.Dialog.View.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, strings.Join(lines, "\n")))
 	DrawCenter(scr, area, view)
@@ -219,6 +250,9 @@ func (d *MoveSession) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 func (d *MoveSession) ShortHelp() []key.Binding {
 	if d.conflict != "" {
 		return []key.Binding{d.keyMap.Backup, d.keyMap.Keep, d.keyMap.Close}
+	}
+	if d.confirm != nil {
+		return []key.Binding{d.keyMap.GC, d.keyMap.Select, d.keyMap.Close}
 	}
 	return []key.Binding{d.keyMap.Up, d.keyMap.Down, d.keyMap.Select, d.keyMap.Close}
 }

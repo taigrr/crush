@@ -11,6 +11,9 @@ type MoveSessionRequest struct {
 	OnConflict transfer.ConflictPolicy `json:"on_conflict,omitempty"`
 	// Resume continues a paused in-flight turn on the destination.
 	Resume bool `json:"resume,omitempty"`
+	// GC garbage-collects the Crush snapshot repository before sending,
+	// so unreachable snapshot objects are not shipped.
+	GC bool `json:"gc,omitempty"`
 }
 
 // MoveSessionResponse reports a completed move.
@@ -40,6 +43,9 @@ type TransferPreflightResponse struct {
 	Plan     transfer.Plan `json:"plan"`
 	NodeID   string        `json:"node_id,omitempty"`
 	NodeName string        `json:"node_name,omitempty"`
+	// Have lists files the destination already holds, so the sender can
+	// skip re-sending identical ones.
+	Have []transfer.FileSig `json:"have,omitempty"`
 }
 
 // TransferImportResponse reports an applied bundle.
@@ -113,5 +119,7 @@ type TransferStatus struct {
 	TotalFiles int    `json:"total_files"`
 	Bytes      int64  `json:"bytes"`
 	TotalBytes int64  `json:"total_bytes"`
-	StartedAt  int64  `json:"started_at"` // Unix ms
+	// CurrentFile is the project-relative path being sent right now.
+	CurrentFile string `json:"current_file,omitempty"`
+	StartedAt   int64  `json:"started_at"` // Unix ms
 }

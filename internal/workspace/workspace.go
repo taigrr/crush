@@ -25,7 +25,6 @@ import (
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/skills"
-	"github.com/taigrr/crush/internal/transfer"
 	"github.com/taigrr/crush/internal/worktree"
 )
 
@@ -244,9 +243,10 @@ type Workspace interface {
 	// ClusterDashboard returns live health for every cluster node, as seen
 	// by the attached server.
 	ClusterDashboard(ctx context.Context) ([]cluster.NodeDashboard, error)
-	// MoveSession hands sessionID (in the workspace at root, "" = the
+	// MoveSession hands req.SessionID (in the workspace at root, "" = the
 	// current one) to another cluster node with its project files.
-	MoveSession(ctx context.Context, root, sessionID, targetNode string, onConflict transfer.ConflictPolicy, resume bool) (proto.MoveSessionResponse, error)
+	// req.WorkspaceID is filled in from root.
+	MoveSession(ctx context.Context, root string, req proto.MoveSessionRequest) (proto.MoveSessionResponse, error)
 	// PlanMigration and ExecuteMigration move every job off the home
 	// server to the rest of the cluster.
 	// Transfers lists session moves in progress (see ClientWorkspace).

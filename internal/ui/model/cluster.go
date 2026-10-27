@@ -163,7 +163,13 @@ func (m *UI) runMoveSession(a dialog.ActionMoveSession) tea.Cmd {
 		m.startTransferPoll(a.Target.Root),
 		util.ReportInfo(fmt.Sprintf("Moving %q to %s…", a.Target.Title, a.Node.Member.Name)),
 		func() tea.Msg {
-			res, err := ws.MoveSession(context.Background(), a.Target.Root, a.Target.SessionID, a.Node.Member.NodeID, a.OnConflict, true)
+			res, err := ws.MoveSession(context.Background(), a.Target.Root, proto.MoveSessionRequest{
+				SessionID:  a.Target.SessionID,
+				TargetNode: a.Node.Member.NodeID,
+				OnConflict: a.OnConflict,
+				Resume:     true,
+				GC:         a.GC,
+			})
 			return moveResultMsg{action: a, res: res, err: err}
 		},
 	)

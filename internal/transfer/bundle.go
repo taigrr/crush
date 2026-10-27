@@ -32,6 +32,7 @@ var (
 	ErrSchemaMismatch  = errors.New("database schema differs between nodes; upgrade both to the same release")
 	ErrSessionOwned    = errors.New("session already exists and is active on the destination")
 	ErrDestinationBusy = errors.New("destination workspace is open; close it there or choose another conflict policy")
+	ErrReuse           = errors.New("destination file could not be reused")
 )
 
 // Manifest describes a bundle.

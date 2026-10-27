@@ -3,6 +3,8 @@ package transfer
 import (
 	"archive/tar"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -36,6 +38,29 @@ type TreeOptions struct {
 	// Overlay ships only working files: no .git and no Crush internal
 	// git/worktree state, for applying onto an existing checkout.
 	Overlay bool
+	// OnCopy, when set, is called as file contents are written with the
+	// file's relative path and the number of bytes just copied, so callers
+	// can report progress inside large files.
+	OnCopy func(rel string, n int64)
+	// Ignored holds git-ignored paths (see [GitIgnored]) to leave out.
+	// The Crush data dir is always shipped regardless.
+	Ignored map[string]bool
+	// Have lists files the destination already holds; matching files are
+	// sent as reuse markers instead of their contents.
+	Have map[string]FileSig
+}
+
+func joinRel(root, rel string) string {
+	return filepath.Join(root, filepath.FromSlash(rel))
+}
+
+// keepsDataDir reports whether rel is the data dir, inside it, or one of
+// its parents, none of which may be dropped as git-ignored.
+func (o TreeOptions) keepsDataDir(rel string) bool {
+	if o.DataDirRel == "" {
+		return false
+	}
+	return rel == o.DataDirRel || strings.HasPrefix(rel, o.DataDirRel+"/") || strings.HasPrefix(o.DataDirRel, rel+"/")
 }
 
 func (o TreeOptions) skip(rel string, d fs.DirEntry) bool {
@@ -57,7 +82,7 @@ func (o TreeOptions) skip(rel string, d fs.DirEntry) bool {
 	if o.Overlay && (rel == ".git" || strings.HasPrefix(rel, ".git/")) {
 		return true
 	}
-	return false
+	return o.Ignored[rel] && !o.keepsDataDir(rel)
 }
 
 // TreeSize counts the files and bytes [WriteTree] would ship.
@@ -149,18 +174,40 @@ func WriteTree(ctx context.Context, tw *tar.Writer, root string, opts TreeOption
 			hdr.Name += "/"
 		}
 		hdr.Uname, hdr.Gname = "", ""
+		if !info.Mode().IsRegular() {
+			return tw.WriteHeader(hdr)
+		}
+		if sig, ok := opts.Have[rel]; ok && sig.Size == info.Size() {
+			if sum, err := hashFile(p); err == nil && sum == sig.SHA256 {
+				reuse := *hdr
+				reuse.Size = 0
+				reuse.Format = tar.FormatPAX
+				reuse.PAXRecords = map[string]string{paxReuse: sum}
+				if err := tw.WriteHeader(&reuse); err != nil {
+					return err
+				}
+				if opts.OnCopy != nil {
+					opts.OnCopy(rel, info.Size())
+				}
+				for _, cb := range onFile {
+					cb(info.Size())
+				}
+				return nil
+			}
+		}
 		if err := tw.WriteHeader(hdr); err != nil {
 			return err
-		}
-		if !info.Mode().IsRegular() {
-			return nil
 		}
 		f, err := os.Open(p)
 		if err != nil {
 			return err
 		}
 		defer f.Close()
-		if _, err := io.CopyN(tw, f, hdr.Size); err != nil {
+		var dst io.Writer = tw
+		if opts.OnCopy != nil {
+			dst = copyReporter{w: tw, rel: rel, fn: opts.OnCopy}
+		}
+		if _, err := io.CopyN(dst, f, hdr.Size); err != nil {
 			return fmt.Errorf("copy %s: %w", rel, err)
 		}
 		for _, cb := range onFile {
@@ -170,12 +217,31 @@ func WriteTree(ctx context.Context, tw *tar.Writer, root string, opts TreeOption
 	})
 }
 
+type copyReporter struct {
+	w   io.Writer
+	rel string
+	fn  func(rel string, n int64)
+}
+
+func (c copyReporter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	if n > 0 {
+		c.fn(c.rel, int64(n))
+	}
+	return n, err
+}
+
 // extractor writes tree entries under dest, deferring symlinks until all
 // regular files exist so a malicious link can never redirect a later
 // write outside dest.
 type extractor struct {
 	dest  string
 	links []*tar.Header
+	// reuseFrom is the existing destination tree that reuse markers
+	// refer to. With reuseInPlace the file is left where it is (the
+	// staged tree is overlaid onto reuseFrom) instead of being copied.
+	reuseFrom    string
+	reuseInPlace bool
 }
 
 func (x *extractor) target(name string) (string, error) {
@@ -203,6 +269,9 @@ func (x *extractor) entry(hdr *tar.Header, r io.Reader) error {
 	case tar.TypeDir:
 		return os.MkdirAll(dst, mode|0o700)
 	case tar.TypeReg:
+		if sum, ok := hdr.PAXRecords[paxReuse]; ok {
+			return x.reuse(dst, sum, hdr)
+		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
@@ -232,6 +301,63 @@ func (x *extractor) entry(hdr *tar.Header, r io.Reader) error {
 	default:
 		return nil
 	}
+}
+
+// reuse fills dst from the destination's existing copy of the same
+// file, verifying it still matches what the sender has.
+func (x *extractor) reuse(dst, sum string, hdr *tar.Header) error {
+	if x.reuseFrom == "" {
+		return fmt.Errorf("%w: unexpected reuse entry", ErrFormat)
+	}
+	rel, err := filepath.Rel(x.dest, dst)
+	if err != nil {
+		return err
+	}
+	src := filepath.Join(x.reuseFrom, rel)
+	if err := (&extractor{dest: x.reuseFrom}).noSymlinkParents(src); err != nil {
+		return err
+	}
+	fi, err := os.Lstat(src)
+	if err != nil || !fi.Mode().IsRegular() {
+		return fmt.Errorf("%w: %s changed during the transfer; retry the move", ErrReuse, rel)
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	h := sha256.New()
+	if x.reuseInPlace {
+		if _, err := io.Copy(h, in); err != nil {
+			return err
+		}
+		if hex.EncodeToString(h.Sum(nil)) != sum {
+			return fmt.Errorf("%w: %s changed during the transfer; retry the move", ErrReuse, rel)
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if err := x.noSymlinkParents(dst); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fs.FileMode(hdr.Mode).Perm()|0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(io.MultiWriter(out, h), in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	if hex.EncodeToString(h.Sum(nil)) != sum {
+		_ = os.Remove(dst)
+		return fmt.Errorf("%w: %s changed during the transfer; retry the move", ErrReuse, rel)
+	}
+	return os.Chtimes(dst, hdr.ModTime, hdr.ModTime)
 }
 
 // finish creates the deferred symlinks.

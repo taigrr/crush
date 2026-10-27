@@ -26,7 +26,7 @@ Status: all six rollout phases implemented (see "Known limitations").
 | Writers | Single owner per session. Two nodes never write the same session concurrently. |
 | Replication | Everything (sessions, messages, files, embeddings, credentials) replicates to every node. |
 | Embeddings | Replicated, not recomputed (same model cluster-wide). |
-| On-disk state | Bootstrap creates the empty directory skeleton of each project on every node and syncs crush DBs. Moving a job ships the working tree as-is (uncommitted changes, untracked files, main repo and managed worktrees), skipping regenerable dirs (`node_modules`, …) and the live `.crush` DB files. |
+| On-disk state | Bootstrap creates the empty directory skeleton of each project on every node and syncs crush DBs. Moving a job ships the working tree as-is (uncommitted changes, untracked files, main repo and managed worktrees), skipping regenerable dirs (`node_modules`, …), git-ignored files, and the live `.crush` DB files. Files the destination already has are reused, not resent. |
 | Path conflicts | If the destination has diverging state, refuse and prompt. When both sides are clean, check out the same ref (possibly fetching from the source as a remote). Never risk data loss. |
 | Source copy | Left in place, untouched. The session just shows its new owner node. |
 | Remote control | When the TUI drives a remote session, every setting (API keys, provider, model) applies to the owning node. |
@@ -123,7 +123,7 @@ rejected with an upgrade hint.
 | `crush cluster install-service` / `uninstall-service` | Manage the launchd/systemd daemon. |
 | `crush upgrade [version]` | `go install` a release and restart the local daemon. |
 | `crush cluster top` | Live dashboard of every node. |
-| `crush session move <session> <node>` | Move a session and its files (`--on-conflict=backup\|keep`, `--no-resume`). |
+| `crush session move <session> <node>` | Move a session and its files (`--on-conflict=backup\|keep`, `--no-resume`, `--gc`). |
 | `crush cluster migrate` | Move every running job off this machine (`--all`, `--to`, `--strategy`, `--yes`). |
 
 `--advertise host:port` on `init`/`join` overrides auto-detected
@@ -199,6 +199,21 @@ or `crush session move <session> <node>`:
 Skipped directories: `node_modules`, `.venv`, `venv`, `__pycache__`,
 `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.next`, `.turbo`,
 `.gradle`, `.parcel-cache`, and the live `crush.db*`, locks, and logs.
+
+Git-ignored paths (per `git ls-files --ignored --exclude-standard`, which
+includes your global excludes file) are skipped too, except the Crush
+data dir, which always travels minus its live DB. Ignored files such as
+`.env` therefore stay behind; recreate them on the destination.
+
+When the destination already has a tree (overlay or backup plans), its
+preflight answer lists the sizes and SHA-256 hashes of its largest files.
+The sender replaces matching files with reuse markers and the receiver
+copies its own verified copy into the staged tree, so re-moves and moves
+back to a machine send only what changed. A file that changed in the
+meantime fails the import (nothing is touched); just retry.
+
+Pick "clean up, then move" in the move dialog (or `--gc`) to
+garbage-collect the `.crush/git` snapshot repository first.
 
 ## Phase 5: replication
 

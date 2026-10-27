@@ -134,6 +134,8 @@ type (
 		Target     MoveTarget
 		Node       cluster.NodeDashboard
 		OnConflict transfer.ConflictPolicy
+		// GC cleans up the snapshot repository before sending.
+		GC bool
 	}
 	ActionInitializeProject struct{}
 	// ActionArchiveSession is emitted when the user confirms archiving the

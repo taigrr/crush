@@ -595,6 +595,7 @@ A running turn is paused first and resumed on the destination unless
 	RunE: func(cmd *cobra.Command, args []string) error {
 		conflict, _ := cmd.Flags().GetString("on-conflict")
 		noResume, _ := cmd.Flags().GetBool("no-resume")
+		gc, _ := cmd.Flags().GetBool("gc")
 		return withHeadlessSession(cmd, args[0], func(ctx context.Context, c *client.Client, ws *proto.Workspace, sess *proto.Session) error {
 			st, err := c.ClusterStatus(ctx)
 			if err != nil {
@@ -622,6 +623,7 @@ A running turn is paused first and resumed on the destination unless
 				TargetNode:  target.NodeID,
 				OnConflict:  transfer.ConflictPolicy(conflict),
 				Resume:      !noResume,
+				GC:          gc,
 			})
 			if err != nil {
 				return err
@@ -641,6 +643,7 @@ A running turn is paused first and resumed on the destination unless
 func init() {
 	sessionMoveCmd.Flags().String("on-conflict", "", "When the destination has different files: backup (move them aside) or keep (move only the conversation)")
 	sessionMoveCmd.Flags().Bool("no-resume", false, "Do not resume a paused turn on the destination")
+	sessionMoveCmd.Flags().Bool("gc", false, "Garbage-collect Crush snapshots before sending")
 	sessionCmd.AddCommand(sessionMoveCmd)
 }
 
