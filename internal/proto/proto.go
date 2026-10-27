@@ -252,6 +252,13 @@ type SessionOverview struct {
 	// sessions blocked on a permission prompt). It is read from the
 	// session's database (attached or detached) so it persists.
 	Favorite bool `json:"favorite,omitempty"`
+	// OwnerNode is the cluster node that owns (may write) the session; ""
+	// means the node that produced this overview. OwnerName is its
+	// display name. ReadOnly marks a replica shown because its owner is
+	// unreachable.
+	OwnerNode string `json:"owner_node,omitempty"`
+	OwnerName string `json:"owner_name,omitempty"`
+	ReadOnly  bool   `json:"read_only,omitempty"`
 }
 
 // WorkspaceOverview groups a workspace's sessions for the picker. Attached
@@ -259,7 +266,11 @@ type SessionOverview struct {
 // state is available); false workspaces are known only from the registry
 // and their sessions are read from their database read-only.
 type WorkspaceOverview struct {
-	Root        string            `json:"root"`
+	Root string `json:"root"`
+	// NodeID and NodeName identify the cluster node that owns the
+	// workspace. Empty means the server answering the request.
+	NodeID      string            `json:"node_id,omitempty"`
+	NodeName    string            `json:"node_name,omitempty"`
 	DataDir     string            `json:"data_dir"`
 	WorkspaceID string            `json:"workspace_id,omitempty"`
 	Attached    bool              `json:"attached"`

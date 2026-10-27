@@ -38,6 +38,9 @@ func (b *Backend) SendMessage(workspaceID string, msg proto.AgentMessage) error 
 	if err != nil {
 		return err
 	}
+	if err := b.checkOwned(context.Background(), ws, msg.SessionID); err != nil {
+		return err
+	}
 
 	if ws.AgentCoordinator == nil {
 		return ErrAgentNotInitialized

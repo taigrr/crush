@@ -1,0 +1,16 @@
+name: crush-cluster-harness
+services:
+  node-a:
+    build:
+      context: ../..
+      dockerfile: test/cluster/Dockerfile.node-a
+    hostname: node-a
+    networks: [mesh]
+  node-b:
+    build:
+      context: ../..
+      dockerfile: test/cluster/Dockerfile.node-b
+    hostname: node-b
+    networks: [mesh]
+networks:
+  mesh: {}

@@ -1,0 +1,193 @@
+package dialog
+
+import (
+	"fmt"
+	"strings"
+
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/taigrr/crush/internal/cluster"
+	"github.com/taigrr/crush/internal/transfer"
+	"github.com/taigrr/crush/internal/ui/common"
+)
+
+// MoveSessionID is the identifier for the move-session dialog.
+const MoveSessionID = "move_session"
+
+// MoveTarget identifies the session a move dialog acts on.
+type MoveTarget struct {
+	// Root is the session's workspace root as the sidebar knows it (""
+	// for the current workspace).
+	Root      string
+	SessionID string
+	Title     string
+	// OwnerNode is the node the session lives on ("" = home).
+	OwnerNode string
+}
+
+// MoveSession picks a destination node for a session, then — if the
+// destination has diverging files — how to resolve the conflict.
+type MoveSession struct {
+	com    *common.Common
+	target MoveTarget
+	nodes  []cluster.NodeDashboard
+	cursor int
+	// conflict, when set, switches the dialog to the conflict prompt for
+	// the chosen node.
+	conflict     string
+	conflictNode cluster.NodeDashboard
+	err          string
+	keyMap       struct {
+		Up, Down, Select, Backup, Keep, Close key.Binding
+	}
+}
+
+var _ Dialog = (*MoveSession)(nil)
+
+// NewMoveSession creates the dialog. selfID is the attached server's node
+// ID, used to resolve OwnerNode "" (home).
+func NewMoveSession(com *common.Common, target MoveTarget, rows []cluster.NodeDashboard, selfID string) *MoveSession {
+	owner := target.OwnerNode
+	if owner == "" {
+		owner = selfID
+	}
+	d := &MoveSession{com: com, target: target}
+	for _, r := range rows {
+		if r.Member.NodeID != owner {
+			d.nodes = append(d.nodes, r)
+		}
+	}
+	// Default to the online node with the most spare capacity.
+	best := -1.0
+	for i, r := range d.nodes {
+		if r.Online && r.Stats != nil && r.Stats.FreeScore() > best {
+			best, d.cursor = r.Stats.FreeScore(), i
+		}
+	}
+	d.keyMap.Up = key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up"))
+	d.keyMap.Down = key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down"))
+	d.keyMap.Select = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "move"))
+	d.keyMap.Backup = key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "back up & replace"))
+	d.keyMap.Keep = key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "conversation only"))
+	d.keyMap.Close = CloseKey
+	return d
+}
+
+// ID implements [Dialog].
+func (*MoveSession) ID() string { return MoveSessionID }
+
+// ShowConflict switches to the conflict prompt after a refused move.
+func (d *MoveSession) ShowConflict(node cluster.NodeDashboard, reason string) {
+	d.conflict, d.conflictNode = reason, node
+}
+
+// ShowError displays a failure without closing.
+func (d *MoveSession) ShowError(err string) { d.err = err }
+
+// HandleMsg implements [Dialog].
+func (d *MoveSession) HandleMsg(msg tea.Msg) Action {
+	kp, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return nil
+	}
+	if key.Matches(kp, d.keyMap.Close) {
+		return ActionClose{}
+	}
+	if d.conflict != "" {
+		switch {
+		case key.Matches(kp, d.keyMap.Backup):
+			return d.action(d.conflictNode, transfer.ConflictBackup)
+		case key.Matches(kp, d.keyMap.Keep):
+			return d.action(d.conflictNode, transfer.ConflictKeep)
+		}
+		return nil
+	}
+	switch {
+	case key.Matches(kp, d.keyMap.Up):
+		d.cursor = max(0, d.cursor-1)
+	case key.Matches(kp, d.keyMap.Down):
+		d.cursor = min(len(d.nodes)-1, d.cursor+1)
+	case key.Matches(kp, d.keyMap.Select):
+		if d.cursor < len(d.nodes) {
+			n := d.nodes[d.cursor]
+			if !n.Online {
+				d.err = n.Member.Name + " is offline"
+				return nil
+			}
+			return d.action(n, transfer.ConflictRefuse)
+		}
+	}
+	return nil
+}
+
+func (d *MoveSession) action(n cluster.NodeDashboard, policy transfer.ConflictPolicy) Action {
+	d.err = ""
+	return ActionMoveSession{Target: d.target, Node: n, OnConflict: policy}
+}
+
+// Draw implements [Dialog].
+func (d *MoveSession) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
+	t := d.com.Styles
+	width := min(max(50, area.Dx()-10), 90)
+	inner := width - 4
+	title := d.target.Title
+	if title == "" {
+		title = "session"
+	}
+	lines := []string{t.Dialog.Title.Render("Move " + ansi.Truncate(title, inner-6, "…")), ""}
+	switch {
+	case d.conflict != "":
+		lines = append(lines,
+			fmt.Sprintf("%s already has different files at this path:", d.conflictNode.Member.Name),
+			t.Resource.AdditionalText.Render(ansi.Truncate(d.conflict, inner, "…")),
+			"",
+			"b  back them up (renamed aside) and send this project",
+			"c  move only the conversation; keep their files",
+			"esc  cancel",
+		)
+	case len(d.nodes) == 0:
+		lines = append(lines, "No other machines in the cluster. Pair one with `crush cluster join`.")
+	default:
+		for i, n := range d.nodes {
+			dot := t.Resource.OnlineIcon.String()
+			if !n.Online {
+				dot = t.Resource.ErrorIcon.String()
+			}
+			info := "offline"
+			if n.Stats != nil && n.Online {
+				info = fmt.Sprintf("%3.0f%% free · CPU %3.0f%% · MEM %3.0f%% · %d jobs", n.Stats.FreeScore()*100, n.Stats.CPUPercent, n.Stats.MemPercent, len(n.Stats.Jobs))
+			}
+			row := fmt.Sprintf("%s %-14s %s", dot, ansi.Truncate(n.Member.Name, 14, "…"), t.Resource.AdditionalText.Render(info))
+			if i == d.cursor {
+				row = t.Dialog.SelectedItem.UnsetPadding().Width(inner).Render(ansi.Strip(row))
+			}
+			lines = append(lines, row)
+		}
+		lines = append(lines, "", t.Resource.AdditionalText.Render("History and project files (uncommitted too) travel together."))
+	}
+	if d.err != "" {
+		lines = append(lines, "", t.Resource.ErrorIcon.Render(ansi.Truncate(d.err, inner, "…")))
+	}
+	help := "↑/↓ choose · enter move · esc cancel"
+	if d.conflict != "" {
+		help = "b back up · c conversation only · esc cancel"
+	}
+	lines = append(lines, "", t.Resource.AdditionalText.Render(help))
+	view := t.Dialog.View.Width(width).Render(lipgloss.JoinVertical(lipgloss.Left, strings.Join(lines, "\n")))
+	DrawCenter(scr, area, view)
+	return nil
+}
+
+// ShortHelp implements [help.KeyMap].
+func (d *MoveSession) ShortHelp() []key.Binding {
+	if d.conflict != "" {
+		return []key.Binding{d.keyMap.Backup, d.keyMap.Keep, d.keyMap.Close}
+	}
+	return []key.Binding{d.keyMap.Up, d.keyMap.Down, d.keyMap.Select, d.keyMap.Close}
+}
+
+// FullHelp implements [help.KeyMap].
+func (d *MoveSession) FullHelp() [][]key.Binding { return [][]key.Binding{d.ShortHelp()} }

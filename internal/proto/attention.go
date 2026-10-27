@@ -18,6 +18,10 @@ const (
 	// AttentionResolved: a previously-signalled block was resolved
 	// (granted/denied/answered/cancelled, or the workspace tore down).
 	AttentionResolved AttentionKind = "resolved"
+	// AttentionClusterJoin: a node asked to join this server's cluster and
+	// awaits approval. Detail carries the node name; ToolCallID the
+	// join request ID. Not tied to a workspace or session.
+	AttentionClusterJoin AttentionKind = "cluster_join"
 )
 
 // AttentionEvent is a narrow, cross-workspace signal published on the
@@ -38,4 +42,10 @@ type AttentionEvent struct {
 	SessionID     string        `json:"session_id"`
 	ToolCallID    string        `json:"tool_call_id,omitempty"`
 	Kind          AttentionKind `json:"kind"`
+	// Detail is a short human-readable label (e.g. the joining node name).
+	Detail string `json:"detail,omitempty"`
+	// NodeID and NodeName identify the originating cluster node. Empty
+	// means the server the client is attached to.
+	NodeID   string `json:"node_id,omitempty"`
+	NodeName string `json:"node_name,omitempty"`
 }

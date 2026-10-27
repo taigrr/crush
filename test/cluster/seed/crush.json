@@ -1,0 +1,16 @@
+{
+  "providers": {
+    "harness": {
+      "type": "openai-compat",
+      "base_url": "http://127.0.0.1:9/v1",
+      "api_key": "harness-not-a-real-key",
+      "models": [
+        {"id": "harness-model", "name": "Harness", "context_window": 8000, "default_max_tokens": 512}
+      ]
+    }
+  },
+  "models": {
+    "large": {"provider": "harness", "model": "harness-model"},
+    "small": {"provider": "harness", "model": "harness-model"}
+  }
+}

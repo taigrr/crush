@@ -427,7 +427,10 @@ type UI struct {
 	// match this client's version (e.g. another client restarted the
 	// shared server with a different binary). When set, the UI renders a
 	// full-screen banner instructing the user to restart crush.
-	versionMismatch  bool
+	versionMismatch bool
+	// homeNodeID is the attached server's cluster node ID, learned from the
+	// dashboard; used to address the home node from a remote target.
+	homeNodeID       string
 	serverVersionStr string
 
 	// themePreviewOriginal holds the styles captured when the theme picker

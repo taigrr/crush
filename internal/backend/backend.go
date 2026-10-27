@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -79,9 +80,15 @@ type Backend struct {
 	pathIndex map[string]string
 	mu        sync.Mutex
 
-	cfg            *config.ConfigStore
-	ctx            context.Context
-	shutdownFn     ShutdownFunc
+	cfg        *config.ConfigStore
+	ctx        context.Context
+	shutdownFn ShutdownFunc
+	// persistent keeps the server alive after its last workspace closes
+	// (daemon / cluster node mode). Explicit shutdown still applies.
+	persistent atomic.Bool
+
+	clusterMu      sync.RWMutex
+	cluster        ClusterBridge
 	createGrace    time.Duration
 	reconnectGrace time.Duration
 
@@ -841,7 +848,7 @@ func (b *Backend) teardown(ws *Workspace) {
 
 	ws.invokeShutdown()
 
-	if remaining == 0 && b.shutdownFn != nil {
+	if remaining == 0 && b.shutdownFn != nil && !b.persistent.Load() {
 		slog.Info("Last workspace removed, shutting down server...")
 		b.shutdownFn()
 	}
@@ -1037,11 +1044,13 @@ func (b *Backend) GetWorkspaceProto(id string) (proto.Workspace, error) {
 // VersionInfo returns server version information.
 func (b *Backend) VersionInfo() proto.VersionInfo {
 	return proto.VersionInfo{
-		Version:   version.Version,
-		Commit:    version.Commit,
-		BuildID:   version.BuildID,
-		GoVersion: runtime.Version(),
-		Platform:  fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+		Version:    version.Version,
+		Commit:     version.Commit,
+		BuildID:    version.BuildID,
+		Protocol:   proto.ProtocolVersion,
+		Persistent: b.persistent.Load(),
+		GoVersion:  runtime.Version(),
+		Platform:   fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 	}
 }
 
@@ -1299,4 +1308,15 @@ func getGitBranch(dir string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// SetPersistent controls whether the server stays up after its last
+// workspace closes. Persistent servers only exit on explicit shutdown.
+func (b *Backend) SetPersistent(persistent bool) {
+	b.persistent.Store(persistent)
+}
+
+// Persistent reports whether the server is in persistent mode.
+func (b *Backend) Persistent() bool {
+	return b.persistent.Load()
 }

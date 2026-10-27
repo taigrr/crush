@@ -206,6 +206,7 @@ func sessionToProto(s session.Session) proto.Session {
 		Color:            s.Color,
 		Animal:           s.Animal,
 		ModelRef:         s.ModelRef,
+		OwnerNode:        s.OwnerNode,
 	}
 }
 

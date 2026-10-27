@@ -12,6 +12,7 @@ import (
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	mcptools "github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/checkpoint"
+	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/fork"
 	"github.com/taigrr/crush/internal/history"
@@ -24,6 +25,7 @@ import (
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/skills"
+	"github.com/taigrr/crush/internal/transfer"
 	"github.com/taigrr/crush/internal/worktree"
 )
 
@@ -229,6 +231,26 @@ type Workspace interface {
 	// version mismatch (e.g. when another client restarted the shared
 	// server with a different binary).
 	ServerVersion(ctx context.Context) (proto.VersionInfo, error)
+
+	// ClusterApprove and ClusterDeny decide a pending cluster join request
+	// recorded on nodeID ("" = the attached server).
+	ClusterApprove(ctx context.Context, nodeID, ref string) error
+	ClusterDeny(ctx context.Context, nodeID, ref string) error
+	// NodeID is the cluster node this workspace currently targets ("" =
+	// the server the client attached to).
+	NodeID() string
+	// NodeName is the targeted node's display name ("" for the home server).
+	NodeName() string
+	// ClusterDashboard returns live health for every cluster node, as seen
+	// by the attached server.
+	ClusterDashboard(ctx context.Context) ([]cluster.NodeDashboard, error)
+	// MoveSession hands sessionID (in the workspace at root, "" = the
+	// current one) to another cluster node with its project files.
+	MoveSession(ctx context.Context, root, sessionID, targetNode string, onConflict transfer.ConflictPolicy, resume bool) (proto.MoveSessionResponse, error)
+	// PlanMigration and ExecuteMigration move every job off the home
+	// server to the rest of the cluster.
+	PlanMigration(ctx context.Context, req proto.MigrateRequest) (proto.MigrationPlan, error)
+	ExecuteMigration(ctx context.Context, plan proto.MigrationPlan, resume bool) (proto.MigrationResult, error)
 
 	// Permissions
 	//

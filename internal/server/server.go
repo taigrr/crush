@@ -10,9 +10,11 @@ import (
 	"os/user"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/taigrr/crush/internal/backend"
+	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/server/swaggerui"
 	_ "github.com/taigrr/crush/internal/swagger"
@@ -67,6 +69,14 @@ type Server struct {
 
 	backend *backend.Backend
 	logger  *slog.Logger
+
+	cluster     *cluster.Node
+	clusterAddr string
+	meshAddr    string
+
+	meshMu sync.Mutex
+	mesh   *cluster.Mesh
+	bridge *meshBridge
 }
 
 // SetLogger sets the logger for the server.
@@ -229,6 +239,9 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("DELETE /v1/workspaces/{id}/worktrees/{wtid}", c.handleDeleteWorkspaceWorktree)
 	mux.HandleFunc("GET /v1/workspaces/{id}/git/branches", c.handleGetWorkspaceGitBranches)
 	mux.HandleFunc("POST /v1/workspaces/{id}/fork", c.handlePostWorkspaceFork)
+	s.installClusterRoutes(mux)
+	s.installTransferRoutes(mux)
+	s.installReplicationRoutes(mux)
 	mux.Handle("/v1/docs/", swaggerui.Handler("/v1/docs/"))
 	s.h = &http.Server{
 		Protocols: &p,
@@ -300,6 +313,12 @@ func (s *Server) Stop() {
 // force-close so the process exits promptly.
 func (s *Server) stopHTTP() {
 	slog.Info("Shutting down server...")
+	s.stopMesh()
+	if s.cluster != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = s.cluster.Stop(ctx)
+		cancel()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := s.Shutdown(ctx); err != nil {

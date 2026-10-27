@@ -94,6 +94,15 @@ type Session struct {
 	// is how every session behaved before. Set only by swarm `new` with a
 	// `model` argument; sessions a person opens are never given one.
 	ModelRef string
+
+	// MovedToNode is the cluster node this session was handed off to.
+	// Set on the source copy, which is archived; empty when the session
+	// is owned here.
+	MovedToNode string
+
+	// OwnerNode is the cluster node allowed to write this session. Empty
+	// means the node holding this database owns it.
+	OwnerNode string
 }
 
 // Unread reports whether the session finished a run more recently than it
@@ -541,6 +550,8 @@ func (s *service) fromDBItem(item db.Session) Session {
 		Animal:           item.Animal.String,
 		Favorite:         item.Favorite != 0,
 		ModelRef:         item.ModelRef.String,
+		MovedToNode:      item.MovedToNode.String,
+		OwnerNode:        item.OwnerNode.String,
 	}
 }
 

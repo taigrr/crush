@@ -38,8 +38,11 @@ var (
 type SwarmLookupResult struct {
 	WorkspaceID string
 	SessionID   string
-	Color       string
-	Animal      string
+	// NodeID is the cluster node that owns the session. Empty means this
+	// server.
+	NodeID string
+	Color  string
+	Animal string
 	// WorkspaceRoot is the target workspace's resolved project root. It
 	// lets [Backend.SwarmSend] re-bring-up the workspace if it was
 	// idle-torn-down between address resolution and delivery, so a
@@ -69,6 +72,13 @@ type SwarmLookupResult struct {
 //     retry with the shorthash form (or a raw session id) to
 //     disambiguate.
 func (b *Backend) LookupSwarmAddress(ctx context.Context, addrStr string) (SwarmLookupResult, error) {
+	return b.lookupSwarmAddress(ctx, addrStr, true)
+}
+
+// lookupSwarmAddress implements [Backend.LookupSwarmAddress]. When
+// cluster is true and nothing matches on this node, other cluster
+// nodes are consulted.
+func (b *Backend) lookupSwarmAddress(ctx context.Context, addrStr string, cluster bool) (SwarmLookupResult, error) {
 	addr, ok := swarm.ParseAddress(addrStr)
 	if !ok {
 		return SwarmLookupResult{}, fmt.Errorf("swarm: %w %q", ErrSwarmAddressInvalid, addrStr)
@@ -93,7 +103,7 @@ func (b *Backend) LookupSwarmAddress(ctx context.Context, addrStr string) (Swarm
 		if app == nil {
 			continue
 		}
-		found, err := matchAddressInApp(ctx, app.Sessions, ws.ID, addr)
+		found, err := matchAddressInApp(ctx, app.Sessions, ws.ID, addr, b.ownedHere)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("swarm: workspace %s lookup: %w", ws.ID, err)
@@ -120,6 +130,9 @@ func (b *Backend) LookupSwarmAddress(ctx context.Context, addrStr string) (Swarm
 		// CreateWorkspace) the one root that has it, if any.
 		if reattached, err := b.reattachForAddress(ctx, addr); err == nil {
 			return reattached, nil
+		}
+		if cluster {
+			return b.remoteSwarmLookup(ctx, addrStr)
 		}
 		return SwarmLookupResult{}, ErrSwarmAddressNotFound
 	case 1:
@@ -176,7 +189,7 @@ func (b *Backend) reattachForAddress(ctx context.Context, addr swarm.Address) (S
 			// Already searched via the live loop in LookupSwarmAddress.
 			continue
 		}
-		peeked, err := peekDataDirForAddress(ctx, entry.DataDir, addr)
+		peeked, err := peekDataDirForAddress(ctx, entry.DataDir, addr, b.ownedHere)
 		if err != nil {
 			slog.Warn("Failed to probe detached workspace for swarm address", "root", entry.Root, "error", err)
 			continue
@@ -207,7 +220,7 @@ func (b *Backend) reattachForAddress(ctx context.Context, addr swarm.Address) (S
 	// workspace is actually attached: the peek above is a snapshot
 	// that could have raced a concurrent change (archive, delete) to
 	// the on-disk data between the peek and this reattach.
-	found, err := matchAddressInApp(ctx, ws.Sessions, ws.ID, addr)
+	found, err := matchAddressInApp(ctx, ws.Sessions, ws.ID, addr, b.ownedHere)
 	if err != nil || len(found) == 0 {
 		return SwarmLookupResult{}, ErrSwarmAddressNotFound
 	}
@@ -230,7 +243,9 @@ func (b *Backend) reattachForAddress(ctx context.Context, addr swarm.Address) (S
 // sessions server-side already; the id-shape check here is only a
 // defensive backstop for legacy rows with no parent pointer, mirrored
 // from isSubSession.
-func peekDataDirForAddress(ctx context.Context, dataDir string, addr swarm.Address) ([]db.PeekedSession, error) {
+// Replicas of sessions owned by other cluster nodes never match: the
+// owner answers for them, so messages go to the one writer.
+func peekDataDirForAddress(ctx context.Context, dataDir string, addr swarm.Address, owned func(string) bool) ([]db.PeekedSession, error) {
 	peeked, err := db.PeekSessions(ctx, dataDir)
 	if err != nil {
 		return nil, err
@@ -238,6 +253,9 @@ func peekDataDirForAddress(ctx context.Context, dataDir string, addr swarm.Addre
 	var matches []db.PeekedSession
 	for _, s := range peeked {
 		if strings.HasPrefix(s.ID, "title-") || strings.Contains(s.ID, "$$") {
+			continue
+		}
+		if !owned(s.OwnerNode) {
 			continue
 		}
 		if addr.SessionID != "" {
@@ -285,6 +303,35 @@ type SwarmSendResult struct {
 // argument. This prevents a prompt-injected tool caller from
 // spoofing the displayed sender identity.
 func (b *Backend) SwarmSend(ctx context.Context, senderSessionID string, target SwarmLookupResult, part proto.SwarmMessage) (SwarmSendResult, error) {
+	if cb := b.clusterBridge(); cb != nil && target.NodeID != "" && target.NodeID != cb.NodeID() {
+		return b.swarmSendRemote(ctx, cb, senderSessionID, target, part)
+	}
+	return b.swarmSendLocal(ctx, senderSessionID, target, part)
+}
+
+// swarmSendRemote stamps the trusted sender identity here, where the
+// sender session lives, and hands delivery to the owning node.
+func (b *Backend) swarmSendRemote(ctx context.Context, cb ClusterBridge, senderSessionID string, target SwarmLookupResult, part proto.SwarmMessage) (SwarmSendResult, error) {
+	if target.Sub {
+		return SwarmSendResult{}, ErrSwarmTargetIsSubagent
+	}
+	trusted := lookupSenderIdentity(ctx, b, senderSessionID)
+	part.SenderSessionID = trusted.SessionID
+	part.SenderColor = trusted.Color
+	part.SenderAnimal = trusted.Animal
+	part.SenderWorkspaceID = trusted.WorkspaceID
+	res, err := cb.SwarmSend(ctx, target, part, swarmSendPolicy(ctx))
+	if err != nil {
+		return SwarmSendResult{}, err
+	}
+	if senderWS, ok := b.workspaces.Get(part.SenderWorkspaceID); ok {
+		b.playSound(senderWS, sound.Swarm)
+	}
+	return res, nil
+}
+
+// swarmSendLocal delivers to a session hosted by this node.
+func (b *Backend) swarmSendLocal(ctx context.Context, senderSessionID string, target SwarmLookupResult, part proto.SwarmMessage) (SwarmSendResult, error) {
 	if target.SessionID == "" || target.WorkspaceID == "" {
 		return SwarmSendResult{}, ErrSwarmAddressNotFound
 	}
@@ -615,10 +662,12 @@ func (b *Backend) ArchiveWorkspaceSession(ctx context.Context, workspaceID, sess
 // failure, so it returns (nil, nil). A color/animal address yields
 // every non-sub session that matches (sub-sessions are skipped so a
 // legacy collision can't disambiguate).
-func matchAddressInApp(ctx context.Context, sessions session.Service, workspaceID string, addr swarm.Address) ([]SwarmLookupResult, error) {
+func matchAddressInApp(ctx context.Context, sessions session.Service, workspaceID string, addr swarm.Address, owned func(string) bool) ([]SwarmLookupResult, error) {
 	if addr.SessionID != "" {
 		s, err := sessions.Get(ctx, addr.SessionID)
 		switch {
+		case err == nil && !owned(s.OwnerNode):
+			return nil, nil // A replica: its owner answers.
 		case err == nil:
 			// An archived session is still a valid target when
 			// addressed by its precise, unambiguous session id: the
@@ -645,6 +694,9 @@ func matchAddressInApp(ctx context.Context, sessions session.Service, workspaceI
 	var out []SwarmLookupResult
 	for _, s := range list {
 		if isSubSession(s) {
+			continue
+		}
+		if !owned(s.OwnerNode) {
 			continue
 		}
 		if !addr.MatchesColorAnimal(s.Color, s.Animal, s.ID) {

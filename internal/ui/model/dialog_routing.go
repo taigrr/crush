@@ -266,6 +266,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionClusterJoinDecision:
+		m.dialog.CloseDialog(dialog.ClusterJoinID)
+		cmds = append(cmds, m.decideClusterJoin(msg))
 	case dialog.ActionArchiveSession:
 		m.dialog.CloseDialog(dialog.ArchiveConfirmID)
 		if cmd := m.archiveCurrentSession(); cmd != nil {
@@ -339,6 +342,23 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			return util.NewInfoMsg("Low-bandwidth mode " + status)
 		})
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionOpenMoveSession:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		if t, ok := m.currentMoveTarget(); ok {
+			cmds = append(cmds, m.openMoveSessionDialog(t))
+		}
+	case dialog.ActionOpenMigrate:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		cmds = append(cmds, m.planMigration("", false))
+	case dialog.ActionMigratePlan:
+		cmds = append(cmds, m.planMigration(msg.Strategy, msg.All))
+	case dialog.ActionMigrateExecute:
+		cmds = append(cmds, m.executeMigration(msg.Plan))
+	case dialog.ActionMoveSession:
+		cmds = append(cmds, m.runMoveSession(msg))
+	case dialog.ActionOpenClusterDashboard:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		cmds = append(cmds, m.openClusterDashboard())
 	case dialog.ActionToggleSound:
 		cmds = append(cmds, func() tea.Msg {
 			cfg := m.com.Config()

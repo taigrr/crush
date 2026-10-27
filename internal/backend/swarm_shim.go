@@ -31,6 +31,7 @@ func (s *swarmShim) LookupAddress(ctx context.Context, addr string) (tools.Swarm
 		Animal:        r.Animal,
 		WorkspaceRoot: r.WorkspaceRoot,
 		Sub:           r.Sub,
+		NodeID:        r.NodeID,
 	}, nil
 }
 
@@ -42,6 +43,7 @@ func (s *swarmShim) Send(ctx context.Context, senderSessionID string, target too
 		Animal:        target.Animal,
 		WorkspaceRoot: target.WorkspaceRoot,
 		Sub:           target.Sub,
+		NodeID:        target.NodeID,
 	}, proto.SwarmMessage{
 		Text:              part.Text,
 		Body:              part.Body,

@@ -26,6 +26,17 @@ import (
 // the top. Workspaces are ordered attached-first, then by registry
 // recency.
 func (b *Backend) ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error) {
+	all, err := b.listAllOverviews(ctx)
+	if err != nil {
+		return nil, err
+	}
+	owned, _ := b.splitByOwner(all)
+	return owned, nil
+}
+
+// listAllOverviews lists every session, including read-only replicas of
+// sessions owned by other cluster nodes.
+func (b *Backend) listAllOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error) {
 	// Snapshot attached workspaces keyed by resolved root so registry
 	// entries for the same root are merged into the live view.
 	attached := make(map[string]*Workspace)
@@ -90,6 +101,7 @@ func (b *Backend) ListWorkspaceOverviews(ctx context.Context) ([]proto.Workspace
 					Color:      p.Color,
 					Animal:     p.Animal,
 					Favorite:   p.Favorite,
+					OwnerNode:  p.OwnerNode,
 				})
 			}
 			sortSessionOverviews(ov.Sessions)
@@ -127,6 +139,7 @@ func (b *Backend) attachedSessionOverviews(ctx context.Context, ws *Workspace) [
 			Color:      s.Color,
 			Animal:     s.Animal,
 			Favorite:   s.Favorite,
+			OwnerNode:  s.OwnerNode,
 		})
 	}
 	return out

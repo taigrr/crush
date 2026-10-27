@@ -15,6 +15,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/styles"
+	"github.com/taigrr/crush/internal/workspace"
 )
 
 // sidebarRowKind distinguishes the two kinds of rows in the flattened,
@@ -127,6 +128,11 @@ type SessionsSidebar struct {
 	// searchInput mirrors the popup picker's filter textinput (see
 	// dialog/sessions.go): it holds the live query the user is typing.
 	searchInput textinput.Model
+
+	// nodeFilter restricts rows to one cluster node: "" shows every node,
+	// [nodeFilterHome] the machine this client attached to, otherwise a
+	// node ID. Cycled with the node-filter key.
+	nodeFilter string
 
 	// selected is the set of session IDs currently multi-selected for a
 	// bulk action (keyed by session ID so it survives re-sorts and
@@ -249,12 +255,15 @@ func (s *SessionsSidebar) searchQuery() string {
 // plus its SUBTEXT — the workspace basename (the inbox tag / group header)
 // and the swarm animal — so a query can match by project or swarm name too.
 // With no active query every session matches.
-func (s *SessionsSidebar) sessionMatchesFilter(sess proto.SessionOverview, root string) bool {
+func (s *SessionsSidebar) sessionMatchesFilter(sess proto.SessionOverview, ws proto.WorkspaceOverview) bool {
+	if !s.nodeMatches(ws) {
+		return false
+	}
 	q := s.searchQuery()
 	if q == "" {
 		return true
 	}
-	hay := strings.ToLower(sess.Title + " " + filepath.Base(root) + " " + sess.Animal)
+	hay := strings.ToLower(sess.Title + " " + filepath.Base(workspace.DisplayRoot(ws.Root)) + " " + sess.Animal + " " + ws.NodeName)
 	return strings.Contains(hay, q)
 }
 
@@ -296,10 +305,14 @@ func (s *SessionsSidebar) InboxMode() bool { return s.mode == sidebarModeInbox }
 
 // title returns the sidebar's section title for the current mode.
 func (s *SessionsSidebar) title() string {
+	t := "Sessions"
 	if s.mode == sidebarModeInbox {
-		return "Inbox"
+		t = "Inbox"
 	}
-	return "Sessions"
+	if l := s.nodeFilterLabel(); l != "" {
+		t += " · " + l
+	}
+	return t
 }
 
 // SessionCounts summarizes the visible sessions across ALL workspaces the
@@ -335,7 +348,7 @@ func (s *SessionsSidebar) SessionCounts() SessionCounts {
 	var c SessionCounts
 	for _, ws := range s.overviews {
 		for _, sess := range ws.Sessions {
-			if !s.sessionMatchesFilter(sess, ws.Root) {
+			if !s.sessionMatchesFilter(sess, ws) {
 				continue
 			}
 			c.Total++
@@ -454,7 +467,7 @@ func (s *SessionsSidebar) rebuildInboxRows() {
 	var blocked, favorite, running, unread, other []ref
 	for wi, ws := range s.overviews {
 		for si, sess := range ws.Sessions {
-			if !s.sessionMatchesFilter(sess, ws.Root) {
+			if !s.sessionMatchesFilter(sess, ws) {
 				continue
 			}
 			switch {
@@ -507,7 +520,7 @@ func (s *SessionsSidebar) filteredIdxs(wi int) []int {
 	ws := s.overviews[wi]
 	idxs := make([]int, 0, len(ws.Sessions))
 	for si, sess := range ws.Sessions {
-		if s.sessionMatchesFilter(sess, ws.Root) {
+		if s.sessionMatchesFilter(sess, ws) {
 			idxs = append(idxs, si)
 		}
 	}
@@ -1348,7 +1361,14 @@ func (s *SessionsSidebar) renderRows(width int, focused bool) []string {
 			// row with its workspace basename for project context.
 			tag := ""
 			if s.mode == sidebarModeInbox {
-				tag = filepath.Base(ws.Root)
+				tag = filepath.Base(workspace.DisplayRoot(ws.Root))
+				if ws.NodeName != "" {
+					tag = "@" + ws.NodeName + " " + tag
+				}
+			}
+			if sess.ReadOnly {
+				// A replica of a session whose owning machine is offline.
+				tag = strings.TrimSpace("@" + sess.OwnerName + " offline " + tag)
 			}
 			out = append(out, s.renderSessionRow(t, sess, width, selected, focused, s.selected[sess.ID], tag))
 		case sidebarRowOverflow:
@@ -1377,7 +1397,11 @@ func (s *SessionsSidebar) renderOverflowRow(t *styles.Styles, remaining, width i
 }
 
 func (s *SessionsSidebar) renderWorkspaceRow(t *styles.Styles, ws proto.WorkspaceOverview, width int) string {
-	name := home.Short(ws.Root)
+	name := home.Short(workspace.DisplayRoot(ws.Root))
+	if ws.NodeName != "" {
+		// Sessions owned by another cluster node carry its name.
+		name = "@" + ws.NodeName + " " + name
+	}
 	// Leave room for the section's trailing " ──" so the header never
 	// overflows the sidebar width and wraps.
 	name = ansi.Truncate(name, max(1, width-4), "…")

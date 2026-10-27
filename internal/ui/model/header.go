@@ -208,6 +208,10 @@ func renderHeaderDetails(
 	// Use BaseDir to show project root, not worktree path.
 	const dirTrimLimit = 4
 	cwd := fsext.DirTrim(fsext.PrettyPath(com.Workspace.BaseDir()), dirTrimLimit)
+	if node := com.Workspace.NodeName(); node != "" {
+		// The session runs on another cluster machine.
+		cwd = "@" + node + " " + cwd
+	}
 	cwd = t.Header.WorkingDir.Render(cwd)
 
 	result := cwd + metadata

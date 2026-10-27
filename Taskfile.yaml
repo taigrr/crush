@@ -84,6 +84,11 @@ tasks:
     cmds:
       - go test -race -failfast ./... {{.CLI_ARGS}}
 
+  test:cluster:
+    desc: Run the two-node Docker cluster harness (test/cluster)
+    cmds:
+      - ./test/cluster/run.sh
+
   test:record:
     desc: Run tests and record all VCR cassettes again
     aliases: [record]

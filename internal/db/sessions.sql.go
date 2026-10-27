@@ -48,7 +48,7 @@ INSERT INTO sessions (
     ?9,
     strftime('%s', 'now'),
     strftime('%s', 'now')
-) RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+) RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, moved_to_node, owner_node
 `
 
 type CreateSessionParams struct {
@@ -98,6 +98,8 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.Animal,
 		&i.Favorite,
 		&i.ModelRef,
+		&i.MovedToNode,
+		&i.OwnerNode,
 	)
 	return i, err
 }
@@ -113,7 +115,7 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 }
 
 const findSessionsByColorAnimal = `-- name: FindSessionsByColorAnimal :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, moved_to_node, owner_node
 FROM sessions
 WHERE color = ? AND animal = ? AND archived_at IS NULL
 `
@@ -154,6 +156,8 @@ func (q *Queries) FindSessionsByColorAnimal(ctx context.Context, arg FindSession
 			&i.Animal,
 			&i.Favorite,
 			&i.ModelRef,
+			&i.MovedToNode,
+			&i.OwnerNode,
 		); err != nil {
 			return nil, err
 		}
@@ -169,7 +173,7 @@ func (q *Queries) FindSessionsByColorAnimal(ctx context.Context, arg FindSession
 }
 
 const getLastSession = `-- name: GetLastSession :one
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, moved_to_node, owner_node
 FROM sessions
 ORDER BY updated_at DESC
 LIMIT 1
@@ -200,12 +204,14 @@ func (q *Queries) GetLastSession(ctx context.Context) (Session, error) {
 		&i.Animal,
 		&i.Favorite,
 		&i.ModelRef,
+		&i.MovedToNode,
+		&i.OwnerNode,
 	)
 	return i, err
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, moved_to_node, owner_node
 FROM sessions
 WHERE id = ? LIMIT 1
 `
@@ -235,12 +241,14 @@ func (q *Queries) GetSessionByID(ctx context.Context, id string) (Session, error
 		&i.Animal,
 		&i.Favorite,
 		&i.ModelRef,
+		&i.MovedToNode,
+		&i.OwnerNode,
 	)
 	return i, err
 }
 
 const listArchivedSessions = `-- name: ListArchivedSessions :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, moved_to_node, owner_node
 FROM sessions
 WHERE parent_session_id is NULL
   AND archived_at IS NOT NULL
@@ -278,6 +286,8 @@ func (q *Queries) ListArchivedSessions(ctx context.Context) ([]Session, error) {
 			&i.Animal,
 			&i.Favorite,
 			&i.ModelRef,
+			&i.MovedToNode,
+			&i.OwnerNode,
 		); err != nil {
 			return nil, err
 		}
@@ -293,7 +303,7 @@ func (q *Queries) ListArchivedSessions(ctx context.Context) ([]Session, error) {
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+SELECT id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, moved_to_node, owner_node
 FROM sessions
 WHERE parent_session_id is NULL
   AND archived_at IS NULL
@@ -331,6 +341,8 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.Animal,
 			&i.Favorite,
 			&i.ModelRef,
+			&i.MovedToNode,
+			&i.OwnerNode,
 		); err != nil {
 			return nil, err
 		}
@@ -429,6 +441,38 @@ func (q *Queries) SetSessionFavorite(ctx context.Context, arg SetSessionFavorite
 	return err
 }
 
+const setSessionMovedTo = `-- name: SetSessionMovedTo :exec
+UPDATE sessions
+SET moved_to_node = ?1
+WHERE id = ?2
+`
+
+type SetSessionMovedToParams struct {
+	MovedToNode sql.NullString `json:"moved_to_node"`
+	ID          string         `json:"id"`
+}
+
+func (q *Queries) SetSessionMovedTo(ctx context.Context, arg SetSessionMovedToParams) error {
+	_, err := q.exec(ctx, q.setSessionMovedToStmt, setSessionMovedTo, arg.MovedToNode, arg.ID)
+	return err
+}
+
+const setSessionOwner = `-- name: SetSessionOwner :exec
+UPDATE sessions
+SET owner_node = ?1
+WHERE id = ?2 OR parent_session_id = ?2
+`
+
+type SetSessionOwnerParams struct {
+	OwnerNode sql.NullString `json:"owner_node"`
+	ID        string         `json:"id"`
+}
+
+func (q *Queries) SetSessionOwner(ctx context.Context, arg SetSessionOwnerParams) error {
+	_, err := q.exec(ctx, q.setSessionOwnerStmt, setSessionOwner, arg.OwnerNode, arg.ID)
+	return err
+}
+
 const setSessionSwarmIdentity = `-- name: SetSessionSwarmIdentity :execrows
 UPDATE sessions
 SET color = ?,
@@ -496,7 +540,7 @@ SET
     cost = ?,
     todos = ?
 WHERE id = ?
-RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref
+RETURNING id, parent_session_id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at, summary_message_id, todos, worktree_id, forked_from_snapshot_id, archived_at, working_dir, last_finished_at, last_seen_at, color, animal, favorite, model_ref, moved_to_node, owner_node
 `
 
 type UpdateSessionParams struct {
@@ -542,6 +586,8 @@ func (q *Queries) UpdateSession(ctx context.Context, arg UpdateSessionParams) (S
 		&i.Animal,
 		&i.Favorite,
 		&i.ModelRef,
+		&i.MovedToNode,
+		&i.OwnerNode,
 	)
 	return i, err
 }

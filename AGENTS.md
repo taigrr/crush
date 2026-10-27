@@ -51,6 +51,9 @@ internal/
   headless/                        Machine-readable contract for `crush run`, `crush session`, `crush mcp`
     headlesstest/                  In-process server + scripted agent for end-to-end tests
   mcpserver/                       `crush mcp`: Crush exposed to other agents as MCP tools
+  cluster/                         Node identity, pairing, mTLS, NATS mesh, telemetry, daemon install (docs/cluster.md)
+  transfer/                        Session + project bundles for moving jobs between nodes
+  replica/                         Single-owner row replication of sessions across nodes
 ```
 
 ### Key Dependency Roles
@@ -101,6 +104,11 @@ internal/
   backend from the sender's session row (untrusted tool input is
   overwritten) to prevent spoofing.
 
+- **Cluster**: sessions have a single owner (`sessions.owner_node`, NULL =
+  this node). Never write to a session owned elsewhere; replicas are
+  read-only and applied only from their owner (`internal/replica`). Node
+  traffic is mutual TLS from `internal/cluster`; see `docs/cluster.md`.
+
 - **Headless**: `internal/headless` owns the JSON result/event schema,
   exit codes, and the watch/answer/status helpers shared by `crush run`,
   `crush session {wait,status,answer,cancel}`, and `crush mcp`. Permission
@@ -117,6 +125,8 @@ internal/
 - **Build**: `go build .` or `go run .`
 - **Test**: `task test` or `go test ./...` (run single test:
   `go test ./internal/llm/prompt -run TestGetContextFromPaths`)
+- **Cluster e2e**: `task test:cluster` (two Docker nodes, see
+  `test/cluster/README.md`)
 - **Lint**: `task lint:fix`
 - **Format**: `task fmt` (`gofumpt -w .`)
 - **Modernize**: `task modernize` (runs `modernize` which makes code

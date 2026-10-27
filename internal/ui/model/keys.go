@@ -82,6 +82,8 @@ type KeyMap struct {
 		Search        key.Binding
 		PrevSection   key.Binding
 		NextSection   key.Binding
+		NodeFilter    key.Binding
+		Move          key.Binding
 	}
 
 	// Global key maps
@@ -428,6 +430,14 @@ func DefaultKeyMap() KeyMap {
 	km.SessionSidebar.NextSection = key.NewBinding(
 		key.WithKeys("}"),
 		key.WithHelp("}", "next section"),
+	)
+	km.SessionSidebar.NodeFilter = key.NewBinding(
+		key.WithKeys("n"),
+		key.WithHelp("n", "filter by machine"),
+	)
+	km.SessionSidebar.Move = key.NewBinding(
+		key.WithKeys("m"),
+		key.WithHelp("m", "move to machine"),
 	)
 
 	return km

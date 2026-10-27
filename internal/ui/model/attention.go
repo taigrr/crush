@@ -18,6 +18,9 @@ import (
 // switching to that session (switch-to-grant), where the request body
 // surfaces from the originating workspace's own stream.
 func (m *UI) handleAttentionEvent(ev proto.AttentionEvent) tea.Cmd {
+	if ev.Kind == proto.AttentionClusterJoin {
+		return m.handleClusterJoinAttention(ev)
+	}
 	var cmds []tea.Cmd
 	switch ev.Kind {
 	case proto.AttentionBlockedPermission, proto.AttentionBlockedQuestion:

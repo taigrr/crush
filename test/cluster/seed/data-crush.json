@@ -1,0 +1,5 @@
+{
+  "providers": {
+    "anthropic": {"api_key": "sk-harness-synced-from-node-a"}
+  }
+}

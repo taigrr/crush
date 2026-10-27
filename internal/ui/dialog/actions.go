@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/taigrr/crush/internal/cluster"
+	"github.com/taigrr/crush/internal/transfer"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/crush/internal/commands"
@@ -111,11 +114,41 @@ type (
 	ActionToggleTransparentBackground struct{}
 	ActionToggleLowBandwidth          struct{}
 	ActionToggleSound                 struct{}
-	ActionInitializeProject           struct{}
+	// ActionOpenClusterDashboard opens the cluster dashboard.
+	ActionOpenClusterDashboard struct{}
+	// ActionOpenMoveSession opens the move dialog for the current session.
+	ActionOpenMoveSession struct{}
+	// ActionOpenMigrate opens the migrate-all dialog.
+	ActionOpenMigrate struct{}
+	// ActionMigratePlan (re)computes a migration plan.
+	ActionMigratePlan struct {
+		Strategy string
+		All      bool
+	}
+	// ActionMigrateExecute runs a migration plan.
+	ActionMigrateExecute struct {
+		Plan proto.MigrationPlan
+	}
+	// ActionMoveSession moves a session to another node.
+	ActionMoveSession struct {
+		Target     MoveTarget
+		Node       cluster.NodeDashboard
+		OnConflict transfer.ConflictPolicy
+	}
+	ActionInitializeProject struct{}
 	// ActionArchiveSession is emitted when the user confirms archiving the
 	// current (active) session in the archive-confirmation dialog.
 	ActionArchiveSession struct{}
-	ActionSummarize      struct {
+	// ActionClusterJoinDecision approves or denies a pending cluster join.
+	ActionClusterJoinDecision struct {
+		RequestID string
+		NodeName  string
+		// RecordedOn is the cluster node holding the request ("" = the
+		// attached server).
+		RecordedOn string
+		Approve    bool
+	}
+	ActionSummarize struct {
 		SessionID string
 	}
 	// ActionSelectReasoningEffort is a message indicating a reasoning effort

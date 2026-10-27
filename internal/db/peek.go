@@ -124,6 +124,9 @@ type PeekedSession struct {
 	Color          string
 	Animal         string
 	Favorite       bool
+	// OwnerNode is the cluster node that owns the session ("" = this
+	// database's node).
+	OwnerNode string
 }
 
 // Unread reports whether the session finished a run more recently than it
@@ -189,6 +192,7 @@ SELECT
     %s,
     %s,
     %s,
+    %s,
     %s
 FROM sessions
 WHERE parent_session_id IS NULL
@@ -201,6 +205,7 @@ ORDER BY updated_at DESC`,
 		sel("color", "''"),
 		sel("animal", "''"),
 		sel("favorite", "0"),
+		sel("owner_node", "''"),
 		archivedFilter(cols),
 	)
 
@@ -221,6 +226,7 @@ ORDER BY updated_at DESC`,
 			color      sql.NullString
 			animal     sql.NullString
 			favorite   sql.NullInt64
+			owner      sql.NullString
 		)
 		if err := rows.Scan(
 			&p.ID,
@@ -234,10 +240,12 @@ ORDER BY updated_at DESC`,
 			&color,
 			&animal,
 			&favorite,
+			&owner,
 		); err != nil {
 			return nil, err
 		}
 		p.WorkingDir = workingDir.String
+		p.OwnerNode = owner.String
 		p.LastFinishedAt = finished.Int64
 		p.LastSeenAt = seen.Int64
 		p.Archived = archived.Valid && archived.Int64 != 0

@@ -27,6 +27,9 @@ type Client struct {
 	network  string
 	addr     string
 	clientID string
+	// nodeID routes every request through the attached server to another
+	// cluster node (see [Client.ForNode]). Empty means the attached server.
+	nodeID string
 }
 
 // NewClient creates a new [Client] connected to the server at the given
@@ -206,7 +209,7 @@ func (c *Client) put(ctx context.Context, path string, query url.Values, body io
 
 func (c *Client) sendReq(ctx context.Context, method, path string, query url.Values, body io.Reader, headers http.Header) (*http.Response, error) {
 	url := (&url.URL{
-		Path:     stdpath.Join("/v1", path),
+		Path:     c.apiPath(path),
 		RawQuery: query.Encode(),
 	}).String()
 	req, err := c.buildReq(ctx, method, url, body, headers)
@@ -244,3 +247,26 @@ func (c *Client) buildReq(ctx context.Context, method, url string, body io.Reade
 
 	return r, nil
 }
+
+// apiPath maps an API-relative path to the URL path, routing through the
+// node proxy when the client targets another cluster node.
+func (c *Client) apiPath(path string) string {
+	p := stdpath.Join("/v1", path)
+	if c.nodeID == "" {
+		return p
+	}
+	return "/v1/nodes/" + url.PathEscape(c.nodeID) + p
+}
+
+// ForNode returns a client that talks to cluster node nodeID through the
+// attached server. It shares the transport and client ID with c. An
+// empty nodeID returns a client for the attached server itself.
+func (c *Client) ForNode(nodeID string) *Client {
+	nc := *c
+	nc.nodeID = nodeID
+	return &nc
+}
+
+// NodeID returns the cluster node this client targets ("" = attached
+// server).
+func (c *Client) NodeID() string { return c.nodeID }

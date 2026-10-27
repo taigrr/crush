@@ -37,6 +37,9 @@ type Session struct {
 	// [session.Session.ModelRef]); empty when it runs the workspace's
 	// large model.
 	ModelRef string `json:"model_ref,omitempty"`
+	// OwnerNode is the cluster node that owns the session (empty = the
+	// server answering).
+	OwnerNode string `json:"owner_node,omitempty"`
 }
 
 // Todo represents a single todo entry on a session in the proto layer.

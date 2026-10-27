@@ -573,6 +573,12 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	}
 	commands = append(commands, NewCommandItem(c.com.Styles, "toggle_sound", soundLabel, "", ActionToggleSound{}))
 
+	commands = append(commands, NewCommandItem(c.com.Styles, "cluster_dashboard", "Cluster Dashboard", "", ActionOpenClusterDashboard{}).WithAliases("machines", "nodes", "servers"))
+	commands = append(commands, NewCommandItem(c.com.Styles, "migrate_all", "Migrate All Jobs to Cluster", "", ActionOpenMigrate{}).WithAliases("offload", "evacuate", "cluster"))
+	if c.hasSession {
+		commands = append(commands, NewCommandItem(c.com.Styles, "move_session", "Move Session to Another Machine", "", ActionOpenMoveSession{}).WithAliases("migrate", "offload", "cluster"))
+	}
+
 	commands = append(
 		commands,
 		NewCommandItem(c.com.Styles, "quit", "Quit", "ctrl+c", tea.QuitMsg{}).WithAliases("exit"),

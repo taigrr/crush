@@ -75,6 +75,8 @@ type SwarmLookupResult struct {
 	Animal        string
 	WorkspaceRoot string
 	Sub           bool
+	// NodeID is the cluster node owning the session; empty means local.
+	NodeID string
 }
 
 // SwarmParams is the JSON schema exposed to the model.

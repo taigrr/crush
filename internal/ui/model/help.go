@@ -135,6 +135,8 @@ func (m *UI) FullHelp() [][]key.Binding {
 				k.SessionSidebar.Favorite,
 				k.SessionSidebar.Inbox,
 				k.SessionSidebar.Search,
+				k.SessionSidebar.NodeFilter,
+				k.SessionSidebar.Move,
 			},
 			[]key.Binding{
 				help,

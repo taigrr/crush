@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -40,7 +41,15 @@ import (
 const worktreeCacheTTL = 1 * time.Minute
 
 type ClientWorkspace struct {
-	client *client.Client
+	// home is the client for the server this TUI attached to. target is
+	// the client actually used for workspace operations: home itself, or
+	// home routed to another cluster node (see SwitchWorkspace with a
+	// node-qualified root).
+	home   *client.Client
+	target atomic.Pointer[client.Client]
+	// nodeNames caches cluster node display names (id -> name) learned
+	// from overviews.
+	nodeNames sync.Map
 
 	mu              sync.RWMutex
 	ws              proto.Workspace
@@ -118,12 +127,16 @@ func NewClientWorkspace(c *client.Client, ws proto.Workspace) *ClientWorkspace {
 		ws.Config.SetupAgents()
 	}
 	w := &ClientWorkspace{
-		client:       c,
+		home:         c,
 		ws:           ws,
 		stopped:      make(chan struct{}),
 		reconnectNow: make(chan struct{}, 1),
 	}
-	w.subscribeEventsFn = c.SubscribeEvents
+	w.target.Store(c)
+	w.subscribeEventsFn = func(ctx context.Context, id string) (<-chan any, error) {
+		return w.c().SubscribeEvents(ctx, id)
+	}
+	// The home server already merges attention from every cluster node.
 	w.subscribeGlobalEventsFn = c.SubscribeGlobalEvents
 	return w
 }
@@ -131,7 +144,7 @@ func NewClientWorkspace(c *client.Client, ws proto.Workspace) *ClientWorkspace {
 // refreshWorkspace re-fetches the workspace from the server, updating
 // the cached snapshot. Called after config-mutating operations.
 func (w *ClientWorkspace) refreshWorkspace() {
-	updated, err := w.client.GetWorkspace(context.Background(), w.workspaceID())
+	updated, err := w.c().GetWorkspace(context.Background(), w.workspaceID())
 	if err != nil {
 		slog.Error("Failed to refresh workspace", "error", err)
 		return
@@ -159,7 +172,7 @@ func (w *ClientWorkspace) workspaceID() string {
 // -- Sessions --
 
 func (w *ClientWorkspace) CreateSession(ctx context.Context, title string) (session.Session, error) {
-	sess, err := w.client.CreateSession(ctx, w.workspaceID(), title)
+	sess, err := w.c().CreateSession(ctx, w.workspaceID(), title)
 	if err != nil {
 		return session.Session{}, err
 	}
@@ -167,7 +180,7 @@ func (w *ClientWorkspace) CreateSession(ctx context.Context, title string) (sess
 }
 
 func (w *ClientWorkspace) GetSession(ctx context.Context, sessionID string) (session.Session, error) {
-	sess, err := w.client.GetSession(ctx, w.workspaceID(), sessionID)
+	sess, err := w.c().GetSession(ctx, w.workspaceID(), sessionID)
 	if err != nil {
 		return session.Session{}, err
 	}
@@ -175,7 +188,7 @@ func (w *ClientWorkspace) GetSession(ctx context.Context, sessionID string) (ses
 }
 
 func (w *ClientWorkspace) ListSessions(ctx context.Context) ([]session.Session, error) {
-	protoSessions, err := w.client.ListSessions(ctx, w.workspaceID())
+	protoSessions, err := w.c().ListSessions(ctx, w.workspaceID())
 	if err != nil {
 		return nil, err
 	}
@@ -187,19 +200,19 @@ func (w *ClientWorkspace) ListSessions(ctx context.Context) ([]session.Session, 
 }
 
 func (w *ClientWorkspace) ListSessionImportSources(ctx context.Context) ([]sessionimport.SourceInfo, error) {
-	return w.client.ListSessionImportSources(ctx)
+	return w.c().ListSessionImportSources(ctx)
 }
 
 func (w *ClientWorkspace) DiscoverSessionImports(ctx context.Context, source sessionimport.Source) ([]sessionimport.Candidate, error) {
-	return w.client.DiscoverSessionImports(ctx, string(source))
+	return w.c().DiscoverSessionImports(ctx, string(source))
 }
 
 func (w *ClientWorkspace) ImportSessions(ctx context.Context, paths []string, from sessionimport.Source) ([]sessionimport.Result, error) {
-	return w.client.ImportSessions(ctx, w.workspaceID(), paths, string(from))
+	return w.c().ImportSessions(ctx, w.workspaceID(), paths, string(from))
 }
 
 func (w *ClientWorkspace) SaveSession(ctx context.Context, sess session.Session) (session.Session, error) {
-	saved, err := w.client.SaveSession(ctx, w.workspaceID(), sessionToProto(sess))
+	saved, err := w.c().SaveSession(ctx, w.workspaceID(), sessionToProto(sess))
 	if err != nil {
 		return session.Session{}, err
 	}
@@ -207,11 +220,11 @@ func (w *ClientWorkspace) SaveSession(ctx context.Context, sess session.Session)
 }
 
 func (w *ClientWorkspace) DeleteSession(ctx context.Context, sessionID string) error {
-	return w.client.DeleteSession(ctx, w.workspaceID(), sessionID)
+	return w.c().DeleteSession(ctx, w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) ArchiveSession(ctx context.Context, sessionID string) error {
-	return w.client.ArchiveSession(ctx, w.workspaceID(), "", sessionID)
+	return w.c().ArchiveSession(ctx, w.workspaceID(), "", sessionID)
 }
 
 // ArchiveSessionInWorkspace archives a session in an explicit workspace,
@@ -219,15 +232,16 @@ func (w *ClientWorkspace) ArchiveSession(ctx context.Context, sessionID string) 
 // (including a detached, registry-known workspace routed by root). When
 // workspaceID is empty the server resolves the workspace from root.
 func (w *ClientWorkspace) ArchiveSessionInWorkspace(ctx context.Context, workspaceID, root, sessionID string) error {
-	return w.client.ArchiveSession(ctx, workspaceID, root, sessionID)
+	_, c, plain := w.resolveRoot(root)
+	return c.ArchiveSession(ctx, workspaceID, plain, sessionID)
 }
 
 func (w *ClientWorkspace) UnarchiveSession(ctx context.Context, sessionID string) error {
-	return w.client.UnarchiveSession(ctx, w.workspaceID(), "", sessionID)
+	return w.c().UnarchiveSession(ctx, w.workspaceID(), "", sessionID)
 }
 
 func (w *ClientWorkspace) MarkSessionSeen(ctx context.Context, sessionID string) error {
-	return w.client.MarkSessionSeen(ctx, w.workspaceID(), "", sessionID)
+	return w.c().MarkSessionSeen(ctx, w.workspaceID(), "", sessionID)
 }
 
 // MarkSessionSeenInWorkspace marks a session read in an explicit workspace,
@@ -235,7 +249,8 @@ func (w *ClientWorkspace) MarkSessionSeen(ctx context.Context, sessionID string)
 // routed by root). When workspaceID is empty the server resolves the
 // workspace from root.
 func (w *ClientWorkspace) MarkSessionSeenInWorkspace(ctx context.Context, workspaceID, root, sessionID string) error {
-	return w.client.MarkSessionSeen(ctx, workspaceID, root, sessionID)
+	_, c, plain := w.resolveRoot(root)
+	return c.MarkSessionSeen(ctx, workspaceID, plain, sessionID)
 }
 
 // SetSessionFavoriteInWorkspace pins or unpins a session in an explicit
@@ -243,11 +258,12 @@ func (w *ClientWorkspace) MarkSessionSeenInWorkspace(ctx context.Context, worksp
 // workspace routed by root). When workspaceID is empty the server resolves
 // the workspace from root.
 func (w *ClientWorkspace) SetSessionFavoriteInWorkspace(ctx context.Context, workspaceID, root, sessionID string, favorite bool) error {
-	return w.client.SetSessionFavorite(ctx, workspaceID, root, sessionID, favorite)
+	_, c, plain := w.resolveRoot(root)
+	return c.SetSessionFavorite(ctx, workspaceID, plain, sessionID, favorite)
 }
 
 func (w *ClientWorkspace) ListArchivedSessions(ctx context.Context) ([]session.Session, error) {
-	protoSessions, err := w.client.ListArchivedSessions(ctx, w.workspaceID())
+	protoSessions, err := w.c().ListArchivedSessions(ctx, w.workspaceID())
 	if err != nil {
 		return nil, err
 	}
@@ -275,13 +291,13 @@ func (w *ClientWorkspace) ParseAgentToolSessionID(sessionID string) (string, str
 // are propagated to the caller; the TUI logs and ignores them since
 // the presence record is a hint, not correctness-critical state.
 func (w *ClientWorkspace) SetCurrentSession(ctx context.Context, sessionID string) error {
-	return w.client.SetCurrentSession(ctx, w.workspaceID(), sessionID)
+	return w.c().SetCurrentSession(ctx, w.workspaceID(), sessionID)
 }
 
 // -- Messages --
 
 func (w *ClientWorkspace) ListMessages(ctx context.Context, sessionID string) ([]message.Message, error) {
-	msgs, err := w.client.ListMessages(ctx, w.workspaceID(), sessionID)
+	msgs, err := w.c().ListMessages(ctx, w.workspaceID(), sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +305,7 @@ func (w *ClientWorkspace) ListMessages(ctx context.Context, sessionID string) ([
 }
 
 func (w *ClientWorkspace) ListUserMessages(ctx context.Context, sessionID string) ([]message.Message, error) {
-	msgs, err := w.client.ListUserMessages(ctx, w.workspaceID(), sessionID)
+	msgs, err := w.c().ListUserMessages(ctx, w.workspaceID(), sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +313,7 @@ func (w *ClientWorkspace) ListUserMessages(ctx context.Context, sessionID string
 }
 
 func (w *ClientWorkspace) ListAllUserMessages(ctx context.Context) ([]message.Message, error) {
-	msgs, err := w.client.ListAllUserMessages(ctx, w.workspaceID())
+	msgs, err := w.c().ListAllUserMessages(ctx, w.workspaceID())
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +324,8 @@ func (w *ClientWorkspace) ListAllUserMessages(ctx context.Context) ([]message.Me
 // root — attached or registry-detached, this client's own workspace or a
 // foreign one — without switching this client's workspace.
 func (w *ClientWorkspace) PeekMessages(ctx context.Context, root, sessionID string) ([]message.Message, error) {
-	msgs, err := w.client.PeekMessages(ctx, root, sessionID)
+	_, c, plain := w.resolveRoot(root)
+	msgs, err := c.PeekMessages(ctx, plain, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -321,7 +338,8 @@ func (w *ClientWorkspace) PeekMessages(ctx context.Context, root, sessionID stri
 // workspace. Backs the session sidebar's live preview of the right
 // info-sidebar.
 func (w *ClientWorkspace) PeekSessionInfo(ctx context.Context, root, sessionID string) (session.Session, []history.File, error) {
-	res, err := w.client.PeekSessionInfo(ctx, root, sessionID)
+	_, c, plain := w.resolveRoot(root)
+	res, err := c.PeekSessionInfo(ctx, plain, sessionID)
 	if err != nil {
 		return session.Session{}, nil, err
 	}
@@ -330,24 +348,24 @@ func (w *ClientWorkspace) PeekSessionInfo(ctx context.Context, root, sessionID s
 
 // EmbedPendingCount reports how many past messages a backfill would embed.
 func (w *ClientWorkspace) EmbedPendingCount(ctx context.Context) (int, error) {
-	return w.client.EmbeddingsPending(ctx, w.workspaceID())
+	return w.c().EmbeddingsPending(ctx, w.workspaceID())
 }
 
 // EmbedBackfill embeds past messages lacking a vector under the active
 // embedding model, returning the count embedded.
 func (w *ClientWorkspace) EmbedBackfill(ctx context.Context) (int, error) {
-	return w.client.BackfillEmbeddings(ctx, w.workspaceID())
+	return w.c().BackfillEmbeddings(ctx, w.workspaceID())
 }
 
 // EmbedStatus reports the embedding index state for progress display.
 func (w *ClientWorkspace) EmbedStatus(ctx context.Context) (proto.EmbeddingStatus, error) {
-	return w.client.EmbeddingStatus(ctx, w.workspaceID())
+	return w.c().EmbeddingStatus(ctx, w.workspaceID())
 }
 
 // SearchHistory runs hybrid history search over this workspace and
 // returns per-session hits.
 func (w *ClientWorkspace) SearchHistory(ctx context.Context, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error) {
-	return w.client.SearchHistory(ctx, w.workspaceID(), params)
+	return w.c().SearchHistory(ctx, w.workspaceID(), params)
 }
 
 // -- Agent --
@@ -359,7 +377,7 @@ func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string
 	// does not consume notify.RunComplete for completion detection
 	// (it observes message events directly), so the RunComplete
 	// event that fires is harmlessly ignored.
-	return w.client.SendMessage(ctx, w.workspaceID(), sessionID, uuid.New().String(), prompt, attachments...)
+	return w.c().SendMessage(ctx, w.workspaceID(), sessionID, uuid.New().String(), prompt, attachments...)
 }
 
 // AgentRunBTW sends a "by the way" aside message that is folded into the
@@ -369,23 +387,23 @@ func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string
 // the message at the next step boundary without waiting for the turn to
 // finish.
 func (w *ClientWorkspace) AgentRunBTW(ctx context.Context, sessionID, prompt string) error {
-	return w.client.SendMessage(ctx, w.workspaceID(), sessionID, "", "[btw] "+prompt)
+	return w.c().SendMessage(ctx, w.workspaceID(), sessionID, "", "[btw] "+prompt)
 }
 
 func (w *ClientWorkspace) AgentRunShellCommand(ctx context.Context, sessionID, command string) (proto.ShellCommandResponse, error) {
-	return w.client.RunShellCommand(ctx, w.workspaceID(), sessionID, command)
+	return w.c().RunShellCommand(ctx, w.workspaceID(), sessionID, command)
 }
 
 func (w *ClientWorkspace) AgentCancel(sessionID string) {
-	_ = w.client.CancelAgentSession(context.Background(), w.workspaceID(), sessionID)
+	_ = w.c().CancelAgentSession(context.Background(), w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentCancelAll() {
-	_ = w.client.CancelAgent(context.Background(), w.workspaceID())
+	_ = w.c().CancelAgent(context.Background(), w.workspaceID())
 }
 
 func (w *ClientWorkspace) AgentIsBusy() bool {
-	info, err := w.client.GetAgentInfo(context.Background(), w.workspaceID())
+	info, err := w.c().GetAgentInfo(context.Background(), w.workspaceID())
 	if err != nil {
 		return false
 	}
@@ -393,7 +411,7 @@ func (w *ClientWorkspace) AgentIsBusy() bool {
 }
 
 func (w *ClientWorkspace) AgentIsSessionBusy(sessionID string) bool {
-	info, err := w.client.GetAgentSessionInfo(context.Background(), w.workspaceID(), sessionID)
+	info, err := w.c().GetAgentSessionInfo(context.Background(), w.workspaceID(), sessionID)
 	if err != nil {
 		return false
 	}
@@ -401,7 +419,7 @@ func (w *ClientWorkspace) AgentIsSessionBusy(sessionID string) bool {
 }
 
 func (w *ClientWorkspace) AgentModel() AgentModel {
-	info, err := w.client.GetAgentInfo(context.Background(), w.workspaceID())
+	info, err := w.c().GetAgentInfo(context.Background(), w.workspaceID())
 	if err != nil {
 		return AgentModel{}
 	}
@@ -412,7 +430,7 @@ func (w *ClientWorkspace) AgentModel() AgentModel {
 }
 
 func (w *ClientWorkspace) AgentIsReady() bool {
-	info, err := w.client.GetAgentInfo(context.Background(), w.workspaceID())
+	info, err := w.c().GetAgentInfo(context.Background(), w.workspaceID())
 	if err != nil {
 		return false
 	}
@@ -420,7 +438,7 @@ func (w *ClientWorkspace) AgentIsReady() bool {
 }
 
 func (w *ClientWorkspace) AgentReadiness(ctx context.Context) (bool, error) {
-	info, err := w.client.GetAgentInfo(ctx, w.workspaceID())
+	info, err := w.c().GetAgentInfo(ctx, w.workspaceID())
 	if err != nil {
 		return false, err
 	}
@@ -428,7 +446,7 @@ func (w *ClientWorkspace) AgentReadiness(ctx context.Context) (bool, error) {
 }
 
 func (w *ClientWorkspace) AgentQueuedPrompts(sessionID string) int {
-	count, err := w.client.GetAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
+	count, err := w.c().GetAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
 	if err != nil {
 		return 0
 	}
@@ -436,7 +454,7 @@ func (w *ClientWorkspace) AgentQueuedPrompts(sessionID string) int {
 }
 
 func (w *ClientWorkspace) AgentQueuedPromptsList(sessionID string) []string {
-	prompts, err := w.client.GetAgentSessionQueuedPromptsList(context.Background(), w.workspaceID(), sessionID)
+	prompts, err := w.c().GetAgentSessionQueuedPromptsList(context.Background(), w.workspaceID(), sessionID)
 	if err != nil {
 		return nil
 	}
@@ -444,51 +462,51 @@ func (w *ClientWorkspace) AgentQueuedPromptsList(sessionID string) []string {
 }
 
 func (w *ClientWorkspace) AgentPromoteNextQueuedToBTW(ctx context.Context, sessionID string) (bool, error) {
-	return w.client.PromoteNextQueuedToBTW(ctx, w.workspaceID(), sessionID)
+	return w.c().PromoteNextQueuedToBTW(ctx, w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentCancelToolCalls(ctx context.Context, sessionID string) (int, error) {
-	return w.client.CancelToolCalls(ctx, w.workspaceID(), sessionID)
+	return w.c().CancelToolCalls(ctx, w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentClearQueue(sessionID string) {
-	_ = w.client.ClearAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
+	_ = w.c().ClearAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentSetGoal(sessionID, condition string) error {
-	return w.client.SetAgentSessionGoal(context.Background(), w.workspaceID(), sessionID, condition)
+	return w.c().SetAgentSessionGoal(context.Background(), w.workspaceID(), sessionID, condition)
 }
 
 func (w *ClientWorkspace) AgentSetWorkingDir(sessionID, dir string) error {
-	return w.client.SetAgentSessionWorkingDir(context.Background(), w.workspaceID(), sessionID, dir)
+	return w.c().SetAgentSessionWorkingDir(context.Background(), w.workspaceID(), sessionID, dir)
 }
 
 func (w *ClientWorkspace) AgentClearGoal(sessionID string) error {
-	return w.client.ClearAgentSessionGoal(context.Background(), w.workspaceID(), sessionID)
+	return w.c().ClearAgentSessionGoal(context.Background(), w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentGoalStatus(sessionID string) (proto.GoalStatus, error) {
-	return w.client.GetAgentSessionGoal(context.Background(), w.workspaceID(), sessionID)
+	return w.c().GetAgentSessionGoal(context.Background(), w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentSummarize(ctx context.Context, sessionID string) error {
-	return w.client.AgentSummarizeSession(ctx, w.workspaceID(), sessionID)
+	return w.c().AgentSummarizeSession(ctx, w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) AgentGenerateTitle(ctx context.Context, sessionID string) error {
-	return w.client.AgentGenerateTitle(ctx, w.workspaceID(), sessionID)
+	return w.c().AgentGenerateTitle(ctx, w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) UpdateAgentModel(ctx context.Context) error {
-	return w.client.UpdateAgent(ctx, w.workspaceID())
+	return w.c().UpdateAgent(ctx, w.workspaceID())
 }
 
 func (w *ClientWorkspace) InitCoderAgent(ctx context.Context) error {
-	return w.client.InitiateAgentProcessing(ctx, w.workspaceID())
+	return w.c().InitiateAgentProcessing(ctx, w.workspaceID())
 }
 
 func (w *ClientWorkspace) ServerVersion(ctx context.Context) (proto.VersionInfo, error) {
-	vi, err := w.client.VersionInfo(ctx)
+	vi, err := w.c().VersionInfo(ctx)
 	if err != nil {
 		return proto.VersionInfo{}, err
 	}
@@ -496,7 +514,7 @@ func (w *ClientWorkspace) ServerVersion(ctx context.Context) (proto.VersionInfo,
 }
 
 func (w *ClientWorkspace) GetDefaultSmallModel(providerID string) config.SelectedModel {
-	model, err := w.client.GetDefaultSmallModel(context.Background(), w.workspaceID(), providerID)
+	model, err := w.c().GetDefaultSmallModel(context.Background(), w.workspaceID(), providerID)
 	if err != nil {
 		return config.SelectedModel{}
 	}
@@ -506,7 +524,7 @@ func (w *ClientWorkspace) GetDefaultSmallModel(providerID string) config.Selecte
 // -- Permissions --
 
 func (w *ClientWorkspace) PermissionGrant(perm permission.PermissionRequest) bool {
-	resolved, _ := w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
+	resolved, _ := w.c().GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
 		Permission: proto.PermissionRequest{
 			ID:          perm.ID,
 			SessionID:   perm.SessionID,
@@ -523,7 +541,7 @@ func (w *ClientWorkspace) PermissionGrant(perm permission.PermissionRequest) boo
 }
 
 func (w *ClientWorkspace) PermissionGrantPersistent(perm permission.PermissionRequest) bool {
-	resolved, _ := w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
+	resolved, _ := w.c().GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
 		Permission: proto.PermissionRequest{
 			ID:          perm.ID,
 			SessionID:   perm.SessionID,
@@ -540,7 +558,7 @@ func (w *ClientWorkspace) PermissionGrantPersistent(perm permission.PermissionRe
 }
 
 func (w *ClientWorkspace) PermissionDeny(perm permission.PermissionRequest) bool {
-	resolved, _ := w.client.GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
+	resolved, _ := w.c().GrantPermission(context.Background(), w.workspaceID(), proto.PermissionGrant{
 		Permission: proto.PermissionRequest{
 			ID:          perm.ID,
 			SessionID:   perm.SessionID,
@@ -559,7 +577,7 @@ func (w *ClientWorkspace) PermissionDeny(perm permission.PermissionRequest) bool
 // -- Questions --
 
 func (w *ClientWorkspace) QuestionAnswer(ans question.Answer) bool {
-	resolved, _ := w.client.AnswerQuestion(context.Background(), w.workspaceID(), proto.QuestionAnswer{
+	resolved, _ := w.c().AnswerQuestion(context.Background(), w.workspaceID(), proto.QuestionAnswer{
 		ID:         ans.ID,
 		SessionID:  ans.SessionID,
 		ToolCallID: ans.ToolCallID,
@@ -570,7 +588,7 @@ func (w *ClientWorkspace) QuestionAnswer(ans question.Answer) bool {
 }
 
 func (w *ClientWorkspace) PermissionSkipRequests() bool {
-	skip, err := w.client.GetPermissionsSkipRequests(context.Background(), w.workspaceID())
+	skip, err := w.c().GetPermissionsSkipRequests(context.Background(), w.workspaceID())
 	if err != nil {
 		return false
 	}
@@ -578,11 +596,11 @@ func (w *ClientWorkspace) PermissionSkipRequests() bool {
 }
 
 func (w *ClientWorkspace) PermissionSetSkipRequests(skip bool) {
-	_ = w.client.SetPermissionsSkipRequests(context.Background(), w.workspaceID(), skip)
+	_ = w.c().SetPermissionsSkipRequests(context.Background(), w.workspaceID(), skip)
 }
 
 func (w *ClientWorkspace) PermissionSysadminMode() bool {
-	enabled, err := w.client.GetPermissionsSysadminMode(context.Background(), w.workspaceID())
+	enabled, err := w.c().GetPermissionsSysadminMode(context.Background(), w.workspaceID())
 	if err != nil {
 		return false
 	}
@@ -590,17 +608,17 @@ func (w *ClientWorkspace) PermissionSysadminMode() bool {
 }
 
 func (w *ClientWorkspace) PermissionSetSysadminMode(enabled bool) {
-	_ = w.client.SetPermissionsSysadminMode(context.Background(), w.workspaceID(), enabled)
+	_ = w.c().SetPermissionsSysadminMode(context.Background(), w.workspaceID(), enabled)
 }
 
 // -- FileTracker --
 
 func (w *ClientWorkspace) FileTrackerRecordRead(ctx context.Context, sessionID, path string) {
-	_ = w.client.FileTrackerRecordRead(ctx, w.workspaceID(), sessionID, path)
+	_ = w.c().FileTrackerRecordRead(ctx, w.workspaceID(), sessionID, path)
 }
 
 func (w *ClientWorkspace) FileTrackerLastReadTime(ctx context.Context, sessionID, path string) time.Time {
-	t, err := w.client.FileTrackerLastReadTime(ctx, w.workspaceID(), sessionID, path)
+	t, err := w.c().FileTrackerLastReadTime(ctx, w.workspaceID(), sessionID, path)
 	if err != nil {
 		return time.Time{}
 	}
@@ -608,13 +626,13 @@ func (w *ClientWorkspace) FileTrackerLastReadTime(ctx context.Context, sessionID
 }
 
 func (w *ClientWorkspace) FileTrackerListReadFiles(ctx context.Context, sessionID string) ([]string, error) {
-	return w.client.FileTrackerListReadFiles(ctx, w.workspaceID(), sessionID)
+	return w.c().FileTrackerListReadFiles(ctx, w.workspaceID(), sessionID)
 }
 
 // -- History --
 
 func (w *ClientWorkspace) ListSessionHistory(ctx context.Context, sessionID string) ([]history.File, error) {
-	files, err := w.client.ListSessionHistoryFiles(ctx, w.workspaceID(), sessionID)
+	files, err := w.c().ListSessionHistoryFiles(ctx, w.workspaceID(), sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -624,15 +642,15 @@ func (w *ClientWorkspace) ListSessionHistory(ctx context.Context, sessionID stri
 // -- LSP --
 
 func (w *ClientWorkspace) LSPStart(ctx context.Context, path string) {
-	_ = w.client.LSPStart(ctx, w.workspaceID(), path)
+	_ = w.c().LSPStart(ctx, w.workspaceID(), path)
 }
 
 func (w *ClientWorkspace) LSPStopAll(ctx context.Context) {
-	_ = w.client.LSPStopAll(ctx, w.workspaceID())
+	_ = w.c().LSPStopAll(ctx, w.workspaceID())
 }
 
 func (w *ClientWorkspace) LSPGetStates() map[string]LSPClientInfo {
-	states, err := w.client.GetLSPs(context.Background(), w.workspaceID())
+	states, err := w.c().GetLSPs(context.Background(), w.workspaceID())
 	if err != nil {
 		return nil
 	}
@@ -651,7 +669,7 @@ func (w *ClientWorkspace) LSPGetStates() map[string]LSPClientInfo {
 }
 
 func (w *ClientWorkspace) SkillsGetStates() []*skills.SkillState {
-	states, err := w.client.SkillsGetStates(context.Background(), w.workspaceID())
+	states, err := w.c().SkillsGetStates(context.Background(), w.workspaceID())
 	if err != nil {
 		return nil
 	}
@@ -831,7 +849,7 @@ func (w *ClientWorkspace) ActiveSessionID() string {
 // -- Config mutations --
 
 func (w *ClientWorkspace) UpdatePreferredModel(scope config.Scope, modelType config.SelectedModelType, model config.SelectedModel) error {
-	err := w.client.UpdatePreferredModel(context.Background(), w.workspaceID(), scope, modelType, model)
+	err := w.c().UpdatePreferredModel(context.Background(), w.workspaceID(), scope, modelType, model)
 	if err == nil {
 		w.refreshWorkspace()
 	}
@@ -839,7 +857,7 @@ func (w *ClientWorkspace) UpdatePreferredModel(scope config.Scope, modelType con
 }
 
 func (w *ClientWorkspace) SetCompactMode(scope config.Scope, enabled bool) error {
-	err := w.client.SetCompactMode(context.Background(), w.workspaceID(), scope, enabled)
+	err := w.c().SetCompactMode(context.Background(), w.workspaceID(), scope, enabled)
 	if err == nil {
 		w.refreshWorkspace()
 	}
@@ -847,7 +865,7 @@ func (w *ClientWorkspace) SetCompactMode(scope config.Scope, enabled bool) error
 }
 
 func (w *ClientWorkspace) SetProviderAPIKey(scope config.Scope, providerID string, apiKey any) error {
-	err := w.client.SetProviderAPIKey(context.Background(), w.workspaceID(), scope, providerID, apiKey)
+	err := w.c().SetProviderAPIKey(context.Background(), w.workspaceID(), scope, providerID, apiKey)
 	if err == nil {
 		w.refreshWorkspace()
 	}
@@ -855,7 +873,7 @@ func (w *ClientWorkspace) SetProviderAPIKey(scope config.Scope, providerID strin
 }
 
 func (w *ClientWorkspace) SetConfigField(scope config.Scope, key string, value any) error {
-	err := w.client.SetConfigField(context.Background(), w.workspaceID(), scope, key, value)
+	err := w.c().SetConfigField(context.Background(), w.workspaceID(), scope, key, value)
 	if err == nil {
 		w.refreshWorkspace()
 	}
@@ -863,7 +881,7 @@ func (w *ClientWorkspace) SetConfigField(scope config.Scope, key string, value a
 }
 
 func (w *ClientWorkspace) RemoveConfigField(scope config.Scope, key string) error {
-	err := w.client.RemoveConfigField(context.Background(), w.workspaceID(), scope, key)
+	err := w.c().RemoveConfigField(context.Background(), w.workspaceID(), scope, key)
 	if err == nil {
 		w.refreshWorkspace()
 	}
@@ -871,7 +889,7 @@ func (w *ClientWorkspace) RemoveConfigField(scope config.Scope, key string) erro
 }
 
 func (w *ClientWorkspace) ImportCopilot() (*oauth.Token, bool) {
-	token, ok, err := w.client.ImportCopilot(context.Background(), w.workspaceID())
+	token, ok, err := w.c().ImportCopilot(context.Background(), w.workspaceID())
 	if err != nil {
 		return nil, false
 	}
@@ -882,7 +900,7 @@ func (w *ClientWorkspace) ImportCopilot() (*oauth.Token, bool) {
 }
 
 func (w *ClientWorkspace) RefreshOAuthToken(ctx context.Context, scope config.Scope, providerID string) error {
-	err := w.client.RefreshOAuthToken(ctx, w.workspaceID(), scope, providerID)
+	err := w.c().RefreshOAuthToken(ctx, w.workspaceID(), scope, providerID)
 	if err == nil {
 		w.refreshWorkspace()
 	}
@@ -892,21 +910,21 @@ func (w *ClientWorkspace) RefreshOAuthToken(ctx context.Context, scope config.Sc
 // -- Project lifecycle --
 
 func (w *ClientWorkspace) ProjectNeedsInitialization() (bool, error) {
-	return w.client.ProjectNeedsInitialization(context.Background(), w.workspaceID())
+	return w.c().ProjectNeedsInitialization(context.Background(), w.workspaceID())
 }
 
 func (w *ClientWorkspace) MarkProjectInitialized() error {
-	return w.client.MarkProjectInitialized(context.Background(), w.workspaceID())
+	return w.c().MarkProjectInitialized(context.Background(), w.workspaceID())
 }
 
 func (w *ClientWorkspace) InitializePrompt() (string, error) {
-	return w.client.GetInitializePrompt(context.Background(), w.workspaceID())
+	return w.c().GetInitializePrompt(context.Background(), w.workspaceID())
 }
 
 // -- MCP operations --
 
 func (w *ClientWorkspace) MCPGetStates() map[string]mcp.ClientInfo {
-	states, err := w.client.MCPGetStates(context.Background(), w.workspaceID())
+	states, err := w.c().MCPGetStates(context.Background(), w.workspaceID())
 	if err != nil {
 		return nil
 	}
@@ -928,23 +946,23 @@ func (w *ClientWorkspace) MCPGetStates() map[string]mcp.ClientInfo {
 }
 
 func (w *ClientWorkspace) MCPRefreshPrompts(ctx context.Context, name string) {
-	_ = w.client.MCPRefreshPrompts(ctx, w.workspaceID(), name)
+	_ = w.c().MCPRefreshPrompts(ctx, w.workspaceID(), name)
 }
 
 func (w *ClientWorkspace) MCPRefreshResources(ctx context.Context, name string) {
-	_ = w.client.MCPRefreshResources(ctx, w.workspaceID(), name)
+	_ = w.c().MCPRefreshResources(ctx, w.workspaceID(), name)
 }
 
 func (w *ClientWorkspace) RefreshMCPTools(ctx context.Context, name string) {
-	_ = w.client.RefreshMCPTools(ctx, w.workspaceID(), name)
+	_ = w.c().RefreshMCPTools(ctx, w.workspaceID(), name)
 }
 
 func (w *ClientWorkspace) MCPAuthenticate(ctx context.Context, name string) error {
-	return w.client.MCPAuthenticate(ctx, w.workspaceID(), name)
+	return w.c().MCPAuthenticate(ctx, w.workspaceID(), name)
 }
 
 func (w *ClientWorkspace) MCPPendingAuth() []mcp.PendingAuthServer {
-	pending, err := w.client.MCPPendingAuth(context.Background(), w.workspaceID())
+	pending, err := w.c().MCPPendingAuth(context.Background(), w.workspaceID())
 	if err != nil {
 		return nil
 	}
@@ -956,7 +974,7 @@ func (w *ClientWorkspace) MCPPendingAuth() []mcp.PendingAuthServer {
 }
 
 func (w *ClientWorkspace) MCPAuthURL(name string) string {
-	url, err := w.client.MCPAuthURL(context.Background(), w.workspaceID(), name)
+	url, err := w.c().MCPAuthURL(context.Background(), w.workspaceID(), name)
 	if err != nil {
 		return ""
 	}
@@ -964,7 +982,7 @@ func (w *ClientWorkspace) MCPAuthURL(name string) string {
 }
 
 func (w *ClientWorkspace) ReadMCPResource(ctx context.Context, name, uri string) ([]MCPResourceContents, error) {
-	contents, err := w.client.ReadMCPResource(ctx, w.workspaceID(), name, uri)
+	contents, err := w.c().ReadMCPResource(ctx, w.workspaceID(), name, uri)
 	if err != nil {
 		return nil, err
 	}
@@ -981,25 +999,25 @@ func (w *ClientWorkspace) ReadMCPResource(ctx context.Context, name, uri string)
 }
 
 func (w *ClientWorkspace) GetMCPPrompt(clientID, promptID string, args map[string]string) (string, error) {
-	return w.client.GetMCPPrompt(context.Background(), w.workspaceID(), clientID, promptID, args)
+	return w.c().GetMCPPrompt(context.Background(), w.workspaceID(), clientID, promptID, args)
 }
 
 func (w *ClientWorkspace) EnableDockerMCP(ctx context.Context) error {
-	return w.client.EnableDockerMCP(ctx, w.workspaceID())
+	return w.c().EnableDockerMCP(ctx, w.workspaceID())
 }
 
 func (w *ClientWorkspace) DisableDockerMCP() error {
-	return w.client.DisableDockerMCP(context.Background(), w.workspaceID())
+	return w.c().DisableDockerMCP(context.Background(), w.workspaceID())
 }
 
 func (w *ClientWorkspace) ReloadConfig(ctx context.Context) error {
-	return w.client.ReloadConfig(ctx, w.workspaceID())
+	return w.c().ReloadConfig(ctx, w.workspaceID())
 }
 
 // -- Snapshots --
 
 func (w *ClientWorkspace) SnapshotsEnabled() bool {
-	enabled, err := w.client.SnapshotsEnabled(context.Background(), w.workspaceID())
+	enabled, err := w.c().SnapshotsEnabled(context.Background(), w.workspaceID())
 	if err != nil {
 		return false
 	}
@@ -1007,23 +1025,23 @@ func (w *ClientWorkspace) SnapshotsEnabled() bool {
 }
 
 func (w *ClientWorkspace) ListSnapshots(ctx context.Context, sessionID string) ([]*checkpoint.Snapshot, error) {
-	return w.client.ListSnapshots(ctx, w.workspaceID(), sessionID)
+	return w.c().ListSnapshots(ctx, w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) GetSnapshot(ctx context.Context, snapshotID string) (*checkpoint.Snapshot, error) {
-	return w.client.GetSnapshot(ctx, w.workspaceID(), snapshotID)
+	return w.c().GetSnapshot(ctx, w.workspaceID(), snapshotID)
 }
 
 func (w *ClientWorkspace) GetSnapshotByMessage(ctx context.Context, messageID string) (*checkpoint.Snapshot, error) {
-	return w.client.GetSnapshotByMessage(ctx, w.workspaceID(), messageID)
+	return w.c().GetSnapshotByMessage(ctx, w.workspaceID(), messageID)
 }
 
 func (w *ClientWorkspace) RestoreSnapshot(ctx context.Context, snapshotID string) error {
-	return w.client.RestoreSnapshot(ctx, w.workspaceID(), snapshotID)
+	return w.c().RestoreSnapshot(ctx, w.workspaceID(), snapshotID)
 }
 
 func (w *ClientWorkspace) DiffFromCurrentSnapshot(ctx context.Context, snapshotID string) (string, error) {
-	return w.client.DiffFromCurrentSnapshot(ctx, w.workspaceID(), snapshotID)
+	return w.c().DiffFromCurrentSnapshot(ctx, w.workspaceID(), snapshotID)
 }
 
 // -- Worktrees --
@@ -1038,7 +1056,7 @@ func (w *ClientWorkspace) WorktreesEnabled() bool {
 	if !at.IsZero() && time.Since(at) < worktreeCacheTTL {
 		return enabled
 	}
-	enabled, err := w.client.WorktreesEnabled(context.Background(), w.workspaceID())
+	enabled, err := w.c().WorktreesEnabled(context.Background(), w.workspaceID())
 	if err != nil {
 		return false
 	}
@@ -1049,15 +1067,15 @@ func (w *ClientWorkspace) WorktreesEnabled() bool {
 }
 
 func (w *ClientWorkspace) ListWorktrees(ctx context.Context, sessionID string) ([]*worktree.Worktree, error) {
-	return w.client.ListWorktrees(ctx, w.workspaceID(), sessionID)
+	return w.c().ListWorktrees(ctx, w.workspaceID(), sessionID)
 }
 
 func (w *ClientWorkspace) ListAllWorktrees(ctx context.Context) ([]*worktree.Worktree, error) {
-	return w.client.ListAllWorktrees(ctx, w.workspaceID())
+	return w.c().ListAllWorktrees(ctx, w.workspaceID())
 }
 
 func (w *ClientWorkspace) GetWorktree(ctx context.Context, worktreeID string) (*worktree.Worktree, error) {
-	return w.client.GetWorktree(ctx, w.workspaceID(), worktreeID)
+	return w.c().GetWorktree(ctx, w.workspaceID(), worktreeID)
 }
 
 // GetActiveWorktree returns sessionID's active worktree, or nil when it has
@@ -1072,7 +1090,7 @@ func (w *ClientWorkspace) GetActiveWorktree(ctx context.Context, sessionID strin
 		return entry.worktree, nil
 	}
 
-	wt, err := w.client.GetActiveWorktree(ctx, w.workspaceID(), sessionID)
+	wt, err := w.c().GetActiveWorktree(ctx, w.workspaceID(), sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1087,7 +1105,7 @@ func (w *ClientWorkspace) GetActiveWorktree(ctx context.Context, sessionID strin
 }
 
 func (w *ClientWorkspace) CreateWorktree(ctx context.Context, sessionID, name, fromSnapshotID string) (*worktree.Worktree, error) {
-	wt, err := w.client.CreateWorktree(ctx, w.workspaceID(), sessionID, name, fromSnapshotID)
+	wt, err := w.c().CreateWorktree(ctx, w.workspaceID(), sessionID, name, fromSnapshotID)
 	if err == nil {
 		w.invalidateWorktreeCache()
 	}
@@ -1095,7 +1113,7 @@ func (w *ClientWorkspace) CreateWorktree(ctx context.Context, sessionID, name, f
 }
 
 func (w *ClientWorkspace) SwitchWorktree(ctx context.Context, sessionID, worktreeID string) error {
-	err := w.client.SwitchWorktree(ctx, w.workspaceID(), sessionID, worktreeID)
+	err := w.c().SwitchWorktree(ctx, w.workspaceID(), sessionID, worktreeID)
 	if err == nil {
 		w.invalidateWorktreeCache()
 	}
@@ -1103,7 +1121,7 @@ func (w *ClientWorkspace) SwitchWorktree(ctx context.Context, sessionID, worktre
 }
 
 func (w *ClientWorkspace) DeleteWorktree(ctx context.Context, worktreeID string) error {
-	err := w.client.DeleteWorktree(ctx, w.workspaceID(), worktreeID)
+	err := w.c().DeleteWorktree(ctx, w.workspaceID(), worktreeID)
 	if err == nil {
 		w.invalidateWorktreeCache()
 	}
@@ -1111,27 +1129,27 @@ func (w *ClientWorkspace) DeleteWorktree(ctx context.Context, worktreeID string)
 }
 
 func (w *ClientWorkspace) MergeWorktree(ctx context.Context, worktreeID, targetBranch string, rebase bool) error {
-	return w.client.MergeWorktree(ctx, w.workspaceID(), worktreeID, targetBranch, rebase)
+	return w.c().MergeWorktree(ctx, w.workspaceID(), worktreeID, targetBranch, rebase)
 }
 
 func (w *ClientWorkspace) ListGitBranches(ctx context.Context) ([]string, error) {
-	return w.client.ListGitBranches(ctx, w.workspaceID())
+	return w.c().ListGitBranches(ctx, w.workspaceID())
 }
 
 // -- Forks --
 
 func (w *ClientWorkspace) ForkConversation(ctx context.Context, params fork.ForkParams) (*fork.ForkResult, error) {
-	return w.client.ForkConversation(ctx, w.workspaceID(), params)
+	return w.c().ForkConversation(ctx, w.workspaceID(), params)
 }
 
 // -- Garbage Collection --
 
 func (w *ClientWorkspace) SnapshotGC(ctx context.Context) (int64, error) {
-	return w.client.SnapshotGC(ctx, w.workspaceID())
+	return w.c().SnapshotGC(ctx, w.workspaceID())
 }
 
 func (w *ClientWorkspace) SnapshotStats(ctx context.Context) (*checkpoint.Stats, error) {
-	return w.client.SnapshotStats(ctx, w.workspaceID())
+	return w.c().SnapshotStats(ctx, w.workspaceID())
 }
 
 // -- Lifecycle --
@@ -1488,7 +1506,12 @@ func (w *ClientWorkspace) waitBackoff(d time.Duration) backoffResult {
 // The previously attached workspace is left running on the server (its
 // runs continue); only this client's view moves.
 func (w *ClientWorkspace) SwitchWorkspace(ctx context.Context, path string) error {
-	created, err := w.client.CreateWorkspace(ctx, proto.Workspace{Path: path})
+	nodeID, _, plain := w.resolveRoot(path)
+	if nodeID != w.NodeID() {
+		return w.switchNode(ctx, nodeID, plain)
+	}
+	path = plain
+	created, err := w.c().CreateWorkspace(ctx, proto.Workspace{Path: path})
 	if err != nil {
 		return fmt.Errorf("failed to attach workspace %q: %w", path, err)
 	}
@@ -1538,7 +1561,11 @@ func (w *ClientWorkspace) requestSwitch() {
 // ListWorkspaceOverviews returns all known workspaces (attached and
 // registry-known) with their sessions for the cross-workspace picker.
 func (w *ClientWorkspace) ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error) {
-	return w.client.ListWorkspaceOverviews(ctx)
+	ovs, err := w.home.ListWorkspaceOverviews(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return w.qualifyOverviews(ovs), nil
 }
 
 // consumeEvents drives the workspace event loop. It is split out from
@@ -1560,7 +1587,7 @@ func (w *ClientWorkspace) consumeEvents(evc <-chan any, send func(tea.Msg)) {
 
 func (w *ClientWorkspace) Shutdown() {
 	w.stopSubscribeLoop()
-	_ = w.client.DeleteWorkspace(context.Background(), w.workspaceID())
+	_ = w.c().DeleteWorkspace(context.Background(), w.workspaceID())
 }
 
 // stopSubscribeLoop signals the reconnect loop to stop: it closes the
@@ -1893,7 +1920,7 @@ func protoToSkillEvent(e proto.SkillEvent) skills.Event {
 }
 
 func (w *ClientWorkspace) ListSkills(ctx context.Context) ([]skills.CatalogEntry, error) {
-	entries, err := w.client.ListSkills(ctx, w.workspaceID())
+	entries, err := w.c().ListSkills(ctx, w.workspaceID())
 	if err != nil {
 		return nil, err
 	}
@@ -1911,7 +1938,7 @@ func (w *ClientWorkspace) ListSkills(ctx context.Context) ([]skills.CatalogEntry
 }
 
 func (w *ClientWorkspace) ReadSkill(ctx context.Context, skillID string) ([]byte, skills.SkillReadResult, error) {
-	resp, err := w.client.ReadSkill(ctx, w.workspaceID(), skillID)
+	resp, err := w.c().ReadSkill(ctx, w.workspaceID(), skillID)
 	if err != nil {
 		return nil, skills.SkillReadResult{}, err
 	}
@@ -1924,7 +1951,7 @@ func (w *ClientWorkspace) ReadSkill(ctx context.Context, skillID string) ([]byte
 }
 
 func (w *ClientWorkspace) ListMilestones(ctx context.Context, sessionID string) ([]Milestone, error) {
-	milestones, err := w.client.ListMilestones(ctx, w.workspaceID(), sessionID)
+	milestones, err := w.c().ListMilestones(ctx, w.workspaceID(), sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1940,4 +1967,22 @@ func (w *ClientWorkspace) ListMilestones(ctx context.Context, sessionID string) 
 		}
 	}
 	return result, nil
+}
+
+// ClusterApprove admits a pending cluster join request recorded on
+// nodeID ("" = home).
+func (w *ClientWorkspace) ClusterApprove(ctx context.Context, nodeID, ref string) error {
+	_, err := w.clientForNode(nodeID).ClusterApprove(ctx, ref)
+	return err
+}
+
+// ClusterDeny rejects a pending cluster join request recorded on nodeID.
+func (w *ClientWorkspace) ClusterDeny(ctx context.Context, nodeID, ref string) error {
+	_, err := w.clientForNode(nodeID).ClusterDeny(ctx, ref)
+	return err
+}
+
+// c returns the client for the node this workspace currently targets.
+func (w *ClientWorkspace) c() *client.Client {
+	return w.target.Load()
 }

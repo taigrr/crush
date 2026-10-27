@@ -11,6 +11,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/ui/dialog"
 	"github.com/taigrr/crush/internal/ui/util"
 )
 
@@ -140,6 +141,15 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		// where possible, so re-run the preview scheduler for the (possibly
 		// unchanged) selection after reprojection.
 		m.leftSidebar.ToggleInbox()
+		return m.scheduleSidebarPreview(), true
+	case key.Matches(msg, m.keyMap.SessionSidebar.Move):
+		ws, sess, ok := m.leftSidebar.SelectedSessionOverview()
+		if !ok {
+			return nil, true
+		}
+		return m.openMoveSessionDialog(dialog.MoveTarget{Root: ws.Root, SessionID: sess.ID, Title: sess.Title, OwnerNode: ws.NodeID}), true
+	case key.Matches(msg, m.keyMap.SessionSidebar.NodeFilter):
+		m.leftSidebar.CycleNodeFilter()
 		return m.scheduleSidebarPreview(), true
 	case key.Matches(msg, m.keyMap.SessionSidebar.Search):
 		// Enter the text filter. Only reachable while the sidebar is

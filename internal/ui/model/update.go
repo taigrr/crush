@@ -74,6 +74,30 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case serverVersionMsg:
 		m.versionMismatch = msg.mismatch
 		m.serverVersionStr = msg.version
+	case clusterDashboardMsg:
+		if cmd := m.handleClusterDashboard(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case moveDialogMsg:
+		if cmd := m.handleMoveDialogData(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case migratePlanMsg:
+		if cmd := m.handleMigratePlan(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case migrateResultMsg:
+		if cmd := m.handleMigrateResult(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case moveResultMsg:
+		if cmd := m.handleMoveResult(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case clusterDashboardTickMsg:
+		if cmd := m.refreshClusterDashboard(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case versionCheckTickMsg:
 		cmds = append(cmds, m.checkServerVersion(), m.scheduleVersionCheck())
 	case assistantInfoTickMsg:

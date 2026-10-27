@@ -88,6 +88,8 @@ type Session struct {
 	Animal               sql.NullString `json:"animal"`
 	Favorite             int64          `json:"favorite"`
 	ModelRef             sql.NullString `json:"model_ref"`
+	MovedToNode          sql.NullString `json:"moved_to_node"`
+	OwnerNode            sql.NullString `json:"owner_node"`
 }
 
 type Snapshot struct {

@@ -88,6 +88,8 @@ type Querier interface {
 	RecordFileRead(ctx context.Context, arg RecordFileReadParams) error
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
 	SetSessionFavorite(ctx context.Context, arg SetSessionFavoriteParams) error
+	SetSessionMovedTo(ctx context.Context, arg SetSessionMovedToParams) error
+	SetSessionOwner(ctx context.Context, arg SetSessionOwnerParams) error
 	// Only assign the identity if the row does not already have BOTH
 	// fields set, so concurrent writers (startup backfill + Created-event
 	// subscriber) can't clobber a persisted identity with a

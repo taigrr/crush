@@ -29,6 +29,7 @@ import (
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 	"github.com/taigrr/crush/internal/client"
+	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/headless"
 	"github.com/taigrr/crush/internal/lock"
@@ -336,6 +337,9 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 		switch {
 		case statErr == nil:
 			restarted, err := restartIfStale(cmd, hostURL)
+			if dv := (*errDaemonVersion)(nil); errors.As(err, &dv) {
+				return dv
+			}
 			if err != nil {
 				slog.Warn("Failed to check server version", "error", err)
 			}
@@ -587,6 +591,9 @@ func restartIfStale(cmd *cobra.Command, hostURL *url.URL) (restarted bool, err e
 	if vi.Version == version.Version && vi.BuildID == version.BuildID {
 		return false, nil
 	}
+	if vi.Persistent && cluster.ServiceInstalled() {
+		return false, restartPersistentDaemon(cmd, c, vi)
+	}
 	slog.Info(
 		"Server version mismatch, restarting",
 		"server_version", vi.Version,
@@ -609,6 +616,46 @@ func restartIfStale(cmd *cobra.Command, hostURL *url.URL) (restarted bool, err e
 	// Force-remove if the socket is still lingering.
 	_ = os.Remove(hostURL.Host)
 	return true, nil
+}
+
+// errDaemonVersion is returned when a persistent daemon managed by
+// launchd/systemd keeps running a different build than this client.
+type errDaemonVersion struct{ server string }
+
+func (e *errDaemonVersion) Error() string {
+	return fmt.Sprintf("the crush daemon runs version %s but this client is %s; run `crush upgrade` (or `crush cluster uninstall-service`)", e.server, version.Version)
+}
+
+// restartPersistentDaemon restarts a daemon that is supervised by a
+// service manager. Spawning our own server would fight the supervisor
+// for the socket, so instead we stop it and wait for the supervisor to
+// bring it back on the (now upgraded) binary.
+func restartPersistentDaemon(cmd *cobra.Command, c *client.Client, vi *proto.VersionInfo) error {
+	slog.Info("Daemon version mismatch, restarting via service manager",
+		"server_version", vi.Version, "client_version", version.Version)
+	if _, err := cluster.RestartService(cmd.Context()); err != nil {
+		_ = c.ShutdownServer(cmd.Context())
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-cmd.Context().Done():
+			return cmd.Context().Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+		nvi, err := c.VersionInfo(cmd.Context())
+		if err != nil {
+			continue
+		}
+		if nvi.Version == version.Version && nvi.BuildID == version.BuildID {
+			return nil
+		}
+		if nvi.BuildID != vi.BuildID {
+			// The supervisor restarted it, but on a different build.
+			return &errDaemonVersion{server: nvi.Version}
+		}
+	}
+	return &errDaemonVersion{server: vi.Version}
 }
 
 var safeNameRegexp = regexp.MustCompile(`[^a-zA-Z0-9._-]`)

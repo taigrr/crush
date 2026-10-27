@@ -139,3 +139,13 @@ WHERE color IS NULL OR animal IS NULL OR color = '' OR animal = '';
 SELECT *
 FROM sessions
 WHERE color = ? AND animal = ? AND archived_at IS NULL;
+
+-- name: SetSessionMovedTo :exec
+UPDATE sessions
+SET moved_to_node = sqlc.narg('moved_to_node')
+WHERE id = sqlc.arg('id');
+
+-- name: SetSessionOwner :exec
+UPDATE sessions
+SET owner_node = sqlc.narg('owner_node')
+WHERE id = sqlc.arg('id') OR parent_session_id = sqlc.arg('id');

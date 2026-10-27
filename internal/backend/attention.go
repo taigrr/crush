@@ -27,13 +27,15 @@ func (b *Backend) publishAttention(ws *Workspace, sessionID, toolCallID string, 
 	if b == nil || b.attention == nil || ws == nil {
 		return
 	}
-	b.attention.Publish(pubsub.CreatedEvent, proto.AttentionEvent{
+	ev := proto.AttentionEvent{
 		WorkspaceID:   ws.ID,
 		WorkspaceRoot: ws.Path,
 		SessionID:     sessionID,
 		ToolCallID:    toolCallID,
 		Kind:          kind,
-	})
+	}
+	b.attention.Publish(pubsub.CreatedEvent, ev)
+	b.forwardAttention(ev)
 }
 
 // startAttentionForwarder subscribes to the workspace's permission and
@@ -109,4 +111,21 @@ func (b *Backend) startAttentionForwarder(ws *Workspace) {
 			}
 		}
 	})
+}
+
+// PublishClusterJoin announces a pending cluster join request on the
+// global attention channel so any attached TUI can prompt for approval.
+func (b *Backend) PublishClusterJoin(requestID, nodeName string) {
+	if b == nil {
+		return
+	}
+	ev := proto.AttentionEvent{
+		ToolCallID: requestID,
+		Kind:       proto.AttentionClusterJoin,
+		Detail:     nodeName,
+	}
+	if b.attention != nil {
+		b.attention.Publish(pubsub.CreatedEvent, ev)
+	}
+	b.forwardAttention(ev)
 }

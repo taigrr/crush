@@ -772,3 +772,8 @@ func (app *App) checkForUpdates(ctx context.Context) {
 		IsDevelopment:  info.IsDevelopment(),
 	})
 }
+
+// DB returns the workspace database connection.
+func (app *App) DB() *sql.DB {
+	return app.dbConn
+}

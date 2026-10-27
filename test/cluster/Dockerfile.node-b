@@ -1,0 +1,23 @@
+# Node B plays the "mac mini": an empty, always-on daemon that receives
+# jobs.
+FROM golang:1.27 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOEXPERIMENT=greenteagc go build -o /out/crush .
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq procps \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/crush /usr/local/bin/crush
+RUN git config --global user.email harness@crush.test && git config --global user.name harness \
+    && mkdir -p /work
+
+# A placeholder provider so commands that need one get far enough to
+# exercise cluster rules; it is never actually reached.
+COPY test/cluster/seed/crush.json /root/.config/crush/crush.json
+ENV CRUSH_CLUSTER_ALLOW_DEV=1
+EXPOSE 7731 7732
+ENTRYPOINT ["crush", "server", "--persistent"]

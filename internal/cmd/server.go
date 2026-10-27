@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,20 +10,31 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
+	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/config"
 	crushlog "github.com/taigrr/crush/internal/log"
 	"github.com/taigrr/crush/internal/server"
+	"github.com/taigrr/crush/internal/update"
 	"github.com/taigrr/crush/internal/version"
 )
 
-var serverHost string
+var (
+	serverHost        string
+	serverPersistent  bool
+	serverClusterAddr string
+	serverMeshAddr    string
+)
 
 func init() {
 	serverCmd.Flags().StringVarP(&serverHost, "host", "H", server.DefaultHost(), "Server host (TCP or Unix socket)")
+	serverCmd.Flags().BoolVar(&serverPersistent, "persistent", false, "Keep running after the last workspace closes (daemon mode)")
+	serverCmd.Flags().StringVar(&serverClusterAddr, "cluster-addr", fmt.Sprintf(":%d", cluster.DefaultPort), "Address for the cluster listener (used once this node joins a cluster)")
+	serverCmd.Flags().StringVar(&serverMeshAddr, "mesh-addr", fmt.Sprintf(":%d", cluster.DefaultRoutePort), "Address for the cluster NATS mesh routes")
 	rootCmd.AddCommand(serverCmd)
 }
 
@@ -83,6 +95,10 @@ var serverCmd = &cobra.Command{
 
 		srv := server.NewServer(cfg, hostURL.Scheme, hostURL.Host)
 		srv.SetLogger(slog.Default())
+		srv.Backend().SetPersistent(serverPersistent)
+		if err := enableCluster(srv); err != nil {
+			slog.Error("Failed to enable clustering", "error", err)
+		}
 		slog.Info("Starting Crush server...", "addr", serverHost)
 
 		errch := make(chan error, 1)
@@ -119,4 +135,40 @@ var serverCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+// clusterDir is where this machine's node identity and cluster
+// membership live.
+func clusterDir() string {
+	return filepath.Join(filepath.Dir(config.GlobalConfigData()), "cluster")
+}
+
+// enableCluster loads the node identity and starts the cluster listener
+// when this node already belongs to a cluster. Upgrade requests from
+// peers install the requested release and stop the server so the
+// service manager restarts it on the new binary.
+func enableCluster(srv *server.Server) error {
+	node, err := cluster.NewNode(clusterDir(), version.Version)
+	if err != nil {
+		return err
+	}
+	node.OnUpgrade = func(target string) error {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		tag, err := update.ResolveVersion(ctx, target, update.Default)
+		if err != nil {
+			return err
+		}
+		if tag == "v"+strings.TrimPrefix(version.Version, "v") {
+			slog.Info("Cluster upgrade skipped; already on target", "version", tag)
+			return nil
+		}
+		if err := update.Install(ctx, tag, nil, nil); err != nil {
+			return err
+		}
+		slog.Info("Upgrade installed; restarting server", "version", tag)
+		srv.Backend().Shutdown()
+		return nil
+	}
+	return srv.EnableCluster(node, serverClusterAddr, serverMeshAddr)
 }

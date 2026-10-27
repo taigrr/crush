@@ -101,7 +101,11 @@ func (c *controllerV1) handleGetWorkspaces(w http.ResponseWriter, _ *http.Reques
 //	@Failure		500	{object}	proto.Error
 //	@Router			/workspace-overviews [get]
 func (c *controllerV1) handleGetWorkspaceOverviews(w http.ResponseWriter, r *http.Request) {
-	overviews, err := c.backend.ListWorkspaceOverviews(r.Context())
+	list := c.backend.ListClusterOverviews
+	if r.URL.Query().Get("local") != "" {
+		list = c.backend.ListWorkspaceOverviews
+	}
+	overviews, err := list(r.Context())
 	c.respond(w, r, overviews, err)
 }
 
