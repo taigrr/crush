@@ -167,6 +167,7 @@ func (b *Backend) MoveSession(ctx context.Context, req proto.MoveSessionRequest)
 	res, err := tb.TransferSend(ctx, req.TargetNode, pre.Plan, req.Resume, pr)
 	_ = pr.Close()
 	if err != nil {
+		slog.Error("Move failed", "session", sess.ID, "to", pre.NodeName, "error", err)
 		return proto.MoveSessionResponse{}, fmt.Errorf("move to %s: %w", pre.NodeName, err)
 	}
 
@@ -311,6 +312,7 @@ func (b *Backend) ImportTransfer(ctx context.Context, r io.Reader, plan transfer
 		},
 	})
 	if err != nil {
+		slog.Error("Incoming transfer failed", "step", steps.step, "error", err)
 		return proto.TransferImportResponse{}, err
 	}
 	m := res.Manifest

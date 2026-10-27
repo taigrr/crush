@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 )
@@ -250,6 +251,7 @@ func ImportRows(ctx context.Context, db *sql.DB, ids []string, rows []Row) error
 	}
 
 	colsByTable := map[string]map[string]bool{}
+	dropped := map[string]bool{}
 	var sessions []Row
 	for _, r := range rows {
 		if !slices.Contains(tableOrder, r.Table) {
@@ -271,7 +273,14 @@ func ImportRows(ctx context.Context, db *sql.DB, ids []string, rows []Row) error
 		names := make([]string, 0, len(r.Cols))
 		for c := range r.Cols {
 			if !cols[c] {
-				return fmt.Errorf("%w: destination %s lacks column %q", ErrSchemaMismatch, r.Table, c)
+				// Both sides passed the schema version check, so a column only
+				// the source has was added outside the migrations (for example
+				// by another build that opened its database). Drop it.
+				if key := r.Table + "." + c; !dropped[key] {
+					dropped[key] = true
+					slog.Warn("Dropping column the destination schema does not have", "table", r.Table, "column", c)
+				}
+				continue
 			}
 			names = append(names, c)
 		}

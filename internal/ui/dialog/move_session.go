@@ -228,7 +228,7 @@ func (d *MoveSession) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		lines = append(lines, "", t.Resource.AdditionalText.Render("History and project files (uncommitted too) travel together."))
 	}
 	if d.err != "" {
-		lines = append(lines, "", t.Resource.ErrorIcon.Render(ansi.Truncate(d.err, inner, "…")))
+		lines = append(lines, "", t.Resource.ErrorIcon.Render(ansi.Wordwrap(d.err, inner, " /:")))
 	}
 	help := "↑/↓ choose · enter move · esc cancel"
 	if d.moving {

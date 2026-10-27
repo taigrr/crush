@@ -117,3 +117,20 @@ func TestReuseFailsWhenDestinationChanged(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, strings.Repeat("z", 64<<10), string(got), "a failed import leaves the destination alone")
 }
+
+func TestImportDropsColumnsOutsideTheSchema(t *testing.T) {
+	t.Cleanup(db.ResetPool)
+	ctx := context.Background()
+	src := t.TempDir()
+	conn := openDB(t, filepath.Join(src, ".crush"))
+	seed(t, conn)
+	// Another build added a column this schema does not know about.
+	_, err := conn.Exec(`ALTER TABLE sessions ADD COLUMN model_reasoning_effort TEXT DEFAULT 'high'`)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, Export(ctx, &buf, ExportParams{DB: conn, Plan: PlanDBOnly, Manifest: Manifest{SessionID: "s1", Root: src, DataDirRel: ".crush"}}))
+	dst := filepath.Join(t.TempDir(), "proj")
+	_, err = importTo(t, &buf, PlanDBOnly, dst)
+	require.NoError(t, err)
+}
