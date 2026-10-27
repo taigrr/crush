@@ -460,6 +460,15 @@ var clusterInstallServiceCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("install service (%s): %w", path, err)
 		}
+		hostURL, err := server.ParseHostURL(clientHost)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
+		defer cancel()
+		if err := waitForServerReady(ctx, hostURL); err != nil {
+			return fmt.Errorf("service installed but not answering yet (see %s): %w", filepath.Join(config.GlobalCacheDir(), "daemon"), err)
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Installed and started %s.\n", path)
 		return nil
 	},

@@ -356,6 +356,11 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 		}
 
 		if needsStart {
+			if clientHost == server.DefaultHost() && cluster.ServiceInstalled() {
+				// The service manager owns the server; spawning our own would
+				// race it for the socket. Nudge it and wait instead.
+				return waitForService(cmd, hostURL)
+			}
 			// Serialize spawn across concurrent clients: spawnAndWaitReady
 			// holds an exclusive lock for the spawn+readiness window and
 			// re-probes inside it, so a client that lost the race skips
@@ -782,4 +787,21 @@ func ResolveCwd(cmd *cobra.Command) (string, error) {
 // pipe rather than a TCP host.
 func isLocalSocket(u *url.URL) bool {
 	return u.Scheme == "unix" || u.Scheme == "npipe"
+}
+
+// waitForService (re)starts the installed background service and waits
+// for it to answer on hostURL.
+func waitForService(cmd *cobra.Command, hostURL *url.URL) error {
+	if quickHealthProbe(cmd.Context(), hostURL) == nil {
+		return nil
+	}
+	if _, err := cluster.RestartService(cmd.Context()); err != nil {
+		slog.Warn("Failed to start background service", "error", err)
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
+	defer cancel()
+	if err := waitForServerReady(ctx, hostURL); err != nil {
+		return fmt.Errorf("the background service did not come up (see %s): %w", filepath.Join(config.GlobalCacheDir(), "daemon"), err)
+	}
+	return nil
 }
