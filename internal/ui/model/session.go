@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -346,11 +347,21 @@ func (m *UI) startLSPs(paths []string) tea.Cmd {
 		return nil
 	}
 
+	ws := m.com.Workspace
 	return func() tea.Msg {
+		// Each start is a server round trip; issue them concurrently
+		// (bounded) rather than one after another.
 		ctx := context.Background()
+		sem := make(chan struct{}, 8)
+		var wg sync.WaitGroup
 		for _, path := range paths {
-			m.com.Workspace.LSPStart(ctx, path)
+			sem <- struct{}{}
+			wg.Go(func() {
+				defer func() { <-sem }()
+				ws.LSPStart(ctx, path)
+			})
 		}
+		wg.Wait()
 		return nil
 	}
 }
