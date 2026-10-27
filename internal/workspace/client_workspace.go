@@ -51,6 +51,9 @@ type ClientWorkspace struct {
 	// from overviews.
 	nodeNames sync.Map
 
+	// state caches hot, render-path state (see state_cache.go).
+	state workspaceState
+
 	mu              sync.RWMutex
 	ws              proto.Workspace
 	activeSessionID string
@@ -371,6 +374,7 @@ func (w *ClientWorkspace) SearchHistory(ctx context.Context, params proto.Search
 // -- Agent --
 
 func (w *ClientWorkspace) AgentRun(ctx context.Context, sessionID, prompt string, attachments ...message.Attachment) error {
+	defer w.state.cache.invalidate()
 	// A non-empty RunID ensures the queued message is kept for its
 	// own dedicated turn by drainQueueForStep rather than being
 	// folded silently into the current streaming step. The TUI
@@ -395,6 +399,7 @@ func (w *ClientWorkspace) AgentRunShellCommand(ctx context.Context, sessionID, c
 }
 
 func (w *ClientWorkspace) AgentCancel(sessionID string) {
+	defer w.state.cache.invalidate()
 	_ = w.c().CancelAgentSession(context.Background(), w.workspaceID(), sessionID)
 }
 
@@ -403,24 +408,39 @@ func (w *ClientWorkspace) AgentCancelAll() {
 }
 
 func (w *ClientWorkspace) AgentIsBusy() bool {
-	info, err := w.c().GetAgentInfo(context.Background(), w.workspaceID())
-	if err != nil {
-		return false
+	info, ok := w.agentInfo()
+	return ok && info.IsBusy
+}
+
+// agentInfo returns the cached agent info (see stateCache).
+func (w *ClientWorkspace) agentInfo() (proto.AgentInfo, bool) {
+	v, ok := w.cachedState("agent", func() (any, error) {
+		info, err := w.c().GetAgentInfo(context.Background(), w.workspaceID())
+		if err != nil {
+			return nil, err
+		}
+		return *info, nil
+	})
+	if !ok {
+		return proto.AgentInfo{}, false
 	}
-	return info.IsBusy
+	return v.(proto.AgentInfo), true
 }
 
 func (w *ClientWorkspace) AgentIsSessionBusy(sessionID string) bool {
-	info, err := w.c().GetAgentSessionInfo(context.Background(), w.workspaceID(), sessionID)
-	if err != nil {
-		return false
-	}
-	return info.IsBusy
+	v, ok := w.cachedState("busy:"+sessionID, func() (any, error) {
+		info, err := w.c().GetAgentSessionInfo(context.Background(), w.workspaceID(), sessionID)
+		if err != nil {
+			return nil, err
+		}
+		return info.IsBusy, nil
+	})
+	return ok && v.(bool)
 }
 
 func (w *ClientWorkspace) AgentModel() AgentModel {
-	info, err := w.c().GetAgentInfo(context.Background(), w.workspaceID())
-	if err != nil {
+	info, ok := w.agentInfo()
+	if !ok {
 		return AgentModel{}
 	}
 	return AgentModel{
@@ -430,11 +450,8 @@ func (w *ClientWorkspace) AgentModel() AgentModel {
 }
 
 func (w *ClientWorkspace) AgentIsReady() bool {
-	info, err := w.c().GetAgentInfo(context.Background(), w.workspaceID())
-	if err != nil {
-		return false
-	}
-	return info.IsReady
+	info, ok := w.agentInfo()
+	return ok && info.IsReady
 }
 
 func (w *ClientWorkspace) AgentReadiness(ctx context.Context) (bool, error) {
@@ -446,11 +463,13 @@ func (w *ClientWorkspace) AgentReadiness(ctx context.Context) (bool, error) {
 }
 
 func (w *ClientWorkspace) AgentQueuedPrompts(sessionID string) int {
-	count, err := w.c().GetAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
-	if err != nil {
+	v, ok := w.cachedState("queued:"+sessionID, func() (any, error) {
+		return w.c().GetAgentSessionQueuedPrompts(context.Background(), w.workspaceID(), sessionID)
+	})
+	if !ok {
 		return 0
 	}
-	return count
+	return v.(int)
 }
 
 func (w *ClientWorkspace) AgentQueuedPromptsList(sessionID string) []string {
@@ -498,10 +517,12 @@ func (w *ClientWorkspace) AgentGenerateTitle(ctx context.Context, sessionID stri
 }
 
 func (w *ClientWorkspace) UpdateAgentModel(ctx context.Context) error {
+	defer w.state.cache.invalidate()
 	return w.c().UpdateAgent(ctx, w.workspaceID())
 }
 
 func (w *ClientWorkspace) InitCoderAgent(ctx context.Context) error {
+	defer w.state.cache.invalidate()
 	return w.c().InitiateAgentProcessing(ctx, w.workspaceID())
 }
 
@@ -588,27 +609,29 @@ func (w *ClientWorkspace) QuestionAnswer(ans question.Answer) bool {
 }
 
 func (w *ClientWorkspace) PermissionSkipRequests() bool {
-	skip, err := w.c().GetPermissionsSkipRequests(context.Background(), w.workspaceID())
-	if err != nil {
-		return false
-	}
-	return skip
+	v, ok := w.cachedState("skip", func() (any, error) {
+		return w.c().GetPermissionsSkipRequests(context.Background(), w.workspaceID())
+	})
+	return ok && v.(bool)
 }
 
 func (w *ClientWorkspace) PermissionSetSkipRequests(skip bool) {
-	_ = w.c().SetPermissionsSkipRequests(context.Background(), w.workspaceID(), skip)
+	if err := w.c().SetPermissionsSkipRequests(context.Background(), w.workspaceID(), skip); err == nil {
+		w.setCachedState("skip", skip)
+	}
 }
 
 func (w *ClientWorkspace) PermissionSysadminMode() bool {
-	enabled, err := w.c().GetPermissionsSysadminMode(context.Background(), w.workspaceID())
-	if err != nil {
-		return false
-	}
-	return enabled
+	v, ok := w.cachedState("sysadmin", func() (any, error) {
+		return w.c().GetPermissionsSysadminMode(context.Background(), w.workspaceID())
+	})
+	return ok && v.(bool)
 }
 
 func (w *ClientWorkspace) PermissionSetSysadminMode(enabled bool) {
-	_ = w.c().SetPermissionsSysadminMode(context.Background(), w.workspaceID(), enabled)
+	if err := w.c().SetPermissionsSysadminMode(context.Background(), w.workspaceID(), enabled); err == nil {
+		w.setCachedState("sysadmin", enabled)
+	}
 }
 
 // -- FileTracker --
@@ -1574,6 +1597,9 @@ func (w *ClientWorkspace) ListWorkspaceOverviews(ctx context.Context) ([]proto.W
 // are translated into domain types and forwarded to send.
 func (w *ClientWorkspace) consumeEvents(evc <-chan any, send func(tea.Msg)) {
 	for ev := range evc {
+		// Anything that happened may change agent/session state; serve
+		// the cached values until a background refresh lands.
+		w.state.cache.invalidate()
 		if _, ok := ev.(pubsub.Event[proto.ConfigChanged]); ok {
 			w.refreshWorkspace()
 			continue
