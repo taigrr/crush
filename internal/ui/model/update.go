@@ -82,6 +82,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.handleMoveDialogData(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case builtDialogMsg:
+		m.handleBuiltDialog(msg)
 	case bundleLoadedMsg:
 		m.bundles.put(msg.id, msg.bundle)
 	case transfersMsg:
