@@ -89,6 +89,7 @@ type Backend struct {
 
 	clusterMu      sync.RWMutex
 	cluster        ClusterBridge
+	peekCache      peekCache
 	createGrace    time.Duration
 	reconnectGrace time.Duration
 

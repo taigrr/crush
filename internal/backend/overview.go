@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
 )
@@ -80,7 +79,7 @@ func (b *Backend) listAllOverviews(ctx context.Context) ([]proto.WorkspaceOvervi
 				continue
 			}
 			seen[e.Root] = struct{}{}
-			peeked, err := db.PeekSessions(ctx, e.DataDir)
+			peeked, err := b.peekCache.get(ctx, e.DataDir)
 			if err != nil {
 				slog.Debug("Failed to peek workspace sessions", "root", e.Root, "error", err)
 				continue
