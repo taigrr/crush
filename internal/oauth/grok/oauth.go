@@ -34,7 +34,7 @@ const (
 
 	// clientVersion is reported to the chat proxy via x-grok-client-version.
 	// The proxy rejects requests without a sufficiently recent version.
-	clientVersion    = "1.0.3"
+	clientVersion    = "1.0.70"
 	clientIdentifier = "grok-shell"
 	clientMode       = "cli"
 	userAgent        = "xai-grok-cli/" + clientVersion
