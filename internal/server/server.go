@@ -244,6 +244,7 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("POST /v1/workspaces/{id}/fork", c.handlePostWorkspaceFork)
 	s.installClusterRoutes(mux)
 	s.installTransferRoutes(mux)
+	s.installDebugRoutes(mux)
 	s.installReplicationRoutes(mux)
 	mux.Handle("/v1/docs/", swaggerui.Handler("/v1/docs/"))
 	s.h = &http.Server{

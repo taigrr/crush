@@ -27,6 +27,10 @@ import (
 // mid-turn to move it.
 const resumePrompt = "You were paused mid-task and moved to another machine in the Crush cluster (from %s to %s). The project files were carried over as they were. Continue where you left off."
 
+// preflightTimeout bounds one preflight attempt. The destination hashes for
+// at most ~20s, so anything far beyond that means it is stuck.
+const preflightTimeout = 90 * time.Second
+
 // TransferBridge is the part of [ClusterBridge] that moves sessions. It
 // is a separate interface so single-node servers need not implement it.
 type TransferBridge interface {
@@ -112,7 +116,13 @@ func (b *Backend) MoveSession(ctx context.Context, req proto.MoveSessionRequest)
 	stage("checking the destination")
 	var pre proto.TransferPreflightResponse
 	for attempt := range 3 {
-		pre, err = tb.TransferPreflight(ctx, req.TargetNode, preReq)
+		pctx, cancel := context.WithTimeout(ctx, preflightTimeout)
+		pre, err = tb.TransferPreflight(pctx, req.TargetNode, preReq)
+		cancel()
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			err = fmt.Errorf("the destination did not answer the preflight within %s; see what it is doing with `crush debug transfers --node %s` or `crush debug goroutines --node %s`", preflightTimeout, req.TargetNode[:min(8, len(req.TargetNode))], req.TargetNode[:min(8, len(req.TargetNode))])
+			break
+		}
 		if err == nil || !isTransient(err) || attempt == 2 {
 			break
 		}
@@ -221,9 +231,13 @@ func (b *Backend) TransferPreflight(ctx context.Context, req proto.TransferPrefl
 		return proto.TransferPreflightResponse{}, errors.New("root must be absolute")
 	}
 	root := filepath.Clean(req.Root)
+	steps := b.beginIncoming("preflight", req.SessionID, root)
+	defer steps.end()
+	steps.to("checking session ownership")
 	if err := b.checkNotOwnedHere(ctx, root, req.SessionID); err != nil {
 		return proto.TransferPreflightResponse{}, err
 	}
+	steps.to("inspecting destination")
 	dest, err := transfer.InspectDest(ctx, root, ".crush")
 	if err != nil {
 		return proto.TransferPreflightResponse{}, err
@@ -233,12 +247,14 @@ func (b *Backend) TransferPreflight(ctx context.Context, req proto.TransferPrefl
 		return proto.TransferPreflightResponse{}, err
 	}
 	if plan == transfer.PlanBackup {
+		steps.to("closing the destination workspace")
 		if ws, attached := b.attachedAt(root); attached && !b.closeIfUnused(ws) {
 			return proto.TransferPreflightResponse{}, transfer.ErrDestinationBusy
 		}
 	}
 	resp := proto.TransferPreflightResponse{Plan: plan}
 	if plan == transfer.PlanOverlay || plan == transfer.PlanBackup {
+		steps.to("indexing existing files")
 		opts := transfer.TreeOptions{DataDirRel: ".crush", Excludes: transfer.DefaultExcludes, Overlay: plan == transfer.PlanOverlay}
 		opts.Ignored = transfer.GitIgnored(ctx, root)
 		resp.Have = transfer.IndexTree(ctx, root, opts)
@@ -275,6 +291,9 @@ func (b *Backend) checkNotOwnedHere(ctx context.Context, root, sessionID string)
 
 // ImportTransfer receives a bundle streamed by another node.
 func (b *Backend) ImportTransfer(ctx context.Context, r io.Reader, plan transfer.Plan, resume bool) (proto.TransferImportResponse, error) {
+	steps := b.beginIncoming("import", "", "")
+	defer steps.end()
+	steps.to("receiving")
 	res, err := transfer.Import(ctx, r, transfer.ImportParams{
 		Plan: plan,
 		Check: func(m transfer.Manifest) error {
@@ -296,6 +315,7 @@ func (b *Backend) ImportTransfer(ctx context.Context, r io.Reader, plan transfer
 	}
 	m := res.Manifest
 	root := filepath.Clean(m.Root)
+	steps.to("registering " + root)
 	dataDir := filepath.Join(root, filepath.FromSlash(m.DataDirRel))
 
 	// The imported copy is the live one: clear any moved/archived marks
@@ -419,4 +439,49 @@ func (b *Backend) Transfers() []proto.TransferStatus {
 	}
 	slices.SortFunc(out, func(a, c proto.TransferStatus) int { return cmp.Compare(a.StartedAt, c.StartedAt) })
 	return out
+}
+
+// IncomingTransfers lists preflights and imports this node is serving.
+func (b *Backend) IncomingTransfers() []proto.TransferStatus {
+	b.incoming.mu.Lock()
+	defer b.incoming.mu.Unlock()
+	out := make([]proto.TransferStatus, 0, len(b.incoming.active))
+	for _, s := range b.incoming.active {
+		out = append(out, *s)
+	}
+	return out
+}
+
+// incomingSteps records the current step of an incoming preflight or
+// import and logs how long each step took.
+type incomingSteps struct {
+	b       *Backend
+	key     string
+	session string
+	step    string
+	start   time.Time
+}
+
+func (b *Backend) beginIncoming(kind, sessionID, root string) *incomingSteps {
+	key := kind + ":" + sessionID + ":" + uuid.NewString()[:8]
+	b.incoming.begin(proto.TransferStatus{SessionID: key, Title: kind, Root: root, Stage: "starting"})
+	return &incomingSteps{b: b, key: key, session: sessionID, start: time.Now()}
+}
+
+func (s *incomingSteps) to(step string) {
+	s.finishStep()
+	s.step = step
+	s.b.incoming.update(s.key, func(st *proto.TransferStatus) { st.Stage = step })
+}
+
+func (s *incomingSteps) finishStep() {
+	if s.step != "" {
+		slog.Info("Incoming transfer step done", "session", s.session, "step", s.step, "took", time.Since(s.start).Round(time.Millisecond))
+	}
+	s.start = time.Now()
+}
+
+func (s *incomingSteps) end() {
+	s.finishStep()
+	s.b.incoming.end(s.key)
 }

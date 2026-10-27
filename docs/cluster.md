@@ -122,6 +122,7 @@ rejected with an upgrade hint.
 | `crush cluster upgrade [version]` | Upgrade this node, then every member, to one release, and wait until each reports it (`--no-wait`, `--timeout`). |
 | `crush cluster install-service` / `uninstall-service` | Manage the launchd/systemd daemon. |
 | `crush upgrade [version]` | `go install` a release over the running binary (same directory) and restart the local daemon. |
+| `crush debug goroutines\|logs\|transfers [--node name]` | Inspect this server or another member: full goroutine dump, log tail (`-n`, `--level`, `--grep`), and moves being sent or received with their current step. |
 | `crush cluster top` | Live dashboard of every node. |
 | `crush session move <session> <node>` | Move a session and its files (`--on-conflict=backup\|keep`, `--no-resume`, `--gc`). |
 | `crush cluster migrate` | Move every running job off this machine (`--all`, `--to`, `--strategy`, `--yes`). |

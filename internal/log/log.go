@@ -18,10 +18,18 @@ import (
 var (
 	initOnce    sync.Once
 	initialized atomic.Bool
+	logPath     atomic.Value
 )
+
+// File returns the rotating log file passed to [Setup], or "".
+func File() string {
+	p, _ := logPath.Load().(string)
+	return p
+}
 
 func Setup(logFile string, debug bool, ws ...io.Writer) {
 	initOnce.Do(func() {
+		logPath.Store(logFile)
 		logRotator := &lumberjack.Logger{
 			Filename:   logFile,
 			MaxSize:    10,    // Max size in MB

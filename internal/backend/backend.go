@@ -87,9 +87,12 @@ type Backend struct {
 	// (daemon / cluster node mode). Explicit shutdown still applies.
 	persistent atomic.Bool
 
-	clusterMu      sync.RWMutex
-	cluster        ClusterBridge
-	transfers      transferTracker
+	clusterMu sync.RWMutex
+	cluster   ClusterBridge
+	transfers transferTracker
+	// incoming tracks preflights and imports this node is serving, so a
+	// stuck one can be inspected from the sending side.
+	incoming       transferTracker
 	peekCache      peekCache
 	createGrace    time.Duration
 	reconnectGrace time.Duration

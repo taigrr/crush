@@ -26,3 +26,9 @@ func (c *Client) ExecuteMigration(ctx context.Context, plan proto.MigrationPlan,
 func (c *Client) Transfers(ctx context.Context) ([]proto.TransferStatus, error) {
 	return clusterCall[[]proto.TransferStatus](ctx, c, http.MethodGet, "/transfers", nil)
 }
+
+// IncomingTransfers lists preflights and imports the targeted node is
+// serving, with the step each one is on.
+func (c *Client) IncomingTransfers(ctx context.Context) ([]proto.TransferStatus, error) {
+	return clusterCall[[]proto.TransferStatus](ctx, c, http.MethodGet, "/transfers/incoming", nil)
+}
