@@ -251,6 +251,9 @@ type Workspace interface {
 	// server to the rest of the cluster.
 	// Transfers lists session moves in progress (see ClientWorkspace).
 	Transfers(ctx context.Context, root string) ([]proto.TransferStatus, error)
+	// SessionBundle loads a session, its messages, nested agent-tool
+	// sessions, and file history in one round trip (root "" = current).
+	SessionBundle(ctx context.Context, root, sessionID string) (SessionBundle, error)
 	PlanMigration(ctx context.Context, req proto.MigrateRequest) (proto.MigrationPlan, error)
 	ExecuteMigration(ctx context.Context, plan proto.MigrationPlan, resume bool) (proto.MigrationResult, error)
 

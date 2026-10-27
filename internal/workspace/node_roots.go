@@ -7,7 +7,10 @@ import (
 
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/cluster"
+	"github.com/taigrr/crush/internal/history"
+	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/session"
 )
 
 // nodeRootPrefix marks a workspace root that lives on a cluster node
@@ -190,4 +193,43 @@ func (w *ClientWorkspace) Transfers(ctx context.Context, root string) ([]proto.T
 		}
 	}
 	return out, nil
+}
+
+// SessionBundle is a session plus everything needed to render it.
+type SessionBundle struct {
+	Session   session.Session
+	Files     []history.File
+	ReadFiles []string
+	Messages  []message.Message
+	// Children holds nested agent-tool sessions' messages by session ID.
+	Children map[string][]message.Message
+}
+
+// SessionBundle loads sessionID in one round trip. root "" means the
+// current workspace; otherwise any known workspace (possibly on another
+// node).
+func (w *ClientWorkspace) SessionBundle(ctx context.Context, root, sessionID string) (SessionBundle, error) {
+	c := w.c()
+	params := proto.SessionBundleParams{SessionID: sessionID, WorkspaceID: w.workspaceID()}
+	if root != "" {
+		nodeID, nc, plain := w.resolveRoot(root)
+		if nodeID != w.NodeID() || plain != w.BaseDir() {
+			c, params = nc, proto.SessionBundleParams{SessionID: sessionID, Root: plain}
+		}
+	}
+	b, err := c.SessionBundle(ctx, params)
+	if err != nil {
+		return SessionBundle{}, err
+	}
+	children := make(map[string][]message.Message, len(b.Children))
+	for id, msgs := range b.Children {
+		children[id] = protoToMessages(msgs)
+	}
+	return SessionBundle{
+		Session:   protoToSession(b.Session),
+		Files:     protoToFiles(b.Files),
+		ReadFiles: b.ReadFiles,
+		Messages:  protoToMessages(b.Messages),
+		Children:  children,
+	}, nil
 }

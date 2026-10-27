@@ -1042,3 +1042,9 @@ func DecodeEventStream(ctx context.Context, body io.Reader) <-chan any {
 	}()
 	return events
 }
+
+// SessionBundle fetches a session with its messages, nested agent-tool
+// sessions, and file history in one request.
+func (c *Client) SessionBundle(ctx context.Context, params proto.SessionBundleParams) (proto.SessionBundle, error) {
+	return clusterCall[proto.SessionBundle](ctx, c, http.MethodPost, "/session-bundle", params)
+}

@@ -554,3 +554,21 @@ type PromoteQueuedResponse struct {
 type CancelToolCallsResponse struct {
 	Canceled int `json:"canceled"`
 }
+
+// SessionBundleParams identifies a session for [SessionBundle]: an
+// attached workspace by ID, or any known workspace by root.
+type SessionBundleParams struct {
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	Root        string `json:"root,omitempty"`
+	SessionID   string `json:"session_id"`
+}
+
+// SessionBundle is a session's metadata, file history, read files,
+// messages, and nested agent-tool session messages in one response.
+type SessionBundle struct {
+	Session   Session              `json:"session"`
+	Files     []File               `json:"files"`
+	ReadFiles []string             `json:"read_files,omitempty"`
+	Messages  []Message            `json:"messages"`
+	Children  map[string][]Message `json:"children,omitempty"`
+}

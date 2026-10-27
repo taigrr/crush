@@ -132,6 +132,7 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("GET /v1/workspace-overviews", c.handleGetWorkspaceOverviews)
 	mux.HandleFunc("POST /v1/peek-messages", c.handlePostPeekMessages)
 	mux.HandleFunc("POST /v1/peek-session-info", c.handlePostPeekSessionInfo)
+	mux.HandleFunc("POST /v1/session-bundle", c.handlePostSessionBundle)
 	mux.HandleFunc("GET /v1/swarm/resolve", c.handleGetSwarmResolve)
 	mux.HandleFunc("POST /v1/workspaces", c.handlePostWorkspaces)
 	mux.HandleFunc("DELETE /v1/workspaces/{id}", c.handleDeleteWorkspaces)

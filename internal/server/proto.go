@@ -1799,3 +1799,46 @@ func jsonError(w http.ResponseWriter, status int, message string) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(proto.Error{Message: message})
 }
+
+// handlePostSessionBundle returns a session with everything needed to
+// render it (messages, nested tool sessions, files) in one response.
+//
+//	@Summary		Get a session bundle
+//	@Tags			sessions
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		proto.SessionBundleParams	true	"Workspace (id or root) and session id"
+//	@Success		200		{object}	proto.SessionBundle
+//	@Failure		400		{object}	proto.Error
+//	@Failure		404		{object}	proto.Error
+//	@Router			/session-bundle [post]
+func (c *controllerV1) handlePostSessionBundle(w http.ResponseWriter, r *http.Request) {
+	params, ok := decodeJSON[proto.SessionBundleParams](c, w, r)
+	if !ok {
+		return
+	}
+	if params.SessionID == "" || (params.WorkspaceID == "" && params.Root == "") {
+		jsonError(w, http.StatusBadRequest, "session_id and workspace_id or root are required")
+		return
+	}
+	b, err := c.backend.SessionBundle(r.Context(), params.WorkspaceID, params.Root, params.SessionID)
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	files := make([]proto.File, len(b.Files))
+	for i, f := range b.Files {
+		files[i] = fileToProto(f)
+	}
+	children := make(map[string][]proto.Message, len(b.Children))
+	for id, msgs := range b.Children {
+		children[id] = messagesToProto(msgs)
+	}
+	jsonEncode(w, proto.SessionBundle{
+		Session:   sessionToProto(b.Session),
+		Files:     files,
+		ReadFiles: b.ReadFiles,
+		Messages:  messagesToProto(b.Messages),
+		Children:  children,
+	})
+}
