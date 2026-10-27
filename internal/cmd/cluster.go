@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -411,9 +412,59 @@ var clusterUpgradeCmd = &cobra.Command{
 			return err
 		}
 		printBroadcastErrors(cmd.ErrOrStderr(), res.Errors)
-		fmt.Fprintf(cmd.OutOrStdout(), "Asked every member to upgrade to %s. Check with `crush cluster ping`.\n", tag)
-		return nil
+		out := cmd.OutOrStdout()
+		if noWait, _ := cmd.Flags().GetBool("no-wait"); noWait {
+			fmt.Fprintf(out, "Asked every member to upgrade to %s. Check with `crush cluster ping`.\n", tag)
+			return nil
+		}
+		timeout, _ := cmd.Flags().GetDuration("timeout")
+		fmt.Fprintf(out, "Asked every member to upgrade to %s; waiting for them to come back...\n", tag)
+		return waitForUpgrade(cmd.Context(), cmd, tag, timeout)
 	},
+}
+
+// waitForUpgrade polls the cluster until every member reports tag,
+// printing each node as it arrives, and fails naming the stragglers.
+func waitForUpgrade(ctx context.Context, cmd *cobra.Command, tag string, timeout time.Duration) error {
+	out := cmd.OutOrStdout()
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	done := map[string]bool{}
+	var last []proto.ClusterPingResult
+	for {
+		// The local server restarts during an upgrade; reconnect each poll.
+		if c, err := localServerClient(cmd); err == nil {
+			if res, err := c.ClusterPing(ctx); err == nil {
+				last = res
+				pending := 0
+				for _, r := range res {
+					if r.Error == "" && r.Version == tag {
+						if !done[r.NodeID] {
+							done[r.NodeID] = true
+							fmt.Fprintf(out, "  %s is on %s\n", r.Name, tag)
+						}
+						continue
+					}
+					pending++
+				}
+				if pending == 0 {
+					fmt.Fprintf(out, "Every member is on %s.\n", tag)
+					return nil
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			var behind []string
+			for _, r := range last {
+				if !done[r.NodeID] {
+					behind = append(behind, fmt.Sprintf("%s (%s)", r.Name, cmp.Or(r.Error, r.Version, "unknown")))
+				}
+			}
+			return fmt.Errorf("timed out waiting for %s on: %s. If a node restarts on its old version, its service points at a different binary than `go install` updates; run `crush cluster install-service` there", tag, strings.Join(behind, ", "))
+		case <-time.After(3 * time.Second):
+		}
+	}
 }
 
 var clusterInstallServiceCmd = &cobra.Command{
@@ -643,6 +694,8 @@ A running turn is paused first and resumed on the destination unless
 func init() {
 	sessionMoveCmd.Flags().String("on-conflict", "", "When the destination has different files: backup (move them aside) or keep (move only the conversation)")
 	sessionMoveCmd.Flags().Bool("no-resume", false, "Do not resume a paused turn on the destination")
+	clusterUpgradeCmd.Flags().Bool("no-wait", false, "Do not wait for members to report the new version")
+	clusterUpgradeCmd.Flags().Duration("timeout", 12*time.Minute, "How long to wait for members to upgrade")
 	sessionMoveCmd.Flags().Bool("gc", false, "Garbage-collect Crush snapshots before sending")
 	sessionCmd.AddCommand(sessionMoveCmd)
 }

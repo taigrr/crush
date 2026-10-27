@@ -119,9 +119,9 @@ rejected with an upgrade hint.
 | `crush cluster ping` | Reachability, RTT, and version of each member. |
 | `crush cluster name <name>` | Rename this node. |
 | `crush cluster leave` | Leave the cluster. |
-| `crush cluster upgrade [version]` | Upgrade this node, then every member, to one release. |
+| `crush cluster upgrade [version]` | Upgrade this node, then every member, to one release, and wait until each reports it (`--no-wait`, `--timeout`). |
 | `crush cluster install-service` / `uninstall-service` | Manage the launchd/systemd daemon. |
-| `crush upgrade [version]` | `go install` a release and restart the local daemon. |
+| `crush upgrade [version]` | `go install` a release over the running binary (same directory) and restart the local daemon. |
 | `crush cluster top` | Live dashboard of every node. |
 | `crush session move <session> <node>` | Move a session and its files (`--on-conflict=backup\|keep`, `--no-resume`, `--gc`). |
 | `crush cluster migrate` | Move every running job off this machine (`--all`, `--to`, `--strategy`, `--yes`). |

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -41,8 +42,15 @@ func Install(ctx context.Context, tag string, stdout, stderr *os.File) error {
 	if err != nil {
 		return fmt.Errorf("`go` not found in PATH; install Go 1.27+ to upgrade: %w", err)
 	}
+	dir, err := InstallDir()
+	if err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, goBin, "install", ModulePath+"@"+tag)
 	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOEXPERIMENT=greenteagc")
+	if dir != "" {
+		cmd.Env = append(cmd.Env, "GOBIN="+dir)
+	}
 	if stdout != nil {
 		cmd.Stdout = stdout
 	}
@@ -53,4 +61,37 @@ func Install(ctx context.Context, tag string, stdout, stderr *os.File) error {
 		return fmt.Errorf("go install %s@%s: %w", ModulePath, tag, err)
 	}
 	return nil
+}
+
+// InstallDir is where [Install] puts the new binary: the directory of the
+// running crush, so the copy the service and PATH actually launch is the
+// one replaced. It returns "" (use go's default GOBIN) when the running
+// binary is not an installed crush, such as a `go run` build.
+func InstallDir() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", nil
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return installDirFor(exe)
+}
+
+func installDirFor(exe string) (string, error) {
+	name := strings.TrimSuffix(filepath.Base(exe), ".exe")
+	dir := filepath.Dir(exe)
+	if name != "crush" || strings.Contains(dir, "go-build") || strings.HasPrefix(dir, filepath.Clean(os.TempDir())) {
+		return "", nil
+	}
+	if strings.Contains(dir, string(filepath.Separator)+"Cellar"+string(filepath.Separator)) {
+		return "", fmt.Errorf("crush at %s is managed by Homebrew; upgrade it with brew instead", exe)
+	}
+	probe, err := os.CreateTemp(dir, ".crush-upgrade-*")
+	if err != nil {
+		return "", fmt.Errorf("cannot replace %s (directory not writable): %w", exe, err)
+	}
+	probe.Close()
+	_ = os.Remove(probe.Name())
+	return dir, nil
 }

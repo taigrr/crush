@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,4 +46,23 @@ func (t testClient) Latest(ctx context.Context) (*Release, error) {
 		TagName: t.tag,
 		HTMLURL: "https://example.org",
 	}, nil
+}
+
+func TestInstallDirFor(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	got, err := installDirFor(filepath.Join(dir, "crush"))
+	require.NoError(t, err)
+	require.Empty(t, got, "binaries under the temp dir fall back to GOBIN")
+
+	got, err = installDirFor("/x/go-build123/b001/exe/crush")
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	got, err = installDirFor("/usr/local/bin/crush-dev")
+	require.NoError(t, err)
+	require.Empty(t, got, "only binaries named crush are replaced")
+
+	_, err = installDirFor("/opt/homebrew/Cellar/crush/1.0/bin/crush")
+	require.ErrorContains(t, err, "Homebrew")
 }
