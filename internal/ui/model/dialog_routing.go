@@ -511,14 +511,21 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			delete(m.pendingPermissions, msg.Permission.SessionID)
 			m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
 		}
-		switch msg.Action {
-		case dialog.PermissionAllow:
-			m.com.Workspace.PermissionGrant(msg.Permission)
-		case dialog.PermissionAllowForSession:
-			m.com.Workspace.PermissionGrantPersistent(msg.Permission)
-		case dialog.PermissionDeny:
-			m.com.Workspace.PermissionDeny(msg.Permission)
-		}
+		// Resolve off the Update goroutine: the dialog is already closed
+		// and the pending entry cleared, so the UI never waits on the
+		// (possibly remote) server.
+		ws, perm, action := m.com.Workspace, msg.Permission, msg.Action
+		cmds = append(cmds, func() tea.Msg {
+			switch action {
+			case dialog.PermissionAllow:
+				ws.PermissionGrant(perm)
+			case dialog.PermissionAllowForSession:
+				ws.PermissionGrantPersistent(perm)
+			case dialog.PermissionDeny:
+				ws.PermissionDeny(perm)
+			}
+			return nil
+		})
 
 	case dialog.ActionQuestionResponse:
 		m.dialog.CloseDialog(dialog.QuestionID)
@@ -527,7 +534,11 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			delete(m.pendingQuestions, msg.Request.SessionID)
 			m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
 		}
-		m.com.Workspace.QuestionAnswer(msg.Answer)
+		ws, ans := m.com.Workspace, msg.Answer
+		cmds = append(cmds, func() tea.Msg {
+			ws.QuestionAnswer(ans)
+			return nil
+		})
 
 	case dialog.ActionFilePickerSelected:
 		cmds = append(cmds, tea.Sequence(
