@@ -53,6 +53,8 @@ type ClientWorkspace struct {
 
 	// state caches hot, render-path state (see state_cache.go).
 	state workspaceState
+	// worktreeRefresh dedupes background worktree refreshes by session.
+	worktreeRefresh sync.Map
 
 	mu              sync.RWMutex
 	ws              proto.Workspace
@@ -1040,11 +1042,10 @@ func (w *ClientWorkspace) ReloadConfig(ctx context.Context) error {
 // -- Snapshots --
 
 func (w *ClientWorkspace) SnapshotsEnabled() bool {
-	enabled, err := w.c().SnapshotsEnabled(context.Background(), w.workspaceID())
-	if err != nil {
-		return false
-	}
-	return enabled
+	v, ok := w.cachedState("snapshots", func() (any, error) {
+		return w.c().SnapshotsEnabled(context.Background(), w.workspaceID())
+	})
+	return ok && v.(bool)
 }
 
 func (w *ClientWorkspace) ListSnapshots(ctx context.Context, sessionID string) ([]*checkpoint.Snapshot, error) {
@@ -1110,6 +1111,13 @@ func (w *ClientWorkspace) GetActiveWorktree(ctx context.Context, sessionID strin
 	entry, ok := w.worktrees[sessionID]
 	w.mu.RUnlock()
 	if ok && time.Since(entry.at) < worktreeCacheTTL {
+		return entry.worktree, nil
+	}
+	if ok {
+		// Stale: render paths ask on every frame, so serve the last value
+		// and refresh in the background rather than blocking a frame on
+		// the network.
+		w.refreshWorktreeAsync(sessionID)
 		return entry.worktree, nil
 	}
 
@@ -2011,4 +2019,34 @@ func (w *ClientWorkspace) ClusterDeny(ctx context.Context, nodeID, ref string) e
 // c returns the client for the node this workspace currently targets.
 func (w *ClientWorkspace) c() *client.Client {
 	return w.target.Load()
+}
+
+// refreshWorktreeAsync re-fetches a session's active worktree once in the
+// background, pinging the TUI if it changed.
+func (w *ClientWorkspace) refreshWorktreeAsync(sessionID string) {
+	if _, loading := w.worktreeRefresh.LoadOrStore(sessionID, true); loading {
+		return
+	}
+	go func() {
+		defer w.worktreeRefresh.Delete(sessionID)
+		wt, err := w.c().GetActiveWorktree(context.Background(), w.workspaceID(), sessionID)
+		if err != nil {
+			return
+		}
+		w.mu.Lock()
+		prev := w.worktrees[sessionID].worktree
+		if w.worktrees == nil {
+			w.worktrees = make(map[string]worktreeCacheEntry)
+		}
+		w.worktrees[sessionID] = worktreeCacheEntry{worktree: wt, at: time.Now()}
+		w.mu.Unlock()
+		if (prev == nil) != (wt == nil) || (prev != nil && wt != nil && prev.Path != wt.Path) {
+			w.subMu.Lock()
+			p := w.program
+			w.subMu.Unlock()
+			if p != nil {
+				p.Send(StateRefreshedMsg{})
+			}
+		}
+	}()
 }
