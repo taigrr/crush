@@ -3,6 +3,7 @@ package dialog
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -13,10 +14,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
 	"github.com/taigrr/crush/internal/ui/util"
+	"github.com/taigrr/crush/internal/workspace"
 )
 
 // SessionsID is the identifier for the session selector dialog.
@@ -743,13 +746,16 @@ func (s *Session) firstBusy(ids []string) string {
 // and returns a pickerBulkArchivedMsg so the dialog can reconcile.
 func (s *Session) archiveSessionsCmd(ids []string, skipped int) tea.Cmd {
 	return func() tea.Msg {
-		var succeeded, failed []string
+		targets := make([]workspace.BatchTarget, len(ids))
+		for i, id := range ids {
+			targets[i] = workspace.BatchTarget{SessionID: id}
+		}
+		failed := s.com.Workspace.SessionBatch(context.TODO(), proto.SessionBatchArchive, targets)
+		var succeeded []string
 		for _, id := range ids {
-			if err := s.com.Workspace.ArchiveSession(context.TODO(), id); err != nil {
-				failed = append(failed, id)
-				continue
+			if !slices.Contains(failed, id) {
+				succeeded = append(succeeded, id)
 			}
-			succeeded = append(succeeded, id)
 		}
 		return pickerBulkArchivedMsg{succeeded: succeeded, failed: failed, skipped: skipped}
 	}

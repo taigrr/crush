@@ -441,3 +441,25 @@ func (b *Backend) SearchHistory(ctx context.Context, workspaceID string, params 
 	}
 	return res, nil
 }
+
+// SessionBatch applies op ("archive" or "seen") to every target and
+// reports failures by session ID. It saves a round trip per session for
+// bulk sidebar actions on remote nodes.
+func (b *Backend) SessionBatch(ctx context.Context, op string, targets []proto.SessionBatchTarget) (map[string]string, error) {
+	var apply func(ctx context.Context, workspaceID, root, sessionID string) error
+	switch op {
+	case proto.SessionBatchArchive:
+		apply = b.ArchiveSession
+	case proto.SessionBatchSeen:
+		apply = b.MarkSessionSeen
+	default:
+		return nil, fmt.Errorf("unknown session batch op %q", op)
+	}
+	failed := map[string]string{}
+	for _, t := range targets {
+		if err := apply(ctx, t.WorkspaceID, t.Root, t.SessionID); err != nil {
+			failed[t.SessionID] = err.Error()
+		}
+	}
+	return failed, nil
+}
