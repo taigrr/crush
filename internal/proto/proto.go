@@ -32,7 +32,7 @@ type Workspace struct {
 // Error represents an error response.
 type Error struct {
 	Message string `json:"message"`
-}
+} //@name proto.Error
 
 // RunComplete is the authoritative end-of-run signal for a session,
 // emitted exactly once per top-level agent turn after all message

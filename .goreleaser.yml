@@ -64,6 +64,11 @@ builds:
         goarch: "386"
       - goos: windows
         goarch: arm
+      # nats-server has no cgo-free process stats for these.
+      - goos: freebsd
+        goarch: "386"
+      - goos: freebsd
+        goarch: arm
     ldflags:
       - -s -w
       - -X github.com/taigrr/crush/internal/version.Version={{.Version}}
