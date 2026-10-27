@@ -428,6 +428,7 @@ var clusterInstallServiceCmd = &cobra.Command{
 		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 			exe = resolved
 		}
+		unreachableXDGForLaunchd(cmd.ErrOrStderr())
 		args := []string{"server", "--persistent"}
 		if serviceShell(cmd) == "" {
 			envPath := daemonEnvPath()
@@ -768,4 +769,21 @@ func serviceLogDir() string {
 		}
 	}
 	return filepath.Join(config.GlobalCacheDir(), "daemon")
+}
+
+// unreachableXDGForLaunchd unsets XDG_* directories on external volumes
+// (/Volumes/...) before installing a macOS service. A launchd agent needs
+// explicit privacy approval to touch removable or network volumes; without
+// it, the first open() there blocks forever and the server never starts.
+// Crush falls back to its defaults under the home directory instead.
+func unreachableXDGForLaunchd(w io.Writer) {
+	if runtime.GOOS != "darwin" {
+		return
+	}
+	for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"} {
+		if v := os.Getenv(k); strings.HasPrefix(v, "/Volumes/") {
+			fmt.Fprintf(w, "warning: %s=%s is on an external volume launchd agents cannot use without privacy approval; the service will use the default location instead.\n", k, v)
+			_ = os.Unsetenv(k)
+		}
+	}
 }
