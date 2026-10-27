@@ -82,6 +82,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.handleMoveDialogData(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case transfersMsg:
+		if cmd := m.handleTransfers(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case transferPollTickMsg:
+		if cmd := m.handleTransferPollTick(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case migratePlanMsg:
 		if cmd := m.handleMigratePlan(msg); cmd != nil {
 			cmds = append(cmds, cmd)

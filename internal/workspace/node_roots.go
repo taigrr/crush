@@ -177,3 +177,23 @@ func (w *ClientWorkspace) PlanMigration(ctx context.Context, req proto.MigrateRe
 func (w *ClientWorkspace) ExecuteMigration(ctx context.Context, plan proto.MigrationPlan, resume bool) (proto.MigrationResult, error) {
 	return w.home.ExecuteMigration(ctx, plan, resume)
 }
+
+// Transfers lists moves running from the node that hosts root ("" = the
+// current target) and, when different, from the home server (which runs
+// migrate-all).
+func (w *ClientWorkspace) Transfers(ctx context.Context, root string) ([]proto.TransferStatus, error) {
+	c := w.c()
+	if root != "" {
+		_, c, _ = w.resolveRoot(root)
+	}
+	out, err := c.Transfers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if c.NodeID() != "" {
+		if home, err := w.home.Transfers(ctx); err == nil {
+			out = append(out, home...)
+		}
+	}
+	return out, nil
+}

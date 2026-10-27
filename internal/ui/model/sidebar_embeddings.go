@@ -8,8 +8,10 @@ import (
 	"charm.land/bubbles/v2/progress"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/taigrr/crush/internal/ui/common"
+	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 // embeddingPollInterval is how often the sidebar refreshes embedding
@@ -44,6 +46,17 @@ func (m *UI) embeddingProgress(width int) string {
 		}
 	}
 
+	var info []string
+	if s.Total > 0 {
+		info = append(info, strconv.Itoa(s.Embedded)+"/"+strconv.Itoa(s.Total))
+	}
+	return progressSection(t, "Embeddings", info, "", percent, width)
+}
+
+// progressSection renders a themed sidebar section with a progress bar,
+// shared by embedding backfills and session transfers. detail, when set,
+// is a muted line between the header and the bar.
+func progressSection(t *styles.Styles, title string, info []string, detail string, percent float64, width int) string {
 	// Build the bar from the current theme each render so it always
 	// follows the active theme (colors would otherwise be captured once
 	// and go stale after a theme switch).
@@ -52,20 +65,11 @@ func (m *UI) embeddingProgress(width int) string {
 		progress.WithoutPercentage(),
 	)
 	bar.SetWidth(width)
-
-	// Themed section header ("Embeddings" with a count), matching the
-	// LSP/MCP/Skills sidebar sections.
-	title := t.Resource.Heading.Render("Embeddings")
-	var info []string
-	if s.Total > 0 {
-		info = append(info, strconv.Itoa(s.Embedded)+"/"+strconv.Itoa(s.Total))
+	header := common.Section(t, t.Resource.Heading.Render(title), width, info...)
+	parts := []string{header, ""}
+	if detail != "" {
+		parts = append(parts, t.Resource.AdditionalText.Render(ansi.Truncate(detail, width, "…")))
 	}
-	header := common.Section(t, title, width, info...)
-
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		"",
-		bar.ViewAs(percent),
-	)
+	parts = append(parts, bar.ViewAs(percent))
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }

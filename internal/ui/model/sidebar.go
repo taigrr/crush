@@ -271,6 +271,9 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	if embProgress := m.embeddingProgress(width); embProgress != "" {
 		blocks = append(blocks, embProgress, "")
 	}
+	if tp := m.transferProgress(width); tp != "" {
+		blocks = append(blocks, tp, "")
+	}
 
 	sidebarHeader := lipgloss.JoinVertical(
 		lipgloss.Left,

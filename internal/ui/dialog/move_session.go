@@ -1,15 +1,18 @@
 package dialog
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/progress"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/taigrr/crush/internal/cluster"
+	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/transfer"
 	"github.com/taigrr/crush/internal/ui/common"
 )
@@ -40,7 +43,10 @@ type MoveSession struct {
 	conflict     string
 	conflictNode cluster.NodeDashboard
 	err          string
-	keyMap       struct {
+	// moving is set once a move started; progress then replaces the list.
+	moving   bool
+	progress proto.TransferStatus
+	keyMap   struct {
 		Up, Down, Select, Backup, Keep, Close key.Binding
 	}
 }
@@ -85,7 +91,14 @@ func (d *MoveSession) ShowConflict(node cluster.NodeDashboard, reason string) {
 }
 
 // ShowError displays a failure without closing.
-func (d *MoveSession) ShowError(err string) { d.err = err }
+func (d *MoveSession) ShowError(err string) { d.err, d.moving = err, false }
+
+// SetProgress shows live transfer progress for the running move.
+func (d *MoveSession) SetProgress(s proto.TransferStatus) {
+	if s.SessionID == d.target.SessionID {
+		d.progress = s
+	}
+}
 
 // HandleMsg implements [Dialog].
 func (d *MoveSession) HandleMsg(msg tea.Msg) Action {
@@ -95,6 +108,9 @@ func (d *MoveSession) HandleMsg(msg tea.Msg) Action {
 	}
 	if key.Matches(kp, d.keyMap.Close) {
 		return ActionClose{}
+	}
+	if d.moving {
+		return nil
 	}
 	if d.conflict != "" {
 		switch {
@@ -124,7 +140,8 @@ func (d *MoveSession) HandleMsg(msg tea.Msg) Action {
 }
 
 func (d *MoveSession) action(n cluster.NodeDashboard, policy transfer.ConflictPolicy) Action {
-	d.err = ""
+	d.err, d.conflict, d.moving = "", "", true
+	d.progress = proto.TransferStatus{Stage: "starting", TargetName: n.Member.Name}
 	return ActionMoveSession{Target: d.target, Node: n, OnConflict: policy}
 }
 
@@ -139,6 +156,20 @@ func (d *MoveSession) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	}
 	lines := []string{t.Dialog.Title.Render("Move " + ansi.Truncate(title, inner-6, "…")), ""}
 	switch {
+	case d.moving:
+		bar := progress.New(progress.WithColors(t.WorkingGradFromColor, t.WorkingGradToColor), progress.WithoutPercentage())
+		bar.SetWidth(inner)
+		p := d.progress
+		pct := 0.0
+		if p.TotalBytes > 0 {
+			pct = min(1, float64(p.Bytes)/float64(p.TotalBytes))
+		}
+		stage := p.Stage
+		if p.TotalFiles > 0 {
+			stage = fmt.Sprintf("%s · %d/%d files · %.0f%%", p.Stage, p.Files, p.TotalFiles, pct*100)
+		}
+		lines = append(lines, "Moving to "+cmp.Or(p.TargetName, "destination")+"…",
+			t.Resource.AdditionalText.Render(ansi.Truncate(stage, inner, "…")), "", bar.ViewAs(pct))
 	case d.conflict != "":
 		lines = append(lines,
 			fmt.Sprintf("%s already has different files at this path:", d.conflictNode.Member.Name),
@@ -172,6 +203,9 @@ func (d *MoveSession) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		lines = append(lines, "", t.Resource.ErrorIcon.Render(ansi.Truncate(d.err, inner, "…")))
 	}
 	help := "↑/↓ choose · enter move · esc cancel"
+	if d.moving {
+		help = "moving… esc hides this; progress continues in the sidebar"
+	}
 	if d.conflict != "" {
 		help = "b back up · c conversation only · esc cancel"
 	}

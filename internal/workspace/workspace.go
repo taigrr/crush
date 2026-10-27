@@ -249,6 +249,8 @@ type Workspace interface {
 	MoveSession(ctx context.Context, root, sessionID, targetNode string, onConflict transfer.ConflictPolicy, resume bool) (proto.MoveSessionResponse, error)
 	// PlanMigration and ExecuteMigration move every job off the home
 	// server to the rest of the cluster.
+	// Transfers lists session moves in progress (see ClientWorkspace).
+	Transfers(ctx context.Context, root string) ([]proto.TransferStatus, error)
 	PlanMigration(ctx context.Context, req proto.MigrateRequest) (proto.MigrationPlan, error)
 	ExecuteMigration(ctx context.Context, plan proto.MigrationPlan, resume bool) (proto.MigrationResult, error)
 

@@ -160,6 +160,7 @@ func (m *UI) handleMoveDialogData(msg moveDialogMsg) tea.Cmd {
 func (m *UI) runMoveSession(a dialog.ActionMoveSession) tea.Cmd {
 	ws := m.com.Workspace
 	return tea.Batch(
+		m.startTransferPoll(a.Target.Root),
 		util.ReportInfo(fmt.Sprintf("Moving %q to %s…", a.Target.Title, a.Node.Member.Name)),
 		func() tea.Msg {
 			res, err := ws.MoveSession(context.Background(), a.Target.Root, a.Target.SessionID, a.Node.Member.NodeID, a.OnConflict, true)
@@ -169,6 +170,7 @@ func (m *UI) runMoveSession(a dialog.ActionMoveSession) tea.Cmd {
 }
 
 func (m *UI) handleMoveResult(msg moveResultMsg) tea.Cmd {
+	m.endTransferPoll()
 	d, open := m.dialog.Dialog(dialog.MoveSessionID).(*dialog.MoveSession)
 	if msg.err != nil {
 		errStr := msg.err.Error()
@@ -237,13 +239,14 @@ func (m *UI) handleMigratePlan(msg migratePlanMsg) tea.Cmd {
 
 func (m *UI) executeMigration(plan proto.MigrationPlan) tea.Cmd {
 	ws := m.com.Workspace
-	return func() tea.Msg {
+	return tea.Batch(m.startTransferPoll(""), func() tea.Msg {
 		res, err := ws.ExecuteMigration(context.Background(), plan, true)
 		return migrateResultMsg{res: res, err: err}
-	}
+	})
 }
 
 func (m *UI) handleMigrateResult(msg migrateResultMsg) tea.Cmd {
+	m.endTransferPoll()
 	if d, ok := m.dialog.Dialog(dialog.MigrateID).(*dialog.Migrate); ok {
 		d.SetResult(msg.res, msg.err)
 	} else if msg.err != nil {
@@ -251,3 +254,5 @@ func (m *UI) handleMigrateResult(msg migrateResultMsg) tea.Cmd {
 	}
 	return m.loadWorkspaceOverviews()
 }
+
+func moveDialogID() string { return dialog.MoveSessionID }

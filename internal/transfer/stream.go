@@ -99,6 +99,25 @@ type ExportParams struct {
 	Manifest Manifest
 	Plan     Plan
 	Excludes []string
+	// OnProgress, when set, receives throttled progress updates.
+	OnProgress func(Progress)
+}
+
+// Progress describes how far an export has got.
+type Progress struct {
+	Stage      string `json:"stage"`
+	Files      int    `json:"files"`
+	TotalFiles int    `json:"total_files"`
+	Bytes      int64  `json:"bytes"`
+	TotalBytes int64  `json:"total_bytes"`
+}
+
+// Fraction is the completed share in [0,1].
+func (p Progress) Fraction() float64 {
+	if p.TotalBytes <= 0 {
+		return 0
+	}
+	return min(1, float64(p.Bytes)/float64(p.TotalBytes))
 }
 
 // Export writes a bundle for p.Manifest.SessionID to w.
@@ -125,6 +144,9 @@ func Export(ctx context.Context, w io.Writer, p ExportParams) error {
 		return err
 	}
 
+	if p.OnProgress != nil {
+		p.OnProgress(Progress{Stage: "sending history"})
+	}
 	var rows bytes.Buffer
 	enc := json.NewEncoder(&rows)
 	if err := ExportRows(ctx, p.DB, ids, func(r Row) error { return enc.Encode(r) }); err != nil {
@@ -140,9 +162,28 @@ func Export(ctx context.Context, w io.Writer, p ExportParams) error {
 			excludes = DefaultExcludes
 		}
 		opts := TreeOptions{DataDirRel: m.DataDirRel, Excludes: excludes, Overlay: p.Plan == PlanOverlay}
-		if err := WriteTree(ctx, tw, m.Root, opts); err != nil {
+		prog := Progress{Stage: "sending files"}
+		var last time.Time
+		report := func(force bool) {
+			if p.OnProgress != nil && (force || time.Since(last) > 100*time.Millisecond) {
+				last = time.Now()
+				p.OnProgress(prog)
+			}
+		}
+		if p.OnProgress != nil {
+			p.OnProgress(Progress{Stage: "counting files"})
+			prog.TotalFiles, prog.TotalBytes = TreeSize(ctx, m.Root, opts)
+			report(true)
+		}
+		err := WriteTree(ctx, tw, m.Root, opts, func(size int64) {
+			prog.Files++
+			prog.Bytes += size
+			report(false)
+		})
+		if err != nil {
 			return fmt.Errorf("pack project tree: %w", err)
 		}
+		report(true)
 	}
 	if err := tw.Close(); err != nil {
 		return err

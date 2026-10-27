@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -9,7 +10,9 @@ import (
 	"log/slog"
 	"net"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -65,8 +68,15 @@ func (b *Backend) MoveSession(ctx context.Context, req proto.MoveSessionRequest)
 		return proto.MoveSessionResponse{}, fmt.Errorf("%w: %s; ask that node to move it", ErrSessionNotOwned, b.nodeName(sess.OwnerNode))
 	}
 
+	b.transfers.begin(proto.TransferStatus{SessionID: sess.ID, Title: sess.Title, Root: ws.resolvedPath, Stage: "preparing"})
+	defer b.transfers.end(sess.ID)
+	stage := func(st string) {
+		b.transfers.update(sess.ID, func(s *proto.TransferStatus) { s.Stage = st })
+	}
+
 	wasBusy := ws.AgentCoordinator != nil && ws.AgentCoordinator.IsSessionBusy(sess.ID)
 	if wasBusy {
+		stage("pausing the running turn")
 		ws.AgentCoordinator.Cancel(sess.ID)
 		if err := waitIdle(ctx, ws, sess.ID, 30*time.Second); err != nil {
 			return proto.MoveSessionResponse{}, err
@@ -91,6 +101,7 @@ func (b *Backend) MoveSession(ctx context.Context, req proto.MoveSessionRequest)
 	}
 	// The preflight changes nothing, so retry it across brief network
 	// blips (lossy links, VPN reconnects) before giving up.
+	stage("checking the destination")
 	var pre proto.TransferPreflightResponse
 	for attempt := range 3 {
 		pre, err = tb.TransferPreflight(ctx, req.TargetNode, preReq)
@@ -125,8 +136,14 @@ func (b *Backend) MoveSession(ctx context.Context, req proto.MoveSessionRequest)
 			DB:       ws.DB(),
 			Manifest: manifest,
 			Plan:     pre.Plan,
+			OnProgress: func(p transfer.Progress) {
+				b.transfers.update(sess.ID, func(s *proto.TransferStatus) {
+					s.Stage, s.Files, s.TotalFiles, s.Bytes, s.TotalBytes = p.Stage, p.Files, p.TotalFiles, p.Bytes, p.TotalBytes
+				})
+			},
 		}))
 	}()
+	b.transfers.update(sess.ID, func(s *proto.TransferStatus) { s.TargetName = pre.NodeName })
 	res, err := tb.TransferSend(ctx, req.TargetNode, pre.Plan, req.Resume, pr)
 	_ = pr.Close()
 	if err != nil {
@@ -345,4 +362,46 @@ func isTransient(err error) bool {
 		}
 	}
 	return false
+}
+
+// transferTracker records moves in flight for progress reporting.
+type transferTracker struct {
+	mu     sync.Mutex
+	active map[string]*proto.TransferStatus
+}
+
+func (t *transferTracker) begin(s proto.TransferStatus) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.active == nil {
+		t.active = map[string]*proto.TransferStatus{}
+	}
+	s.StartedAt = time.Now().UnixMilli()
+	t.active[s.SessionID] = &s
+}
+
+func (t *transferTracker) update(sessionID string, fn func(*proto.TransferStatus)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if s, ok := t.active[sessionID]; ok {
+		fn(s)
+	}
+}
+
+func (t *transferTracker) end(sessionID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.active, sessionID)
+}
+
+// Transfers lists moves currently running from this node.
+func (b *Backend) Transfers() []proto.TransferStatus {
+	b.transfers.mu.Lock()
+	defer b.transfers.mu.Unlock()
+	out := make([]proto.TransferStatus, 0, len(b.transfers.active))
+	for _, s := range b.transfers.active {
+		out = append(out, *s)
+	}
+	slices.SortFunc(out, func(a, c proto.TransferStatus) int { return cmp.Compare(a.StartedAt, c.StartedAt) })
+	return out
 }

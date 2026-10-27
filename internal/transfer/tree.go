@@ -60,8 +60,52 @@ func (o TreeOptions) skip(rel string, d fs.DirEntry) bool {
 	return false
 }
 
-// WriteTree adds root's files to tw under treePrefix.
-func WriteTree(ctx context.Context, tw *tar.Writer, root string, opts TreeOptions) error {
+// TreeSize counts the files and bytes [WriteTree] would ship.
+func TreeSize(ctx context.Context, root string, opts TreeOptions) (files int, size int64) {
+	_ = walkTree(ctx, root, opts, func(_ string, info fs.FileInfo) error {
+		if info.Mode().IsRegular() {
+			files++
+			size += info.Size()
+		}
+		return nil
+	})
+	return files, size
+}
+
+// walkTree visits every entry WriteTree ships (relative path, info).
+func walkTree(ctx context.Context, root string, opts TreeOptions, fn func(rel string, info fs.FileInfo) error) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if p == root {
+			return nil
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if opts.skip(rel, d) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		return fn(rel, info)
+	})
+}
+
+// WriteTree adds root's files to tw under treePrefix. onFile, when set, is
+// called after each regular file with its size.
+func WriteTree(ctx context.Context, tw *tar.Writer, root string, opts TreeOptions, onFile ...func(size int64)) error {
 	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -118,6 +162,9 @@ func WriteTree(ctx context.Context, tw *tar.Writer, root string, opts TreeOption
 		defer f.Close()
 		if _, err := io.CopyN(tw, f, hdr.Size); err != nil {
 			return fmt.Errorf("copy %s: %w", rel, err)
+		}
+		for _, cb := range onFile {
+			cb(hdr.Size)
 		}
 		return nil
 	})

@@ -430,7 +430,12 @@ type UI struct {
 	versionMismatch bool
 	// homeNodeID is the attached server's cluster node ID, learned from the
 	// dashboard; used to address the home node from a remote target.
-	homeNodeID       string
+	homeNodeID string
+	// Session move progress (see sidebar_transfers.go).
+	transfers        []proto.TransferStatus
+	transferRoot     string
+	transferPolling  bool
+	movesInFlight    int
 	serverVersionStr string
 
 	// themePreviewOriginal holds the styles captured when the theme picker

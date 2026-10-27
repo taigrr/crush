@@ -21,3 +21,8 @@ func (c *Client) PlanMigration(ctx context.Context, req proto.MigrateRequest) (p
 func (c *Client) ExecuteMigration(ctx context.Context, plan proto.MigrationPlan, resume bool) (proto.MigrationResult, error) {
 	return clusterCall[proto.MigrationResult](ctx, c, http.MethodPost, "/migrate/execute", proto.MigrateExecuteRequest{Plan: plan, Resume: resume})
 }
+
+// Transfers lists session moves running from the targeted node.
+func (c *Client) Transfers(ctx context.Context) ([]proto.TransferStatus, error) {
+	return clusterCall[[]proto.TransferStatus](ctx, c, http.MethodGet, "/transfers", nil)
+}

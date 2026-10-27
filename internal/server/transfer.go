@@ -13,6 +13,7 @@ func (s *Server) installTransferRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/sessions/move", s.handleMoveSession)
 	mux.HandleFunc("POST /v1/transfer/preflight", s.handleTransferPreflight)
 	mux.HandleFunc("POST /v1/transfer/import", s.handleTransferImport)
+	mux.HandleFunc("GET /v1/transfers", func(w http.ResponseWriter, _ *http.Request) { jsonEncode(w, s.backend.Transfers()) })
 	mux.HandleFunc("POST /v1/migrate/plan", s.handleMigratePlan)
 	mux.HandleFunc("POST /v1/migrate/execute", s.handleMigrateExecute)
 }

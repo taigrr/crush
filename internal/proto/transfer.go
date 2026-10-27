@@ -101,3 +101,17 @@ type MigrateExecuteRequest struct {
 	Plan   MigrationPlan `json:"plan"`
 	Resume bool          `json:"resume,omitempty"`
 }
+
+// TransferStatus is a move in progress on the source node.
+type TransferStatus struct {
+	SessionID  string `json:"session_id"`
+	Title      string `json:"title"`
+	Root       string `json:"root"`
+	TargetName string `json:"target_name"`
+	Stage      string `json:"stage"`
+	Files      int    `json:"files"`
+	TotalFiles int    `json:"total_files"`
+	Bytes      int64  `json:"bytes"`
+	TotalBytes int64  `json:"total_bytes"`
+	StartedAt  int64  `json:"started_at"` // Unix ms
+}
