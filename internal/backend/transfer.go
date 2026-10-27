@@ -134,6 +134,9 @@ func (b *Backend) MoveSession(ctx context.Context, req proto.MoveSessionRequest)
 		}
 	}
 	if err != nil {
+		slog.Warn("Move refused by destination preflight", "session", sess.ID, "target", req.TargetNode, "on_conflict", req.OnConflict, "error", err)
+	}
+	if err != nil {
 		return proto.MoveSessionResponse{}, err
 	}
 

@@ -93,7 +93,7 @@ func (*MoveSession) ID() string { return MoveSessionID }
 
 // ShowConflict switches to the conflict prompt after a refused move.
 func (d *MoveSession) ShowConflict(node cluster.NodeDashboard, reason string) {
-	d.conflict, d.conflictNode = reason, node
+	d.conflict, d.conflictNode, d.moving = reason, node, false
 }
 
 // ShowError displays a failure without closing.
