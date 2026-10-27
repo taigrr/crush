@@ -92,12 +92,13 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 
 	dbPath := filepath.Join(dataDir, "crush.db")
 
-	// Resolve to an absolute path so that different relative paths to
-	// the same file share a single connection.
-	absPath, err := filepath.Abs(dbPath)
-	if err != nil {
-		absPath = dbPath
+	// The data directory must exist before its path can be canonicalized
+	// so every alias of the same file shares a single connection (and
+	// before the lock file inside it can be taken).
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return nil, fmt.Errorf("failed to create data directory %q: %w", dataDir, err)
 	}
+	absPath := poolKey(dataDir)
 
 	poolMu.Lock()
 	defer poolMu.Unlock()
@@ -115,10 +116,8 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 	// lives inside it. Locking is opt-in via WithDataDirLock so that
 	// local-mode invocations do not refuse a second crush against the
 	// same data dir until client/server becomes the default.
-	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return nil, fmt.Errorf("failed to create data directory %q: %w", dataDir, err)
-	}
 	var lock *dataDirLock
+	var err error
 	if cfg.lockDataDir && !skipDataDirLock() {
 		lock, err = acquireDataDirLock(dataDir)
 		if err != nil {
@@ -175,11 +174,7 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 // data directory. When the count reaches zero the underlying connection
 // is closed and removed from the pool.
 func Release(dataDir string) error {
-	dbPath := filepath.Join(dataDir, "crush.db")
-	absPath, err := filepath.Abs(dbPath)
-	if err != nil {
-		absPath = dbPath
-	}
+	absPath := poolKey(dataDir)
 
 	poolMu.Lock()
 	defer poolMu.Unlock()
@@ -223,4 +218,19 @@ func initGoose() error {
 	})
 
 	return gooseInitErr
+}
+
+// poolKey is the canonical path of dataDir's database, so every alias of
+// one data directory (relative paths, symlinked parents) shares a single
+// pooled connection and data-dir lock.
+func poolKey(dataDir string) string {
+	dbPath := filepath.Join(dataDir, "crush.db")
+	abs, err := filepath.Abs(dbPath)
+	if err != nil {
+		abs = dbPath
+	}
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(abs)); err == nil {
+		return filepath.Join(dir, filepath.Base(abs))
+	}
+	return abs
 }

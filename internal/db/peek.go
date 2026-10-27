@@ -86,10 +86,7 @@ func OpenWritable(dataDir string) (*sql.DB, error) {
 		}
 		return nil, err
 	}
-	absPath, err := filepath.Abs(dbPath)
-	if err != nil {
-		absPath = dbPath
-	}
+	absPath := poolKey(dataDir)
 
 	// Hold poolMu across the pool check AND the open so this cannot
 	// interleave with a concurrent Connect/Release for the same file.
