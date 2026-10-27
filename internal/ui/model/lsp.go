@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 	"github.com/taigrr/crush/internal/lsp"
@@ -24,16 +25,18 @@ type LSPInfo struct {
 // updates (the frequent case) carry everything needed and are applied in
 // place; a state change, or diagnostics for a client not seen yet, refreshes
 // the full state set since it may add or drop clients.
-func (m *UI) applyLSPEvent(ev workspace.LSPEvent) {
+func (m *UI) applyLSPEvent(ev workspace.LSPEvent) tea.Cmd {
 	if ev.Type == workspace.LSPEventDiagnosticsChanged {
 		if info, ok := m.lspStates[ev.Name]; ok {
 			info.DiagnosticCount = ev.DiagnosticCount
 			info.Diagnostics = ev.Diagnostics
 			m.lspStates[ev.Name] = info
-			return
+			return nil
 		}
 	}
-	m.lspStates = m.com.Workspace.LSPGetStates()
+	// Refetch off the Update goroutine; the result arrives as an
+	// lspStateChangedMsg.
+	return m.loadInitialLSPStates()
 }
 
 // lspInfo renders the LSP status section showing active LSP clients and their
