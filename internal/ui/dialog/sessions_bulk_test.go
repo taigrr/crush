@@ -368,3 +368,14 @@ func TestPicker_EscBeforeAsyncResultStaysNormal(t *testing.T) {
 	}
 	require.ElementsMatch(t, []string{"s1", "s3"}, remaining)
 }
+
+// SessionBatch composes the stub's ArchiveSession.
+func (w *pickerStubWorkspace) SessionBatch(ctx context.Context, _ string, targets []workspace.BatchTarget) []string {
+	var failed []string
+	for _, t := range targets {
+		if err := w.ArchiveSession(ctx, t.SessionID); err != nil {
+			failed = append(failed, t.SessionID)
+		}
+	}
+	return failed
+}

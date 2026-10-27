@@ -175,3 +175,20 @@ func TestArchiveSessionsCmd_CollectsAllFailures(t *testing.T) {
 	require.Equal(t, []string{"b"}, msg.failed)
 	require.Equal(t, []string{"a", "c"}, ws.archived) // both non-failing archived
 }
+
+// SessionBatch composes the stub's per-session methods.
+func (w *archiveStubWorkspace) SessionBatch(ctx context.Context, op string, targets []workspace.BatchTarget) []string {
+	var failed []string
+	for _, t := range targets {
+		var err error
+		if op == proto.SessionBatchArchive {
+			err = w.ArchiveSessionInWorkspace(ctx, t.WorkspaceID, t.Root, t.SessionID)
+		} else {
+			err = w.MarkSessionSeenInWorkspace(ctx, t.WorkspaceID, t.Root, t.SessionID)
+		}
+		if err != nil {
+			failed = append(failed, t.SessionID)
+		}
+	}
+	return failed
+}

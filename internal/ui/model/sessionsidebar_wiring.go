@@ -13,6 +13,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/ui/dialog"
 	"github.com/taigrr/crush/internal/ui/util"
+	"github.com/taigrr/crush/internal/workspace"
 )
 
 const sessionsSidebarWidthKey = "options.tui.sessions_sidebar_width"
@@ -330,15 +331,8 @@ type sessionsArchivedMsg struct {
 // archived IDs are dropped from the selection and only failures remain.
 func (m *UI) archiveSessionsCmd(targets []SessionTarget, survivorID string, skipped int) tea.Cmd {
 	return func() tea.Msg {
-		succeeded := 0
-		var failed []string
-		for _, t := range targets {
-			if err := m.com.Workspace.ArchiveSessionInWorkspace(context.Background(), t.WorkspaceID, t.Root, t.ID); err != nil {
-				failed = append(failed, t.ID)
-				continue
-			}
-			succeeded++
-		}
+		failed := m.com.Workspace.SessionBatch(context.Background(), proto.SessionBatchArchive, batchTargets(targets))
+		succeeded := len(targets) - len(failed)
 		overviews, err := m.com.Workspace.ListWorkspaceOverviews(context.Background())
 		if err != nil {
 			// Refresh failed, but archives may have succeeded: still report
@@ -389,15 +383,8 @@ type sessionsMarkedReadMsg struct {
 // overviews if the refresh failed).
 func (m *UI) markSessionsReadCmd(targets []SessionTarget) tea.Cmd {
 	return func() tea.Msg {
-		succeeded := 0
-		var failed []string
-		for _, t := range targets {
-			if err := m.com.Workspace.MarkSessionSeenInWorkspace(context.Background(), t.WorkspaceID, t.Root, t.ID); err != nil {
-				failed = append(failed, t.ID)
-				continue
-			}
-			succeeded++
-		}
+		failed := m.com.Workspace.SessionBatch(context.Background(), proto.SessionBatchSeen, batchTargets(targets))
+		succeeded := len(targets) - len(failed)
 		overviews, err := m.com.Workspace.ListWorkspaceOverviews(context.Background())
 		if err != nil {
 			return sessionsMarkedReadMsg{
@@ -662,4 +649,13 @@ func (m *UI) resizeLeftSidebar(delta int) tea.Cmd {
 		}
 		return nil
 	}
+}
+
+// batchTargets converts sidebar targets for a session batch request.
+func batchTargets(targets []SessionTarget) []workspace.BatchTarget {
+	out := make([]workspace.BatchTarget, len(targets))
+	for i, t := range targets {
+		out[i] = workspace.BatchTarget{WorkspaceID: t.WorkspaceID, Root: t.Root, SessionID: t.ID}
+	}
+	return out
 }
