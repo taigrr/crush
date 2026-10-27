@@ -428,6 +428,14 @@ var clusterInstallServiceCmd = &cobra.Command{
 			exe = resolved
 		}
 		args := []string{"server", "--persistent"}
+		if serviceShell(cmd) == "" {
+			envPath := daemonEnvPath()
+			if err := writeDaemonEnv(envPath); err != nil {
+				return fmt.Errorf("snapshot environment: %w", err)
+			}
+			args = append(args, "--env-file", envPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "Saved your shell environment to %s (re-run install-service after changing it).\n", envPath)
+		}
 		if clientHost != server.DefaultHost() {
 			args = append(args, "--host", clientHost)
 		}
@@ -447,6 +455,7 @@ var clusterInstallServiceCmd = &cobra.Command{
 			Args:       args,
 			LogDir:     filepath.Join(config.GlobalCacheDir(), "daemon"),
 			Env:        env,
+			Shell:      serviceShell(cmd),
 		})
 		if err != nil {
 			return fmt.Errorf("install service (%s): %w", path, err)
@@ -718,4 +727,22 @@ func init() {
 	clusterMigrateCmd.Flags().Bool("no-resume", false, "Do not resume paused turns on their destinations")
 	clusterMigrateCmd.Flags().String("on-conflict", "", "When a destination has different files: backup or keep")
 	clusterCmd.AddCommand(clusterMigrateCmd)
+}
+
+// serviceShell returns the login shell to launch the daemon through when
+// --login-shell is set. By default the daemon instead loads a snapshot of
+// the installing shell's environment (see writeDaemonEnv), because many
+// interactive dotfiles (tmux auto-attach, prompts) fail without a TTY.
+func serviceShell(cmd *cobra.Command) string {
+	if on, _ := cmd.Flags().GetBool("login-shell"); !on {
+		return ""
+	}
+	if sh := os.Getenv("SHELL"); sh != "" && filepath.IsAbs(sh) {
+		return sh
+	}
+	return ""
+}
+
+func init() {
+	clusterInstallServiceCmd.Flags().Bool("login-shell", false, "Launch the server through your interactive login shell instead of an environment snapshot")
 }

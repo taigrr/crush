@@ -26,6 +26,11 @@ type ServiceSpec struct {
 	LogDir string
 	// Env is extra environment for the daemon (KEY=VALUE).
 	Env []string
+	// Shell, when set, launches the daemon through this login shell
+	// (`<shell> -l -i -c "exec ..."`) so the variables the user exports
+	// in their dotfiles (API keys, AWS profiles, MCP tokens) are present,
+	// exactly as when the server is started from a terminal.
+	Shell string
 }
 
 var launchdTmpl = template.Must(template.New("plist").Parse(`<?xml version="1.0" encoding="UTF-8"?>
@@ -124,11 +129,12 @@ func LaunchdPlist(spec ServiceSpec) (string, error) {
 	for i := range env {
 		env[i] = kv{xmlEscape(env[i].K), xmlEscape(env[i].V)}
 	}
+	exe, args := spec.command()
 	var b bytes.Buffer
 	err := launchdTmpl.Execute(&b, map[string]any{
 		"Label":  ServiceLabel,
-		"Exe":    xmlEscape(spec.Executable),
-		"Args":   esc(spec.Args),
+		"Exe":    xmlEscape(exe),
+		"Args":   esc(args),
 		"Env":    env,
 		"LogDir": xmlEscape(spec.LogDir),
 	})
@@ -145,8 +151,9 @@ func systemdQuote(s string) string {
 
 // SystemdUnit renders the systemd user unit for spec.
 func SystemdUnit(spec ServiceSpec) (string, error) {
-	parts := []string{systemdQuote(spec.Executable)}
-	for _, a := range spec.Args {
+	exe, args := spec.command()
+	parts := []string{systemdQuote(exe)}
+	for _, a := range args {
 		parts = append(parts, systemdQuote(a))
 	}
 	var b bytes.Buffer
@@ -272,4 +279,21 @@ func ServiceInstalled() bool {
 	}
 	_, err = os.Stat(path)
 	return err == nil
+}
+
+// shellQuote single-quotes s for a POSIX shell.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// command returns the argv the service manager runs.
+func (spec ServiceSpec) command() (string, []string) {
+	if spec.Shell == "" {
+		return spec.Executable, spec.Args
+	}
+	parts := []string{"exec", shellQuote(spec.Executable)}
+	for _, a := range spec.Args {
+		parts = append(parts, shellQuote(a))
+	}
+	return spec.Shell, []string{"-l", "-i", "-c", strings.Join(parts, " ")}
 }

@@ -28,6 +28,7 @@ var (
 	serverPersistent  bool
 	serverClusterAddr string
 	serverMeshAddr    string
+	serverEnvFile     string
 )
 
 func init() {
@@ -35,6 +36,7 @@ func init() {
 	serverCmd.Flags().BoolVar(&serverPersistent, "persistent", false, "Keep running after the last workspace closes (daemon mode)")
 	serverCmd.Flags().StringVar(&serverClusterAddr, "cluster-addr", fmt.Sprintf(":%d", cluster.DefaultPort), "Address for the cluster listener (used once this node joins a cluster)")
 	serverCmd.Flags().StringVar(&serverMeshAddr, "mesh-addr", fmt.Sprintf(":%d", cluster.DefaultRoutePort), "Address for the cluster NATS mesh routes")
+	serverCmd.Flags().StringVar(&serverEnvFile, "env-file", "", "Load environment variables from this JSON snapshot before starting (written by `crush cluster install-service`)")
 	rootCmd.AddCommand(serverCmd)
 }
 
@@ -65,6 +67,11 @@ var serverCmd = &cobra.Command{
 	Use:   "server",
 	Short: "Start the Crush server",
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		if serverEnvFile != "" {
+			if err := loadDaemonEnv(serverEnvFile); err != nil {
+				return fmt.Errorf("load environment: %w", err)
+			}
+		}
 		dataDir, err := cmd.Flags().GetString("data-dir")
 		if err != nil {
 			return fmt.Errorf("failed to get data directory: %v", err)
