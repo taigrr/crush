@@ -74,6 +74,9 @@ type Server struct {
 	clusterAddr string
 	meshAddr    string
 
+	// credsPath overrides the synced credentials file (tests).
+	credsPath string
+
 	meshMu sync.Mutex
 	mesh   *cluster.Mesh
 	bridge *meshBridge

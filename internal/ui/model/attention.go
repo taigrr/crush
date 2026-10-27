@@ -21,6 +21,9 @@ func (m *UI) handleAttentionEvent(ev proto.AttentionEvent) tea.Cmd {
 	if ev.Kind == proto.AttentionClusterJoin {
 		return m.handleClusterJoinAttention(ev)
 	}
+	if ev.Kind == proto.AttentionOverviews {
+		return m.loadWorkspaceOverviews()
+	}
 	var cmds []tea.Cmd
 	switch ev.Kind {
 	case proto.AttentionBlockedPermission, proto.AttentionBlockedQuestion:

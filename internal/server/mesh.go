@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"reflect"
 	"sync"
 	"time"
 
@@ -40,6 +42,7 @@ type meshBridge struct {
 	backend *backend.Backend
 	subs    []*nats.Subscription
 	tel     *telemetry
+	view    remoteView
 	repl    *replicator
 	creds   *credsSync
 }
@@ -149,35 +152,117 @@ func (m *meshBridge) SwarmSend(ctx context.Context, target backend.SwarmLookupRe
 }
 
 func (m *meshBridge) RemoteOverviews(ctx context.Context) []proto.WorkspaceOverview {
+	return m.view.get(ctx, m)
+}
+
+// remoteViewTTL is how long a node's overviews are served before a
+// background refresh; attention events from a node refresh it at once.
+const remoteViewTTL = 5 * time.Second
+
+// firstLoadWait bounds how long the very first overview request waits for
+// nodes this server has never heard from. After that, requests never wait
+// on the network.
+const firstLoadWait = time.Second
+
+type nodeView struct {
+	ovs     []proto.WorkspaceOverview
+	at      time.Time
+	ok      bool
+	tried   bool
+	stale   bool
+	loading bool
+}
+
+// remoteView caches every other node's workspace overviews so listing
+// sessions answers from memory. Stale entries refresh in the background
+// and a change pings attached TUIs to re-read.
+type remoteView struct {
+	mu    sync.Mutex
+	nodes map[string]*nodeView
+}
+
+func (v *remoteView) get(ctx context.Context, m *meshBridge) []proto.WorkspaceOverview {
 	members := m.node.Members()
-	var (
-		mu  sync.Mutex
-		wg  sync.WaitGroup
-		out = make([][]proto.WorkspaceOverview, len(members))
-	)
-	for i, mem := range members {
-		wg.Go(func() {
-			cctx, cancel := context.WithTimeout(ctx, overviewTimeout)
-			defer cancel()
-			var ovs []proto.WorkspaceOverview
-			if err := m.node.CallAPI(cctx, mem, http.MethodGet, "/v1/workspace-overviews?local=1", &ovs); err != nil {
-				slog.Debug("Failed to fetch remote overviews", "node", mem.Name, "error", err)
-				return
-			}
-			for j := range ovs {
-				ovs[j].NodeID, ovs[j].NodeName = mem.NodeID, mem.Name
-			}
-			mu.Lock()
-			out[i] = ovs
-			mu.Unlock()
-		})
+	var firstLoad []chan struct{}
+	v.mu.Lock()
+	if v.nodes == nil {
+		v.nodes = map[string]*nodeView{}
 	}
-	wg.Wait()
-	var flat []proto.WorkspaceOverview
-	for _, o := range out {
-		flat = append(flat, o...)
+	for _, mem := range members {
+		nv := v.nodes[mem.NodeID]
+		if nv == nil {
+			nv = &nodeView{}
+			v.nodes[mem.NodeID] = nv
+		}
+		if nv.loading || (nv.tried && !nv.stale && time.Since(nv.at) < remoteViewTTL) {
+			continue
+		}
+		nv.loading = true
+		done := make(chan struct{})
+		if !nv.tried {
+			firstLoad = append(firstLoad, done)
+		}
+		go v.refresh(m, mem, done)
 	}
-	return flat
+	v.mu.Unlock()
+
+	if len(firstLoad) > 0 {
+		timer := time.NewTimer(firstLoadWait)
+		for _, done := range firstLoad {
+			select {
+			case <-done:
+			case <-timer.C:
+			case <-ctx.Done():
+			}
+		}
+		timer.Stop()
+	}
+
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	var out []proto.WorkspaceOverview
+	for _, mem := range members {
+		if nv := v.nodes[mem.NodeID]; nv != nil && nv.ok {
+			out = append(out, nv.ovs...)
+		}
+	}
+	return out
+}
+
+func (v *remoteView) refresh(m *meshBridge, mem cluster.Member, done chan struct{}) {
+	defer close(done)
+	ctx, cancel := context.WithTimeout(context.Background(), overviewTimeout)
+	defer cancel()
+	var ovs []proto.WorkspaceOverview
+	err := m.node.CallAPI(ctx, mem, http.MethodGet, "/v1/workspace-overviews?local=1", &ovs)
+	for j := range ovs {
+		ovs[j].NodeID, ovs[j].NodeName = mem.NodeID, mem.Name
+	}
+	v.mu.Lock()
+	nv := v.nodes[mem.NodeID]
+	nv.loading, nv.tried, nv.stale = false, true, false
+	changed := false
+	if err != nil {
+		slog.Debug("Failed to fetch remote overviews", "node", mem.Name, "error", err)
+		changed = nv.ok
+		nv.ok = false
+	} else {
+		changed = !nv.ok || !reflect.DeepEqual(nv.ovs, ovs)
+		nv.ovs, nv.ok, nv.at = ovs, true, time.Now()
+	}
+	v.mu.Unlock()
+	if changed {
+		m.backend.PublishOverviewsChanged()
+	}
+}
+
+// markStale makes the next read refresh nodeID's overviews.
+func (v *remoteView) markStale(nodeID string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if nv := v.nodes[nodeID]; nv != nil {
+		nv.stale = true
+	}
 }
 
 // subscribe installs the handlers that answer other nodes.
@@ -187,6 +272,8 @@ func (m *meshBridge) subscribe() error {
 		subjAttention: func(msg *nats.Msg) {
 			var ev proto.AttentionEvent
 			if json.Unmarshal(msg.Data, &ev) == nil && ev.NodeID != self {
+				// Busy/idle and prompts change that node's session list.
+				m.view.markStale(ev.NodeID)
 				m.backend.IngestRemoteAttention(ev)
 			}
 		},
@@ -271,7 +358,7 @@ func (s *Server) startMesh() error {
 		mesh.Close()
 		return err
 	}
-	br.creds = newCredsSync(br, config.GlobalConfigData())
+	br.creds = newCredsSync(br, cmp.Or(s.credsPath, config.GlobalConfigData()))
 	if err := br.creds.start(); err != nil {
 		br.close()
 		mesh.Close()

@@ -253,3 +253,12 @@ func (b *Backend) ReloadAllConfigs() {
 		}
 	}
 }
+
+// PublishOverviewsChanged tells local clients the cluster session list
+// changed. It is local-only: every node maintains its own view.
+func (b *Backend) PublishOverviewsChanged() {
+	if b == nil || b.attention == nil {
+		return
+	}
+	b.attention.Publish(pubsub.CreatedEvent, proto.AttentionEvent{Kind: proto.AttentionOverviews, NodeID: b.selfNodeID()})
+}

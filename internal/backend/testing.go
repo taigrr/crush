@@ -1,6 +1,10 @@
 package backend
 
-import "context"
+import (
+	"context"
+
+	"github.com/taigrr/crush/internal/registry"
+)
 
 // InsertWorkspaceForTest registers ws with b under its current ID and
 // path. It is intended for tests in other packages that need to drive
@@ -66,4 +70,10 @@ func WorkspaceLiveStreamCountForTest(ws *Workspace) int {
 		}
 	}
 	return n
+}
+
+// SetRegistryPathForTest points the workspace registry at path so tests
+// never read or write the real user registry.
+func (b *Backend) SetRegistryPathForTest(path string) {
+	b.registry = registry.NewWithPath(path)
 }

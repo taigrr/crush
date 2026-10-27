@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -19,6 +20,9 @@ func newClusterTestServer(t *testing.T) (*Server, *client.Client) {
 	t.Helper()
 	srv := &Server{}
 	srv.backend = backend.New(t.Context(), nil, func() {})
+	// Never touch the real user registry or credentials.
+	srv.backend.SetRegistryPathForTest(filepath.Join(t.TempDir(), "workspaces.jsonl"))
+	srv.credsPath = filepath.Join(t.TempDir(), "crush.json")
 	srv.installHandler()
 	hs := httptest.NewServer(srv.Handler())
 	t.Cleanup(hs.Close)
@@ -227,4 +231,26 @@ func TestClusterMoveRefusesSecondOwner(t *testing.T) {
 	got, err := ac.GetSession(ctx, ws.ID, sess.ID)
 	require.NoError(t, err)
 	require.Equal(t, "offload me", got.Title)
+}
+
+func TestRemoteViewAnswersFromMemoryAfterFirstLoad(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	a, ac := newClusterTestServer(t)
+	b, bc := newClusterTestServer(t)
+	pairServers(t, ctx, a, b, ac, bc)
+
+	// First load may wait (bounded); later loads answer from cache even
+	// when the peer is slow or gone.
+	start := time.Now()
+	_, err := ac.ListWorkspaceOverviews(ctx)
+	require.NoError(t, err)
+	require.Less(t, time.Since(start), firstLoadWait+2*time.Second)
+
+	require.NoError(t, b.cluster.Stop(ctx)) // peer API unreachable now
+	start = time.Now()
+	_, err = ac.ListWorkspaceOverviews(ctx)
+	require.NoError(t, err)
+	require.Less(t, time.Since(start), 300*time.Millisecond, "cached view must not wait on the network")
 }

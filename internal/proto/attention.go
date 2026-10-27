@@ -22,6 +22,9 @@ const (
 	// awaits approval. Detail carries the node name; ToolCallID the
 	// join request ID. Not tied to a workspace or session.
 	AttentionClusterJoin AttentionKind = "cluster_join"
+	// AttentionOverviews: the cluster-wide session list changed (a remote
+	// node's sessions were refreshed); clients should re-read overviews.
+	AttentionOverviews AttentionKind = "overviews"
 )
 
 // AttentionEvent is a narrow, cross-workspace signal published on the
