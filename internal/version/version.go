@@ -28,6 +28,13 @@ func init() {
 		mainVersion := info.Main.Version
 		if mainVersion != "" && mainVersion != "(devel)" {
 			Version = mainVersion
+			// A `go install module@tag` build carries the module checksum,
+			// identical for every copy of that release. Prefer it over the
+			// file mtime so two installs of one release (or a reinstall)
+			// are not seen as different builds.
+			if BuildID == "" && info.Main.Sum != "" {
+				BuildID = info.Main.Sum
+			}
 		}
 	}
 

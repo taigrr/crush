@@ -19,6 +19,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/server"
 	"github.com/taigrr/crush/internal/transfer"
+	"github.com/taigrr/crush/internal/update"
 )
 
 var clusterCmd = &cobra.Command{
@@ -480,6 +481,9 @@ var clusterInstallServiceCmd = &cobra.Command{
 			exe = resolved
 		}
 		unreachableXDGForLaunchd(cmd.ErrOrStderr())
+		if runtime.GOOS == "darwin" && strings.HasPrefix(exe, "/Volumes/") {
+			return fmt.Errorf("%s is on an external volume, which launchd agents cannot run without privacy approval; install crush on the internal disk (for example `go env -w GOBIN=$HOME/.local/bin && go install %s@latest`), then run `$HOME/.local/bin/crush cluster install-service`", exe, update.ModulePath)
+		}
 		args := []string{"server", "--persistent"}
 		if serviceShell(cmd) == "" {
 			envPath := daemonEnvPath()

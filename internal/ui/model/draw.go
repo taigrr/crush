@@ -257,6 +257,11 @@ func (m *UI) renderVersionMismatchBanner() string {
 		"",
 		"Please quit (ctrl+c) and restart crush to reconnect.",
 	}
+	if serverVer == version.Version {
+		lines[2] = "The crush server is running a different build of this version."
+		lines[7] = "The binary was reinstalled, or the server runs another copy"
+		lines[8] = "of crush (check `which -a crush` and the service's binary)."
+	}
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("9")).
