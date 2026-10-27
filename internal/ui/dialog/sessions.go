@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/help"
@@ -102,17 +103,25 @@ func NewSessions(com *common.Common, selectedSessionID string) (*Session, error)
 	s.archivedStartIndex = -1
 	s.activeSessionID = selectedSessionID
 
+	// Fetch active and archived sessions concurrently: on a remote
+	// workspace each is a network round trip.
+	var (
+		archivedSessions []session.Session
+		wg               sync.WaitGroup
+	)
+	wg.Go(func() {
+		var aerr error
+		if archivedSessions, aerr = com.Workspace.ListArchivedSessions(context.TODO()); aerr != nil {
+			// Non-fatal: just show active sessions
+			archivedSessions = nil
+		}
+	})
 	sessions, err := com.Workspace.ListSessions(context.TODO())
+	wg.Wait()
 	if err != nil {
 		return nil, err
 	}
 	s.sessions = sessions
-
-	archivedSessions, err := com.Workspace.ListArchivedSessions(context.TODO())
-	if err != nil {
-		// Non-fatal: just show active sessions
-		archivedSessions = nil
-	}
 	s.archivedSessions = archivedSessions
 
 	for i, sess := range sessions {
