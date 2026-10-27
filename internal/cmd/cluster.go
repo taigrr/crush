@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -453,7 +454,7 @@ var clusterInstallServiceCmd = &cobra.Command{
 		path, err := cluster.InstallService(cmd.Context(), cluster.ServiceSpec{
 			Executable: exe,
 			Args:       args,
-			LogDir:     filepath.Join(config.GlobalCacheDir(), "daemon"),
+			LogDir:     serviceLogDir(),
 			Env:        env,
 			Shell:      serviceShell(cmd),
 		})
@@ -467,7 +468,7 @@ var clusterInstallServiceCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
 		defer cancel()
 		if err := waitForServerReady(ctx, hostURL); err != nil {
-			return fmt.Errorf("service installed but not answering yet (see %s): %w", filepath.Join(config.GlobalCacheDir(), "daemon"), err)
+			return fmt.Errorf("service installed but not answering yet (see %s): %w", serviceLogDir(), err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Installed and started %s.\n", path)
 		return nil
@@ -754,4 +755,17 @@ func serviceShell(cmd *cobra.Command) string {
 
 func init() {
 	clusterInstallServiceCmd.Flags().Bool("login-shell", false, "Launch the server through your interactive login shell instead of an environment snapshot")
+}
+
+// serviceLogDir is where the daemon writes stdout/stderr. On macOS this
+// is ~/Library/Logs/Crush: launchd refuses to start an agent whose log
+// paths live on a volume it cannot reach at login (an external XDG cache,
+// for example), failing with EX_CONFIG.
+func serviceLogDir() string {
+	if runtime.GOOS == "darwin" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, "Library", "Logs", "Crush")
+		}
+	}
+	return filepath.Join(config.GlobalCacheDir(), "daemon")
 }

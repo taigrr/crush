@@ -801,7 +801,7 @@ func waitForService(cmd *cobra.Command, hostURL *url.URL) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
 	defer cancel()
 	if err := waitForServerReady(ctx, hostURL); err != nil {
-		return fmt.Errorf("the background service did not come up (see %s): %w", filepath.Join(config.GlobalCacheDir(), "daemon"), err)
+		return fmt.Errorf("the background service did not come up (see %s): %w", serviceLogDir(), err)
 	}
 	return nil
 }
