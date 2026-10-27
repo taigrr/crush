@@ -56,14 +56,15 @@ func (m *UI) imageConfig() *chat.ImageConfig {
 func (m *UI) toggleCompactMode() tea.Cmd {
 	m.forceCompactMode = !m.forceCompactMode
 
-	err := m.com.Workspace.SetCompactMode(config.ScopeGlobal, m.forceCompactMode)
-	if err != nil {
-		return util.ReportError(err)
-	}
-
+	// Apply locally now; persist in the background.
 	m.updateLayoutAndSize()
-
-	return nil
+	ws, compact := m.com.Workspace, m.forceCompactMode
+	return func() tea.Msg {
+		if err := ws.SetCompactMode(config.ScopeGlobal, compact); err != nil {
+			return util.ReportError(err)()
+		}
+		return nil
+	}
 }
 
 // updateLayoutAndSize updates the layout and sizes of UI components.

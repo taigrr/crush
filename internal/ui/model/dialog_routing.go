@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	fimage "github.com/taigrr/crush/internal/ui/image"
+	"github.com/taigrr/crush/internal/workspace"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/taigrr/crush/internal/config"
@@ -165,11 +166,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		cfg := m.com.Config()
 		if cfg != nil && cfg.Options != nil {
 			cfg.Options.NotificationStyle = msg.Style
-			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "options.notification_style", msg.Style); err != nil {
-				cmds = append(cmds, util.ReportError(err))
-			} else {
-				cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Notifications set to: "+msg.Style)))
-			}
+			cmds = append(cmds, m.persistConfig(func(ws workspace.Workspace) error {
+				return ws.SetConfigField(config.ScopeGlobal, "options.notification_style", msg.Style)
+			}, "Notifications set to: "+msg.Style))
 			// Reinitialize notification backend with new style.
 			m.notifyBackend = selectNotificationBackend(m.caps, cfg)
 		}
@@ -179,14 +178,13 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		if cfg != nil {
 			if msg.Choice.Provider == "" && msg.Choice.Model == "" {
 				// Disable embeddings: remove the field entirely.
-				changed := cfg.Embedding != nil
-				if err := m.com.Workspace.RemoveConfigField(config.ScopeGlobal, "embedding"); err != nil {
-					cmds = append(cmds, util.ReportError(err))
-				} else if changed {
-					cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Embeddings disabled (substring search only)")))
-				} else {
-					cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("Embeddings already disabled")))
+				note := "Embeddings already disabled"
+				if cfg.Embedding != nil {
+					note = "Embeddings disabled (substring search only)"
 				}
+				cmds = append(cmds, m.persistConfig(func(ws workspace.Workspace) error {
+					return ws.RemoveConfigField(config.ScopeGlobal, "embedding")
+				}, note))
 			} else {
 				ec := &config.EmbeddingConfig{
 					Provider:   msg.Choice.Provider,
@@ -194,14 +192,13 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 					Dimensions: msg.Choice.Dimensions,
 					Normalize:  true,
 				}
-				changed := cfg.Embedding.Signature() != ec.Signature()
-				if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, "embedding", ec); err != nil {
-					cmds = append(cmds, util.ReportError(err))
-				} else if changed {
-					cmds = append(cmds, util.CmdHandler(util.NewInfoMsg(fmt.Sprintf("Embedding model set to %s/%s (applies on restart)", ec.Provider, ec.Model))))
-				} else {
-					cmds = append(cmds, util.CmdHandler(util.NewInfoMsg("No change to embedding model")))
+				note := "No change to embedding model"
+				if cfg.Embedding.Signature() != ec.Signature() {
+					note = fmt.Sprintf("Embedding model set to %s/%s (applies on restart)", ec.Provider, ec.Model)
 				}
+				cmds = append(cmds, m.persistConfig(func(ws workspace.Workspace) error {
+					return ws.SetConfigField(config.ScopeGlobal, "embedding", ec)
+				}, note))
 			}
 		}
 		m.dialog.CloseDialog(dialog.EmbeddingsID)
@@ -466,17 +463,17 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 
 		currentModel := cfg.Models[agentCfg.Model]
 		currentModel.ReasoningEffort = msg.Effort
-		if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, agentCfg.Model, currentModel); err != nil {
-			cmds = append(cmds, util.ReportError(err))
-			break
-		}
 
 		// If the agent is busy the server queues the live apply until it
 		// finishes (see app.UpdateAgentModel -> UpdateModelsWhenIdle), so
 		// fire the RPC regardless and tell the user when it will take effect.
 		queued := m.isWorkspaceBusy()
+		ws, modelType := m.com.Workspace, agentCfg.Model
 		cmds = append(cmds, func() tea.Msg {
-			m.com.Workspace.UpdateAgentModel(context.TODO())
+			if err := ws.UpdatePreferredModel(config.ScopeGlobal, modelType, currentModel); err != nil {
+				return util.ReportError(err)()
+			}
+			ws.UpdateAgentModel(context.TODO())
 			if queued {
 				return util.NewInfoMsg("Reasoning effort change queued; applies when the agent finishes")
 			}
@@ -511,14 +508,21 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			delete(m.pendingPermissions, msg.Permission.SessionID)
 			m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
 		}
-		switch msg.Action {
-		case dialog.PermissionAllow:
-			m.com.Workspace.PermissionGrant(msg.Permission)
-		case dialog.PermissionAllowForSession:
-			m.com.Workspace.PermissionGrantPersistent(msg.Permission)
-		case dialog.PermissionDeny:
-			m.com.Workspace.PermissionDeny(msg.Permission)
-		}
+		// Resolve off the Update goroutine: the dialog is already closed
+		// and the pending entry cleared, so the UI never waits on the
+		// (possibly remote) server.
+		ws, perm, action := m.com.Workspace, msg.Permission, msg.Action
+		cmds = append(cmds, func() tea.Msg {
+			switch action {
+			case dialog.PermissionAllow:
+				ws.PermissionGrant(perm)
+			case dialog.PermissionAllowForSession:
+				ws.PermissionGrantPersistent(perm)
+			case dialog.PermissionDeny:
+				ws.PermissionDeny(perm)
+			}
+			return nil
+		})
 
 	case dialog.ActionQuestionResponse:
 		m.dialog.CloseDialog(dialog.QuestionID)
@@ -527,7 +531,11 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			delete(m.pendingQuestions, msg.Request.SessionID)
 			m.leftSidebar.SetPendingSessions(m.pendingSessionIDs())
 		}
-		m.com.Workspace.QuestionAnswer(msg.Answer)
+		ws, ans := m.com.Workspace, msg.Answer
+		cmds = append(cmds, func() tea.Msg {
+			ws.QuestionAnswer(ans)
+			return nil
+		})
 
 	case dialog.ActionFilePickerSelected:
 		cmds = append(cmds, tea.Sequence(
@@ -588,4 +596,17 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 	}
 
 	return tea.Batch(cmds...)
+}
+
+// persistConfig saves a config change off the Update goroutine (it is a
+// server round trip, possibly remote) and reports note on success. The
+// in-memory config was already updated optimistically by the caller.
+func (m *UI) persistConfig(save func(workspace.Workspace) error, note string) tea.Cmd {
+	ws := m.com.Workspace
+	return func() tea.Msg {
+		if err := save(ws); err != nil {
+			return util.ReportError(err)()
+		}
+		return util.NewInfoMsg(note)
+	}
 }

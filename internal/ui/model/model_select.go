@@ -115,34 +115,45 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		return tea.Batch(cmds...)
 	}
 
-	if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, msg.ModelType, msg.Model); err != nil {
-		cmds = append(cmds, util.ReportError(err))
-	} else {
-		if msg.ModelType == config.SelectedModelTypeLarge {
-			// Swap the theme live based on the newly selected large model's
-			// provider, unless the user has pinned an explicit theme.
-			var themeName string
-			if cfg.Options != nil && cfg.Options.TUI != nil {
-				themeName = cfg.Options.TUI.Theme
-			}
-			if themeName == "" {
-				m.applyTheme(themes.ThemeForProvider(providerID, m.hasDarkBackground))
-			}
+	if msg.ModelType == config.SelectedModelTypeLarge {
+		// Swap the theme live based on the newly selected large model's
+		// provider, unless the user has pinned an explicit theme.
+		var themeName string
+		if cfg.Options != nil && cfg.Options.TUI != nil {
+			themeName = cfg.Options.TUI.Theme
 		}
-		if _, ok := cfg.Models[config.SelectedModelTypeSmall]; !ok && msg.ModelType == config.SelectedModelTypeLarge {
-			// Ensure small is set when large is chosen and small is unset;
-			// setting worker or a custom role must not pick small from that
-			// role's provider.
-			smallModel := m.com.Workspace.GetDefaultSmallModel(providerID)
-			if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, config.SelectedModelTypeSmall, smallModel); err != nil {
-				cmds = append(cmds, util.ReportError(err))
-			}
+		if themeName == "" {
+			m.applyTheme(themes.ThemeForProvider(providerID, m.hasDarkBackground))
 		}
 	}
-
+	// Persist and apply the choice off the Update goroutine: each step is
+	// a server round trip, which may cross the network.
+	needSmall := false
+	if _, ok := cfg.Models[config.SelectedModelTypeSmall]; !ok && msg.ModelType == config.SelectedModelTypeLarge {
+		// Ensure small is set when large is chosen and small is unset;
+		// setting worker or a custom role must not pick small from that
+		// role's provider.
+		needSmall = true
+	}
+	ws := m.com.Workspace
 	cmds = append(cmds, func() tea.Msg {
-		if err := m.com.Workspace.UpdateAgentModel(context.TODO()); err != nil {
-			return util.ReportError(err)
+		if err := ws.UpdatePreferredModel(config.ScopeGlobal, msg.ModelType, msg.Model); err != nil {
+			return util.ReportError(err)()
+		}
+		if needSmall {
+			smallModel := ws.GetDefaultSmallModel(providerID)
+			if err := ws.UpdatePreferredModel(config.ScopeGlobal, config.SelectedModelTypeSmall, smallModel); err != nil {
+				return util.ReportError(err)()
+			}
+		}
+		if err := ws.UpdateAgentModel(context.TODO()); err != nil {
+			return util.ReportError(err)()
+		}
+		if isOnboarding {
+			// After the model is persisted, so the agent starts on it.
+			if err := ws.InitCoderAgent(context.TODO()); err != nil {
+				return util.ReportError(err)()
+			}
 		}
 
 		var (
@@ -152,9 +163,7 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 		if catwalkModel := cfg.GetModel(msg.Model.Provider, msg.Model.Model); catwalkModel != nil && catwalkModel.Name != "" {
 			modelName = catwalkModel.Name
 		}
-		modelMsg := fmt.Sprintf("%s model changed to %s", modelType, modelName)
-
-		return util.NewInfoMsg(modelMsg)
+		return util.NewInfoMsg(fmt.Sprintf("%s model changed to %s", modelType, modelName))
 	})
 
 	m.dialog.CloseDialog(dialog.APIKeyInputID)
@@ -164,9 +173,6 @@ func (m *UI) handleSelectModel(msg dialog.ActionSelectModel) tea.Cmd {
 	if isOnboarding {
 		m.setState(uiLanding, uiFocusEditor)
 		m.com.Config().SetupAgents()
-		if err := m.com.Workspace.InitCoderAgent(context.TODO()); err != nil {
-			cmds = append(cmds, util.ReportError(err))
-		}
 	} else if m.com.IsHyper() {
 		cmds = append(cmds, m.fetchHyperCredits())
 	}
