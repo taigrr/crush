@@ -246,3 +246,25 @@ replicates an edit back, and moves the session home.
 - Sessions of the same project owned by different nodes live in separate
   working copies; merging their file changes is a git task.
 - Join prompts only reach TUIs connected when the request arrives.
+
+## Event stream wire format
+
+TUIs subscribe to a workspace's events over SSE. Clients ask for
+`wire=2`; servers that predate it keep sending wire 1 (full events),
+which wire 2 clients still decode.
+
+- **Deltas:** a streamed message is sent in full when it first appears,
+  after any change that is not a pure append (a finished tool call, a
+  new part), and every 1000 deltas; otherwise only appended text is
+  sent (`message_delta`, with each field's prior length so a diverged
+  client drops the delta and waits for the next full message).
+- **Frames:** clients of remote nodes add `frame_ms=50`, merging
+  per-message updates into at most one per frame. Other events flush
+  pending updates first, so ordering is preserved.
+- **Compression:** wire 2 streams are gzipped when the request accepts
+  it. Go's transport asks for gzip on the cluster hop and decompresses
+  transparently; the local unix-socket client disables it.
+
+For a typical 8.5 KB answer streamed token by token, wire 1 sends 7.9 MB;
+wire 2 sends 284 KB, 70 KB with frames, and 11 KB with frames and gzip
+(`CRUSH_WIRE_REPORT=1 go test ./internal/server -run TestWireFormatReport -v`).

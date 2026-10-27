@@ -1,13 +1,16 @@
 package server
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/backend"
@@ -280,19 +283,91 @@ func (c *controllerV1) handleGetWorkspaceEvents(w http.ResponseWriter, r *http.R
 
 	c.server.logInfo(r, "SSE stream opened", slog.String("workspace_id", id))
 
+	opts := parseStreamOptions(r.URL.Query())
+	enc := newStreamEncoder(opts)
+	var frames <-chan time.Time
+	if opts.frame > 0 {
+		t := time.NewTicker(opts.frame)
+		defer t.Stop()
+		frames = t.C
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Crush-Wire", strconv.Itoa(opts.wire))
+	// Compress wire 2 streams when the peer accepts it. Go's transport
+	// asks for gzip on its own across TCP (the cluster proxy hop), while
+	// the local client disables compression on the unix socket, so only
+	// the network leg pays the CPU.
+	var out io.Writer = w
+	var zw *gzip.Writer
+	if opts.wire >= 2 && strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Del("Content-Length")
+		zw, _ = gzip.NewWriterLevel(w, gzip.BestSpeed)
+		defer zw.Close()
+		out = zw
+	}
 	// Flush headers immediately so clients see the 200 response
 	// before any events arrive. Without this, a quiet workspace
 	// keeps the client's SubscribeEvents call blocked on the
 	// initial RoundTrip.
 	w.WriteHeader(http.StatusOK)
+	if zw != nil {
+		// Emit the gzip header now: readers block on it before the first
+		// event otherwise.
+		_ = zw.Flush()
+	}
 	flusher.Flush()
 
 	var eventCount int64
+	write := func(payloads []*pubsub.Payload) bool {
+		for _, wrapped := range payloads {
+			if wrapped == nil {
+				continue
+			}
+			data, err := json.Marshal(wrapped)
+			if err != nil {
+				c.server.logError(r, "Failed to marshal event", "error", err)
+				continue
+			}
+			if _, err := fmt.Fprintf(out, "data: %s\n\n", data); err != nil {
+				c.server.logError(
+					r, "SSE write failed",
+					slog.String("workspace_id", id),
+					slog.String("error", err.Error()),
+					slog.Int64("events_sent", eventCount),
+				)
+				return false
+			}
+			eventCount++
+		}
+		if len(payloads) == 0 {
+			return true
+		}
+		if zw != nil {
+			if err := zw.Flush(); err != nil {
+				return false
+			}
+		}
+		if err := flusher.Flush(); err != nil {
+			c.server.logError(
+				r, "SSE flush failed",
+				slog.String("workspace_id", id),
+				slog.String("error", err.Error()),
+				slog.Int64("events_sent", eventCount),
+			)
+			return false
+		}
+		return true
+	}
 	for {
 		select {
+		case <-frames:
+			if !write(enc.flush()) {
+				return
+			}
 		case <-r.Context().Done():
 			c.server.logInfo(
 				r, "SSE stream closed (client disconnected)",
@@ -320,35 +395,9 @@ func (c *controllerV1) handleGetWorkspaceEvents(w http.ResponseWriter, r *http.R
 			// session they are viewing; the resolution notification is
 			// gated by ToolCallID so a client with no matching modal
 			// simply clears its cached entry.
-			wrapped := wrapEvent(ev.Payload)
-			if wrapped == nil {
-				continue
-			}
-			data, err := json.Marshal(wrapped)
-			if err != nil {
-				c.server.logError(r, "Failed to marshal event", "error", err)
-				continue
-			}
-
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
-				c.server.logError(
-					r, "SSE write failed",
-					slog.String("workspace_id", id),
-					slog.String("error", err.Error()),
-					slog.Int64("events_sent", eventCount),
-				)
+			if !write(enc.add(ev.Payload)) {
 				return
 			}
-			if err := flusher.Flush(); err != nil {
-				c.server.logError(
-					r, "SSE flush failed",
-					slog.String("workspace_id", id),
-					slog.String("error", err.Error()),
-					slog.Int64("events_sent", eventCount),
-				)
-				return
-			}
-			eventCount++
 		}
 	}
 }

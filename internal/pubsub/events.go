@@ -24,14 +24,16 @@ const (
 	PayloadTypeQuestionRequest        PayloadType = "question_request"
 	PayloadTypeQuestionNotification   PayloadType = "question_notification"
 	PayloadTypeMessage                PayloadType = "message"
-	PayloadTypeSession                PayloadType = "session"
-	PayloadTypeFile                   PayloadType = "file"
-	PayloadTypeAgentEvent             PayloadType = "agent_event"
-	PayloadTypeSkillsEvent            PayloadType = "skills_event"
-	PayloadTypeConfigChanged          PayloadType = "config_changed"
-	PayloadTypeRunComplete            PayloadType = "run_complete"
-	PayloadTypeForkProgress           PayloadType = "fork_progress"
-	PayloadTypeAttentionEvent         PayloadType = "attention_event"
+	// PayloadTypeMessageDelta carries a [proto.MessageDelta] (wire 2).
+	PayloadTypeMessageDelta   PayloadType = "message_delta"
+	PayloadTypeSession        PayloadType = "session"
+	PayloadTypeFile           PayloadType = "file"
+	PayloadTypeAgentEvent     PayloadType = "agent_event"
+	PayloadTypeSkillsEvent    PayloadType = "skills_event"
+	PayloadTypeConfigChanged  PayloadType = "config_changed"
+	PayloadTypeRunComplete    PayloadType = "run_complete"
+	PayloadTypeForkProgress   PayloadType = "fork_progress"
+	PayloadTypeAttentionEvent PayloadType = "attention_event"
 )
 
 // Payload wraps a discriminated JSON payload with a type tag.

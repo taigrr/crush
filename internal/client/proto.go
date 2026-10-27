@@ -77,8 +77,18 @@ func (c *Client) SetCurrentSession(ctx context.Context, workspaceID, sessionID s
 
 // SubscribeEvents subscribes to server-sent events for a workspace.
 func (c *Client) SubscribeEvents(ctx context.Context, id string) (<-chan any, error) {
-	return c.subscribe(ctx, fmt.Sprintf("/workspaces/%s/events", id), "subscribe to events")
+	q := c.clientQuery()
+	q.Set("wire", strconv.Itoa(proto.WireVersion))
+	if c.nodeID != "" {
+		// Across the network, merge streamed updates into frames; on the
+		// local socket every token is cheap, so keep them immediate.
+		q.Set("frame_ms", strconv.Itoa(int(remoteFrame/time.Millisecond)))
+	}
+	return c.subscribeQuery(ctx, fmt.Sprintf("/workspaces/%s/events", id), q, "subscribe to events")
 }
+
+// remoteFrame is the coalescing interval requested for remote streams.
+const remoteFrame = 50 * time.Millisecond
 
 // SubscribeGlobalEvents subscribes to the server's observe-only global
 // attention stream (GET /v1/events): cross-workspace permission/question
@@ -92,8 +102,12 @@ func (c *Client) SubscribeGlobalEvents(ctx context.Context) (<-chan any, error) 
 // subscribe opens an SSE stream at path and pumps decoded events into the
 // returned channel until ctx is done or the stream ends.
 func (c *Client) subscribe(ctx context.Context, path, op string) (<-chan any, error) {
+	return c.subscribeQuery(ctx, path, c.clientQuery(), op)
+}
+
+func (c *Client) subscribeQuery(ctx context.Context, path string, query url.Values, op string) (<-chan any, error) {
 	//nolint:bodyclose
-	rsp, err := c.get(ctx, path, c.clientQuery(), http.Header{
+	rsp, err := c.get(ctx, path, query, http.Header{
 		"Accept":        []string{"text/event-stream"},
 		"Cache-Control": []string{"no-cache"},
 		"Connection":    []string{"keep-alive"},
@@ -139,12 +153,13 @@ func streamEvents(ctx context.Context, body io.Reader, events chan any, retryDel
 	consecutiveErrors := 0
 
 	scr := bufio.NewReader(body)
+	dec := &wireDecoder{messages: map[string]proto.Message{}}
 	for {
 		line, readErr := scr.ReadBytes('\n')
 		// ReadBytes returns a final, newline-less line together with
 		// io.EOF, so parse what we got before deciding to break;
 		// otherwise the last event in the stream would be dropped.
-		if ev, ok := parseSSELine(line); ok {
+		if ev, ok := dec.parse(line); ok {
 			if !sendEvent(ctx, events, ev) {
 				return
 			}
@@ -177,6 +192,16 @@ func streamEvents(ctx context.Context, body io.Reader, events chan any, retryDel
 // event. It returns ok=false (and logs) for blank lines, malformed frames, or
 // unknown event types.
 func parseSSELine(line []byte) (any, bool) {
+	return (&wireDecoder{messages: map[string]proto.Message{}}).parse(line)
+}
+
+// wireDecoder reassembles wire 2 message deltas into full messages, so
+// everything above the client sees the same events as with wire 1.
+type wireDecoder struct {
+	messages map[string]proto.Message
+}
+
+func (d *wireDecoder) parse(line []byte) (any, bool) {
 	line = bytes.TrimSpace(line)
 	if len(line) == 0 {
 		return nil, false
@@ -194,7 +219,36 @@ func parseSSELine(line []byte) (any, bool) {
 		slog.Error("Unmarshaling event envelope", "error", err)
 		return nil, false
 	}
-	return decodeEvent(p)
+	if p.Type == pubsub.PayloadTypeMessageDelta {
+		return d.applyDelta(p.Payload)
+	}
+	ev, ok := decodeEvent(p)
+	if me, isMsg := ev.(pubsub.Event[proto.Message]); ok && isMsg {
+		if me.Type == pubsub.DeletedEvent || me.Payload.IsFinished() {
+			delete(d.messages, me.Payload.ID)
+		} else {
+			d.messages[me.Payload.ID] = me.Payload
+		}
+	}
+	return ev, ok
+}
+
+// applyDelta rebuilds the full message from the last copy plus d. A delta
+// that does not fit (missed keyframe) is dropped; the server sends a full
+// message again soon.
+func (d *wireDecoder) applyDelta(raw json.RawMessage) (any, bool) {
+	var delta proto.MessageDelta
+	if err := json.Unmarshal(raw, &delta); err != nil {
+		slog.Error("Unmarshaling message delta", "error", err)
+		return nil, false
+	}
+	m, ok := d.messages[delta.ID]
+	if !ok || !proto.ApplyDelta(&m, delta) {
+		slog.Debug("Dropping message delta without a matching base", "message", delta.ID)
+		return nil, false
+	}
+	d.messages[delta.ID] = m
+	return pubsub.Event[proto.Message]{Type: pubsub.UpdatedEvent, Payload: m}, true
 }
 
 // decodeEvent decodes the inner payload of an envelope into the concrete
@@ -976,4 +1030,15 @@ func (c *Client) LSPStart(ctx context.Context, id string, path string) error {
 func (c *Client) LSPStopAll(ctx context.Context, id string) error {
 	rsp, err := c.post(ctx, fmt.Sprintf("/workspaces/%s/lsps/stop", id), nil, nil, nil)
 	return checkResponse(rsp, err, "stop LSPs")
+}
+
+// DecodeEventStream decodes an SSE event stream (wire 1 or 2) from body
+// into typed events until it ends. Exposed for tests and tools.
+func DecodeEventStream(ctx context.Context, body io.Reader) <-chan any {
+	events := make(chan any, 100)
+	go func() {
+		defer close(events)
+		streamEvents(ctx, body, events, readErrorRetryDelay)
+	}()
+	return events
 }
