@@ -216,13 +216,39 @@ func (m *UI) openSessionsDialog() tea.Cmd {
 		selectedSessionID = m.session.ID
 	}
 
-	dialog, err := dialog.NewSessions(m.com, selectedSessionID)
-	if err != nil {
-		return util.ReportError(err)
-	}
+	com := m.com
+	return buildDialog(dialog.SessionsID, func() (dialog.Dialog, error) {
+		return dialog.NewSessions(com, selectedSessionID)
+	})
+}
 
-	m.dialog.OpenDialog(dialog)
-	return nil
+// builtDialogMsg carries a dialog constructed off the Update goroutine.
+type builtDialogMsg struct {
+	id string
+	d  dialog.Dialog
+}
+
+// buildDialog constructs a dialog whose constructor loads data (often over
+// the network for remote workspaces) in a tea.Cmd, then opens it from
+// Update. The UI stays responsive while the data loads.
+func buildDialog(id string, build func() (dialog.Dialog, error)) tea.Cmd {
+	return func() tea.Msg {
+		d, err := build()
+		if err != nil {
+			return util.ReportError(err)()
+		}
+		return builtDialogMsg{id: id, d: d}
+	}
+}
+
+// handleBuiltDialog opens a dialog built by buildDialog, unless one with
+// the same ID opened meanwhile.
+func (m *UI) handleBuiltDialog(msg builtDialogMsg) {
+	if m.dialog.ContainsDialog(msg.id) {
+		m.dialog.BringToFront(msg.id)
+		return
+	}
+	m.dialog.OpenDialog(msg.d)
 }
 
 func (m *UI) openSessionImportDialog() tea.Cmd {
@@ -251,13 +277,10 @@ func (m *UI) openMilestonesDialog() tea.Cmd {
 		sessionID = m.session.ID
 	}
 
-	d, err := dialog.NewMilestones(m.com, sessionID)
-	if err != nil {
-		return util.ReportError(err)
-	}
-
-	m.dialog.OpenDialog(d)
-	return nil
+	com := m.com
+	return buildDialog(dialog.MilestonesID, func() (dialog.Dialog, error) {
+		return dialog.NewMilestones(com, sessionID)
+	})
 }
 
 // openFilesDialog opens the file picker dialog.
@@ -282,12 +305,10 @@ func (m *UI) openSnapshotsDialog(sessionID string) tea.Cmd {
 		return nil
 	}
 
-	snapshotsDialog, err := dialog.NewSnapshots(m.com, sessionID)
-	if err != nil {
-		return util.ReportError(err)
-	}
-	m.dialog.OpenDialog(snapshotsDialog)
-	return nil
+	com := m.com
+	return buildDialog(dialog.SnapshotsID, func() (dialog.Dialog, error) {
+		return dialog.NewSnapshots(com, sessionID)
+	})
 }
 
 // restoreSnapshot restores the filesystem to a specific snapshot.
@@ -307,12 +328,10 @@ func (m *UI) openWorktreesDialog(sessionID string) tea.Cmd {
 		return nil
 	}
 
-	worktreesDialog, err := dialog.NewWorktrees(m.com, sessionID)
-	if err != nil {
-		return util.ReportError(err)
-	}
-	m.dialog.OpenDialog(worktreesDialog)
-	return nil
+	com := m.com
+	return buildDialog(dialog.WorktreesID, func() (dialog.Dialog, error) {
+		return dialog.NewWorktrees(com, sessionID)
+	})
 }
 
 // createWorktree creates a new worktree.
@@ -354,12 +373,10 @@ func (m *UI) openMergeWorktreeDialog(worktreeID, worktreeName string) tea.Cmd {
 		return nil
 	}
 
-	mergeDialog, err := dialog.NewMergeWorktree(m.com, worktreeID, worktreeName)
-	if err != nil {
-		return util.ReportError(err)
-	}
-	m.dialog.OpenDialog(mergeDialog)
-	return nil
+	com := m.com
+	return buildDialog(dialog.MergeWorktreeID, func() (dialog.Dialog, error) {
+		return dialog.NewMergeWorktree(com, worktreeID, worktreeName)
+	})
 }
 
 // mergeWorktree merges a worktree onto a target branch.
