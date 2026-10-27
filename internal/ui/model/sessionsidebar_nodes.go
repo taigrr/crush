@@ -81,3 +81,21 @@ func (s *SessionsSidebar) SelectedSessionOverview() (proto.WorkspaceOverview, pr
 	ws := s.overviews[r.wsIdx]
 	return ws, ws.Sessions[r.sessIdx], true
 }
+
+// NeighborSessions returns the (root, session ID) of the session rows just
+// above and below the cursor, for prefetching.
+func (s *SessionsSidebar) NeighborSessions() [][2]string {
+	var out [][2]string
+	for _, dir := range []int{-1, 1} {
+		for i := s.cursor + dir; i >= 0 && i < len(s.rows); i += dir {
+			r := s.rows[i]
+			if r.kind != sidebarRowSession {
+				continue
+			}
+			ws := s.overviews[r.wsIdx]
+			out = append(out, [2]string{ws.Root, ws.Sessions[r.sessIdx].ID})
+			break
+		}
+	}
+	return out
+}
