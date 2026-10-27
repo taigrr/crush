@@ -82,6 +82,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := m.handleMoveDialogData(msg); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case bundleLoadedMsg:
+		m.bundles.put(msg.id, msg.bundle)
 	case transfersMsg:
 		if cmd := m.handleTransfers(msg); cmd != nil {
 			cmds = append(cmds, cmd)
@@ -209,6 +211,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dialog.CloseFrontDialog()
 
 	case pubsub.Event[session.Session]:
+		m.bundles.invalidate(msg.Payload.ID)
 		// Keep the navigator (and landing screen, which renders the
 		// same overviews) in sync with the set of sessions. Only
 		// structural changes — a session created or deleted — or a
@@ -256,6 +259,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.autoExpandPillsIfReasonable()
 		}
 	case pubsub.Event[message.Message]:
+		m.bundles.invalidate(msg.Payload.SessionID)
 		// Check if this is a child session message for an agent tool.
 		if m.session == nil {
 			break
@@ -312,6 +316,7 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// there is a number of things that could change the pills here so we want to re-render
 		m.renderPills()
 	case pubsub.Event[history.File]:
+		m.bundles.invalidate(msg.Payload.SessionID)
 		cmds = append(cmds, m.handleFileEvent(msg.Payload))
 	case pubsub.Event[fork.ForkProgress]:
 		// Drive the fork progress dialog's bar. The terminal Done event is

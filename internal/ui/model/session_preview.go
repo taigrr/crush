@@ -9,6 +9,7 @@ import (
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/util"
+	"github.com/taigrr/crush/internal/workspace"
 )
 
 // previewDebounce is the trailing-debounce window used once a burst is in
@@ -41,10 +42,13 @@ type previewTickMsg struct{ gen int }
 // session; both are nil when the sidebar-data fetch failed (best-effort),
 // in which case the sidebar keeps showing the committed session's stats.
 type previewLoadedMsg struct {
-	id    string
-	msgs  []message.Message
-	sess  *session.Session
-	files []SessionFile
+	id       string
+	msgs     []message.Message
+	children map[string][]message.Message
+	sess     *session.Session
+	files    []SessionFile
+	// bundle is set when the load fetched fresh data, to cache it.
+	bundle *workspace.SessionBundle
 }
 
 // schedulePreview debounces a live-preview load for the highlighted session.
@@ -153,20 +157,27 @@ func (m *UI) handlePreviewTick(msg previewTickMsg) tea.Cmd {
 // previewLoadFailedMsg so the pending id is cleared and a later return to
 // that session retries.
 func (m *UI) previewLoadCmd(id, root string) tea.Cmd {
+	if b, ok := m.bundles.get(id); ok {
+		return func() tea.Msg { return bundlePreviewMsg(id, b, false) }
+	}
+	ws := m.com.Workspace
 	return func() tea.Msg {
-		var msgs []message.Message
-		var err error
-		if root == "" {
-			msgs, err = m.com.Workspace.ListMessages(context.Background(), id)
-		} else {
-			msgs, err = m.com.Workspace.PeekMessages(context.Background(), root, id)
-		}
+		// One round trip for messages, nested tool sessions and files.
+		b, err := ws.SessionBundle(context.Background(), root, id)
 		if err != nil {
 			return previewLoadFailedMsg{id: id, err: err}
 		}
-		sess, files := m.loadPreviewSidebarData(id, root)
-		return previewLoadedMsg{id: id, msgs: msgs, sess: sess, files: files}
+		return bundlePreviewMsg(id, b, true)
 	}
+}
+
+func bundlePreviewMsg(id string, b workspace.SessionBundle, fresh bool) previewLoadedMsg {
+	sess := b.Session
+	msg := previewLoadedMsg{id: id, msgs: b.Messages, children: b.Children, sess: &sess, files: computeSessionFiles(b.Files)}
+	if fresh {
+		msg.bundle = &b
+	}
+	return msg
 }
 
 // loadPreviewSidebarData fetches the previewed session's metadata and
@@ -228,10 +239,19 @@ func (m *UI) handlePreviewLoaded(msg previewLoadedMsg) tea.Cmd {
 	// then falls back to the committed session (see sidebarSession).
 	m.previewSess = msg.sess
 	m.previewFiles = msg.files
+	if msg.bundle != nil {
+		m.bundles.put(msg.id, *msg.bundle)
+	}
 	// Render the preview messages read-only into the chat view. This reuses
 	// the normal renderer but does NOT change m.session, so the committed
 	// session stays the routing target for live events.
-	return m.setSessionMessages(msg.msgs)
+	render := m.setSessionMessagesWith(msg.msgs, msg.children)
+	// Warm the neighbors so the next j/k is instant.
+	cmds := []tea.Cmd{render}
+	for _, n := range m.leftSidebar.NeighborSessions() {
+		cmds = append(cmds, m.prefetchBundle(n[1], m.previewRoot(n[0])))
+	}
+	return tea.Batch(cmds...)
 }
 
 // cancelPreview discards any pending/active preview and, if a preview was
@@ -279,21 +299,28 @@ func (m *UI) reloadCommittedMessages(gen int) tea.Cmd {
 		return nil
 	}
 	id := m.session.ID
+	if b, ok := m.bundles.get(id); ok {
+		// Unchanged since it was loaded (events would have evicted it).
+		return func() tea.Msg { return previewRestoreMsg{id: id, msgs: b.Messages, children: b.Children, gen: gen} }
+	}
+	ws := m.com.Workspace
 	return func() tea.Msg {
-		msgs, err := m.com.Workspace.ListMessages(context.Background(), id)
+		b, err := ws.SessionBundle(context.Background(), "", id)
 		if err != nil {
 			return util.ReportError(err)()
 		}
-		return previewRestoreMsg{id: id, msgs: msgs, gen: gen}
+		return previewRestoreMsg{id: id, msgs: b.Messages, children: b.Children, gen: gen, bundle: &b}
 	}
 }
 
 // previewRestoreMsg carries the committed session's messages to re-render
 // after a preview is cancelled.
 type previewRestoreMsg struct {
-	id   string
-	msgs []message.Message
-	gen  int
+	id       string
+	msgs     []message.Message
+	children map[string][]message.Message
+	gen      int
+	bundle   *workspace.SessionBundle
 }
 
 // handlePreviewRestore re-renders the committed session, bailing when the
@@ -308,7 +335,10 @@ func (m *UI) handlePreviewRestore(msg previewRestoreMsg) tea.Cmd {
 	if m.session == nil || m.session.ID != msg.id {
 		return nil
 	}
-	return m.setSessionMessages(msg.msgs)
+	if msg.bundle != nil {
+		m.bundles.put(msg.id, *msg.bundle)
+	}
+	return m.setSessionMessagesWith(msg.msgs, msg.children)
 }
 
 // previewing reports whether an ephemeral preview is currently shown. It is

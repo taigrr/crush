@@ -10,7 +10,6 @@ import (
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/ui/chat"
-	"github.com/taigrr/crush/internal/ui/util"
 )
 
 // handleLoadSession applies a committed session load: it resets any live
@@ -64,11 +63,10 @@ func (m *UI) applySessionLoad(msg loadSessionMsg, expandPills bool) ([]tea.Cmd, 
 		cmds = append(cmds, cmd)
 	}
 	cmds = append(cmds, m.startLSPs(msg.lspFilePaths()))
-	msgs, err := m.com.Workspace.ListMessages(context.Background(), m.session.ID)
-	if err != nil {
-		return append(cmds, util.ReportError(err)), false
+	if msg.bundle != nil {
+		m.bundles.put(m.session.ID, *msg.bundle)
 	}
-	if cmd := m.setSessionMessages(msgs); cmd != nil {
+	if cmd := m.setSessionMessagesWith(msg.messages, msg.children); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	if expandPills {
@@ -101,8 +99,18 @@ func (m *UI) clearPreview() {
 	m.previewGen++
 }
 
-// setSessionMessages sets the messages for the current session in the chat
+// setSessionMessages sets the messages for the current session in the chat,
+// fetching nested agent-tool sessions from the workspace as needed.
 func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
+	return m.setSessionMessagesWith(msgs, nil)
+}
+
+// setSessionMessagesWith is [UI.setSessionMessages] with nested agent-tool
+// session messages already in hand (from a session bundle), so rendering
+// makes no network calls. A child missing from children has no messages.
+func (m *UI) setSessionMessagesWith(msgs []message.Message, children map[string][]message.Message) tea.Cmd {
+	m.nestedSource = children
+	defer func() { m.nestedSource = nil }()
 	var cmds []tea.Cmd
 	// Build tool result map to link tool calls with their results
 	msgPtrs := make([]*message.Message, len(msgs))
@@ -187,8 +195,16 @@ func (m *UI) loadNestedToolCalls(items []chat.MessageItem) []tea.Cmd {
 		// distinct from whether it produced any tool items — a reviewer
 		// may answer without calling a single tool.
 		loadFromSession := func(sessionID string) (items []chat.ToolMessageItem, hadMessages bool) {
-			nestedMsgs, err := m.com.Workspace.ListMessages(context.Background(), sessionID)
-			if err != nil || len(nestedMsgs) == 0 {
+			var nestedMsgs []message.Message
+			if m.nestedSource != nil {
+				nestedMsgs = m.nestedSource[sessionID]
+			} else {
+				var err error
+				if nestedMsgs, err = m.com.Workspace.ListMessages(context.Background(), sessionID); err != nil {
+					return nil, false
+				}
+			}
+			if len(nestedMsgs) == 0 {
 				return nil, false
 			}
 			nestedMsgPtrs := make([]*message.Message, len(nestedMsgs))

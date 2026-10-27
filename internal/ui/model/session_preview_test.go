@@ -556,3 +556,23 @@ func TestPreview_InstantLoadSupersededDoesNotRender(t *testing.T) {
 	require.Empty(t, m.previewSessionID, "superseded instant load must not render")
 	require.Equal(t, "s2", m.pendingPreviewID, "pending stays on the current session")
 }
+
+// SessionBundle composes the stub's per-piece methods, so call
+// accounting and per-id errors keep working.
+func (w *previewStubWorkspace) SessionBundle(ctx context.Context, root, id string) (workspace.SessionBundle, error) {
+	if root == "" {
+		msgs, err := w.ListMessages(ctx, id)
+		if err != nil {
+			return workspace.SessionBundle{}, err
+		}
+		sess, _ := w.GetSession(ctx, id)
+		files, _ := w.ListSessionHistory(ctx, id)
+		return workspace.SessionBundle{Session: sess, Files: files, Messages: msgs, Children: map[string][]message.Message{}}, nil
+	}
+	msgs, err := w.PeekMessages(ctx, root, id)
+	if err != nil {
+		return workspace.SessionBundle{}, err
+	}
+	sess, files, _ := w.PeekSessionInfo(ctx, root, id)
+	return workspace.SessionBundle{Session: sess, Files: files, Messages: msgs, Children: map[string][]message.Message{}}, nil
+}

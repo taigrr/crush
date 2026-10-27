@@ -431,6 +431,12 @@ type UI struct {
 	// homeNodeID is the attached server's cluster node ID, learned from the
 	// dashboard; used to address the home node from a remote target.
 	homeNodeID string
+	// nestedSource, while set, supplies nested agent-tool session messages
+	// to setSessionMessages instead of fetching them (see session bundles).
+	nestedSource map[string][]message.Message
+	// bundles caches recently loaded session bundles for instant
+	// preview, restore, and commit (see session_bundle_cache.go).
+	bundles bundleCache
 	// Session move progress (see sidebar_transfers.go).
 	transfers        []proto.TransferStatus
 	transferRoot     string

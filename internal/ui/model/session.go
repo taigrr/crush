@@ -14,10 +14,12 @@ import (
 	"github.com/taigrr/crush/internal/diff"
 	"github.com/taigrr/crush/internal/fsext"
 	"github.com/taigrr/crush/internal/history"
+	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/taigrr/crush/internal/ui/util"
+	"github.com/taigrr/crush/internal/workspace"
 )
 
 // loadSessionMsg is a message indicating that a session and its files have
@@ -26,6 +28,12 @@ type loadSessionMsg struct {
 	session   *session.Session
 	files     []SessionFile
 	readFiles []string
+	// messages and children come from the session bundle so the handler
+	// renders without blocking on the network.
+	messages []message.Message
+	children map[string][]message.Message
+	// bundle is set when freshly fetched, to cache it.
+	bundle *workspace.SessionBundle
 	// yolo is the viewed workspace's permission skip-requests flag,
 	// fetched off the Update goroutine alongside the session load so the
 	// handler can re-sync the cached yolo indicator without a blocking RPC
@@ -82,6 +90,20 @@ type SessionFile struct {
 // That report is fire-and-forget: errors are logged at debug and the
 // UI never blocks on the call.
 func (m *UI) loadSession(sessionID string) tea.Cmd {
+	if b, ok := m.bundles.get(sessionID); ok {
+		// Already loaded (e.g. previewed): commit without refetching.
+		sess := b.Session
+		yolo := m.yoloCached()
+		msg := loadSessionMsg{
+			session:   &sess,
+			files:     computeSessionFiles(b.Files),
+			readFiles: b.ReadFiles,
+			messages:  b.Messages,
+			children:  b.Children,
+			yolo:      yolo,
+		}
+		return tea.Batch(func() tea.Msg { return msg }, m.reportCurrentSession(sessionID))
+	}
 	load := func() tea.Msg {
 		msg, err := m.fetchSession(sessionID)
 		if err != nil {
@@ -121,25 +143,20 @@ func (m *UI) loadSessionAndSwitchWorktree(sessionID, worktreeID string) tea.Cmd 
 // fetchSession gathers everything a session load needs. It runs inside a
 // tea.Cmd, never on the Update goroutine.
 func (m *UI) fetchSession(sessionID string) (loadSessionMsg, error) {
-	session, err := m.com.Workspace.GetSession(context.Background(), sessionID)
+	// One round trip: metadata, files, read files, messages, and nested
+	// agent-tool sessions.
+	b, err := m.com.Workspace.SessionBundle(context.Background(), "", sessionID)
 	if err != nil {
 		return loadSessionMsg{}, err
 	}
-
-	sessionFiles, err := m.loadSessionFiles(sessionID)
-	if err != nil {
-		return loadSessionMsg{}, err
-	}
-
-	readFiles, err := m.com.Workspace.FileTrackerListReadFiles(context.Background(), sessionID)
-	if err != nil {
-		slog.Error("Failed to load read files for session", "error", err)
-	}
-
+	sess := b.Session
 	return loadSessionMsg{
-		session:   &session,
-		files:     sessionFiles,
-		readFiles: readFiles,
+		session:   &sess,
+		files:     computeSessionFiles(b.Files),
+		readFiles: b.ReadFiles,
+		messages:  b.Messages,
+		children:  b.Children,
+		bundle:    &b,
 		yolo:      m.com.Workspace.PermissionSkipRequests(),
 	}, nil
 }
@@ -337,3 +354,7 @@ func (m *UI) startLSPs(paths []string) tea.Cmd {
 		return nil
 	}
 }
+
+// yoloCached returns the cached permission skip flag (no round trip; see
+// the workspace state cache).
+func (m *UI) yoloCached() bool { return m.com.Workspace.PermissionSkipRequests() }
