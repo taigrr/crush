@@ -201,6 +201,90 @@
                 }
             }
         },
+        "/session-bundle": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session bundle",
+                "parameters": [
+                    {
+                        "description": "Workspace (id or root) and session id",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionBundleParams"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionBundle"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/sessions/batch": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Apply an operation to many sessions",
+                "parameters": [
+                    {
+                        "description": "Operation and targets",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionBatchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionBatchResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/swarm/resolve": {
             "get": {
                 "description": "Finds the workspace and session that own a swarm address (color-animal[-shorthash] or a session UUID), across every running or registered workspace.",
@@ -6423,6 +6507,94 @@
                 },
                 "updated_at": {
                     "type": "integer"
+                }
+            }
+        },
+        "proto.SessionBatchRequest": {
+            "type": "object",
+            "properties": {
+                "op": {
+                    "type": "string"
+                },
+                "targets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.SessionBatchTarget"
+                    }
+                }
+            }
+        },
+        "proto.SessionBatchResult": {
+            "type": "object",
+            "properties": {
+                "failed": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "proto.SessionBatchTarget": {
+            "type": "object",
+            "properties": {
+                "root": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.SessionBundle": {
+            "type": "object",
+            "properties": {
+                "children": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Message"
+                        }
+                    }
+                },
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.File"
+                    }
+                },
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Message"
+                    }
+                },
+                "read_files": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "session": {
+                    "$ref": "#/definitions/proto.Session"
+                }
+            }
+        },
+        "proto.SessionBundleParams": {
+            "type": "object",
+            "properties": {
+                "root": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
                 }
             }
         },

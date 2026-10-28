@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -32,9 +33,11 @@ func TestCredsSyncAdoptsOnlyNewerValidContent(t *testing.T) {
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Contains(t, string(got), "k1")
-	fi, err := os.Stat(path)
-	require.NoError(t, err)
-	require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+	if runtime.GOOS != "windows" { // Windows has no POSIX permission bits.
+		fi, err := os.Stat(path)
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+	}
 
 	// Older: ignored.
 	deliver(`{"providers":{"a":{"api_key":"old"}}}`, t0.Add(-time.Minute))
