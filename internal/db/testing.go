@@ -1,7 +1,6 @@
 package db
 
 import (
-	"path/filepath"
 	"testing"
 )
 
@@ -20,10 +19,10 @@ func TempDataDir(tb testing.TB) string {
 // closeDataDir closes the pooled connection for dataDir regardless of
 // its reference count.
 func closeDataDir(dataDir string) {
-	absPath, err := filepath.Abs(filepath.Join(dataDir, "crush.db"))
-	if err != nil {
-		return
-	}
+	// Same key as Connect: on Windows the temp dir's short (8.3) name and
+	// its long name differ, so a hand-built key misses the entry and the
+	// database stays open, failing TempDir cleanup.
+	absPath := poolKey(dataDir)
 	poolMu.Lock()
 	entry, ok := pool[absPath]
 	if ok {
