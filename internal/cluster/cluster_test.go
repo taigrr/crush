@@ -72,12 +72,13 @@ func TestClusterPairingRotationAndLeave(t *testing.T) {
 	joinAndApprove(t, ctx, b, a, token)
 	joinAndApprove(t, ctx, c, b, token)
 
-	// A learned about C through B's broadcast; every node knows all three.
+	// A learns about C through B's broadcast, which B sends after C's
+	// approval is recorded, so C's join can return first; wait for it.
 	for _, n := range []*Node{a, b, c} {
-		st, err := n.Store().Snapshot()
-		require.NoError(t, err)
-		require.Len(t, st.Members, 3, "node %s", n.Identity().Name)
-		require.Empty(t, st.Pending)
+		require.Eventually(t, func() bool {
+			st, err := n.Store().Snapshot()
+			return err == nil && len(st.Members) == 3 && len(st.Pending) == 0
+		}, 10*time.Second, 10*time.Millisecond, "node %s never saw all three members", n.Identity().ID)
 	}
 
 	// Rotation reaches every member and they keep talking afterwards.
