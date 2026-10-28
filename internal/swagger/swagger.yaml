@@ -1193,6 +1193,63 @@ definitions:
       updated_at:
         type: integer
     type: object
+  proto.SessionBatchRequest:
+    properties:
+      op:
+        type: string
+      targets:
+        items:
+          $ref: '#/definitions/proto.SessionBatchTarget'
+        type: array
+    type: object
+  proto.SessionBatchResult:
+    properties:
+      failed:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  proto.SessionBatchTarget:
+    properties:
+      root:
+        type: string
+      session_id:
+        type: string
+      workspace_id:
+        type: string
+    type: object
+  proto.SessionBundle:
+    properties:
+      children:
+        additionalProperties:
+          items:
+            $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Message'
+          type: array
+        type: object
+      files:
+        items:
+          $ref: '#/definitions/proto.File'
+        type: array
+      messages:
+        items:
+          $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Message'
+        type: array
+      read_files:
+        items:
+          type: string
+        type: array
+      session:
+        $ref: '#/definitions/proto.Session'
+    type: object
+  proto.SessionBundleParams:
+    properties:
+      root:
+        type: string
+      session_id:
+        type: string
+      workspace_id:
+        type: string
+    type: object
   proto.SessionOverview:
     properties:
       animal:
@@ -1592,6 +1649,60 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Peek a session's info in any known workspace
+      tags:
+      - sessions
+  /session-bundle:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Workspace (id or root) and session id
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.SessionBundleParams'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.SessionBundle'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Get a session bundle
+      tags:
+      - sessions
+  /sessions/batch:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Operation and targets
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.SessionBatchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.SessionBatchResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Apply an operation to many sessions
       tags:
       - sessions
   /swarm/resolve:
