@@ -48,6 +48,14 @@ func TestResolveSessionRef(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, c.ID, got.ID, "hash prefixes from 'crush session list' resolve")
 
+	got, err = resolveSessionRef(t.Context(), l, "ws", "3333")
+	require.NoError(t, err)
+	require.Equal(t, c.ID, got.ID, "UUID prefixes from 'crush run' output resolve")
+
+	got, err = resolveSessionRef(t.Context(), l, "ws", session.ShortID(a.ID))
+	require.NoError(t, err)
+	require.Equal(t, a.ID, got.ID, "short IDs from run output resolve")
+
 	got, err = resolveSessionRef(t.Context(), l, "ws", "coral-otter-bbbb")
 	require.NoError(t, err)
 	require.Equal(t, b.ID, got.ID, "disambiguated swarm addresses resolve")
