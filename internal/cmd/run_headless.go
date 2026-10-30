@@ -51,6 +51,17 @@ func runHeadless(
 
 	runID := uuid.New().String()
 	cwd := workspaceCwd(ws)
+	msg := proto.AgentMessage{
+		SessionID:        sess.ID,
+		RunID:            runID,
+		Prompt:           opts.prompt,
+		PermissionPolicy: opts.mode.Policy(),
+	}
+
+	if opts.detach {
+		return runDetached(ctx, c, ws, sess, msg, cwd, opts.format, emitter, progress, out)
+	}
+
 	baseline := headless.TakeBaseline(ctx, c, ws.ID, sess.ID)
 
 	// Our prompt may be queued behind another turn (a TUI user's, or one
@@ -69,27 +80,6 @@ func runHeadless(
 		if err := progress.Emit(initEvent(ws, sess, runID, cwd)); err != nil {
 			return err
 		}
-	}
-
-	msg := proto.AgentMessage{
-		SessionID:        sess.ID,
-		RunID:            runID,
-		Prompt:           opts.prompt,
-		PermissionPolicy: opts.mode.Policy(),
-	}
-
-	if opts.detach {
-		if err := c.SendAgentMessage(ctx, ws.ID, msg); err != nil {
-			return reportRunError(out, opts.format, fmt.Errorf("failed to send message: %w", err))
-		}
-		res := headless.NewResult(headless.StatusRunning)
-		res.SessionID = sess.ID
-		res.Address = headless.SessionAddress(*sess)
-		res.WorkspaceID = ws.ID
-		res.RunID = runID
-		res.Cwd = cwd
-		res.AttachCommand = headless.AttachCommand(cwd, sess.ID)
-		return writeResult(out, opts.format, emitter, res)
 	}
 
 	sendErr := make(chan error, 1)
@@ -127,6 +117,39 @@ func runHeadless(
 	defer cancel()
 	res := headless.Finish(enrichCtx, c, baseline, ws.ID, sess.ID, cwd, runID, outcome)
 	return writeResult(out, opts.format, emitter, res)
+}
+
+// runDetached hands the prompt to the server and reports the run as
+// running. It skips everything only a watching run needs (the result
+// baseline and the event stream), so it returns as soon as the server
+// has accepted the prompt.
+func runDetached(
+	ctx context.Context,
+	c headlessClient,
+	ws *proto.Workspace,
+	sess *proto.Session,
+	msg proto.AgentMessage,
+	cwd string,
+	format headless.OutputFormat,
+	emitter, progress headless.Emitter,
+	out io.Writer,
+) error {
+	if progress != nil {
+		if err := progress.Emit(initEvent(ws, sess, msg.RunID, cwd)); err != nil {
+			return err
+		}
+	}
+	if err := c.SendAgentMessage(ctx, ws.ID, msg); err != nil {
+		return reportRunError(out, format, fmt.Errorf("failed to send message: %w", err))
+	}
+	res := headless.NewResult(headless.StatusRunning)
+	res.SessionID = sess.ID
+	res.Address = headless.SessionAddress(*sess)
+	res.WorkspaceID = ws.ID
+	res.RunID = msg.RunID
+	res.Cwd = cwd
+	res.AttachCommand = headless.AttachCommand(cwd, sess.ID)
+	return writeResult(out, format, emitter, res)
 }
 
 func initEvent(ws *proto.Workspace, sess *proto.Session, runID, cwd string) headless.InitEvent {
