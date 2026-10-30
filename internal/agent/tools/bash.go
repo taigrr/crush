@@ -449,6 +449,8 @@ func formatOutput(stdout, stderr string, execErr error) string {
 	interrupted := shell.IsInterrupt(execErr)
 	exitCode := shell.ExitCode(execErr)
 
+	identityMissing := exitCode != 0 && isGitIdentityError(stdout+"\n"+stderr)
+
 	stdout = TruncateOutput(stdout)
 	stderr = TruncateOutput(stderr)
 
@@ -484,7 +486,33 @@ func formatOutput(stdout, stderr string, execErr error) string {
 		stdout += errorMessage
 	}
 
+	if identityMissing {
+		if stdout != "" {
+			stdout += "\n\n"
+		}
+		stdout += GitIdentityMissingNotice
+	}
+
 	return stdout
+}
+
+// GitIdentityMissingNotice is appended to bash results when git refuses to
+// commit because user.name or user.email is not configured.
+const GitIdentityMissingNotice = "<git_identity_missing>\n" +
+	"Git could not commit because user.name and/or user.email is not configured. " +
+	"Do NOT retry the commit and do NOT change git config (no `git config`, " +
+	"no -c user.name/user.email, no GIT_AUTHOR_*/GIT_COMMITTER_* env vars). " +
+	"Stop and tell the user that their git identity is not configured and that " +
+	"they need to set it themselves, e.g. `git config --global user.name \"Your Name\"` " +
+	"and `git config --global user.email \"you@example.com\"`.\n" +
+	"</git_identity_missing>"
+
+// isGitIdentityError reports whether output contains git's error for a
+// missing committer identity.
+func isGitIdentityError(output string) bool {
+	return strings.Contains(output, "Please tell me who you are") ||
+		strings.Contains(output, "unable to auto-detect email address") ||
+		strings.Contains(output, "empty ident name")
 }
 
 func TruncateOutput(content string) string {
