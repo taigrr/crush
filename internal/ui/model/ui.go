@@ -76,7 +76,6 @@ type uiState uint8
 // Possible uiState values.
 const (
 	uiOnboarding uiState = iota
-	uiInitialize
 	uiLanding
 	uiChat
 )
@@ -354,11 +353,6 @@ type UI struct {
 	scrollFlushPending bool
 	scrollFlushGen     int
 
-	// onboarding state
-	onboarding struct {
-		yesInitializeSelected bool
-	}
-
 	// lsp
 	lspStates map[string]workspace.LSPClientInfo
 
@@ -545,15 +539,10 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 	// Seed the navigator width from config so a previous resize persists.
 	ui.leftSidebarWidth = clampLeftSidebarWidth(com.Config().Options.TUI.SessionsSidebarWidth)
 
-	// set onboarding state defaults
-	ui.onboarding.yesInitializeSelected = true
-
 	desiredState := uiLanding
 	desiredFocus := uiFocusEditor
 	if !com.Config().IsConfigured() {
 		desiredState = uiOnboarding
-	} else if n, _ := com.Workspace.ProjectNeedsInitialization(); n {
-		desiredState = uiInitialize
 	}
 
 	// set initial state
