@@ -53,7 +53,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&clientHost, "host", "H", server.DefaultHost(), "Connect to a specific crush server host (for advanced users)")
 	rootCmd.Flags().BoolP("help", "h", false, "Help")
 	rootCmd.Flags().BoolP("yolo", "y", false, "Automatically accept all permissions (dangerous mode)")
-	rootCmd.Flags().StringP("session", "s", "", "Continue a previous session by ID")
+	rootCmd.Flags().StringP("session", "s", "", "Open a previous session by ID or unambiguous prefix, in its own project directory")
 	rootCmd.Flags().BoolP("continue", "C", false, "Continue the most recent session")
 	rootCmd.MarkFlagsMutuallyExclusive("session", "continue")
 
@@ -94,7 +94,8 @@ crush --yolo
 # Run with custom data directory
 crush --data-dir /path/to/custom/.crush
 
-# Continue a previous session
+# Continue a previous session (full ID or unambiguous prefix); the
+# project directory is taken from the session unless --cwd is set
 crush --session {session-id}
 
 # Continue the most recent session
@@ -106,6 +107,18 @@ crush skill print
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID, _ := cmd.Flags().GetString("session")
 		continueLast, _ := cmd.Flags().GetBool("continue")
+
+		if sessionID != "" && !cmd.Flags().Changed("cwd") {
+			dir, err := locateSessionProject(cmd.Context(), sessionID)
+			if err != nil {
+				return err
+			}
+			if dir != "" {
+				if err := cmd.Flags().Set("cwd", dir); err != nil {
+					return err
+				}
+			}
+		}
 
 		ws, cleanup, err := setupWorkspaceWithProgressBar(cmd)
 		if err != nil {
@@ -751,8 +764,7 @@ func resolveWorkspaceSessionID(ctx context.Context, ws workspace.Workspace, id s
 
 	var matches []session.Session
 	for _, s := range sessions {
-		hash := session.HashID(s.ID)
-		if hash == id || strings.HasPrefix(hash, id) {
+		if sessionIDMatches(s.ID, id) {
 			matches = append(matches, s)
 		}
 	}

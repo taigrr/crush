@@ -552,8 +552,12 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 	desiredFocus := uiFocusEditor
 	if !com.Config().IsConfigured() {
 		desiredState = uiOnboarding
-	} else if n, _ := com.Workspace.ProjectNeedsInitialization(); n {
-		desiredState = uiInitialize
+	} else if resuming := initialSessionID != "" || continueLast; !resuming {
+		// Resuming a session goes straight to it, skipping the init
+		// screen.
+		if n, _ := com.Workspace.ProjectNeedsInitialization(); n {
+			desiredState = uiInitialize
+		}
 	}
 
 	// set initial state
