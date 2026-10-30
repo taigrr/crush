@@ -126,6 +126,7 @@ rejected with an upgrade hint.
 | `crush cluster top` | Live dashboard of every node. |
 | `crush session move <session> <node>` | Move a session and its files (`--on-conflict=backup\|keep`, `--no-resume`, `--gc`). |
 | `crush cluster migrate` | Move every running job off this machine (`--all`, `--to`, `--strategy`, `--yes`). |
+| `crush run --balance` | Start a new job on the least loaded online node (see Phase 7). |
 
 `--advertise host:port` on `init`/`join` overrides auto-detected
 addresses (useful to pin the WireGuard IP).
@@ -248,6 +249,47 @@ keeping each project's sessions together on one node. Placement prefers
 spare CPU/memory (`capacity`) or round-robins (`even`); `--to` limits
 targets. The plan is shown before anything moves; failures are reported
 per session.
+
+## Phase 7: autobalance (opt-in)
+
+With autobalance on, each new `crush run` job is placed on the least
+loaded online node. Enable it with any of (highest precedence first):
+
+- `crush run --balance` (or `--balance=false` to turn it off for one run),
+- `CRUSH_CLUSTER_AUTOBALANCE=1` (any `strconv.ParseBool` value),
+- `"cluster": {"autobalance": true}` in `crush.json`.
+
+In practice the job starts on the local node as usual: the session is
+created here, then, before the first turn, the CLI reads the cluster
+dashboard (the same heartbeat stats `crush cluster migrate --strategy
+capacity` uses) and calls `cluster.PickBalanceTarget`:
+
+- Score: half the migrate `FreeScore` (spare CPU and memory, penalised
+  per running job), half the 1-minute load average per core. Platforms
+  without a load average use `FreeScore` alone.
+- The job moves only when an online peer scores at least
+  `cluster.autobalance_margin` (default `0.15`, on a 0–1 scale) above
+  this node, so nearly equal nodes do not trade jobs back and forth.
+  Ties go to the lower RTT, then the lower node ID.
+- A project that already has a job running on some online node goes to
+  that node (or stays here), keeping a project's sessions together as
+  migrate does.
+- Offline nodes, nodes without stats, and nodes with no AI provider
+  configured are skipped. With no usable peer the job runs locally.
+
+The move uses `session move` (with nothing to resume yet), after which
+the CLI opens the workspace on the destination through the node proxy
+and sends the prompt there; output streams back as usual. Each decision
+is printed to stderr as an `autobalance:` line.
+
+If the move fails (for example the destination cannot create the exact
+project path, such as `/Volumes/Store1` on a machine without that
+volume), the job runs locally and the error is reported. The transfer
+preflight now probes that the project path can be created and written
+on the destination, so such moves are refused before anything is sent;
+ownership only changes after the destination accepts the session, so a
+failed move never leaves it half-moved. Autobalance does not apply to
+`--session`, `--continue`, or `--isolated` runs, nor to the TUI.
 
 ## Testing
 
