@@ -78,6 +78,7 @@ type BlockedEvent struct {
 type InitEvent struct {
 	Type          EventType `json:"type"`
 	SessionID     string    `json:"session_id"`
+	ShortID       string    `json:"short_id,omitempty"`
 	Address       string    `json:"address,omitempty"`
 	WorkspaceID   string    `json:"workspace_id"`
 	RunID         string    `json:"run_id"`
@@ -157,6 +158,7 @@ type Result struct {
 	Status       Status             `json:"status"`
 	ExitCode     int                `json:"exit_code"`
 	SessionID    string             `json:"session_id,omitempty"`
+	ShortID      string             `json:"short_id,omitempty"`
 	Address      string             `json:"address,omitempty"`
 	WorkspaceID  string             `json:"workspace_id,omitempty"`
 	RunID        string             `json:"run_id,omitempty"`

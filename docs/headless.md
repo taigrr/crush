@@ -43,6 +43,7 @@ stdout.
   "status": "completed",
   "exit_code": 0,
   "session_id": "7f0c3b9e-...",
+  "short_id": "a94f1c2",
   "address": "coral-otter-3b9e",
   "workspace_id": "a1b2...",
   "run_id": "c3d4...",
@@ -88,7 +89,7 @@ In `stream-json` mode every line is a JSON object with a `type` field.
 
 | Type          | When                                     | Notable fields                       |
 | ------------- | ---------------------------------------- | ------------------------------------ |
-| `init`        | Before the prompt is sent.               | `session_id`, `address`, `run_id`, `provider`, `model`, `attach_command` |
+| `init`        | Before the prompt is sent.               | `session_id`, `short_id`, `address`, `run_id`, `provider`, `model`, `attach_command` |
 | `text`        | New assistant text was streamed.         | `message_id`, `text` (the new chunk) |
 | `tool_call`   | A tool call's input finished streaming.  | `tool_call_id`, `name`, `input`      |
 | `tool_result` | A tool returned.                         | `tool_call_id`, `content` (max 4 KiB), `truncated`, `is_error` |
@@ -169,11 +170,14 @@ workspace automatically.
 Each run creates a new session unless `--session <id>` or `--continue` is
 given.
 The session ID in the result can be passed to `--session` to continue the
-conversation later.
+conversation later. `short_id` is the short hash that `crush session list`
+shows for the same session; results, `init` events, and `status` output all
+include it alongside the full `session_id`.
 
 ## Controlling running sessions
 
-These commands take a session ID, a hash prefix from `crush session list`, or
+These commands take a full session ID (UUID), any unambiguous prefix of it, a
+hash prefix such as the `short_id` from `crush session list` or run output, or
 the session's swarm address, and accept `-o json` like `crush run`.
 Sessions are looked up in the workspace for the current directory first, then
 across every workspace the server knows about, so a swarm address works from

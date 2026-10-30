@@ -61,7 +61,7 @@ var sessionListCmd = &cobra.Command{
 var sessionShowCmd = &cobra.Command{
 	Use:   "show <id>",
 	Short: "Show session details",
-	Long:  "Show session details. Use --json for machine-readable output. ID can be a UUID, full hash, or hash prefix.",
+	Long:  "Show session details. Use --json for machine-readable output. ID can be a UUID, UUID prefix, full hash, or hash prefix.",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSessionShow,
 }
@@ -77,7 +77,7 @@ var sessionDeleteCmd = &cobra.Command{
 	Use:     "delete <id>",
 	Aliases: []string{"rm"},
 	Short:   "Delete a session",
-	Long:    "Delete a session by ID. Use --json for machine-readable output. ID can be a UUID, full hash, or hash prefix.",
+	Long:    "Delete a session by ID. Use --json for machine-readable output. ID can be a UUID, UUID prefix, full hash, or hash prefix.",
 	Args:    cobra.ExactArgs(1),
 	RunE:    runSessionDelete,
 }
@@ -85,7 +85,7 @@ var sessionDeleteCmd = &cobra.Command{
 var sessionRenameCmd = &cobra.Command{
 	Use:   "rename <id> <title>",
 	Short: "Rename a session",
-	Long:  "Rename a session by ID. Use --json for machine-readable output. ID can be a UUID, full hash, or hash prefix.",
+	Long:  "Rename a session by ID. Use --json for machine-readable output. ID can be a UUID, UUID prefix, full hash, or hash prefix.",
 	Args:  cobra.MinimumNArgs(2),
 	RunE:  runSessionRename,
 }
@@ -270,7 +270,8 @@ type sessionMutationResult struct {
 	Renamed bool   `json:"renamed,omitempty"`
 }
 
-// resolveSessionID resolves a session ID that can be a UUID, full hash, or hash prefix.
+// resolveSessionID resolves a session ID that can be a UUID, UUID prefix,
+// full hash, or hash prefix.
 // Returns an error if the prefix is ambiguous (matches multiple sessions).
 func resolveSessionID(ctx context.Context, svc session.Service, id string) (session.Session, error) {
 	// Try direct UUID lookup first
@@ -286,8 +287,7 @@ func resolveSessionID(ctx context.Context, svc session.Service, id string) (sess
 
 	var matches []session.Session
 	for _, s := range sessions {
-		hash := session.HashID(s.ID)
-		if hash == id || strings.HasPrefix(hash, id) {
+		if session.MatchesRef(s.ID, id) {
 			matches = append(matches, s)
 		}
 	}

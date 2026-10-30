@@ -13,6 +13,7 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/headless"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/session"
 )
 
 // headlessClient is the subset of the server client used by
@@ -84,6 +85,7 @@ func runHeadless(
 		}
 		res := headless.NewResult(headless.StatusRunning)
 		res.SessionID = sess.ID
+		res.ShortID = session.ShortID(sess.ID)
 		res.Address = headless.SessionAddress(*sess)
 		res.WorkspaceID = ws.ID
 		res.RunID = runID
@@ -133,6 +135,7 @@ func initEvent(ws *proto.Workspace, sess *proto.Session, runID, cwd string) head
 	init := headless.InitEvent{
 		Type:          headless.EventInit,
 		SessionID:     sess.ID,
+		ShortID:       session.ShortID(sess.ID),
 		Address:       headless.SessionAddress(*sess),
 		WorkspaceID:   ws.ID,
 		RunID:         runID,

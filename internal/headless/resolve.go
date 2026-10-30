@@ -18,7 +18,7 @@ type SessionLister interface {
 }
 
 // ResolveSession resolves a session in one workspace from a full ID, a
-// hash prefix as shown by `crush session list`, or a swarm address
+// UUID prefix, a hash prefix as shown by `crush session list`, or a swarm address
 // (color-animal[-shorthash]).
 func ResolveSession(ctx context.Context, c SessionLister, workspaceID, ref string) (*proto.Session, error) {
 	ref = strings.TrimSpace(ref)
@@ -42,9 +42,8 @@ func ResolveSession(ctx context.Context, c SessionLister, workspaceID, ref strin
 		}
 	}
 	if len(matches) == 0 {
-		lower := strings.ToLower(ref)
 		for _, s := range sessions {
-			if strings.HasPrefix(session.HashID(s.ID), lower) {
+			if session.MatchesRef(s.ID, ref) {
 				matches = append(matches, s)
 			}
 		}

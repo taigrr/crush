@@ -25,6 +25,7 @@ import (
 	"github.com/taigrr/crush/internal/diff"
 	"github.com/taigrr/crush/internal/headless"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/version"
 )
 
@@ -314,6 +315,7 @@ func (t *tools) start(ctx context.Context, _ *mcp.CallToolRequest, in StartInput
 	cwd := workspaceCwd(ws)
 	res := headless.NewResult(headless.StatusRunning)
 	res.SessionID = sess.ID
+	res.ShortID = session.ShortID(sess.ID)
 	res.Address = headless.SessionAddress(*sess)
 	res.WorkspaceID = ws.ID
 	res.RunID = runID
