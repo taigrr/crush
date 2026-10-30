@@ -237,6 +237,49 @@ type coordinator struct {
 	// this coordinator, so a second concurrent caller doesn't launch
 	// a redundant deferred goroutine or race the first's rebuild.
 	swarmWiring bool
+
+	// turnHolds counts in-flight coordinator runs per session. A run
+	// spans more than one sessionAgent.Run: the unauthorized retry and
+	// /goal continuations (including the AdvanceGoal evaluation call)
+	// happen between them, while the session agent already reports the
+	// session idle. Observers (status, teardown) must see the session as
+	// busy for the whole run. Guarded by turnHoldsMu.
+	turnHolds   map[string]int
+	turnHoldsMu sync.Mutex
+}
+
+// holdTurn marks sessionID busy until the returned release is called.
+func (c *coordinator) holdTurn(sessionID string) (release func()) {
+	c.turnHoldsMu.Lock()
+	if c.turnHolds == nil {
+		c.turnHolds = make(map[string]int)
+	}
+	c.turnHolds[sessionID]++
+	c.turnHoldsMu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			c.turnHoldsMu.Lock()
+			defer c.turnHoldsMu.Unlock()
+			if c.turnHolds[sessionID] <= 1 {
+				delete(c.turnHolds, sessionID)
+				return
+			}
+			c.turnHolds[sessionID]--
+		})
+	}
+}
+
+func (c *coordinator) turnHeld(sessionID string) bool {
+	c.turnHoldsMu.Lock()
+	defer c.turnHoldsMu.Unlock()
+	return c.turnHolds[sessionID] > 0
+}
+
+func (c *coordinator) anyTurnHeld() bool {
+	c.turnHoldsMu.Lock()
+	defer c.turnHoldsMu.Unlock()
+	return len(c.turnHolds) > 0
 }
 
 // SetSwarmBackend wires the cross-workspace swarm dispatcher into
@@ -514,6 +557,8 @@ func (c *coordinator) RunAccepted(ctx context.Context, accept *AcceptedRun, sess
 // dispatchMu; when nil (the in-process/local path) no accept tracking
 // applies.
 func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
+	defer c.holdTurn(sessionID)()
+
 	// Wait on the readiness barrier captured at run start. Loading the
 	// pointer (rather than waiting on a shared, mutating group) means a
 	// concurrent rebuild that installs a new barrier can never race an
@@ -1836,11 +1881,11 @@ func (c *coordinator) CancelToolCalls(sessionID string) int {
 }
 
 func (c *coordinator) IsBusy() bool {
-	return c.currentAgent.IsBusy()
+	return c.currentAgent.IsBusy() || c.anyTurnHeld()
 }
 
 func (c *coordinator) IsSessionBusy(sessionID string) bool {
-	return c.currentAgent.IsSessionBusy(sessionID)
+	return c.currentAgent.IsSessionBusy(sessionID) || c.turnHeld(sessionID)
 }
 
 func (c *coordinator) Model() Model {
