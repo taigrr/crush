@@ -12,6 +12,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/taigrr/crush/internal/codesign"
+
 	"github.com/spf13/cobra"
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/cluster"
@@ -506,6 +508,9 @@ var clusterInstallServiceCmd = &cobra.Command{
 		if c, err := clientForExisting(); err == nil {
 			_ = c.ShutdownServer(cmd.Context())
 			time.Sleep(500 * time.Millisecond)
+		}
+		if _, err := codesign.Sign(cmd.Context(), exe); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to re-sign %s: %v\n", exe, err)
 		}
 		path, err := cluster.InstallService(cmd.Context(), cluster.ServiceSpec{
 			Executable: exe,
