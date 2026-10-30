@@ -311,7 +311,9 @@ func connectToServerAt(cmd *cobra.Command, cwd string, opts ...func(*proto.Works
 		opt(&wsReq)
 	}
 
+	stopNotice := noticeWhileWaiting(ctx, "the crush server to open the workspace at "+cwd)
 	ws, err := c.CreateWorkspace(ctx, wsReq)
+	stopNotice()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create workspace: %v", err)
 	}
@@ -336,7 +338,9 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 		_, statErr := os.Stat(hostURL.Host)
 		switch {
 		case statErr == nil:
+			stopCheck := noticeWhileWaiting(cmd.Context(), "the running crush server to answer a version check")
 			restarted, err := restartIfStale(cmd, hostURL)
+			stopCheck()
 			if dv := (*errDaemonVersion)(nil); errors.As(err, &dv) {
 				return dv
 			}
@@ -359,6 +363,8 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 			if clientHost == server.DefaultHost() && cluster.ServiceInstalled() {
 				// The service manager owns the server; spawning our own would
 				// race it for the socket. Nudge it and wait instead.
+				stop := noticeWhileWaiting(cmd.Context(), "the background crush service to start")
+				defer stop()
 				return waitForService(cmd, hostURL)
 			}
 			// Serialize spawn across concurrent clients: spawnAndWaitReady
@@ -366,12 +372,16 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 			// re-probes inside it, so a client that lost the race skips
 			// its own spawn and uses the now-running server. Stale-socket
 			// removal happens inside the lock too.
+			stop := noticeWhileWaiting(cmd.Context(), "the crush server to start")
+			defer stop()
 			if err := spawnAndWaitReady(cmd, hostURL); err != nil {
 				return fmt.Errorf("failed to initialize crush server: %v", err)
 			}
 			return nil
 		}
 
+		stop := noticeWhileWaiting(cmd.Context(), "the crush server to respond")
+		defer stop()
 		if err := waitForServerReady(cmd.Context(), hostURL); err != nil {
 			return fmt.Errorf("failed to initialize crush server: %v", err)
 		}
