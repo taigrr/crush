@@ -433,7 +433,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			complete.Text = currentAssistant.Content().String()
 		}
 		if retErr != nil {
-			complete.Error = retErr.Error()
+			complete.Error = describeRunError(retErr)
 			complete.Cancelled = errors.Is(retErr, context.Canceled)
 		} else if ctx.Err() != nil {
 			complete.Cancelled = true
@@ -884,7 +884,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 					fmt.Sprintf("%q is not enabled in Copilot. Go to the following page to enable it. Then, wait 5 minutes before trying again. %s", largeModel.CatwalkCfg.Name, link),
 				)
 			} else {
-				currentAssistant.AddFinish(message.FinishReasonError, cmp.Or(stringext.Capitalize(providerErr.Title), defaultTitle), providerErr.Message)
+				currentAssistant.AddFinish(message.FinishReasonError, cmp.Or(stringext.Capitalize(providerErr.Title), defaultTitle), providerErrorDetails(providerErr))
 			}
 		} else if fantasyErr, ok := errors.AsType[*fantasy.Error](err); ok {
 			currentAssistant.AddFinish(message.FinishReasonError, cmp.Or(stringext.Capitalize(fantasyErr.Title), defaultTitle), fantasyErr.Message)
@@ -1076,7 +1076,7 @@ func (a *sessionAgent) dispatchNextQueued(ctx context.Context, call SessionAgent
 			complete.Text = currentAssistant.Content().String()
 		}
 		if err != nil {
-			complete.Error = err.Error()
+			complete.Error = describeRunError(err)
 			complete.Cancelled = errors.Is(err, context.Canceled)
 		} else if ctx.Err() != nil {
 			complete.Cancelled = true
