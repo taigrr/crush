@@ -40,12 +40,22 @@ tasks:
     env:
       GOEXPERIMENT: null
 
+  codesign:
+    desc: Re-sign the darwin binary with a stable identifier
+    internal: true
+    platforms: [darwin]
+    cmds:
+      - 'if command -v codesign >/dev/null 2>&1; then codesign -s - -i land.charm.crush -f "{{.BINARY}}" || echo "Warning: failed to re-sign {{.BINARY}}"; fi'
+
   build:
     desc: Run build
     vars:
       LDFLAGS: '{{if .VERSION}}-ldflags="-X github.com/taigrr/crush/internal/version.Version={{.VERSION}}"{{end}}'
     cmds:
       - "go build -v {{if .RACE}}-race{{end}} {{.LDFLAGS}} ."
+      - task: codesign
+        vars:
+          BINARY: ./crush
     sources:
       - ./**/*.go
       - go.mod
@@ -125,6 +135,10 @@ tasks:
     cmds:
       - task: fetch-tags
       - go install {{.LDFLAGS}} -v .
+      - task: codesign
+        vars:
+          BINARY:
+            sh: 'd="$(go env GOBIN)"; [ -n "$d" ] || d="$(go env GOPATH | cut -d ":" -f 1)/bin"; echo "$d/crush"'
     sources:
       - ./**/*.go
       - go.mod

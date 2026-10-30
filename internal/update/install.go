@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/taigrr/crush/internal/codesign"
 )
 
 // ModulePath is the Go module installed by [Install].
@@ -60,7 +62,42 @@ func Install(ctx context.Context, tag string, stdout, stderr *os.File) error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("go install %s@%s: %w", ModulePath, tag, err)
 	}
+	signInstalled(ctx, goBin, dir, stderr)
 	return nil
+}
+
+// signInstalled re-signs the freshly installed binary on darwin with a
+// stable identifier. Failures are only warned about.
+func signInstalled(ctx context.Context, goBin, dir string, stderr *os.File) {
+	if codesign.Default.GOOS != "darwin" {
+		return
+	}
+	if dir == "" {
+		dir = goInstallDir(ctx, goBin)
+	}
+	if dir == "" {
+		return
+	}
+	if _, err := codesign.Sign(ctx, filepath.Join(dir, "crush")); err != nil && stderr != nil {
+		fmt.Fprintf(stderr, "Warning: failed to re-sign crush: %v\n", err)
+	}
+}
+
+func goInstallDir(ctx context.Context, goBin string) string {
+	out, err := exec.CommandContext(ctx, goBin, "env", "GOBIN", "GOPATH").Output()
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\r\n"), "\n")
+	if len(lines) > 0 && strings.TrimSpace(lines[0]) != "" {
+		return strings.TrimSpace(lines[0])
+	}
+	if len(lines) > 1 {
+		if gopath := strings.TrimSpace(strings.Split(lines[1], string(os.PathListSeparator))[0]); gopath != "" {
+			return filepath.Join(gopath, "bin")
+		}
+	}
+	return ""
 }
 
 // InstallDir is where [Install] puts the new binary: the directory of the
