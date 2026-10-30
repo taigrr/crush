@@ -557,7 +557,8 @@ func (c *coordinator) RunAccepted(ctx context.Context, accept *AcceptedRun, sess
 // dispatchMu; when nil (the in-process/local path) no accept tracking
 // applies.
 func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
-	defer c.holdTurn(sessionID)()
+	release := c.holdTurn(sessionID)
+	defer release()
 
 	// Wait on the readiness barrier captured at run start. Loading the
 	// pointer (rather than waiting on a shared, mutating group) means a
@@ -729,6 +730,10 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		currentSwarmParts = nil
 	}
 
+	// Release before publishing the terminal event so an observer that
+	// reacts to RunComplete (e.g. `crush run` followed by `crush session
+	// status`) never sees the finished run as still busy.
+	release()
 	if hasLatest && c.runComplete != nil {
 		c.runComplete.PublishMustDeliver(ctx, pubsub.UpdatedEvent, latest)
 		// Signal to the dispatcher (backend.runAgent) that the
