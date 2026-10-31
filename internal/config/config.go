@@ -816,6 +816,11 @@ func (Config) JSONSchemaProperty(prop string) any {
 
 func (c *Config) EnabledProviders() []ProviderConfig {
 	var enabled []ProviderConfig
+	if c == nil || c.Providers == nil {
+		// A Config decoded from JSON without a "providers" key has a
+		// nil map; treat it as having no providers.
+		return nil
+	}
 	for p := range c.Providers.Seq() {
 		if !p.Disable {
 			enabled = append(enabled, p)

@@ -3,13 +3,18 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/proto"
 )
 
@@ -96,4 +101,46 @@ func TestResolveAutobalance(t *testing.T) {
 	require.InDelta(t, cluster.DefaultBalanceMargin, autobalanceMargin(nil), 1e-9)
 	big := 3.0
 	require.InDelta(t, 1.0, autobalanceMargin(&config.ClusterConfig{AutobalanceMargin: &big}), 1e-9)
+}
+
+// TestClientBalanceAPINodeConfiguredDecodedConfig drives NodeConfigured
+// through a real client against an HTTP server, so the config is decoded
+// exactly as autobalance sees a remote node's config. An empty object
+// (what the server used to send) must report "not configured" instead
+// of panicking on the nil providers map.
+func TestClientBalanceAPINodeConfiguredDecodedConfig(t *testing.T) {
+	t.Parallel()
+
+	configured := config.Config{Providers: csync.NewMapFrom(map[string]config.ProviderConfig{
+		"openai": {ID: "openai"},
+	})}
+	body, err := json.Marshal(&configured)
+	require.NoError(t, err)
+
+	for name, tc := range map[string]struct {
+		payload string
+		wantErr bool
+	}{
+		"empty object":  {payload: "{}", wantErr: true},
+		"null":          {payload: "null", wantErr: true},
+		"with provider": {payload: string(body), wantErr: false},
+		"all disabled":  {payload: `{"providers":{"x":{"id":"x","disable":true}}}`, wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(tc.payload))
+			}))
+			defer srv.Close()
+			c, err := client.NewClient("", "tcp", srv.Listener.Addr().String())
+			require.NoError(t, err)
+
+			err = clientBalanceAPI{c}.NodeConfigured(t.Context(), "node-b")
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
