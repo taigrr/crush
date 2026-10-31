@@ -22,6 +22,10 @@ func TestCheckWritable(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, nil, 0o644))
 	require.ErrorIs(t, CheckWritable(filepath.Join(file, "x")), ErrNotWritable)
 
+	require.ErrorIs(t, CheckWritable("relative/path"), ErrNotWritable)
+	require.ErrorIs(t, CheckWritable(filepath.Join(dir, "a")+string(filepath.Separator)+".."+string(filepath.Separator)+"b"), ErrNotWritable)
+	require.ErrorIs(t, CheckWritable(dir+"/x\x00y"), ErrNotWritable)
+
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		return
 	}

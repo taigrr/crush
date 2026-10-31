@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // CheckWritable reports whether a project could be received at root:
@@ -14,7 +15,17 @@ import (
 // temporary directory, so a move is refused before any data is sent
 // rather than failing halfway (for example a path under /Volumes that
 // does not exist on the destination).
+//
+// root comes from a remote peer, so it must be an absolute path free of
+// ".." elements and NUL bytes; anything else is refused rather than
+// normalized into a different location.
 func CheckWritable(root string) error {
+	if !filepath.IsAbs(root) {
+		return fmt.Errorf("%w: %q is not an absolute path", ErrNotWritable, root)
+	}
+	if strings.ContainsRune(root, 0) || strings.Contains(filepath.ToSlash(root), "..") {
+		return fmt.Errorf("%w: %q contains a disallowed path element", ErrNotWritable, root)
+	}
 	dir := filepath.Clean(root)
 	for {
 		fi, err := os.Stat(dir)
