@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/backend"
+	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/proto"
 )
 
@@ -227,4 +229,23 @@ func TestPostCurrentSession_AttachedClientSucceeds(t *testing.T) {
 	// Clearing also returns 200.
 	rec = postCurrentSession(t, c, ws.ID, cid, "")
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestHandleGetConfigEncodesConfig checks that the endpoint reports
+// whether a provider is configured (autobalance relies on it) without
+// leaking provider settings such as API keys.
+func TestHandleGetConfigEncodesConfig(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{Providers: csync.NewMapFrom(map[string]config.ProviderConfig{
+		"openai": {ID: "openai", APIKey: "sk-secret"},
+	})}
+	c := &controllerV1{backend: backend.New(t.Context(), config.NewTestStore(cfg), nil), server: &Server{}}
+
+	rec := httptest.NewRecorder()
+	c.handleGetConfig(rec, httptest.NewRequest(http.MethodGet, "/v1/config", nil))
+
+	require.NotContains(t, rec.Body.String(), "sk-secret")
+	var got proto.ServerConfig
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&got))
+	require.True(t, got.Configured)
 }

@@ -71,15 +71,22 @@ func (c *controllerV1) handlePostControl(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// handleGetConfig returns global server configuration.
+// handleGetConfig returns a redacted summary of the server
+// configuration.
 //
 //	@Summary		Get server config
 //	@Tags			system
 //	@Produce		json
-//	@Success		200	{object}	object
+//	@Success		200	{object}	proto.ServerConfig
 //	@Router			/config [get]
 func (c *controllerV1) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
-	jsonEncode(w, c.backend.Config())
+	var rsp proto.ServerConfig
+	if store := c.backend.Config(); store != nil {
+		if cfg := store.Config(); cfg != nil {
+			rsp.Configured = cfg.IsConfigured()
+		}
+	}
+	jsonEncode(w, rsp)
 }
 
 // handleGetWorkspaces lists all workspaces.

@@ -74,6 +74,10 @@ crush run -o json --permission-mode delegate "Upgrade the dependencies"
 crush run -o json --detach "Port the tests to testify"
 crush session wait <session-id> --timeout 9m -o json
 
+# Run a new job on the least loaded online cluster node (also enabled by
+# "cluster": {"autobalance": true} in crush.json or CRUSH_CLUSTER_AUTOBALANCE=1)
+crush run --balance "Run the full test suite and fix failures"
+
 Exit codes: 0 completed, 1 failure, 2 blocked on a permission or question,
 3 permission denied, 4 cancelled, 5 agent error, 124 timeout.
 
@@ -93,6 +97,7 @@ explains the workflow.
 			detach, _     = cmd.Flags().GetBool("detach")
 			timeout, _    = cmd.Flags().GetDuration("timeout")
 			isolated, _   = cmd.Flags().GetBool("isolated")
+			balance, _    = cmd.Flags().GetBool("balance")
 		)
 
 		format, err := headless.ParseOutputFormat(formatFlag)
@@ -110,6 +115,8 @@ explains the workflow.
 			detach:            detach,
 			timeout:           timeout,
 			isolated:          isolated,
+			balance:           balance,
+			balanceSet:        cmd.Flags().Changed("balance"),
 		}
 		opts.mode, err = headless.ParsePermissionMode(modeFlag)
 		if err == nil {
@@ -136,6 +143,9 @@ type runOptions struct {
 	detach            bool
 	timeout           time.Duration
 	isolated          bool
+	// balance and balanceSet carry --balance; see resolveAutobalance.
+	balance    bool
+	balanceSet bool
 	// modelRef, when set, is the per-session model for a newly created
 	// session. It replaces rewriting the workspace's model config, which
 	// would also switch the model of every other client sharing the
@@ -266,6 +276,7 @@ func init() {
 	runCmd.Flags().Bool("detach", false, "Start the run in the background, print the session and exit")
 	runCmd.Flags().Duration("timeout", 0, "Stop waiting after this long (e.g. 9m); the run keeps going unless --isolated")
 	runCmd.Flags().Bool("isolated", false, "Run in a private workspace that no other client (TUI, 'crush session') can see")
+	runCmd.Flags().Bool("balance", false, "Move a new session to the least loaded online cluster node before running (default from cluster.autobalance or $"+autobalanceEnv+")")
 	runCmd.MarkFlagsMutuallyExclusive("session", "continue")
 }
 
@@ -358,6 +369,15 @@ func runNonInteractive(
 		slog.Info("Continuing session for non-interactive run", "session_id", sess.ID)
 	} else {
 		slog.Info("Created session for non-interactive run", "session_id", sess.ID)
+		if !opts.isolated && resolveAutobalance(opts.balanceSet, opts.balance, os.Getenv(autobalanceEnv), ws.Config.Cluster) {
+			stopSpinner()
+			var release func()
+			c, ws, release, err = autobalanceRun(ctx, c, ws, sess, opts)
+			if err != nil {
+				return err
+			}
+			defer release()
+		}
 	}
 
 	if !opts.usesLegacyTextStream() {

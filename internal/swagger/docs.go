@@ -35,7 +35,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object"
+                            "$ref": "#/definitions/proto.ServerConfig"
                         }
                     }
                 }
@@ -5040,6 +5040,19 @@ const docTemplate = `{
                 }
             }
         },
+        "config.ClusterConfig": {
+            "type": "object",
+            "properties": {
+                "autobalance": {
+                    "description": "Autobalance moves each new ` + "`" + `crush run` + "`" + ` job to the least loaded\nonline node before its first turn starts.",
+                    "type": "boolean"
+                },
+                "autobalance_margin": {
+                    "description": "AutobalanceMargin is how much better (on a 0-1 load score) another\nnode must be before a job moves; nil uses the default.",
+                    "type": "number"
+                }
+            }
+        },
         "config.Completions": {
             "type": "object",
             "properties": {
@@ -5492,6 +5505,9 @@ const docTemplate = `{
             "properties": {
                 "$schema": {
                     "type": "string"
+                },
+                "cluster": {
+                    "$ref": "#/definitions/config.ClusterConfig"
                 },
                 "embedding": {
                     "$ref": "#/definitions/config.EmbeddingConfig"
@@ -6444,6 +6460,15 @@ const docTemplate = `{
                 },
                 "result": {
                     "$ref": "#/definitions/proto.SkillReadResult"
+                }
+            }
+        },
+        "proto.ServerConfig": {
+            "type": "object",
+            "properties": {
+                "configured": {
+                    "description": "Configured reports whether at least one AI provider is enabled.",
+                    "type": "boolean"
                 }
             }
         },

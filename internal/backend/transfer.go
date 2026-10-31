@@ -241,6 +241,10 @@ func (b *Backend) TransferPreflight(ctx context.Context, req proto.TransferPrefl
 	if err := b.checkNotOwnedHere(ctx, root, req.SessionID); err != nil {
 		return proto.TransferPreflightResponse{}, err
 	}
+	steps.to("checking the destination path")
+	if err := transfer.CheckWritable(root); err != nil {
+		return proto.TransferPreflightResponse{}, err
+	}
 	steps.to("inspecting destination")
 	dest, err := transfer.InspectDest(ctx, root, ".crush")
 	if err != nil {

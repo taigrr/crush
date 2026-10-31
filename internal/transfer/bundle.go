@@ -33,6 +33,7 @@ var (
 	ErrSessionOwned    = errors.New("session already exists and is active on the destination")
 	ErrDestinationBusy = errors.New("destination workspace is open; close it there or choose another conflict policy")
 	ErrReuse           = errors.New("destination file could not be reused")
+	ErrNotWritable     = errors.New("destination path cannot be created or written on that node (moves keep the exact project path)")
 )
 
 // Manifest describes a bundle.

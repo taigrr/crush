@@ -787,7 +787,19 @@ type Config struct {
 
 	Embedding *EmbeddingConfig `json:"embedding,omitempty" jsonschema:"description=Global text-embedding model for vector/hybrid history search. Must be set globally (~/.config/crush); workspace overrides are ignored."`
 
+	Cluster *ClusterConfig `json:"cluster,omitempty" jsonschema:"description=Cluster behavior for this machine (see docs/cluster.md)"`
+
 	Agents map[string]Agent `json:"-"`
+}
+
+// ClusterConfig holds cluster scheduling options.
+type ClusterConfig struct {
+	// Autobalance moves each new `crush run` job to the least loaded
+	// online node before its first turn starts.
+	Autobalance bool `json:"autobalance,omitempty" jsonschema:"description=Start each new crush run job on the least loaded online cluster node (moving it there before the first turn),default=false"`
+	// AutobalanceMargin is how much better (on a 0-1 load score) another
+	// node must be before a job moves; nil uses the default.
+	AutobalanceMargin *float64 `json:"autobalance_margin,omitempty" jsonschema:"description=How much less loaded (0-1 score) another node must be before autobalance moves a job there,default=0.15,minimum=0,maximum=1"`
 }
 
 // JSONSchemaProperty overrides the schema for the concurrent-map Providers
@@ -804,6 +816,11 @@ func (Config) JSONSchemaProperty(prop string) any {
 
 func (c *Config) EnabledProviders() []ProviderConfig {
 	var enabled []ProviderConfig
+	if c == nil || c.Providers == nil {
+		// A Config decoded from JSON without a "providers" key has a
+		// nil map; treat it as having no providers.
+		return nil
+	}
 	for p := range c.Providers.Seq() {
 		if !p.Disable {
 			enabled = append(enabled, p)

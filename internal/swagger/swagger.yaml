@@ -94,6 +94,19 @@ definitions:
       trailer_style:
         $ref: '#/definitions/config.TrailerStyle'
     type: object
+  config.ClusterConfig:
+    properties:
+      autobalance:
+        description: |-
+          Autobalance moves each new `crush run` job to the least loaded
+          online node before its first turn starts.
+        type: boolean
+      autobalance_margin:
+        description: |-
+          AutobalanceMargin is how much better (on a 0-1 load score) another
+          node must be before a job moves; nil uses the default.
+        type: number
+    type: object
   config.Completions:
     properties:
       max_depth:
@@ -464,6 +477,8 @@ definitions:
     properties:
       $schema:
         type: string
+      cluster:
+        $ref: '#/definitions/config.ClusterConfig'
       embedding:
         $ref: '#/definitions/config.EmbeddingConfig'
       hooks:
@@ -1137,6 +1152,12 @@ definitions:
       result:
         $ref: '#/definitions/proto.SkillReadResult'
     type: object
+  proto.ServerConfig:
+    properties:
+      configured:
+        description: Configured reports whether at least one AI provider is enabled.
+        type: boolean
+    type: object
   proto.ServerControl:
     properties:
       command:
@@ -1540,7 +1561,7 @@ paths:
         "200":
           description: OK
           schema:
-            type: object
+            $ref: '#/definitions/proto.ServerConfig'
       summary: Get server config
       tags:
       - system
