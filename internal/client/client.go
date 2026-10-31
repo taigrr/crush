@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
 )
 
@@ -67,9 +66,10 @@ func (c *Client) ClientID() string {
 	return c.clientID
 }
 
-// GetGlobalConfig retrieves the server's configuration.
-func (c *Client) GetGlobalConfig(ctx context.Context) (*config.Config, error) {
-	var cfg config.Config
+// GetGlobalConfig retrieves a redacted summary of the server's
+// configuration.
+func (c *Client) GetGlobalConfig(ctx context.Context) (*proto.ServerConfig, error) {
+	var cfg proto.ServerConfig
 	rsp, err := c.get(ctx, "/config", nil, nil)
 	if err != nil {
 		return nil, err

@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/taigrr/crush/internal/backend"
-	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/session"
@@ -72,22 +71,22 @@ func (c *controllerV1) handlePostControl(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-// handleGetConfig returns global server configuration.
+// handleGetConfig returns a redacted summary of the server
+// configuration.
 //
 //	@Summary		Get server config
 //	@Tags			system
 //	@Produce		json
-//	@Success		200	{object}	config.Config
+//	@Success		200	{object}	proto.ServerConfig
 //	@Router			/config [get]
 func (c *controllerV1) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
-	// Encode the pure-data Config, not the ConfigStore: the store only
-	// has unexported fields and would serialize as "{}", leaving clients
-	// with a Config whose maps are nil.
-	var cfg *config.Config
+	var rsp proto.ServerConfig
 	if store := c.backend.Config(); store != nil {
-		cfg = store.Config()
+		if cfg := store.Config(); cfg != nil {
+			rsp.Configured = cfg.IsConfigured()
+		}
 	}
-	jsonEncode(w, cfg)
+	jsonEncode(w, rsp)
 }
 
 // handleGetWorkspaces lists all workspaces.

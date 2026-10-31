@@ -35,7 +35,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object"
+                            "$ref": "#/definitions/proto.ServerConfig"
                         }
                     }
                 }
@@ -6460,6 +6460,15 @@ const docTemplate = `{
                 },
                 "result": {
                     "$ref": "#/definitions/proto.SkillReadResult"
+                }
+            }
+        },
+        "proto.ServerConfig": {
+            "type": "object",
+            "properties": {
+                "configured": {
+                    "description": "Configured reports whether at least one AI provider is enabled.",
+                    "type": "boolean"
                 }
             }
         },

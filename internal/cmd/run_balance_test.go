@@ -3,7 +3,6 @@ package cmd
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +13,6 @@ import (
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/config"
-	"github.com/taigrr/crush/internal/csync"
 	"github.com/taigrr/crush/internal/proto"
 )
 
@@ -106,25 +104,19 @@ func TestResolveAutobalance(t *testing.T) {
 // TestClientBalanceAPINodeConfiguredDecodedConfig drives NodeConfigured
 // through a real client against an HTTP server, so the config is decoded
 // exactly as autobalance sees a remote node's config. An empty object
-// (what the server used to send) must report "not configured" instead
+// (what older servers send) must report "not configured" instead
 // of panicking on the nil providers map.
 func TestClientBalanceAPINodeConfiguredDecodedConfig(t *testing.T) {
 	t.Parallel()
-
-	configured := config.Config{Providers: csync.NewMapFrom(map[string]config.ProviderConfig{
-		"openai": {ID: "openai"},
-	})}
-	body, err := json.Marshal(&configured)
-	require.NoError(t, err)
 
 	for name, tc := range map[string]struct {
 		payload string
 		wantErr bool
 	}{
-		"empty object":  {payload: "{}", wantErr: true},
-		"null":          {payload: "null", wantErr: true},
-		"with provider": {payload: string(body), wantErr: false},
-		"all disabled":  {payload: `{"providers":{"x":{"id":"x","disable":true}}}`, wantErr: true},
+		"empty object":   {payload: "{}", wantErr: true},
+		"null":           {payload: "null", wantErr: true},
+		"configured":     {payload: `{"configured":true}`, wantErr: false},
+		"not configured": {payload: `{"configured":false}`, wantErr: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

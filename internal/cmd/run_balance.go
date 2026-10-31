@@ -65,7 +65,7 @@ func (a clientBalanceAPI) NodeConfigured(ctx context.Context, nodeID string) err
 	if err != nil {
 		return fmt.Errorf("could not read its config: %w", err)
 	}
-	if !cfg.IsConfigured() {
+	if !cfg.Configured {
 		return errors.New("it has no AI provider configured")
 	}
 	return nil

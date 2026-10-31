@@ -231,20 +231,21 @@ func TestPostCurrentSession_AttachedClientSucceeds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestHandleGetConfigEncodesConfig guards against serializing the
-// ConfigStore (all unexported fields, so "{}") instead of its Config:
-// remote nodes' configs are decoded from this endpoint by autobalance.
+// TestHandleGetConfigEncodesConfig checks that the endpoint reports
+// whether a provider is configured (autobalance relies on it) without
+// leaking provider settings such as API keys.
 func TestHandleGetConfigEncodesConfig(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{Providers: csync.NewMapFrom(map[string]config.ProviderConfig{
-		"openai": {ID: "openai"},
+		"openai": {ID: "openai", APIKey: "sk-secret"},
 	})}
 	c := &controllerV1{backend: backend.New(t.Context(), config.NewTestStore(cfg), nil), server: &Server{}}
 
 	rec := httptest.NewRecorder()
 	c.handleGetConfig(rec, httptest.NewRequest(http.MethodGet, "/v1/config", nil))
 
-	var got config.Config
+	require.NotContains(t, rec.Body.String(), "sk-secret")
+	var got proto.ServerConfig
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&got))
-	require.True(t, got.IsConfigured())
+	require.True(t, got.Configured)
 }

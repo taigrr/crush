@@ -1152,6 +1152,12 @@ definitions:
       result:
         $ref: '#/definitions/proto.SkillReadResult'
     type: object
+  proto.ServerConfig:
+    properties:
+      configured:
+        description: Configured reports whether at least one AI provider is enabled.
+        type: boolean
+    type: object
   proto.ServerControl:
     properties:
       command:
@@ -1555,7 +1561,7 @@ paths:
         "200":
           description: OK
           schema:
-            type: object
+            $ref: '#/definitions/proto.ServerConfig'
       summary: Get server config
       tags:
       - system
