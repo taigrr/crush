@@ -23,10 +23,13 @@ func CheckWritable(root string) error {
 	if !filepath.IsAbs(root) {
 		return fmt.Errorf("%w: %q is not an absolute path", ErrNotWritable, root)
 	}
-	if strings.ContainsRune(root, 0) || strings.Contains(filepath.ToSlash(root), "..") {
+	if strings.ContainsRune(root, 0) || strings.Contains(root, "..") {
 		return fmt.Errorf("%w: %q contains a disallowed path element", ErrNotWritable, root)
 	}
 	dir := filepath.Clean(root)
+	if strings.Contains(dir, "..") {
+		return fmt.Errorf("%w: %q contains a disallowed path element", ErrNotWritable, root)
+	}
 	for {
 		fi, err := os.Stat(dir)
 		if err == nil {
