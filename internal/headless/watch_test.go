@@ -242,6 +242,11 @@ func TestLastOutcome(t *testing.T) {
 			status: StatusError, err: "agent run failed",
 		},
 		{
+			name:   "error keeps provider details",
+			msgs:   []proto.Message{asst("a", "", proto.Finish{Reason: proto.FinishReasonError, Message: "Bad Request", Details: "HTTP 400: prompt is too long"})},
+			status: StatusError, err: "Bad Request: HTTP 400: prompt is too long",
+		},
+		{
 			name: "denied tool ends the turn",
 			msgs: []proto.Message{
 				asst("a", "Running it", proto.ToolCall{ID: "tc", Name: "bash"}, proto.Finish{Reason: proto.FinishReasonToolUse}),
