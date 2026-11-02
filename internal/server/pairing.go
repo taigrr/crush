@@ -94,7 +94,7 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 		p.kickGate()
 	})
 	p.client = &httpListener{
-		name: "client", addr: p.clientAddr, maxConn: maxClientConns, grace: clientStopGrace,
+		name: "client", addr: p.clientAddr, maxConn: maxClientConns, grace: clientStopGrace, backoff: listenerRetry,
 		onDown: p.kickGate,
 		server: func() *http.Server {
 			return &http.Server{
@@ -396,10 +396,10 @@ func (p *pairingService) stopMesh() {
 		p.stop = nil
 	}
 	p.meshRef.Store(nil)
+	p.gate.Store(nil)
 	p.mu.Unlock()
 	// The gate goroutine stops the client listener on cancel.
 	p.wg.Wait()
-	p.gate.Store(nil)
 }
 
 // clientHandler serves /client/v1 for devices.

@@ -65,6 +65,8 @@ func TestGateRejectedOfferCloses(t *testing.T) {
 	requireBound(t, srv, addr)
 	_, err = c.PairReject(t.Context(), offer.OfferID)
 	require.NoError(t, err)
+	// A phone between polls can still learn the final state.
+	require.True(t, dialable(addr), "listener lingers for EndedGrace")
 	requireUnbound(t, srv, addr)
 }
 
@@ -156,10 +158,11 @@ func TestGateConcurrentOffersAndRevokes(t *testing.T) {
 	}
 	wg.Wait()
 	// Nothing left to serve: no open offer and every device revoked.
+	require.False(t, p.reg.HasActive())
+	// The listener lingers for EndedGrace after the last offer, then goes.
+	requireUnbound(t, srv, addr)
 	n, _ := p.mgr.Active()
 	require.Zero(t, n)
-	require.False(t, p.reg.HasActive())
-	requireUnbound(t, srv, addr)
 
 	// And it comes back for a new offer.
 	_, err := c.PairCreateOffer(t.Context(), pairing.CreateOfferRequest{})

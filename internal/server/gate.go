@@ -22,12 +22,20 @@ type gatedListener interface {
 	// Start binds and serves. An error (for example a busy port) is
 	// retried by the gate while the listener is still wanted.
 	Start() error
-	// Stop stops serving, letting in-flight requests finish within a
-	// grace period. It is idempotent.
+	// Stop releases the port at once and lets in-flight requests finish
+	// in the background within a grace period, so it never blocks the
+	// gate. It is idempotent.
 	Stop()
 	// Running reports whether the listener is bound.
 	Running() bool
 }
+
+// minWake bounds how often the gate re-evaluates on its own.
+const minWake = 50 * time.Millisecond
+
+// errBackoff is returned by Start while a listener that stopped
+// unexpectedly is backing off.
+var errBackoff = errors.New("backing off after an unexpected stop")
 
 // listenerGate owns the lifecycle of its listeners from a single
 // goroutine, so a listener is never bound twice or left bound. It
@@ -79,7 +87,8 @@ func (g *listenerGate) run(ctx context.Context) {
 			}
 		}
 		if !next.IsZero() {
-			timer.Reset(max(time.Until(next), 0))
+			// Never spin: a deadline at or before now waits minWake.
+			timer.Reset(max(time.Until(next), minWake))
 		}
 	}
 }
@@ -117,10 +126,15 @@ type httpListener struct {
 	onDown  func()
 	maxConn int
 	grace   time.Duration
+	// backoff delays a restart after the server stopped unexpectedly
+	// (bound fine, then serving failed), so it cannot flap.
+	backoff time.Duration
 
-	mu    sync.Mutex
-	hs    *http.Server
-	bound string
+	mu       sync.Mutex
+	hs       *http.Server
+	ln       net.Listener
+	bound    string
+	failedAt time.Time
 }
 
 func (l *httpListener) Name() string { return l.name }
@@ -144,23 +158,29 @@ func (l *httpListener) Start() error {
 	if l.hs != nil {
 		return nil
 	}
+	if !l.failedAt.IsZero() && time.Since(l.failedAt) < l.backoff {
+		return errBackoff
+	}
 	ln, err := net.Listen("tcp", l.addr)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", l.name, l.addr, err)
 	}
 	hs := l.server()
-	l.hs, l.bound = hs, ln.Addr().String()
+	l.hs, l.ln, l.bound = hs, ln, ln.Addr().String()
 	go func() {
 		err := hs.ServeTLS(netutil.LimitListener(ln, l.maxConn), "", "")
-		if err == nil || errors.Is(err, http.ErrServerClosed) {
+		l.mu.Lock()
+		owned := l.hs == hs
+		if owned {
+			l.hs, l.ln, l.bound = nil, nil, ""
+			l.failedAt = time.Now()
+		}
+		l.mu.Unlock()
+		// Errors after Stop (closed listener, ErrServerClosed) are expected.
+		if !owned || errors.Is(err, http.ErrServerClosed) {
 			return
 		}
 		slog.Error("Listener stopped unexpectedly", "listener", l.name, "error", err)
-		l.mu.Lock()
-		if l.hs == hs {
-			l.hs, l.bound = nil, ""
-		}
-		l.mu.Unlock()
 		if l.onDown != nil {
 			l.onDown()
 		}
@@ -171,17 +191,22 @@ func (l *httpListener) Start() error {
 
 func (l *httpListener) Stop() {
 	l.mu.Lock()
-	hs := l.hs
-	l.hs, l.bound = nil, ""
+	hs, ln := l.hs, l.ln
+	l.hs, l.ln, l.bound = nil, nil, ""
 	l.mu.Unlock()
 	if hs == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), l.grace)
-	defer cancel()
-	if hs.Shutdown(ctx) != nil {
-		// Long-polls can outlast the grace period; cut them so the port
-		// is free for the next bind.
-		_ = hs.Close()
-	}
+	// Free the port now so a new offer can rebind immediately; drain
+	// in-flight requests (a poll learning its final state) in the
+	// background.
+	_ = ln.Close()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), l.grace)
+		defer cancel()
+		if hs.Shutdown(ctx) != nil {
+			// Long-polls can outlast the grace period; cut them.
+			_ = hs.Close()
+		}
+	}()
 }
