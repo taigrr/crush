@@ -59,6 +59,27 @@ func (n *Node) CAFingerprints() ([][]byte, error) {
 	return out, nil
 }
 
+// CACertificates returns the CA certificates for the current and (after a
+// rotation) previous cluster key, in CAFingerprints order.
+func (n *Node) CACertificates() ([][]byte, error) {
+	st, err := n.store.Snapshot()
+	if err != nil {
+		return nil, err
+	}
+	if st.ClusterID == "" {
+		return nil, ErrNotInCluster
+	}
+	var out [][]byte
+	for _, key := range st.trustedKeys() {
+		der, err := CACertificate(st.ClusterID, key)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, der)
+	}
+	return out, nil
+}
+
 // ClientTLSConfig serves the node's leaf certificate, followed by the
 // cluster CA certificate, to devices. Sending the CA lets a phone check
 // the pin (SHA-256 of the CA's SubjectPublicKeyInfo, the QR's ca_fp) and

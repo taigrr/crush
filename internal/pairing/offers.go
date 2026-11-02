@@ -80,6 +80,7 @@ func (s Self) InfoPayload() (string, error) {
 type Extras struct {
 	NATSURLs []string
 	CAFPs    [][]byte
+	CACerts  [][]byte
 	Members  []MemberInfo
 }
 
@@ -738,6 +739,9 @@ func (m *Manager) pollResponseLocked(o *offer) PollResponse {
 		resp.NATS = &NATSCredential{User: user, Account: ClientsAccount, Permissions: DevicePermissions(d.DeviceID), URLs: ex.NATSURLs}
 		for _, fp := range ex.CAFPs {
 			resp.CAFPs = append(resp.CAFPs, Bytes(fp))
+		}
+		for _, der := range ex.CACerts {
+			resp.CACerts = append(resp.CACerts, Bytes(der))
 		}
 		resp.Members = ex.Members
 	}

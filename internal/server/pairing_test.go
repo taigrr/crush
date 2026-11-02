@@ -140,8 +140,12 @@ func deviceConn(t *testing.T, srv *Server, key ed25519.PrivateKey, opts ...nats.
 	user, err := kp.PublicKey()
 	require.NoError(t, err)
 	id := pairing.DeviceID(key.Public().(ed25519.PublicKey))
+	cas, err := srv.Cluster().CACertificates()
+	require.NoError(t, err)
+	tlsCfg, err := pairing.TrustedTLSConfig(cas, [][]byte{self.CAFP}, self.NodeID)
+	require.NoError(t, err)
 	base := []nats.Option{
-		nats.Secure(pairing.PinnedTLSConfig(self.CAFP, self.NodeID)),
+		nats.Secure(tlsCfg),
 		nats.Nkey(user, kp.Sign), nats.NoReconnect(), nats.Timeout(3 * time.Second),
 		nats.CustomInboxPrefix("_INBOX." + id),
 	}

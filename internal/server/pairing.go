@@ -245,6 +245,9 @@ func (p *pairingService) extras() pairing.Extras {
 	if fps, err := p.node.CAFingerprints(); err == nil {
 		ex.CAFPs = fps
 	}
+	if certs, err := p.node.CACertificates(); err == nil {
+		ex.CACerts = certs
+	}
 	st, err := p.node.Store().Snapshot()
 	if err != nil {
 		return ex

@@ -67,20 +67,46 @@ func VerifyPinnedChain(rawCerts [][]byte, caFP []byte, nodeID string, now time.T
 	return nil
 }
 
-// PinnedTLSConfig is a client TLS config that trusts exactly one node
-// certified by the pinned cluster CA. It is the Go reference for rush.
-func PinnedTLSConfig(caFP []byte, nodeID string) *tls.Config {
+// NodeServerName is the DNS name every node certificate carries; clients
+// verifying against the cluster CA use it as the TLS server name, since
+// the pin, not the host name, identifies the node.
+const NodeServerName = "crush-node"
+
+// TrustedTLSConfig builds a standard, fully verifying client TLS config
+// for one node after pairing: the trust roots are the cluster CA
+// certificates from the poll response, each accepted only if its SPKI
+// hash is a pinned fingerprint, and the leaf's common name must be
+// nodeID. It is the Go reference for rush.
+func TrustedTLSConfig(caCerts [][]byte, caFPs [][]byte, nodeID string) (*tls.Config, error) {
+	if nodeID == "" {
+		return nil, ErrPin
+	}
+	pool := x509.NewCertPool()
+	added := 0
+	for _, der := range caCerts {
+		ca, err := x509.ParseCertificate(der)
+		if err != nil || !ca.IsCA {
+			continue
+		}
+		fp := SPKIFingerprint(ca)
+		if !slices.ContainsFunc(caFPs, func(pin []byte) bool { return subtle.ConstantTimeCompare(pin, fp) == 1 }) {
+			continue
+		}
+		pool.AddCert(ca)
+		added++
+	}
+	if added == 0 {
+		return nil, fmt.Errorf("%w: no CA certificate matches a pin", ErrPin)
+	}
 	return &tls.Config{
 		MinVersion: tls.VersionTLS13,
-		// Standard verification needs a trusted root and a host name;
-		// the pin replaces both, checked in VerifyConnection.
-		InsecureSkipVerify: true,
+		RootCAs:    pool,
+		ServerName: NodeServerName,
 		VerifyConnection: func(cs tls.ConnectionState) error {
-			raw := make([][]byte, 0, len(cs.PeerCertificates))
-			for _, c := range cs.PeerCertificates {
-				raw = append(raw, c.Raw)
+			if len(cs.PeerCertificates) == 0 || cs.PeerCertificates[0].Subject.CommonName != nodeID {
+				return fmt.Errorf("%w: leaf is for another node", ErrPin)
 			}
-			return VerifyPinnedChain(raw, caFP, nodeID, time.Now())
+			return nil
 		},
-	}
+	}, nil
 }

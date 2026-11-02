@@ -51,11 +51,12 @@ func initPhoneNode(t *testing.T) (*Server, *client.Client) {
 // phone is a paired device's NATS identity, built only from what the
 // pairing flow gave it.
 type phone struct {
-	key    ed25519.PrivateKey
-	id     string
-	url    string
-	caFP   []byte
-	nodeID string
+	key     ed25519.PrivateKey
+	id      string
+	url     string
+	caFP    []byte
+	caCerts [][]byte
+	nodeID  string
 }
 
 func pairPhone(t *testing.T, srv *Server, c *client.Client) phone {
@@ -67,9 +68,10 @@ func pairPhone(t *testing.T, srv *Server, c *client.Client) phone {
 	_, wsPort, _ := net.SplitHostPort(srv.pairing.wsAddr)
 	require.Equal(t, "wss://"+net.JoinHostPort(phoneHost, wsPort), poll.NATS.URLs[0])
 	require.Len(t, poll.CAFPs, 1)
+	require.Len(t, poll.CACerts, 1)
 	return phone{
 		key: key, id: poll.Device.DeviceID, url: poll.NATS.URLs[0],
-		caFP: poll.CAFPs[0], nodeID: poll.Members[0].NodeID,
+		caFP: poll.CAFPs[0], caCerts: [][]byte{poll.CACerts[0]}, nodeID: poll.Members[0].NodeID,
 	}
 }
 
@@ -79,9 +81,13 @@ func (p phone) connect(t *testing.T, opts ...nats.Option) (*nats.Conn, error) {
 	require.NoError(t, err)
 	user, err := kp.PublicKey()
 	require.NoError(t, err)
+	tlsCfg, err := pairing.TrustedTLSConfig(p.caCerts, [][]byte{p.caFP}, p.nodeID)
+	if err != nil {
+		return nil, err
+	}
 	base := []nats.Option{
 		nats.SetCustomDialer(mapDialer{}),
-		nats.Secure(pairing.PinnedTLSConfig(p.caFP, p.nodeID)),
+		nats.Secure(tlsCfg),
 		nats.Nkey(user, kp.Sign),
 		nats.CustomInboxPrefix("_INBOX." + p.id),
 		nats.NoReconnect(), nats.Timeout(3 * time.Second),

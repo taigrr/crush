@@ -187,7 +187,10 @@ type PollResponse struct {
 	Device  *Device         `json:"device,omitempty"`
 	NATS    *NATSCredential `json:"nats,omitempty"`
 	CAFPs   []Bytes         `json:"ca_fps,omitempty" swaggertype:"array,string"`
-	Members []MemberInfo    `json:"members,omitempty"`
+	// CACerts are the cluster CA certificates (DER), current first. A
+	// device trusts one only if its SPKI hash is a pinned fingerprint.
+	CACerts []Bytes      `json:"ca_certs,omitempty" swaggertype:"array,string"`
+	Members []MemberInfo `json:"members,omitempty"`
 } //@name pairing.PollResponse
 
 // AbortRequest is the POST /client/v1/pair/abort body.

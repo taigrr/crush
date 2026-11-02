@@ -43,3 +43,17 @@ func TestVerifyPinnedChain(t *testing.T) {
 	otherLeaf, _, _ := testChain(t, "node-1")
 	require.ErrorIs(t, VerifyPinnedChain([][]byte{otherLeaf, ca}, fp, "node-1", now), ErrPin)
 }
+
+func TestTrustedTLSConfig(t *testing.T) {
+	t.Parallel()
+	_, ca, fp := testChain(t, "node-1")
+	cfg, err := TrustedTLSConfig([][]byte{ca}, [][]byte{fp}, "node-1")
+	require.NoError(t, err)
+	require.False(t, cfg.InsecureSkipVerify)
+	require.Equal(t, NodeServerName, cfg.ServerName)
+
+	_, err = TrustedTLSConfig([][]byte{ca}, [][]byte{RandomBytes(FingerprintSize)}, "node-1")
+	require.ErrorIs(t, err, ErrPin, "an unpinned CA is never trusted")
+	_, err = TrustedTLSConfig([][]byte{ca}, [][]byte{fp}, "")
+	require.ErrorIs(t, err, ErrPin)
+}
