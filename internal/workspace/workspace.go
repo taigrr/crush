@@ -13,6 +13,7 @@ import (
 	mcptools "github.com/taigrr/crush/internal/agent/tools/mcp"
 	"github.com/taigrr/crush/internal/checkpoint"
 	"github.com/taigrr/crush/internal/cluster"
+	"github.com/taigrr/crush/internal/pairing"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/fork"
 	"github.com/taigrr/crush/internal/history"
@@ -243,6 +244,12 @@ type Workspace interface {
 	// ClusterDashboard returns live health for every cluster node, as seen
 	// by the attached server.
 	ClusterDashboard(ctx context.Context) ([]cluster.NodeDashboard, error)
+	// PairCreateOffer creates a mobile pairing offer on the attached
+	// server; PairWaitOffer, PairApprove, and PairReject follow it.
+	PairCreateOffer(ctx context.Context) (pairing.OfferView, error)
+	PairWaitOffer(ctx context.Context, offerID string, since pairing.State, waitMS int) (pairing.OfferView, error)
+	PairApprove(ctx context.Context, offerID string) (pairing.OfferView, error)
+	PairReject(ctx context.Context, offerID string) (pairing.OfferView, error)
 	// MoveSession hands req.SessionID (in the workspace at root, "" = the
 	// current one) to another cluster node with its project files.
 	// req.WorkspaceID is filled in from root.

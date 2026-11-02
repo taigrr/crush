@@ -353,6 +353,11 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		cmds = append(cmds, m.executeMigration(msg.Plan))
 	case dialog.ActionMoveSession:
 		cmds = append(cmds, m.runMoveSession(msg))
+	case dialog.ActionOpenPairDevice:
+		m.dialog.CloseDialog(dialog.CommandsID)
+		cmds = append(cmds, m.openPairDialog())
+	case dialog.ActionPairDecision:
+		cmds = append(cmds, m.decidePair(msg))
 	case dialog.ActionOpenClusterDashboard:
 		m.dialog.CloseDialog(dialog.CommandsID)
 		cmds = append(cmds, m.openClusterDashboard())
