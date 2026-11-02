@@ -676,3 +676,28 @@ func TestRegistryBindCluster(t *testing.T) {
 	require.NoError(t, reopened.BindCluster("c2"))
 	require.Empty(t, reopened.List(), "trust does not carry across clusters")
 }
+
+func TestManagerActiveAndOnChange(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	var mu sync.Mutex
+	changes := 0
+	h.mgr.cfg.OnChange = func() { mu.Lock(); changes++; mu.Unlock() }
+
+	n, next := h.mgr.Active()
+	require.Zero(t, n)
+	require.True(t, next.IsZero())
+
+	view, err := h.mgr.CreateNodeOffer(time.Minute, RoleOperator)
+	require.NoError(t, err)
+	n, next = h.mgr.Active()
+	require.Equal(t, 1, n)
+	require.Equal(t, view.ExpiresAt, next)
+
+	h.advance(2 * time.Minute)
+	n, _ = h.mgr.Active()
+	require.Zero(t, n, "Active expires stale offers")
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, 2, changes, "create and expiry both notify")
+}

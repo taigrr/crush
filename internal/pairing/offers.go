@@ -95,6 +95,11 @@ type Config struct {
 	Revoked func(deviceID string) bool
 	// Extras returns the post-approval data for a device.
 	Extras func() Extras
+	// OnChange runs whenever the set of open or claimed offers changes
+	// (created, approved, expired, aborted, rejected). It is called with
+	// the manager lock held, so it must not block or call back in; the
+	// server uses it to kick its listener gate.
+	OnChange func()
 	// Now overrides the clock (tests).
 	Now func() time.Time
 }
@@ -184,6 +189,32 @@ func (m *Manager) endLocked(o *offer, st State, reason string, now time.Time) {
 	// the device can re-poll an approved offer.
 	o.secret = nil
 	o.signal()
+	m.changedLocked()
+}
+
+func (m *Manager) changedLocked() {
+	if m.cfg.OnChange != nil {
+		m.cfg.OnChange()
+	}
+}
+
+// Active reports how many offers are open or claimed (expiring stale ones
+// first) and when the earliest of them expires.
+func (m *Manager) Active() (int, time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.refreshLocked(m.cfg.Now())
+	n, next := 0, time.Time{}
+	for _, o := range m.offers {
+		if o.state.Terminal() {
+			continue
+		}
+		n++
+		if next.IsZero() || o.expires.Before(next) {
+			next = o.expires
+		}
+	}
+	return n, next
 }
 
 func (m *Manager) activeLocked() int {
@@ -206,6 +237,7 @@ func (m *Manager) addLocked(o *offer) error {
 	}
 	o.changed = make(chan struct{})
 	m.offers[offerKey(o.id)] = o
+	m.changedLocked()
 	return nil
 }
 

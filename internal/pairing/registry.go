@@ -240,6 +240,18 @@ func (r *Registry) List() []Device {
 	return out
 }
 
+// HasActive reports whether any device is paired and not revoked.
+func (r *Registry) HasActive() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, d := range r.devices {
+		if !d.Revoked() {
+			return true
+		}
+	}
+	return false
+}
+
 // Get returns one record.
 func (r *Registry) Get(id string) (Device, bool) {
 	r.mu.Lock()
