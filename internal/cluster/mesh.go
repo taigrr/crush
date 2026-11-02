@@ -67,11 +67,15 @@ func (n *Node) StartMesh(routeAddr string) (*Mesh, error) {
 		// Routing only starts once the client listener is up, so bind it to
 		// loopback on a random port and lock it with a random token. Local
 		// code still connects in-process.
-		Host:          "127.0.0.1",
-		Port:          natsserver.RANDOM_PORT,
-		Authorization: clientToken,
-		NoSigs:        true,
-		NoLog:         true,
+		Host: "127.0.0.1",
+		Port: natsserver.RANDOM_PORT,
+		// The mesh connection is a password user in the global account;
+		// paired devices are nkey users in the CLIENTS account
+		// (SetClientUsers).
+		Users:    []*natsserver.User{{Username: meshUser, Password: clientToken}},
+		Accounts: []*natsserver.Account{natsserver.NewAccount(ClientsAccount)},
+		NoSigs:   true,
+		NoLog:    true,
 		Cluster: natsserver.ClusterOpts{
 			Name:       "crush-" + st.ClusterID,
 			Host:       host,
@@ -94,7 +98,7 @@ func (n *Node) StartMesh(routeAddr string) (*Mesh, error) {
 		srv.Shutdown()
 		return nil, errors.New("mesh server did not become ready")
 	}
-	nc, err := nats.Connect("", nats.InProcessServer(srv), nats.Token(clientToken), nats.Name("crush-"+n.id.Name), nats.MaxReconnects(-1))
+	nc, err := nats.Connect("", nats.InProcessServer(srv), nats.UserInfo(meshUser, clientToken), nats.Name("crush-"+n.id.Name), nats.MaxReconnects(-1))
 	if err != nil {
 		srv.Shutdown()
 		return nil, fmt.Errorf("connect mesh: %w", err)
