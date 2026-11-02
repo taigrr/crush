@@ -56,8 +56,7 @@ func (m *UI) waitPairOffer(offer pairing.OfferView) tea.Cmd {
 // the offer until it ends or the dialog closes.
 func (m *UI) handlePairOffer(msg pairOfferMsg) tea.Cmd {
 	if msg.err != nil {
-		m.dialog.CloseDialog(dialog.PairQRID)
-		return util.ReportError(fmt.Errorf("pair mobile device: %w", msg.err))
+		return m.failPair(msg.err)
 	}
 	d, ok := m.dialog.Dialog(dialog.PairQRID).(*dialog.PairQR)
 	switch {
@@ -116,10 +115,26 @@ func (m *UI) decidePair(d dialog.ActionPairDecision) tea.Cmd {
 	}
 }
 
+// failPair closes the dialog after an error and cancels its offer, so a
+// phone cannot finish a pairing the user saw fail.
+func (m *UI) failPair(err error) tea.Cmd {
+	cmds := []tea.Cmd{util.ReportError(fmt.Errorf("pair mobile device: %w", err))}
+	if d, ok := m.dialog.Dialog(dialog.PairQRID).(*dialog.PairQR); ok && d.OfferID() != "" {
+		ws, id := m.com.Workspace, d.OfferID()
+		cmds = append(cmds, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _ = ws.PairReject(ctx, id)
+			return nil
+		})
+	}
+	m.dialog.CloseDialog(dialog.PairQRID)
+	return tea.Batch(cmds...)
+}
+
 func (m *UI) handlePairDecision(msg pairDecisionMsg) tea.Cmd {
 	if msg.err != nil {
-		m.dialog.CloseDialog(dialog.PairQRID)
-		return util.ReportError(fmt.Errorf("pair mobile device: %w", msg.err))
+		return m.failPair(msg.err)
 	}
 	if d, ok := m.dialog.Dialog(dialog.PairQRID).(*dialog.PairQR); ok && d.OfferID() == msg.offer.OfferID {
 		d.SetOffer(msg.offer)
