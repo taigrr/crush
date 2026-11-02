@@ -27,6 +27,7 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/projects"
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/ui/chat"
@@ -42,6 +43,7 @@ var sessionCmd = &cobra.Command{
 
 var (
 	sessionListJSON   bool
+	sessionListAll    bool
 	sessionShowJSON   bool
 	sessionLastJSON   bool
 	sessionDeleteJSON bool
@@ -54,7 +56,7 @@ var sessionListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
 	Short:   "List all sessions",
-	Long:    "List all sessions. Use --json for machine-readable output.",
+	Long:    "List sessions for the current project. Use --all to list sessions across every known project, and --json for machine-readable output.",
 	RunE:    runSessionList,
 }
 
@@ -100,6 +102,7 @@ var sessionImportCmd = &cobra.Command{
 
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListJSON, "json", false, "output in JSON format")
+	sessionListCmd.Flags().BoolVarP(&sessionListAll, "all", "a", false, "list sessions across all known projects")
 	sessionShowCmd.Flags().BoolVar(&sessionShowJSON, "json", false, "output in JSON format")
 	sessionLastCmd.Flags().BoolVar(&sessionLastJSON, "json", false, "output in JSON format")
 	sessionDeleteCmd.Flags().BoolVar(&sessionDeleteJSON, "json", false, "output in JSON format")
@@ -196,32 +199,41 @@ func runSessionImport(cmd *cobra.Command, args []string) error {
 }
 
 func runSessionList(cmd *cobra.Command, _ []string) error {
-	ctx, svc, cleanup, err := sessionSetup(cmd)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
+	var (
+		ctx  context.Context
+		list []listedSession
+	)
+	if sessionListAll {
+		ctx = cmd.Context()
+		var err error
+		list, err = collectAllSessions(ctx, cmd.ErrOrStderr())
+		if err != nil {
+			return err
+		}
+	} else {
+		var (
+			svc     *sessionServices
+			cleanup func()
+			err     error
+		)
+		ctx, svc, cleanup, err = sessionSetup(cmd)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
 
-	list, err := svc.sessions.List(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list sessions: %w", err)
+		sessions, err := svc.sessions.List(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list sessions: %w", err)
+		}
+		list = make([]listedSession, len(sessions))
+		for i, s := range sessions {
+			list[i] = listedSession{Session: s}
+		}
 	}
 
 	if sessionListJSON {
-		out := cmd.OutOrStdout()
-		output := make([]sessionJSON, len(list))
-		for i, s := range list {
-			output[i] = sessionJSON{
-				ID:       session.HashID(s.ID),
-				UUID:     s.ID,
-				Title:    s.Title,
-				Created:  time.Unix(s.CreatedAt, 0).Format(time.RFC3339),
-				Modified: time.Unix(s.UpdatedAt, 0).Format(time.RFC3339),
-			}
-		}
-		enc := json.NewEncoder(out)
-		enc.SetEscapeHTML(false)
-		return enc.Encode(output)
+		return writeSessionListJSON(cmd.OutOrStdout(), list)
 	}
 
 	w, cleanup, usingPager := sessionWriter(ctx, len(list))
@@ -229,21 +241,28 @@ func runSessionList(cmd *cobra.Command, _ []string) error {
 
 	hashStyle := lipgloss.NewStyle().Foreground(charmtone.Malibu)
 	dateStyle := lipgloss.NewStyle().Foreground(charmtone.Damson)
+	projectStyle := lipgloss.NewStyle().Foreground(charmtone.Squid)
 
 	width := sessionOutputWidth
 	if tw, _, err := term.GetSize(os.Stdout.Fd()); err == nil && tw > 0 {
 		width = tw
 	}
-	// 7 (hash) + 1 (space) + 25 (RFC3339 date) + 1 (space) = 34 chars prefix.
-	titleWidth := max(width-34, 10)
 
 	var writeErr error
 	for _, s := range list {
 		hash := session.HashID(s.ID)[:7]
 		date := time.Unix(s.CreatedAt, 0).Format(time.RFC3339)
 		title := strings.ReplaceAll(s.Title, "\n", " ")
-		title = ansi.Truncate(title, titleWidth, "…")
-		_, writeErr = fmt.Fprintln(w, hashStyle.Render(hash), dateStyle.Render(date), title)
+		// 7 (hash) + 1 (space) + 25 (RFC3339 date) + 1 (space) = 34 chars prefix.
+		titleWidth := max(width-34, 10)
+		if sessionListAll {
+			titleWidth = max(width-34-ansi.StringWidth(s.Project)-1, 10)
+			title = ansi.Truncate(title, titleWidth, "…")
+			_, writeErr = fmt.Fprintln(w, hashStyle.Render(hash), dateStyle.Render(date), projectStyle.Render(s.Project), title)
+		} else {
+			title = ansi.Truncate(title, titleWidth, "…")
+			_, writeErr = fmt.Fprintln(w, hashStyle.Render(hash), dateStyle.Render(date), title)
+		}
 		if writeErr != nil {
 			break
 		}
@@ -254,10 +273,85 @@ func runSessionList(cmd *cobra.Command, _ []string) error {
 	return writeErr
 }
 
+// listedSession is a session paired with the project root it belongs to.
+// Project is only set when listing across all known projects.
+type listedSession struct {
+	session.Session
+	Project string
+}
+
+func writeSessionListJSON(out io.Writer, list []listedSession) error {
+	output := make([]sessionJSON, len(list))
+	for i, s := range list {
+		output[i] = sessionJSON{
+			ID:       session.HashID(s.ID),
+			UUID:     s.ID,
+			Title:    s.Title,
+			Project:  s.Project,
+			Created:  time.Unix(s.CreatedAt, 0).Format(time.RFC3339),
+			Modified: time.Unix(s.UpdatedAt, 0).Format(time.RFC3339),
+		}
+	}
+	enc := json.NewEncoder(out)
+	enc.SetEscapeHTML(false)
+	return enc.Encode(output)
+}
+
+// collectAllSessions lists sessions from every project in the projects
+// registry, opening each project's database read-only. Projects whose
+// database is missing are skipped; unreadable ones produce a warning on
+// errOut. Results are sorted by most recently updated first.
+func collectAllSessions(ctx context.Context, errOut io.Writer) ([]listedSession, error) {
+	known, err := projects.List()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load projects: %w", err)
+	}
+
+	var list []listedSession
+	seen := make(map[string]bool)
+	for _, p := range known {
+		if p.DataDir == "" {
+			continue
+		}
+		key := filepath.Clean(p.DataDir)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		sessions, err := listProjectSessions(ctx, p.DataDir)
+		if err != nil {
+			fmt.Fprintf(errOut, "Warning: skipping %s: %v\n", p.Path, err)
+			continue
+		}
+		for _, s := range sessions {
+			list = append(list, listedSession{Session: s, Project: p.Path})
+		}
+	}
+
+	slices.SortStableFunc(list, func(a, b listedSession) int {
+		return cmp.Compare(b.UpdatedAt, a.UpdatedAt)
+	})
+	return list, nil
+}
+
+func listProjectSessions(ctx context.Context, dataDir string) ([]session.Session, error) {
+	conn, err := db.OpenReadOnly(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	if conn == nil {
+		return nil, nil
+	}
+	defer conn.Close()
+	return session.NewService(db.New(conn), conn).List(ctx)
+}
+
 type sessionJSON struct {
 	ID       string `json:"id"`
 	UUID     string `json:"uuid"`
 	Title    string `json:"title"`
+	Project  string `json:"project,omitempty"`
 	Created  string `json:"created"`
 	Modified string `json:"modified"`
 }

@@ -785,6 +785,18 @@ The embedding model is configured globally under the top-level `embedding`
 key in `~/.config/crush/crush.json`; workspace overrides are ignored. See
 [docs/specs/EMBEDDINGS_AND_VECTOR_SEARCH.md](./docs/specs/EMBEDDINGS_AND_VECTOR_SEARCH.md).
 
+### Listing Sessions
+
+`crush session list` shows the sessions for the current project. To see
+sessions from every project Crush knows about (as tracked by
+`crush projects`), add `--all`; each row then includes the project root,
+and `--json` output gains a `project` field:
+
+```bash
+crush session list --all
+crush session list --all --json
+```
+
 ### Importing Sessions
 
 Bring conversations over from other coding agents:
