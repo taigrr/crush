@@ -554,8 +554,27 @@ CA, which would break the phone's CA pin.
 
 A new TLS listener per node, default `:7733` (`crush server --client-addr`;
 an empty value disables it).
-It starts with the mesh once the node is in a cluster.
-Starting it only when a device or offer exists is deferred.
+
+**Port gating.** The listener is bound only while it has something to
+serve: at least one pairing offer is open or claimed (or ended less than
+5 s ago, so a phone between polls still learns the final state), or at
+least one paired device is not revoked. Otherwise the port is not bound.
+
+- It binds when an offer is created, and at start-up (mesh attach) when an
+  active device exists.
+- It unbinds when the last active device is revoked (locally, or when the
+  revocation arrives by replication or resync) and no offer is live, and
+  when offers expire, abort, or are rejected without producing a device.
+- A single owner goroutine per node (`listenerGate`) binds and unbinds, so
+  there is no double bind or leaked listener. It re-evaluates on every
+  offer or registry change, at the next offer expiry, and at most every
+  50 ms on its own.
+- Unbinding releases the port immediately and drains in-flight requests
+  for up to 5 s in the background; a new offer can rebind at once.
+- A busy port (or a listener that stopped unexpectedly) is retried every
+  30 s, and only while the listener is still wanted.
+- The gate takes any number of listeners; the phase-2 NATS websocket
+  plugs into the same rule.
 It is separate from the member listener (`:7731`) because that one requires
 member client certificates, and from the mesh route port (`:7732`).
 
