@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -19,7 +18,6 @@ import (
 	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/pairing"
 	"github.com/taigrr/crush/internal/qr"
-	"golang.org/x/net/netutil"
 )
 
 // Mesh subjects for the device registry (member-only, global account).
@@ -41,6 +39,9 @@ const (
 	clientWriteTimeout = pairing.MaxPollWait + 10*time.Second
 	maxClientConns     = 256
 	listenerRetry      = 30 * time.Second
+	// clientStopGrace lets in-flight requests finish when the gate
+	// unbinds the listener.
+	clientStopGrace = 5 * time.Second
 )
 
 // devicesRequest asks peers to announce their registry when it differs.
@@ -66,8 +67,12 @@ type pairingService struct {
 	// natsDirty coalesces NATS user reloads onto the apply goroutine.
 	natsDirty chan struct{}
 
+	// gate binds the client listener only while an offer is open or an
+	// active device exists. It lives while the mesh is attached.
+	gate   atomic.Pointer[listenerGate]
+	client *httpListener
+
 	mu   sync.Mutex
-	hs   *http.Server
 	subs []*nats.Subscription
 	stop context.CancelFunc
 	wg   sync.WaitGroup
@@ -79,8 +84,30 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 		return nil, err
 	}
 	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, natsDirty: make(chan struct{}, 1)}
-	p.mgr = pairing.NewManager(pairing.Config{Self: p.self, OnApprove: p.onApprove, Extras: p.extras, Revoked: p.revoked})
-	reg.Watch(func(pairing.Device) { p.markNATSDirty() })
+	p.mgr = pairing.NewManager(pairing.Config{
+		Self: p.self, OnApprove: p.onApprove, Extras: p.extras, Revoked: p.revoked,
+		OnChange: p.kickGate,
+	})
+	reg.Watch(func(pairing.Device) {
+		p.markNATSDirty()
+		// A revocation (local or replicated) may leave nothing to serve.
+		p.kickGate()
+	})
+	p.client = &httpListener{
+		name: "client", addr: p.clientAddr, maxConn: maxClientConns, grace: clientStopGrace,
+		onDown: p.kickGate,
+		server: func() *http.Server {
+			return &http.Server{
+				Handler:           p.clientHandler(),
+				TLSConfig:         n.ClientTLSConfig(),
+				ReadHeaderTimeout: clientTimeout,
+				ReadTimeout:       clientTimeout,
+				WriteTimeout:      clientWriteTimeout,
+				IdleTimeout:       serverIdleTimeout,
+				MaxHeaderBytes:    maxPairBody,
+			}
+		},
+	}
 	return p, nil
 }
 
@@ -139,6 +166,21 @@ func clientEndpoints(eps []cluster.Endpoint, port int) []pairing.Endpoint {
 		out = append(out, pairing.Endpoint{Kind: kind, Addr: net.JoinHostPort(host, strconv.Itoa(port))})
 	}
 	return out
+}
+
+func (p *pairingService) kickGate() {
+	if g := p.gate.Load(); g != nil {
+		g.Kick()
+	}
+}
+
+// listenersWanted is the gating rule: the device-facing listeners are
+// bound only while a pairing offer is open or claimed, or at least one
+// paired device is not revoked. The second value is the next offer
+// expiry, when the answer may change without any event.
+func (p *pairingService) listenersWanted() (bool, time.Time) {
+	n, next := p.mgr.Active()
+	return n > 0 || p.reg.HasActive(), next
 }
 
 func (p *pairingService) revoked(deviceID string) bool {
@@ -303,6 +345,11 @@ func (p *pairingService) startMesh(mesh *cluster.Mesh) error {
 	p.markNATSDirty()
 	p.wg.Go(func() { p.applyLoop(ctx, mesh) })
 	p.wg.Go(func() { p.syncLoop(ctx, mesh) })
+	if p.clientAddr != "" {
+		gate := newListenerGate(p.listenersWanted, listenerRetry, p.client)
+		p.gate.Store(gate)
+		p.wg.Go(func() { gate.run(ctx) })
+	}
 	return nil
 }
 
@@ -319,7 +366,7 @@ func (p *pairingService) applyLoop(ctx context.Context, mesh *cluster.Mesh) {
 }
 
 // syncLoop asks peers for their registry a few times (routes take a
-// moment after start or join) and keeps the client listener up.
+// moment after start or join), then keeps reconciling periodically.
 func (p *pairingService) syncLoop(ctx context.Context, mesh *cluster.Mesh) {
 	waits := []time.Duration{0, 2 * time.Second, 8 * time.Second, 20 * time.Second}
 	for i := 0; ; i++ {
@@ -335,13 +382,6 @@ func (p *pairingService) syncLoop(ctx context.Context, mesh *cluster.Mesh) {
 		// Keep reconciling after start-up too, so a missed publish (a
 		// partition or route flap) cannot leave a revoked device trusted.
 		p.requestSync(mesh)
-		p.mu.Lock()
-		if ctx.Err() == nil {
-			if err := p.startListenerLocked(); err != nil {
-				slog.Error("Client listener failed to start; retrying", "error", err, "retry", listenerRetry)
-			}
-		}
-		p.mu.Unlock()
 	}
 }
 
@@ -356,51 +396,10 @@ func (p *pairingService) stopMesh() {
 		p.stop = nil
 	}
 	p.meshRef.Store(nil)
-	hs := p.hs
-	p.hs = nil
 	p.mu.Unlock()
+	// The gate goroutine stops the client listener on cancel.
 	p.wg.Wait()
-	if hs != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		if hs.Shutdown(ctx) != nil {
-			// Long-polls can outlast the grace period; cut them so the
-			// port is free for a rejoin.
-			_ = hs.Close()
-		}
-	}
-}
-
-func (p *pairingService) startListenerLocked() error {
-	if p.clientAddr == "" || p.hs != nil {
-		return nil
-	}
-	ln, err := net.Listen("tcp", p.clientAddr)
-	if err != nil {
-		return fmt.Errorf("client listener %s: %w", p.clientAddr, err)
-	}
-	hs := &http.Server{
-		Handler:           p.clientHandler(),
-		TLSConfig:         p.node.ClientTLSConfig(),
-		ReadHeaderTimeout: clientTimeout,
-		ReadTimeout:       clientTimeout,
-		WriteTimeout:      clientWriteTimeout,
-		IdleTimeout:       serverIdleTimeout,
-		MaxHeaderBytes:    maxPairBody,
-	}
-	p.hs = hs
-	go func() {
-		if err := hs.ServeTLS(netutil.LimitListener(ln, maxClientConns), "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("Client listener stopped; will retry", "error", err)
-			p.mu.Lock()
-			if p.hs == hs {
-				p.hs = nil
-			}
-			p.mu.Unlock()
-		}
-	}()
-	slog.Info("Client listener started", "addr", ln.Addr().String())
-	return nil
+	p.gate.Store(nil)
 }
 
 // clientHandler serves /client/v1 for devices.
