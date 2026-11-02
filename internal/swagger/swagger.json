@@ -6561,7 +6561,9 @@
                         "pair_offer_used",
                         "pair_offer_expired",
                         "pair_offer_aborted",
-                        "pair_rate_limited"
+                        "pair_rate_limited",
+                        "pair_not_in_cluster",
+                        "pair_internal"
                     ],
                     "allOf": [
                         {
@@ -6583,7 +6585,9 @@
                 "pair_offer_used",
                 "pair_offer_expired",
                 "pair_offer_aborted",
-                "pair_rate_limited"
+                "pair_rate_limited",
+                "pair_not_in_cluster",
+                "pair_internal"
             ],
             "x-enum-varnames": [
                 "ErrCodeBadRequest",
@@ -6592,7 +6596,9 @@
                 "ErrCodeOfferUsed",
                 "ErrCodeOfferExpired",
                 "ErrCodeOfferAborted",
-                "ErrCodeRateLimited"
+                "ErrCodeRateLimited",
+                "ErrCodeNotInCluster",
+                "ErrCodeInternal"
             ]
         },
         "pairing.Info": {

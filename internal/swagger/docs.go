@@ -6568,7 +6568,9 @@ const docTemplate = `{
                         "pair_offer_used",
                         "pair_offer_expired",
                         "pair_offer_aborted",
-                        "pair_rate_limited"
+                        "pair_rate_limited",
+                        "pair_not_in_cluster",
+                        "pair_internal"
                     ],
                     "allOf": [
                         {
@@ -6590,7 +6592,9 @@ const docTemplate = `{
                 "pair_offer_used",
                 "pair_offer_expired",
                 "pair_offer_aborted",
-                "pair_rate_limited"
+                "pair_rate_limited",
+                "pair_not_in_cluster",
+                "pair_internal"
             ],
             "x-enum-varnames": [
                 "ErrCodeBadRequest",
@@ -6599,7 +6603,9 @@ const docTemplate = `{
                 "ErrCodeOfferUsed",
                 "ErrCodeOfferExpired",
                 "ErrCodeOfferAborted",
-                "ErrCodeRateLimited"
+                "ErrCodeRateLimited",
+                "ErrCodeNotInCluster",
+                "ErrCodeInternal"
             ]
         },
         "pairing.Info": {

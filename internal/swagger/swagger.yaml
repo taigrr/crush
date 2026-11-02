@@ -800,6 +800,8 @@ definitions:
         - pair_offer_expired
         - pair_offer_aborted
         - pair_rate_limited
+        - pair_not_in_cluster
+        - pair_internal
       message:
         type: string
     type: object
@@ -812,6 +814,8 @@ definitions:
     - pair_offer_expired
     - pair_offer_aborted
     - pair_rate_limited
+    - pair_not_in_cluster
+    - pair_internal
     type: string
     x-enum-varnames:
     - ErrCodeBadRequest
@@ -821,6 +825,8 @@ definitions:
     - ErrCodeOfferExpired
     - ErrCodeOfferAborted
     - ErrCodeRateLimited
+    - ErrCodeNotInCluster
+    - ErrCodeInternal
   pairing.Info:
     properties:
       ca_fp:
