@@ -8,9 +8,9 @@ import (
 
 	"github.com/taigrr/crush/internal/client"
 	"github.com/taigrr/crush/internal/cluster"
-	"github.com/taigrr/crush/internal/pairing"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/pairing"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
 )
