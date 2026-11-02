@@ -189,9 +189,23 @@ func runCommand(cmd *cobra.Command, args []string, opts runOptions) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	if opts.detach {
+		// A detached run promises to return right away, so any startup
+		// wait it cannot skip is reported on stderr instead of looking
+		// like a hang.
+		ctx = withWaitNotices(ctx, os.Stderr, waitNoticeDelay)
+		parent := cmd.Context()
+		if parent == nil {
+			parent = context.Background()
+		}
+		cmd.SetContext(withWaitNotices(parent, os.Stderr, waitNoticeDelay))
+	}
+
 	prompt := strings.Join(args, " ")
 
+	stopNotice := noticeWhileWaiting(ctx, "stdin to close (the prompt is read from piped input)")
 	prompt, err := MaybePrependStdin(prompt)
+	stopNotice()
 	if err != nil {
 		slog.Error("Failed to read from stdin", "error", err)
 		return err
@@ -282,7 +296,7 @@ func runNonInteractive(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	hideSpinner := opts.hideSpinner || opts.format.IsStructured()
+	hideSpinner := opts.hideSpinner || opts.format.IsStructured() || opts.detach
 
 	if opts.largeModel != "" || opts.smallModel != "" {
 		if err := overrideModels(ctx, c, ws, opts.largeModel, opts.smallModel); err != nil {
@@ -331,18 +345,27 @@ func runNonInteractive(
 		}
 	}
 
-	// Wait for the agent to become ready (MCP init, etc).
-	if err := c.InitiateAgentProcessing(ctx, ws.ID); err != nil {
-		slog.Warn("Failed to initiate agent processing", "error", err)
-	}
-	if err := waitForAgent(ctx, c, ws.ID); err != nil {
-		stopSpinner()
-		return fmt.Errorf("agent not ready: %w", err)
-	}
+	if opts.detach {
+		// The server builds the agent when it opens the workspace and a
+		// queued run waits for MCP tools on its own, so a detached run
+		// only needs the agent to exist before it hands off the prompt.
+		if err := detachAgentReady(ctx, c, ws.ID); err != nil {
+			return fmt.Errorf("agent not ready: %w", err)
+		}
+	} else {
+		// Wait for the agent to become ready (MCP init, etc).
+		if err := c.InitiateAgentProcessing(ctx, ws.ID); err != nil {
+			slog.Warn("Failed to initiate agent processing", "error", err)
+		}
+		if err := waitForAgent(ctx, c, ws.ID); err != nil {
+			stopSpinner()
+			return fmt.Errorf("agent not ready: %w", err)
+		}
 
-	// Force-update agent models so MCP tools are loaded.
-	if err := c.UpdateAgent(ctx, ws.ID); err != nil {
-		slog.Warn("Failed to update agent", "error", err)
+		// Force-update agent models so MCP tools are loaded.
+		if err := c.UpdateAgent(ctx, ws.ID); err != nil {
+			slog.Warn("Failed to update agent", "error", err)
+		}
 	}
 
 	defer stopSpinner()
@@ -584,6 +607,21 @@ func (s *runStream) handle(ev any, stopSpinner func()) (done bool, err error) {
 		return true, fmt.Errorf("agent error: %w", e.Payload.Error)
 	}
 	return false, nil
+}
+
+// detachAgentReady returns at once when the workspace already has an
+// agent, which is the normal case. Otherwise it falls back to the full
+// initialization, reporting the wait on stderr.
+func detachAgentReady(ctx context.Context, c *client.Client, wsID string) error {
+	if info, err := c.GetAgentInfo(ctx, wsID); err == nil && info.IsReady {
+		return nil
+	}
+	stop := noticeWhileWaiting(ctx, "the agent to initialize")
+	defer stop()
+	if err := c.InitiateAgentProcessing(ctx, wsID); err != nil {
+		slog.Warn("Failed to initiate agent processing", "error", err)
+	}
+	return waitForAgent(ctx, c, wsID)
 }
 
 // waitForAgent polls GetAgentInfo until the agent is ready, with a
