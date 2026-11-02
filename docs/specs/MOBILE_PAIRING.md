@@ -379,6 +379,7 @@ Returns as soon as the state differs from `claimed`, or after `wait_ms` with the
     "urls": ["wss://laptop.tailnet.ts.net:7734"]
   },
   "ca_fps": ["<b64url>"],
+  "ca_certs": ["<b64url DER, current first>"],
   "members": [{"node_id": "...", "name": "...", "node_pub": "...", "endpoints": []}]
 }
 ```
@@ -744,6 +745,7 @@ This is the contract rush implements to talk NATS to a node after pairing.
 | `device_id` | Poll response `device.device_id` | Also derivable: `dev_` + lowercase base32 (no padding) of `SHA-256(public key)[0:16]`. |
 | `urls` | Poll response `nats.urls` | `wss://host:port`, one per reachable endpoint of the pairing node. Loopback, unspecified, and empty hosts are never listed. |
 | `ca_fps` | Poll response `ca_fps` | base64url (no padding) SHA-256 values. The first is current. |
+| CA certificates | Poll response `ca_certs` | DER, base64url. Keep only those whose `SHA-256(SubjectPublicKeyInfo)` equals a pin (in flow a, the pin from the QR). |
 | Members | Poll response `members` | Node IDs, names, and keys for every node; their client endpoints. |
 
 The websocket port is the node's `--client-ws-addr` port (default `7734`); for another member, combine its endpoint hosts with that port.
@@ -758,7 +760,8 @@ Rush must accept the connection only if all of these hold, and must not rely on 
 3. The leaf is within its validity period.
 4. The leaf's subject common name is the node ID rush meant to reach (from the QR, `/client/v1/info`, or `members`). This check is mandatory: every member's certificate chains to the same CA.
 
-`internal/pairing/pin.go` (`VerifyPinnedChain`) is the reference implementation.
+After pairing, rush can use the standard path instead of custom chain logic: install the verified `ca_certs` as the only trusted roots for the node connection, set the TLS server name to `crush-node` (every node certificate carries that DNS name), and additionally require the leaf CN to be the node ID. That is exactly the four rules above.
+`internal/pairing/pin.go` is the reference: `VerifyPinnedChain` (the rules, usable before pairing on `/client/v1`) and `TrustedTLSConfig` (the post-pairing configuration).
 React Native's built-in WebSocket cannot run custom certificate checks, so rush needs a native module (an `URLSessionDelegate` / OkHttp `X509TrustManager` or `CertificatePinner` replacement) that applies these four rules for the pinned host; this is an open item on the rush side.
 
 ### Connecting
