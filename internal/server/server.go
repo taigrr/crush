@@ -80,7 +80,16 @@ type Server struct {
 	meshMu sync.Mutex
 	mesh   *cluster.Mesh
 	bridge *meshBridge
+
+	// clientAddr is where the device client listener binds ("" disables
+	// it); pairing is set by EnableCluster.
+	clientAddr string
+	pairing    *pairingService
 }
+
+// SetClientAddr sets the device client listener address (e.g. ":7733").
+// Call before EnableCluster.
+func (s *Server) SetClientAddr(addr string) { s.clientAddr = addr }
 
 // SetLogger sets the logger for the server.
 func (s *Server) SetLogger(logger *slog.Logger) {
@@ -245,6 +254,7 @@ func (s *Server) installHandler() {
 	mux.HandleFunc("GET /v1/workspaces/{id}/git/branches", c.handleGetWorkspaceGitBranches)
 	mux.HandleFunc("POST /v1/workspaces/{id}/fork", c.handlePostWorkspaceFork)
 	s.installClusterRoutes(mux)
+	s.installPairingRoutes(mux)
 	s.installTransferRoutes(mux)
 	s.installDebugRoutes(mux)
 	s.installReplicationRoutes(mux)

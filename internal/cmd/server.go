@@ -28,6 +28,7 @@ var (
 	serverPersistent  bool
 	serverClusterAddr string
 	serverMeshAddr    string
+	serverClientAddr  string
 	serverEnvFile     string
 )
 
@@ -36,6 +37,7 @@ func init() {
 	serverCmd.Flags().BoolVar(&serverPersistent, "persistent", false, "Keep running after the last workspace closes (daemon mode)")
 	serverCmd.Flags().StringVar(&serverClusterAddr, "cluster-addr", fmt.Sprintf(":%d", cluster.DefaultPort), "Address for the cluster listener (used once this node joins a cluster)")
 	serverCmd.Flags().StringVar(&serverMeshAddr, "mesh-addr", fmt.Sprintf(":%d", cluster.DefaultRoutePort), "Address for the cluster NATS mesh routes")
+	serverCmd.Flags().StringVar(&serverClientAddr, "client-addr", fmt.Sprintf(":%d", server.DefaultClientPort), "Address for the mobile device client listener (TLS; empty disables it)")
 	serverCmd.Flags().StringVar(&serverEnvFile, "env-file", "", "Load environment variables from this JSON snapshot before starting (written by `crush cluster install-service`)")
 	rootCmd.AddCommand(serverCmd)
 }
@@ -177,5 +179,6 @@ func enableCluster(srv *server.Server) error {
 		srv.Backend().Shutdown()
 		return nil
 	}
+	srv.SetClientAddr(serverClientAddr)
 	return srv.EnableCluster(node, serverClusterAddr, serverMeshAddr)
 }

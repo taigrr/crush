@@ -18,7 +18,14 @@ import (
 
 func newClusterTestServer(t *testing.T) (*Server, *client.Client) {
 	t.Helper()
-	srv := &Server{}
+	return newClusterTestServerWith(t, "")
+}
+
+// newClusterTestServerWith is newClusterTestServer with a device client
+// listener address ("" disables it).
+func newClusterTestServerWith(t *testing.T, clientAddr string) (*Server, *client.Client) {
+	t.Helper()
+	srv := &Server{clientAddr: clientAddr}
 	srv.backend = backend.New(t.Context(), nil, func() {})
 	// Never touch the real user registry or credentials.
 	srv.backend.SetRegistryPathForTest(filepath.Join(t.TempDir(), "workspaces.jsonl"))

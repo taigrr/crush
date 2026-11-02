@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/taigrr/crush/internal/cluster"
@@ -15,6 +16,10 @@ import (
 // clusterCall performs a cluster control RPC, surfacing the server's
 // error message on failure.
 func clusterCall[T any](ctx context.Context, c *Client, method, path string, in any) (T, error) {
+	return clusterCallQuery[T](ctx, c, method, path, nil, in)
+}
+
+func clusterCallQuery[T any](ctx context.Context, c *Client, method, path string, query url.Values, in any) (T, error) {
 	var out T
 	var body io.Reader
 	var headers http.Header
@@ -22,7 +27,7 @@ func clusterCall[T any](ctx context.Context, c *Client, method, path string, in 
 		body = jsonBody(in)
 		headers = jsonHeader()
 	}
-	rsp, err := c.sendReq(ctx, method, path, nil, body, headers)
+	rsp, err := c.sendReq(ctx, method, path, query, body, headers)
 	if err != nil {
 		return out, err
 	}

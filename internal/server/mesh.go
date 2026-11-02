@@ -372,11 +372,20 @@ func (s *Server) startMesh() error {
 	}
 	s.mesh, s.bridge = mesh, br
 	s.backend.SetClusterBridge(br)
+	if s.pairing != nil {
+		if err := s.pairing.startMesh(mesh); err != nil {
+			slog.Error("Mobile pairing failed to start", "error", err)
+		}
+	}
 	return nil
 }
 
 // stopMesh detaches the bridge and shuts the mesh down.
 func (s *Server) stopMesh() {
+	// The pairing loop takes meshMu, so stop it first.
+	if s.pairing != nil {
+		s.pairing.stopMesh()
+	}
 	s.meshMu.Lock()
 	defer s.meshMu.Unlock()
 	if s.mesh == nil {
