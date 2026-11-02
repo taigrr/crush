@@ -83,13 +83,29 @@ func (n *Node) clientCert() (*tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	ca, err := CACertificate(st.ClusterID, st.Key)
+	ca, err := n.caCertFor(st.ClusterID, st.Key, st.KeyVersion)
 	if err != nil {
 		return nil, err
 	}
 	chain := *leaf
 	chain.Certificate = append([][]byte{leaf.Certificate[0]}, ca)
 	return &chain, nil
+}
+
+// caCertFor caches the CA certificate per cluster key, so TLS handshakes
+// (which unauthenticated clients can trigger) never re-sign it.
+func (n *Node) caCertFor(clusterID string, key []byte, keyVer int) ([]byte, error) {
+	n.certMu.Lock()
+	defer n.certMu.Unlock()
+	if n.caDER != nil && n.caKeyVer == keyVer && n.caCID == clusterID {
+		return n.caDER, nil
+	}
+	der, err := CACertificate(clusterID, key)
+	if err != nil {
+		return nil, err
+	}
+	n.caDER, n.caKeyVer, n.caCID = der, keyVer, clusterID
+	return der, nil
 }
 
 // caEpoch fixes the CA certificate's validity start so its DER is
