@@ -28,7 +28,9 @@ func TestGoldenSymbols(t *testing.T) {
 			t.Parallel()
 			raw, err := os.ReadFile(file)
 			require.NoError(t, err)
-			lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+			// Checkouts with autocrlf turn the golden files into CRLF.
+			text := strings.ReplaceAll(string(raw), "\r\n", "\n")
+			lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 			data, rows := lines[0], lines[1:]
 			level := levels[filepath.Base(file)[0]]
 			size := len(rows)
