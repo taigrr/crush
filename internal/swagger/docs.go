@@ -6787,6 +6787,13 @@ const docTemplate = `{
         "pairing.PollResponse": {
             "type": "object",
             "properties": {
+                "ca_certs": {
+                    "description": "CACerts are the cluster CA certificates (DER), current first. A\ndevice trusts one only if its SPKI hash is a pinned fingerprint.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "ca_fps": {
                     "type": "array",
                     "items": {
