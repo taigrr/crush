@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -373,4 +374,44 @@ func TestPairingPropagatesAcrossCluster(t *testing.T) {
 		_, err := deviceConn(t, a, key)
 		return err != nil
 	}, 10*time.Second, 50*time.Millisecond)
+}
+
+func TestPairingNotInClusterAndEndpoints(t *testing.T) {
+	t.Parallel()
+	srv, _ := newClusterTestServer(t)
+	dev := newDeviceAPI(t, srv)
+	status, code := dev.do(http.MethodGet, "/client/v1/info", nil, nil)
+	require.Equal(t, http.StatusConflict, status)
+	require.Equal(t, pairing.ErrCodeNotInCluster, code)
+
+	eps := clientEndpoints([]cluster.Endpoint{
+		{Kind: cluster.EndpointDirect, Addr: ":7731"},
+		{Kind: cluster.EndpointDirect, Addr: "127.0.0.1:7731"},
+		{Kind: cluster.EndpointDirect, Addr: "0.0.0.0:7731"},
+		{Kind: cluster.EndpointDirect, Addr: "192.168.1.5:7731"},
+		{Kind: cluster.EndpointDirect, Addr: "100.100.1.2:7731"},
+		{Kind: cluster.EndpointDirect, Addr: "laptop.example:7731"},
+		{Kind: cluster.EndpointNATS, Addr: "192.168.1.5:7732"},
+	}, DefaultClientPort)
+	require.Equal(t, []pairing.Endpoint{
+		{Kind: pairing.EndpointLAN, Addr: "192.168.1.5:7733"},
+		{Kind: pairing.EndpointTailscale, Addr: "100.100.1.2:7733"},
+		{Kind: pairing.EndpointDirect, Addr: "laptop.example:7733"},
+	}, eps)
+}
+
+func TestPairingIgnoresUnknownFieldsAndBoundsBodies(t *testing.T) {
+	t.Parallel()
+	srv, _ := initSingleNode(t)
+	dev := newDeviceAPI(t, srv)
+	// A newer client's extra field is ignored (the request fails only on
+	// its real content).
+	status, code := dev.do(http.MethodPost, "/client/v1/pair/abort", map[string]any{"future": 1, "reason": "user_cancel", "offer_id": "AAAAAAAAAAAAAAAAAAAAAA", "mac": ""}, nil)
+	require.Equal(t, http.StatusNotFound, status)
+	require.Equal(t, pairing.ErrCodeOfferUnknown, code)
+
+	huge := map[string]string{"device_name": strings.Repeat("x", maxPairBody)}
+	status, code = dev.do(http.MethodPost, "/client/v1/pair/claim", huge, nil)
+	require.Equal(t, http.StatusBadRequest, status)
+	require.Equal(t, pairing.ErrCodeBadRequest, code)
 }

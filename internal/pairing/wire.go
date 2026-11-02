@@ -42,6 +42,8 @@ const (
 	ErrCodeOfferExpired ErrorCode = "pair_offer_expired"
 	ErrCodeOfferAborted ErrorCode = "pair_offer_aborted"
 	ErrCodeRateLimited  ErrorCode = "pair_rate_limited"
+	ErrCodeNotInCluster ErrorCode = "pair_not_in_cluster"
+	ErrCodeInternal     ErrorCode = "pair_internal"
 )
 
 var errorStatus = map[ErrorCode]int{
@@ -52,11 +54,13 @@ var errorStatus = map[ErrorCode]int{
 	ErrCodeOfferExpired: http.StatusGone,
 	ErrCodeOfferAborted: http.StatusGone,
 	ErrCodeRateLimited:  http.StatusTooManyRequests,
+	ErrCodeNotInCluster: http.StatusConflict,
+	ErrCodeInternal:     http.StatusInternalServerError,
 }
 
 // Error is a pairing protocol error; it is also the JSON error body.
 type Error struct {
-	Code    ErrorCode `json:"error" enums:"pair_bad_request,pair_mac_invalid,pair_offer_unknown,pair_offer_used,pair_offer_expired,pair_offer_aborted,pair_rate_limited"`
+	Code    ErrorCode `json:"error" enums:"pair_bad_request,pair_mac_invalid,pair_offer_unknown,pair_offer_used,pair_offer_expired,pair_offer_aborted,pair_rate_limited,pair_not_in_cluster,pair_internal"`
 	Message string    `json:"message"`
 } //@name pairing.Error
 

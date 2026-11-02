@@ -12,18 +12,23 @@ import (
 	"net/netip"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/pairing"
 	"github.com/taigrr/crush/internal/qr"
+	"golang.org/x/net/netutil"
 )
 
 // Mesh subjects for the device registry (member-only, global account).
 const (
 	subjDevices        = "crush.devices"
 	subjDevicesRequest = "crush.devices.request"
+	// subjDevicesTo + node ID carries a registry announce for one node, so
+	// a sync request does not fan out to every member.
+	subjDevicesTo = "crush.devices.to."
 
 	// DefaultClientPort is the default client listener port for devices.
 	DefaultClientPort = 7733
@@ -32,6 +37,10 @@ const (
 	maxDeviceMsg  = 64 << 10
 	qrPNGScale    = 8
 	clientTimeout = 10 * time.Second
+	// clientWriteTimeout must outlast the longest poll.
+	clientWriteTimeout = pairing.MaxPollWait + 10*time.Second
+	maxClientConns     = 256
+	listenerRetry      = 30 * time.Second
 )
 
 // devicesRequest asks peers to announce their registry when it differs.
@@ -50,6 +59,13 @@ type pairingService struct {
 
 	clientAddr string
 
+	// meshRef is the running mesh, set and cleared by startMesh/stopMesh.
+	// It is read without srv.meshMu so NATS callbacks and registry
+	// watchers never wait on the server's mesh lock.
+	meshRef atomic.Pointer[cluster.Mesh]
+	// natsDirty coalesces NATS user reloads onto the apply goroutine.
+	natsDirty chan struct{}
+
 	mu   sync.Mutex
 	hs   *http.Server
 	subs []*nats.Subscription
@@ -62,9 +78,9 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr}
+	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, natsDirty: make(chan struct{}, 1)}
 	p.mgr = pairing.NewManager(pairing.Config{Self: p.self, OnApprove: p.onApprove, Extras: p.extras})
-	reg.Watch(func(pairing.Device) { p.applyNATS() })
+	reg.Watch(func(pairing.Device) { p.markNATSDirty() })
 	return p, nil
 }
 
@@ -86,13 +102,15 @@ func (p *pairingService) self() (pairing.Self, error) {
 		eps = m.Endpoints
 	}
 	return pairing.Self{
+		// CAFingerprints lists the current key first (TestCAFingerprintOrder).
 		ClusterID: st.ClusterID, NodeID: id.ID, NodeName: id.Name, NodeKey: id.PrivateKey(),
 		CAFP: fps[0], Endpoints: clientEndpoints(eps, portOf(p.clientAddr, DefaultClientPort)),
 	}, nil
 }
 
 // clientEndpoints maps a member's direct endpoints to client listener
-// endpoints, typed by address range.
+// endpoints, typed by address range. Hosts a phone cannot use (empty,
+// unspecified, loopback) are skipped.
 func clientEndpoints(eps []cluster.Endpoint, port int) []pairing.Endpoint {
 	var out []pairing.Endpoint
 	seen := map[string]bool{}
@@ -102,12 +120,15 @@ func clientEndpoints(eps []cluster.Endpoint, port int) []pairing.Endpoint {
 			continue
 		}
 		host, _, err := net.SplitHostPort(ep.Addr)
-		if err != nil || seen[host] {
+		if err != nil || host == "" || host == "localhost" || seen[host] {
 			continue
 		}
 		seen[host] = true
 		kind := pairing.EndpointDirect
 		if ip, err := netip.ParseAddr(host); err == nil {
+			if ip.IsUnspecified() || ip.IsLoopback() {
+				continue
+			}
 			switch {
 			case tailnet.Contains(ip):
 				kind = pairing.EndpointTailscale
@@ -124,7 +145,7 @@ func (p *pairingService) onApprove(d pairing.Device) error {
 	if _, err := p.reg.Merge(d); err != nil {
 		return err
 	}
-	p.publish(d)
+	p.publish(subjDevices, d)
 	slog.Info("Paired mobile device", "device", d.DeviceID, "name", d.Name, "role", d.Role)
 	return nil
 }
@@ -151,19 +172,17 @@ func (p *pairingService) extras() pairing.Extras {
 	return ex
 }
 
-func (p *pairingService) mesh() *cluster.Mesh {
-	p.srv.meshMu.Lock()
-	defer p.srv.meshMu.Unlock()
-	return p.srv.mesh
+func (p *pairingService) markNATSDirty() {
+	select {
+	case p.natsDirty <- struct{}{}:
+	default:
+	}
 }
 
 // applyNATS installs every non-revoked device as a scoped NATS user and
-// drops revoked ones (which disconnects them).
-func (p *pairingService) applyNATS() {
-	mesh := p.mesh()
-	if mesh == nil {
-		return
-	}
+// drops revoked ones (which disconnects them). Only the apply goroutine
+// calls it.
+func (p *pairingService) applyNATS(mesh *cluster.Mesh) {
 	var users []cluster.ClientUser
 	for _, d := range p.reg.List() {
 		if d.Revoked() {
@@ -181,8 +200,8 @@ func (p *pairingService) applyNATS() {
 	}
 }
 
-func (p *pairingService) publish(d pairing.Device) {
-	mesh := p.mesh()
+func (p *pairingService) publish(subject string, d pairing.Device) {
+	mesh := p.meshRef.Load()
 	if mesh == nil {
 		return
 	}
@@ -190,22 +209,12 @@ func (p *pairingService) publish(d pairing.Device) {
 	if err != nil {
 		return
 	}
-	if err := mesh.Conn().Publish(subjDevices, data); err != nil {
+	if err := mesh.Conn().Publish(subject, data); err != nil {
 		slog.Warn("Failed to publish device record", "device", d.DeviceID, "error", err)
 	}
 }
 
-func (p *pairingService) announceAll() {
-	for _, d := range p.reg.List() {
-		p.publish(d)
-	}
-}
-
-func (p *pairingService) requestSync() {
-	mesh := p.mesh()
-	if mesh == nil {
-		return
-	}
+func (p *pairingService) requestSync(mesh *cluster.Mesh) {
 	data, _ := json.Marshal(devicesRequest{NodeID: p.node.Identity().ID, Digest: p.reg.Digest()})
 	_ = mesh.Conn().Publish(subjDevicesRequest, data)
 }
@@ -228,13 +237,18 @@ func (p *pairingService) receive(m *nats.Msg) {
 	}
 }
 
+// receiveRequest answers a peer whose registry differs by sending it our
+// records directly.
 func (p *pairingService) receiveRequest(m *nats.Msg) {
 	var req devicesRequest
-	if json.Unmarshal(m.Data, &req) != nil || req.NodeID == p.node.Identity().ID {
+	if json.Unmarshal(m.Data, &req) != nil || req.NodeID == p.node.Identity().ID || req.NodeID == "" {
 		return
 	}
-	if req.Digest != p.reg.Digest() {
-		p.announceAll()
+	if req.Digest == p.reg.Digest() {
+		return
+	}
+	for _, d := range p.reg.List() {
+		p.publish(subjDevicesTo+req.NodeID, d)
 	}
 }
 
@@ -243,28 +257,68 @@ func (p *pairingService) receiveRequest(m *nats.Msg) {
 func (p *pairingService) startMesh(mesh *cluster.Mesh) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for subj, fn := range map[string]func(*nats.Msg){subjDevices: p.receive, subjDevicesRequest: p.receiveRequest} {
+	subjects := map[string]func(*nats.Msg){
+		subjDevices:                          p.receive,
+		subjDevicesTo + p.node.Identity().ID: p.receive,
+		subjDevicesRequest:                   p.receiveRequest,
+	}
+	for subj, fn := range subjects {
 		sub, err := mesh.Subscribe(subj, fn)
 		if err != nil {
+			for _, s := range p.subs {
+				_ = s.Unsubscribe()
+			}
+			p.subs = nil
 			return err
 		}
 		p.subs = append(p.subs, sub)
 	}
+	p.meshRef.Store(mesh)
 	ctx, cancel := context.WithCancel(context.Background())
 	p.stop = cancel
-	p.wg.Go(func() {
-		// Routes take a moment after start or join; ask a few times.
-		for _, wait := range []time.Duration{0, 2 * time.Second, 8 * time.Second, 20 * time.Second} {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(wait):
-			}
-			p.applyNATS()
-			p.requestSync()
+	p.markNATSDirty()
+	p.wg.Go(func() { p.applyLoop(ctx, mesh) })
+	p.wg.Go(func() { p.syncLoop(ctx, mesh) })
+	return nil
+}
+
+// applyLoop serializes NATS user reloads.
+func (p *pairingService) applyLoop(ctx context.Context, mesh *cluster.Mesh) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-p.natsDirty:
+			p.applyNATS(mesh)
 		}
-	})
-	return p.startListenerLocked()
+	}
+}
+
+// syncLoop asks peers for their registry a few times (routes take a
+// moment after start or join) and keeps the client listener up.
+func (p *pairingService) syncLoop(ctx context.Context, mesh *cluster.Mesh) {
+	waits := []time.Duration{0, 2 * time.Second, 8 * time.Second, 20 * time.Second}
+	for i := 0; ; i++ {
+		wait := listenerRetry
+		if i < len(waits) {
+			wait = waits[i]
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		if i < len(waits) {
+			p.requestSync(mesh)
+		}
+		p.mu.Lock()
+		if ctx.Err() == nil {
+			if err := p.startListenerLocked(); err != nil {
+				slog.Error("Client listener failed to start; retrying", "error", err, "retry", listenerRetry)
+			}
+		}
+		p.mu.Unlock()
+	}
 }
 
 func (p *pairingService) stopMesh() {
@@ -276,6 +330,7 @@ func (p *pairingService) stopMesh() {
 	if p.stop != nil {
 		p.stop()
 	}
+	p.meshRef.Store(nil)
 	hs := p.hs
 	p.hs = nil
 	p.mu.Unlock()
@@ -299,11 +354,14 @@ func (p *pairingService) startListenerLocked() error {
 		Handler:           p.clientHandler(),
 		TLSConfig:         p.node.ClientTLSConfig(),
 		ReadHeaderTimeout: clientTimeout,
+		ReadTimeout:       clientTimeout,
+		WriteTimeout:      clientWriteTimeout,
 		IdleTimeout:       serverIdleTimeout,
+		MaxHeaderBytes:    maxPairBody,
 	}
 	p.hs = hs
 	go func() {
-		if err := hs.ServeTLS(ln, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := hs.ServeTLS(netutil.LimitListener(ln, maxClientConns), "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("Client listener stopped", "error", err)
 		}
 	}()
@@ -322,8 +380,9 @@ func (p *pairingService) clientHandler() http.Handler {
 	return mux
 }
 
-// remoteIP is the client's IP from the connection itself; forwarded
-// headers are ignored because the listener is never behind a proxy.
+// remoteIP is the client's address from the connection itself, grouped
+// for rate limiting; forwarded headers are ignored because the listener
+// is never behind a proxy.
 func remoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -333,28 +392,24 @@ func remoteIP(r *http.Request) string {
 }
 
 func writePairError(w http.ResponseWriter, err error) {
-	status := http.StatusInternalServerError
 	var pe *pairing.Error
 	switch {
 	case errors.As(err, &pe):
-		status = pe.Status()
-	case errors.Is(err, pairing.ErrNotInCluster):
-		status = http.StatusConflict
-		pe = &pairing.Error{Code: pairing.ErrCodeBadRequest, Message: err.Error()}
+	case errors.Is(err, pairing.ErrNotInCluster), errors.Is(err, cluster.ErrNotInCluster):
+		pe = &pairing.Error{Code: pairing.ErrCodeNotInCluster, Message: err.Error()}
 	default:
 		slog.Warn("Pairing request failed", "error", err)
-		pe = &pairing.Error{Code: pairing.ErrCodeBadRequest, Message: "internal error"}
+		pe = &pairing.Error{Code: pairing.ErrCodeInternal, Message: "internal error"}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
+	w.WriteHeader(pe.Status())
 	_ = json.NewEncoder(w).Encode(pe)
 }
 
 func decodePair[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
 	var v T
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPairBody))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&v); err != nil {
+	// Unknown fields are ignored so newer rush builds stay compatible.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPairBody)).Decode(&v); err != nil {
 		writePairError(w, &pairing.Error{Code: pairing.ErrCodeBadRequest, Message: "invalid request body"})
 		return v, false
 	}
@@ -766,7 +821,7 @@ func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, status, err.Error())
 		return
 	}
-	p.publish(d)
+	p.publish(subjDevices, d)
 	slog.Info("Revoked mobile device", "device", d.DeviceID, "name", d.Name)
 	jsonEncode(w, d)
 }
