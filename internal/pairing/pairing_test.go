@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -249,7 +250,7 @@ func TestFlowANodeOffer(t *testing.T) {
 
 	dev, err := NewDeviceSessionFromPayload(newDevice(t), p)
 	require.NoError(t, err)
-	resp, err := h.mgr.Claim(dev.Claim(h.self.Info(), "phone", "ios"))
+	resp, err := h.mgr.Claim("192.0.2.1", dev.Claim(h.self.Info(), "phone", "ios"))
 	require.NoError(t, err)
 	sas, err := dev.Accept(resp)
 	require.NoError(t, err)
@@ -279,7 +280,7 @@ func TestFlowANodeOffer(t *testing.T) {
 	require.Len(t, h.approved, 1)
 
 	// A second claim of a used offer fails.
-	_, err = h.mgr.Claim(dev.Claim(h.self.Info(), "phone", "ios"))
+	_, err = h.mgr.Claim("192.0.2.1", dev.Claim(h.self.Info(), "phone", "ios"))
 	requireCode(t, err, ErrCodeOfferUsed)
 }
 
@@ -298,7 +299,7 @@ func TestOfferExpires(t *testing.T) {
 	p, _ := DecodePayload(view.Payload)
 	h.advance(time.Minute + time.Second)
 	dev, _ := NewDeviceSessionFromPayload(newDevice(t), p)
-	_, err = h.mgr.Claim(dev.Claim(h.self.Info(), "phone", "ios"))
+	_, err = h.mgr.Claim("192.0.2.1", dev.Claim(h.self.Info(), "phone", "ios"))
 	requireCode(t, err, ErrCodeOfferExpired)
 
 	_, err = h.mgr.CreateNodeOffer(MaxOfferTTL+time.Second, RoleOperator)
@@ -311,10 +312,10 @@ func TestDoubleClaimAbortsOffer(t *testing.T) {
 	view, _ := h.mgr.CreateNodeOffer(0, RoleOperator)
 	p, _ := DecodePayload(view.Payload)
 	first, _ := NewDeviceSessionFromPayload(newDevice(t), p)
-	_, err := h.mgr.Claim(first.Claim(h.self.Info(), "a", "ios"))
+	_, err := h.mgr.Claim("192.0.2.1", first.Claim(h.self.Info(), "a", "ios"))
 	require.NoError(t, err)
 	attacker, _ := NewDeviceSessionFromPayload(newDevice(t), p)
-	_, err = h.mgr.Claim(attacker.Claim(h.self.Info(), "b", "ios"))
+	_, err = h.mgr.Claim("192.0.2.1", attacker.Claim(h.self.Info(), "b", "ios"))
 	requireCode(t, err, ErrCodeOfferUsed)
 	got, _ := h.mgr.Get(p.OfferID)
 	require.Equal(t, StateAborted, got.State)
@@ -330,11 +331,11 @@ func TestBadMACThreeStrikes(t *testing.T) {
 	wrong.Secret = RandomBytes(NodeSecretSize)
 	for range 3 {
 		dev, _ := NewDeviceSessionFromPayload(newDevice(t), wrong)
-		_, err := h.mgr.Claim(dev.Claim(h.self.Info(), "x", "ios"))
+		_, err := h.mgr.Claim("192.0.2.1", dev.Claim(h.self.Info(), "x", "ios"))
 		requireCode(t, err, ErrCodeMACInvalid)
 	}
 	dev, _ := NewDeviceSessionFromPayload(newDevice(t), p)
-	_, err := h.mgr.Claim(dev.Claim(h.self.Info(), "x", "ios"))
+	_, err := h.mgr.Claim("192.0.2.1", dev.Claim(h.self.Info(), "x", "ios"))
 	requireCode(t, err, ErrCodeOfferAborted)
 }
 
@@ -347,12 +348,12 @@ func TestTamperedTranscriptRejected(t *testing.T) {
 	// A MITM node: the device saw a different CA fingerprint.
 	info := h.self.Info()
 	info.CAFP = RandomBytes(FingerprintSize)
-	_, err := h.mgr.Claim(dev.Claim(info, "x", "ios"))
+	_, err := h.mgr.Claim("192.0.2.1", dev.Claim(info, "x", "ios"))
 	requireCode(t, err, ErrCodeMACInvalid)
 
 	// A response signed by another key fails on the device.
 	dev2, _ := NewDeviceSessionFromPayload(newDevice(t), p)
-	resp, err := h.mgr.Claim(dev2.Claim(h.self.Info(), "x", "ios"))
+	resp, err := h.mgr.Claim("192.0.2.1", dev2.Claim(h.self.Info(), "x", "ios"))
 	require.NoError(t, err)
 	resp.Sig[0] ^= 1
 	_, err = dev2.Accept(resp)
@@ -365,7 +366,7 @@ func TestMismatchAbort(t *testing.T) {
 	view, _ := h.mgr.CreateNodeOffer(0, RoleOperator)
 	p, _ := DecodePayload(view.Payload)
 	dev, _ := NewDeviceSessionFromPayload(newDevice(t), p)
-	resp, err := h.mgr.Claim(dev.Claim(h.self.Info(), "x", "ios"))
+	resp, err := h.mgr.Claim("192.0.2.1", dev.Claim(h.self.Info(), "x", "ios"))
 	require.NoError(t, err)
 	_, err = dev.Accept(resp)
 	require.NoError(t, err)
@@ -396,7 +397,7 @@ func TestFlowBDeviceCode(t *testing.T) {
 	requireCode(t, err, ErrCodeOfferUsed)
 
 	dev := NewDeviceSessionFromSecret(key, secret)
-	resp, err := h.mgr.Claim(dev.Claim(h.self.Info(), "phone", "android"))
+	resp, err := h.mgr.Claim("192.0.2.1", dev.Claim(h.self.Info(), "phone", "android"))
 	require.NoError(t, err)
 	_, err = dev.Accept(resp)
 	require.NoError(t, err)
@@ -420,10 +421,10 @@ func TestFlowBPinnedKey(t *testing.T) {
 	require.NoError(t, err)
 	// Someone who read the secret but holds another key cannot claim.
 	other := NewDeviceSessionFromSecret(newDevice(t), p.Secret)
-	_, err = h.mgr.Claim(other.Claim(h.self.Info(), "x", "ios"))
+	_, err = h.mgr.Claim("192.0.2.1", other.Claim(h.self.Info(), "x", "ios"))
 	requireCode(t, err, ErrCodeMACInvalid)
 	dev := NewDeviceSessionFromSecret(key, p.Secret)
-	_, err = h.mgr.Claim(dev.Claim(h.self.Info(), "x", "ios"))
+	_, err = h.mgr.Claim("192.0.2.1", dev.Claim(h.self.Info(), "x", "ios"))
 	require.NoError(t, err)
 }
 
@@ -431,7 +432,7 @@ func TestClaimRateLimit(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t)
 	for i := range claimsPerWindow + 1 {
-		_, err := h.mgr.Claim(ClaimRequest{
+		_, err := h.mgr.Claim("192.0.2.1", ClaimRequest{
 			OfferID: RandomBytes(OfferIDSize), DevicePub: RandomBytes(KeySize), NonceDevice: RandomBytes(NonceSize),
 			MAC: RandomBytes(macSize), Sig: RandomBytes(ed25519.SignatureSize),
 		})
@@ -442,7 +443,7 @@ func TestClaimRateLimit(t *testing.T) {
 		}
 	}
 	h.advance(claimWindow)
-	_, err := h.mgr.Claim(ClaimRequest{
+	_, err := h.mgr.Claim("192.0.2.1", ClaimRequest{
 		OfferID: RandomBytes(OfferIDSize), DevicePub: RandomBytes(KeySize), NonceDevice: RandomBytes(NonceSize),
 		MAC: RandomBytes(macSize), Sig: RandomBytes(ed25519.SignatureSize),
 	})
@@ -524,4 +525,30 @@ func TestNATSUser(t *testing.T) {
 	perms := DevicePermissions("dev_abc")
 	require.Equal(t, []string{"crush.client.v1.dev_abc.>"}, perms.Publish)
 	require.NotContains(t, perms.Subscribe, ">")
+}
+
+func TestAttackerCannotLockOutPhone(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	view, err := h.mgr.CreateNodeOffer(0, RoleOperator)
+	require.NoError(t, err)
+	p, _ := DecodePayload(view.Payload)
+
+	// A LAN attacker sprays random offer IDs from many addresses, enough
+	// to overflow the source table.
+	probe := ClaimRequest{
+		DevicePub: RandomBytes(KeySize), NonceDevice: RandomBytes(NonceSize),
+		MAC: RandomBytes(macSize), Sig: RandomBytes(ed25519.SignatureSize),
+	}
+	for i := range maxSources + 10 {
+		for range claimsPerWindow + 1 {
+			probe.OfferID = RandomBytes(OfferIDSize)
+			_, _ = h.mgr.Claim(fmt.Sprintf("198.51.%d.%d", i/256, i%256), probe)
+		}
+	}
+	require.LessOrEqual(t, len(h.mgr.sources), maxSources)
+
+	dev, _ := NewDeviceSessionFromPayload(newDevice(t), p)
+	_, err = h.mgr.Claim("192.0.2.77", dev.Claim(h.self.Info(), "phone", "ios"))
+	require.NoError(t, err, "the real phone still claims")
 }

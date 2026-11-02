@@ -322,6 +322,16 @@ func (p *pairingService) clientHandler() http.Handler {
 	return mux
 }
 
+// remoteIP is the client's IP from the connection itself; forwarded
+// headers are ignored because the listener is never behind a proxy.
+func remoteIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 func writePairError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	var pe *pairing.Error
@@ -390,7 +400,7 @@ func (p *pairingService) handleClaim(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	resp, err := p.mgr.Claim(req)
+	resp, err := p.mgr.Claim(remoteIP(r), req)
 	if err != nil {
 		writePairError(w, err)
 		return

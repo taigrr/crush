@@ -120,7 +120,7 @@ func TestRunPairingEndToEnd(t *testing.T) {
 				p, _ := pairing.DecodePayload(offer.Payload)
 				_, key, _ := ed25519.GenerateKey(nil)
 				sess, _ := pairing.NewDeviceSessionFromPayload(key, p)
-				resp, err := mgr.Claim(sess.Claim(self.Info(), "Phone", "ios"))
+				resp, err := mgr.Claim("192.0.2.1", sess.Claim(self.Info(), "Phone", "ios"))
 				if err != nil {
 					return
 				}

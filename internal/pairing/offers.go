@@ -22,8 +22,13 @@ const (
 
 	maxFailures     = 3
 	maxActiveOffers = 16
+	// Claims are limited per source address, never node-wide, so a LAN
+	// attacker probing offer IDs cannot lock a real phone out. Attacks on
+	// a specific offer need its ID (which travels with the secret) and are
+	// bounded by that offer's three-strike limit.
 	claimsPerWindow = 5
 	claimWindow     = time.Minute
+	maxSources      = 1024
 
 	macSize = 32
 )
@@ -125,9 +130,9 @@ func (o *offer) signal() {
 type Manager struct {
 	cfg Config
 
-	mu     sync.Mutex
-	offers map[string]*offer
-	claims []time.Time
+	mu      sync.Mutex
+	offers  map[string]*offer
+	sources map[string][]time.Time
 }
 
 // NewManager creates an offer manager.
@@ -138,7 +143,7 @@ func NewManager(cfg Config) *Manager {
 	if cfg.Extras == nil {
 		cfg.Extras = func() Extras { return Extras{} }
 	}
-	return &Manager{cfg: cfg, offers: map[string]*offer{}}
+	return &Manager{cfg: cfg, offers: map[string]*offer{}, sources: map[string][]time.Time{}}
 }
 
 func offerKey(id []byte) string { return base64.RawURLEncoding.EncodeToString(id) }
@@ -293,13 +298,41 @@ func (m *Manager) failLocked(o *offer) error {
 	return pairErr(ErrCodeMACInvalid, "pairing authentication failed")
 }
 
-func (m *Manager) rateLimitLocked(now time.Time) bool {
-	m.claims = slices.DeleteFunc(m.claims, func(t time.Time) bool { return now.Sub(t) >= claimWindow })
-	if len(m.claims) >= claimsPerWindow {
+// rateLimitLocked admits one claim attempt from source.
+func (m *Manager) rateLimitLocked(source string, now time.Time) bool {
+	recent := func(ts []time.Time) []time.Time {
+		return slices.DeleteFunc(ts, func(t time.Time) bool { return now.Sub(t) >= claimWindow })
+	}
+	hits := recent(m.sources[source])
+	if len(hits) >= claimsPerWindow {
+		m.sources[source] = hits
 		return false
 	}
-	m.claims = append(m.claims, now)
+	if _, ok := m.sources[source]; !ok && len(m.sources) >= maxSources {
+		m.pruneSourcesLocked(now, recent)
+	}
+	m.sources[source] = append(hits, now)
 	return true
+}
+
+// pruneSourcesLocked drops idle sources, then the least recently seen
+// one, so the table stays bounded without refusing new sources.
+func (m *Manager) pruneSourcesLocked(now time.Time, recent func([]time.Time) []time.Time) {
+	oldestKey, oldest := "", now
+	for k, ts := range m.sources {
+		ts = recent(ts)
+		if len(ts) == 0 {
+			delete(m.sources, k)
+			continue
+		}
+		m.sources[k] = ts
+		if last := ts[len(ts)-1]; !last.After(oldest) {
+			oldestKey, oldest = k, last
+		}
+	}
+	if len(m.sources) >= maxSources {
+		delete(m.sources, oldestKey)
+	}
 }
 
 func checkLen(b []byte, n int, what string) error {
@@ -309,8 +342,9 @@ func checkLen(b []byte, n int, what string) error {
 	return nil
 }
 
-// Claim handles POST /client/v1/pair/claim.
-func (m *Manager) Claim(req ClaimRequest) (ClaimResponse, error) {
+// Claim handles POST /client/v1/pair/claim from source (the client's
+// address, used only for rate limiting).
+func (m *Manager) Claim(source string, req ClaimRequest) (ClaimResponse, error) {
 	for _, c := range []struct {
 		b    []byte
 		n    int
@@ -335,7 +369,7 @@ func (m *Manager) Claim(req ClaimRequest) (ClaimResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := m.cfg.Now()
-	if !m.rateLimitLocked(now) {
+	if !m.rateLimitLocked(source, now) {
 		return ClaimResponse{}, pairErr(ErrCodeRateLimited, "too many pairing attempts; wait a minute")
 	}
 	o, err := m.lookupLocked(req.OfferID)
