@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -69,7 +70,7 @@ func (l *tlsProxyListener) Start() error {
 	if l.target() == "" {
 		return errors.New("no websocket target")
 	}
-	ln, err := net.Listen("tcp", l.addr)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", l.addr)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", l.name, l.addr, err)
 	}
@@ -154,12 +155,15 @@ func (l *tlsProxyListener) handle(ln net.Listener, raw net.Conn, source string) 
 	defer raw.Close()
 	conn := tls.Server(raw, l.tls())
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(proxyHandshakeTimeout))
-	if err := conn.Handshake(); err != nil {
+	hctx, cancel := context.WithTimeout(context.Background(), proxyHandshakeTimeout)
+	err := conn.HandshakeContext(hctx)
+	cancel()
+	if err != nil {
 		return
 	}
-	_ = conn.SetDeadline(time.Time{})
-	upstream, err := net.DialTimeout("tcp", l.target(), proxyDialTimeout)
+	dctx, cancel := context.WithTimeout(context.Background(), proxyDialTimeout)
+	upstream, err := (&net.Dialer{}).DialContext(dctx, "tcp", l.target())
+	cancel()
 	if err != nil {
 		slog.Warn("Websocket upstream unavailable", "error", err)
 		return
