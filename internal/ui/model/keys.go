@@ -54,13 +54,6 @@ type KeyMap struct {
 		FocusChat           key.Binding
 	}
 
-	Initialize struct {
-		Yes,
-		No,
-		Enter,
-		Switch key.Binding
-	}
-
 	// Sidebar holds the navigation keys active while the left session
 	// navigator has focus.
 	Sidebar struct {
@@ -341,22 +334,6 @@ func DefaultKeyMap() KeyMap {
 	km.Chat.Expand = key.NewBinding(
 		key.WithKeys("space"),
 		key.WithHelp("space", "expand/collapse"),
-	)
-	km.Initialize.Yes = key.NewBinding(
-		key.WithKeys("y", "Y"),
-		key.WithHelp("y", "yes"),
-	)
-	km.Initialize.No = key.NewBinding(
-		key.WithKeys("n", "N", "esc", "alt+esc"),
-		key.WithHelp("n", "no"),
-	)
-	km.Initialize.Switch = key.NewBinding(
-		key.WithKeys("left", "right", "tab"),
-		key.WithHelp("tab", "switch"),
-	)
-	km.Initialize.Enter = key.NewBinding(
-		key.WithKeys("enter"),
-		key.WithHelp("enter", "select"),
 	)
 
 	km.Sidebar.UpDown = key.NewBinding(

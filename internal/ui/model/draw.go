@@ -55,12 +55,6 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		// NOTE: Onboarding flow will be rendered as dialogs below, but
 		// positioned at the bottom left of the screen.
 
-	case uiInitialize:
-		m.drawHeader(scr, layout.header)
-
-		main := uv.NewStyledString(m.initializeView())
-		main.Draw(scr, layout.main)
-
 	case uiLanding:
 		m.drawHeader(scr, layout.header)
 		main := uv.NewStyledString(m.landingView())
