@@ -18,8 +18,13 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/pairing"
+	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/qr"
 )
+
+// swag resolves "proto.Error" in the @Failure annotations below through this
+// file's imports.
+var _ proto.Error
 
 // Mesh subjects for the device registry (member-only, global account).
 const (
