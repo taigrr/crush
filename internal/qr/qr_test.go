@@ -96,9 +96,15 @@ func TestCapacity(t *testing.T) {
 		level   Level
 		want    int
 	}{
-		{1, Low, 17}, {1, Medium, 14}, {1, High, 7},
-		{10, Medium, 213}, {15, Medium, 412}, {15, Low, 520},
-		{40, Low, 2953}, {40, Medium, 2331}, {40, High, 1273},
+		{1, Low, 17},
+		{1, Medium, 14},
+		{1, High, 7},
+		{10, Medium, 213},
+		{15, Medium, 412},
+		{15, Low, 520},
+		{40, Low, 2953},
+		{40, Medium, 2331},
+		{40, High, 1273},
 	}
 	for _, tc := range cases {
 		require.Equal(t, tc.want, Capacity(tc.version, tc.level), "v%d level %d", tc.version, tc.level)
