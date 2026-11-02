@@ -53,7 +53,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&clientHost, "host", "H", server.DefaultHost(), "Connect to a specific crush server host (for advanced users)")
 	rootCmd.Flags().BoolP("help", "h", false, "Help")
 	rootCmd.Flags().BoolP("yolo", "y", false, "Automatically accept all permissions (dangerous mode)")
-	rootCmd.Flags().StringP("session", "s", "", "Continue a previous session by ID")
+	rootCmd.Flags().StringP("session", "s", "", "Open a previous session by ID or unambiguous prefix, in its own project directory")
 	rootCmd.Flags().BoolP("continue", "C", false, "Continue the most recent session")
 	rootCmd.MarkFlagsMutuallyExclusive("session", "continue")
 
@@ -94,7 +94,8 @@ crush --yolo
 # Run with custom data directory
 crush --data-dir /path/to/custom/.crush
 
-# Continue a previous session
+# Continue a previous session (full ID or unambiguous prefix); the
+# project directory is taken from the session unless --cwd is set
 crush --session {session-id}
 
 # Continue the most recent session
@@ -106,6 +107,18 @@ crush skill print
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID, _ := cmd.Flags().GetString("session")
 		continueLast, _ := cmd.Flags().GetBool("continue")
+
+		if sessionID != "" && !cmd.Flags().Changed("cwd") {
+			dir, err := locateSessionProject(cmd.Context(), sessionID)
+			if err != nil {
+				return err
+			}
+			if dir != "" {
+				if err := cmd.Flags().Set("cwd", dir); err != nil {
+					return err
+				}
+			}
+		}
 
 		ws, cleanup, err := setupWorkspaceWithProgressBar(cmd)
 		if err != nil {
@@ -311,7 +324,9 @@ func connectToServerAt(cmd *cobra.Command, cwd string, opts ...func(*proto.Works
 		opt(&wsReq)
 	}
 
+	stopNotice := noticeWhileWaiting(ctx, "the crush server to open the workspace at "+cwd)
 	ws, err := c.CreateWorkspace(ctx, wsReq)
+	stopNotice()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create workspace: %v", err)
 	}
@@ -336,7 +351,9 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 		_, statErr := os.Stat(hostURL.Host)
 		switch {
 		case statErr == nil:
+			stopCheck := noticeWhileWaiting(cmd.Context(), "the running crush server to answer a version check")
 			restarted, err := restartIfStale(cmd, hostURL)
+			stopCheck()
 			if dv := (*errDaemonVersion)(nil); errors.As(err, &dv) {
 				return dv
 			}
@@ -359,6 +376,8 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 			if clientHost == server.DefaultHost() && cluster.ServiceInstalled() {
 				// The service manager owns the server; spawning our own would
 				// race it for the socket. Nudge it and wait instead.
+				stop := noticeWhileWaiting(cmd.Context(), "the background crush service to start")
+				defer stop()
 				return waitForService(cmd, hostURL)
 			}
 			// Serialize spawn across concurrent clients: spawnAndWaitReady
@@ -366,12 +385,16 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 			// re-probes inside it, so a client that lost the race skips
 			// its own spawn and uses the now-running server. Stale-socket
 			// removal happens inside the lock too.
+			stop := noticeWhileWaiting(cmd.Context(), "the crush server to start")
+			defer stop()
 			if err := spawnAndWaitReady(cmd, hostURL); err != nil {
 				return fmt.Errorf("failed to initialize crush server: %v", err)
 			}
 			return nil
 		}
 
+		stop := noticeWhileWaiting(cmd.Context(), "the crush server to respond")
+		defer stop()
 		if err := waitForServerReady(cmd.Context(), hostURL); err != nil {
 			return fmt.Errorf("failed to initialize crush server: %v", err)
 		}
@@ -751,8 +774,7 @@ func resolveWorkspaceSessionID(ctx context.Context, ws workspace.Workspace, id s
 
 	var matches []session.Session
 	for _, s := range sessions {
-		hash := session.HashID(s.ID)
-		if hash == id || strings.HasPrefix(hash, id) {
+		if sessionIDMatches(s.ID, id) {
 			matches = append(matches, s)
 		}
 	}

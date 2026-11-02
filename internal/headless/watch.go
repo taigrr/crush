@@ -221,7 +221,7 @@ func LastOutcome(ctx context.Context, c WatchClient, workspaceID, sessionID stri
 				out.Error = "cancelled"
 			case proto.FinishReasonError:
 				out.Status = StatusError
-				out.Error = f.Message
+				out.Error = finishErrorText(f.Message, f.Details)
 				if out.Error == "" {
 					out.Error = "agent run failed"
 				}
@@ -316,4 +316,19 @@ func WaitSession(ctx context.Context, c EventClient, workspaceID, sessionID stri
 		return Outcome{Status: StatusTimeout, Error: "stopped waiting; the run is still going"}
 	}
 	return out
+}
+
+// finishErrorText joins an error finish's title and details so callers see
+// the underlying cause (e.g. the provider's status and message) rather than
+// only a short title such as "Bad Request".
+func finishErrorText(title, details string) string {
+	title, details = strings.TrimSpace(title), strings.TrimSpace(details)
+	switch {
+	case details == "":
+		return title
+	case title == "":
+		return details
+	default:
+		return title + ": " + details
+	}
 }

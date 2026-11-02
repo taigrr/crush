@@ -164,3 +164,28 @@ func TestE2E_CancelStopsARun(t *testing.T) {
 	require.Equal(t, headless.ExitCancelled, headless.ExitCode(err))
 	require.Equal(t, "cancelled", decodeLines(t, &out)[0]["status"])
 }
+
+func TestE2E_StatusReportsDetachedRunAsRunning(t *testing.T) {
+	h := headlesstest.New(t)
+	h.Agent.Reply = "first run"
+
+	sess, err := h.Client.CreateSession(t.Context(), h.Workspace.ID, "e2e")
+	require.NoError(t, err)
+	res, err := e2eRun(t, h, sess, runOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "completed", res["status"])
+	h.WaitIdle(t)
+
+	h.Agent.Hold = make(chan struct{})
+	t.Cleanup(func() { close(h.Agent.Hold) })
+	res, err = e2eRun(t, h, sess, runOptions{detach: true})
+	require.NoError(t, err)
+	require.Equal(t, "running", res["status"])
+
+	other := h.NewClient(t)
+	var status bytes.Buffer
+	require.NoError(t, sessionStatus(t.Context(), other, h.Workspace, sess, headless.FormatJSON, &status))
+	st := decodeLines(t, &status)[0]
+	require.Equal(t, "running", st["state"], "%v", st)
+	require.Nil(t, st["last"], "a running session reports no previous turn")
+}

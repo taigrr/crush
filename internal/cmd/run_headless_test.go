@@ -626,6 +626,67 @@ func TestRunHeadless_Detach(t *testing.T) {
 	require.Equal(t, proto.PermissionPolicyPrompt, c.sentPolicy)
 }
 
+func TestRunHeadless_DetachSkipsWatchSetup(t *testing.T) {
+	t.Parallel()
+
+	c := newFakeRunClient(nil)
+	c.subErr = errors.New("event stream would block")
+	for _, format := range []headless.OutputFormat{headless.FormatJSON, headless.FormatStreamJSON, headless.FormatText} {
+		lines, err := runHeadlessForTest(t, t.Context(), c, runOptions{format: format, detach: true})
+		require.NoError(t, err, "a detached run must not subscribe to events")
+		require.NotEmpty(t, lines)
+	}
+	require.Zero(t, c.sessCalls, "a detached run must not snapshot the session")
+	require.Zero(t, c.fileCalls, "a detached run must not snapshot file history")
+}
+
+func TestRunHeadless_DetachStreamJSONEmitsInit(t *testing.T) {
+	t.Parallel()
+
+	c := newFakeRunClient(nil)
+	lines, err := runHeadlessForTest(t, t.Context(), c, runOptions{format: headless.FormatStreamJSON, detach: true})
+	require.NoError(t, err)
+	require.Len(t, lines, 2)
+	require.Equal(t, "init", lines[0]["type"])
+	require.Equal(t, c.sentRunID, lines[0]["run_id"])
+	require.Equal(t, "running", lines[1]["status"])
+}
+
+func TestNoticeWhileWaiting(t *testing.T) {
+	t.Parallel()
+
+	stop := noticeWhileWaiting(t.Context(), "nothing")
+	stop()
+
+	var buf syncBuffer
+	ctx := withWaitNotices(t.Context(), &buf, time.Millisecond)
+	stop = noticeWhileWaiting(ctx, "the server")
+	require.Eventually(t, func() bool { return buf.String() == "Waiting for the server...\n" }, time.Second, time.Millisecond)
+	stop()
+
+	var quick syncBuffer
+	ctx = withWaitNotices(t.Context(), &quick, time.Hour)
+	noticeWhileWaiting(ctx, "fast step")()
+	require.Empty(t, quick.String())
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 func TestRunHeadless_DetachSendFailure(t *testing.T) {
 	t.Parallel()
 

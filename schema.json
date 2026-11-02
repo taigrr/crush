@@ -24,6 +24,24 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "ClusterConfig": {
+      "properties": {
+        "autobalance": {
+          "type": "boolean",
+          "description": "Start each new crush run job on the least loaded online cluster node (moving it there before the first turn)",
+          "default": false
+        },
+        "autobalance_margin": {
+          "type": "number",
+          "maximum": 1,
+          "minimum": 0,
+          "description": "How much less loaded (0-1 score) another node must be before autobalance moves a job there",
+          "default": 0.15
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "Completions": {
       "properties": {
         "max_depth": {
@@ -106,6 +124,10 @@
         "embedding": {
           "$ref": "#/$defs/EmbeddingConfig",
           "description": "Global text-embedding model for vector/hybrid history search. Must be set globally (~/.config/crush); workspace overrides are ignored."
+        },
+        "cluster": {
+          "$ref": "#/$defs/ClusterConfig",
+          "description": "Cluster behavior for this machine (see docs/cluster.md)"
         }
       },
       "additionalProperties": false,

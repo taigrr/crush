@@ -74,6 +74,10 @@ crush run -o json --permission-mode delegate "Upgrade the dependencies"
 crush run -o json --detach "Port the tests to testify"
 crush session wait <session-id> --timeout 9m -o json
 
+# Run a new job on the least loaded online cluster node (also enabled by
+# "cluster": {"autobalance": true} in crush.json or CRUSH_CLUSTER_AUTOBALANCE=1)
+crush run --balance "Run the full test suite and fix failures"
+
 Exit codes: 0 completed, 1 failure, 2 blocked on a permission or question,
 3 permission denied, 4 cancelled, 5 agent error, 124 timeout.
 
@@ -93,6 +97,7 @@ explains the workflow.
 			detach, _     = cmd.Flags().GetBool("detach")
 			timeout, _    = cmd.Flags().GetDuration("timeout")
 			isolated, _   = cmd.Flags().GetBool("isolated")
+			balance, _    = cmd.Flags().GetBool("balance")
 		)
 
 		format, err := headless.ParseOutputFormat(formatFlag)
@@ -110,6 +115,8 @@ explains the workflow.
 			detach:            detach,
 			timeout:           timeout,
 			isolated:          isolated,
+			balance:           balance,
+			balanceSet:        cmd.Flags().Changed("balance"),
 		}
 		opts.mode, err = headless.ParsePermissionMode(modeFlag)
 		if err == nil {
@@ -136,6 +143,9 @@ type runOptions struct {
 	detach            bool
 	timeout           time.Duration
 	isolated          bool
+	// balance and balanceSet carry --balance; see resolveAutobalance.
+	balance    bool
+	balanceSet bool
 	// modelRef, when set, is the per-session model for a newly created
 	// session. It replaces rewriting the workspace's model config, which
 	// would also switch the model of every other client sharing the
@@ -189,9 +199,23 @@ func runCommand(cmd *cobra.Command, args []string, opts runOptions) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	if opts.detach {
+		// A detached run promises to return right away, so any startup
+		// wait it cannot skip is reported on stderr instead of looking
+		// like a hang.
+		ctx = withWaitNotices(ctx, os.Stderr, waitNoticeDelay)
+		parent := cmd.Context()
+		if parent == nil {
+			parent = context.Background()
+		}
+		cmd.SetContext(withWaitNotices(parent, os.Stderr, waitNoticeDelay))
+	}
+
 	prompt := strings.Join(args, " ")
 
+	stopNotice := noticeWhileWaiting(ctx, "stdin to close (the prompt is read from piped input)")
 	prompt, err := MaybePrependStdin(prompt)
+	stopNotice()
 	if err != nil {
 		slog.Error("Failed to read from stdin", "error", err)
 		return err
@@ -266,6 +290,7 @@ func init() {
 	runCmd.Flags().Bool("detach", false, "Start the run in the background, print the session and exit")
 	runCmd.Flags().Duration("timeout", 0, "Stop waiting after this long (e.g. 9m); the run keeps going unless --isolated")
 	runCmd.Flags().Bool("isolated", false, "Run in a private workspace that no other client (TUI, 'crush session') can see")
+	runCmd.Flags().Bool("balance", false, "Move a new session to the least loaded online cluster node before running (default from cluster.autobalance or $"+autobalanceEnv+")")
 	runCmd.MarkFlagsMutuallyExclusive("session", "continue")
 }
 
@@ -282,7 +307,7 @@ func runNonInteractive(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	hideSpinner := opts.hideSpinner || opts.format.IsStructured()
+	hideSpinner := opts.hideSpinner || opts.format.IsStructured() || opts.detach
 
 	if opts.largeModel != "" || opts.smallModel != "" {
 		if err := overrideModels(ctx, c, ws, opts.largeModel, opts.smallModel); err != nil {
@@ -331,18 +356,27 @@ func runNonInteractive(
 		}
 	}
 
-	// Wait for the agent to become ready (MCP init, etc).
-	if err := c.InitiateAgentProcessing(ctx, ws.ID); err != nil {
-		slog.Warn("Failed to initiate agent processing", "error", err)
-	}
-	if err := waitForAgent(ctx, c, ws.ID); err != nil {
-		stopSpinner()
-		return fmt.Errorf("agent not ready: %w", err)
-	}
+	if opts.detach {
+		// The server builds the agent when it opens the workspace and a
+		// queued run waits for MCP tools on its own, so a detached run
+		// only needs the agent to exist before it hands off the prompt.
+		if err := detachAgentReady(ctx, c, ws.ID); err != nil {
+			return fmt.Errorf("agent not ready: %w", err)
+		}
+	} else {
+		// Wait for the agent to become ready (MCP init, etc).
+		if err := c.InitiateAgentProcessing(ctx, ws.ID); err != nil {
+			slog.Warn("Failed to initiate agent processing", "error", err)
+		}
+		if err := waitForAgent(ctx, c, ws.ID); err != nil {
+			stopSpinner()
+			return fmt.Errorf("agent not ready: %w", err)
+		}
 
-	// Force-update agent models so MCP tools are loaded.
-	if err := c.UpdateAgent(ctx, ws.ID); err != nil {
-		slog.Warn("Failed to update agent", "error", err)
+		// Force-update agent models so MCP tools are loaded.
+		if err := c.UpdateAgent(ctx, ws.ID); err != nil {
+			slog.Warn("Failed to update agent", "error", err)
+		}
 	}
 
 	defer stopSpinner()
@@ -358,6 +392,15 @@ func runNonInteractive(
 		slog.Info("Continuing session for non-interactive run", "session_id", sess.ID)
 	} else {
 		slog.Info("Created session for non-interactive run", "session_id", sess.ID)
+		if !opts.isolated && resolveAutobalance(opts.balanceSet, opts.balance, os.Getenv(autobalanceEnv), ws.Config.Cluster) {
+			stopSpinner()
+			var release func()
+			c, ws, release, err = autobalanceRun(ctx, c, ws, sess, opts)
+			if err != nil {
+				return err
+			}
+			defer release()
+		}
 	}
 
 	if !opts.usesLegacyTextStream() {
@@ -584,6 +627,21 @@ func (s *runStream) handle(ev any, stopSpinner func()) (done bool, err error) {
 		return true, fmt.Errorf("agent error: %w", e.Payload.Error)
 	}
 	return false, nil
+}
+
+// detachAgentReady returns at once when the workspace already has an
+// agent, which is the normal case. Otherwise it falls back to the full
+// initialization, reporting the wait on stderr.
+func detachAgentReady(ctx context.Context, c *client.Client, wsID string) error {
+	if info, err := c.GetAgentInfo(ctx, wsID); err == nil && info.IsReady {
+		return nil
+	}
+	stop := noticeWhileWaiting(ctx, "the agent to initialize")
+	defer stop()
+	if err := c.InitiateAgentProcessing(ctx, wsID); err != nil {
+		slog.Warn("Failed to initiate agent processing", "error", err)
+	}
+	return waitForAgent(ctx, c, wsID)
 }
 
 // waitForAgent polls GetAgentInfo until the agent is ready, with a
