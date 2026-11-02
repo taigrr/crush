@@ -1,6 +1,14 @@
 # Mobile Client Pairing — Design
 
-Status: proposal (design only, nothing implemented).
+Status: phase 1 in progress on branch `docs/mobile-qr-pairing`.
+
+Implemented in phase 1 (see [Rollout](#rollout) for what is deferred):
+
+- In-repo QR encoder (`internal/qr`) and terminal rendering.
+- `rushpair1:` payloads, the v1 handshake (transcript, MAC, signatures, SAS), offers with expiry and single use.
+- `crush pair`, `crush pair accept`, `crush pair list`, `crush pair revoke`, and the TUI `Pair Mobile Device` dialog.
+- The `/client/v1` pairing endpoints and the `/v1/cluster/pairing` and `/v1/cluster/devices` local API.
+- The device registry with scoped NATS credentials, replicated over the mesh, and cluster-wide revocation.
 
 ## Overview
 
@@ -66,10 +74,10 @@ approval-gated pairing, ID-and-key pinning, the embedded NATS mesh, the
 
 | Threat | Mitigation |
 | --- | --- |
-| **Lost or stolen phone** | The device key lives in the iOS Keychain / Android Keystore, `WhenUnlockedThisDeviceOnly`, never exported or backed up. rush gates the app (and approvals) behind biometrics. Any node revokes the device (`crush cluster devices revoke`); the revocation reaches every member within one heartbeat and open connections are closed. Credentials are short lived (15 min tokens), so an offline node that missed the revocation stops accepting the device when its token expires and it cannot mint a new one without the registry. |
+| **Lost or stolen phone** | The device key lives in the iOS Keychain / Android Keystore, `WhenUnlockedThisDeviceOnly`, never exported or backed up. rush gates the app (and approvals) behind biometrics. Any node revokes the device (`crush pair revoke`); the revocation reaches every member within one heartbeat and open connections are closed. Credentials are short lived (15 min tokens), so an offline node that missed the revocation stops accepting the device when its token expires and it cannot mint a new one without the registry. |
 | **Leaked QR / screenshot** (flow a) | The pairing secret is single use, expires after 120 s (configurable, max 10 min), and is bound to one pairing node. Scanning it only creates a *pending* request; a human must approve it on a node after comparing the SAS with the phone. A second claim of the same offer invalidates the offer and is shown as a warning. |
 | **Leaked QR / screenshot** (flow b) | The phone's QR contains only its public key, a one-time secret, and metadata. Whoever approves it must also see the matching SAS on the phone. An attacker holding the screenshot cannot complete the handshake without the device private key. |
-| **Replay** | Every handshake message carries the offer ID, both nonces, and an expiry, and is MAC'd with a key derived from the pairing secret. Offers are tombstoned after use. Device auth uses a fresh server nonce per connection (NATS `nonce`, HTTPS challenge) signed by the device key; tokens are bound to the device ID and carry `exp`, `iat`, and a key epoch. |
+| **Replay** | Every handshake message is MAC'd and signed over a length-prefixed transcript that includes the offer ID, both fresh nonces, and both public keys (see [Pairing protocol](#pairing-protocol-v1-normative)). Offers are single use and tombstoned after use. Device auth uses a fresh server nonce per connection (NATS `nonce`, HTTPS challenge) signed by the device key; tokens are bound to the device ID and carry `exp`, `iat`, and a key epoch. |
 | **Rogue node** (a node that is not a member pretending to be one) | The QR carries the cluster CA fingerprint and the pairing node's public key fingerprint. The phone pins both and refuses any TLS peer whose leaf is not signed by a pinned CA *and* whose node ID/key is not in the member list it received during pairing. A leaked join token lets an attacker *request* to join, not mint a certificate for a pinned node ID, so it cannot impersonate a member to a device that checks the member list. |
 | **Compromised member** | Out of scope: members fully control each other already. A device trusts every pinned member equally. |
 | **MITM on LAN / Wi-Fi** | TLS 1.3 with the CA pinned from the QR (out of band, camera channel). No trust-on-first-use. Flow (b) uses the SAS to detect a substituted endpoint because the phone has no out-of-band CA fingerprint until it is approved. |
@@ -109,177 +117,309 @@ approval-gated pairing, ID-and-key pinning, the embedded NATS mesh, the
 
 ## QR payload
 
-One versioned format for both directions:
+One versioned envelope for both directions:
 
 ```
-rushpair1:<base64url(CBOR map), no padding>
+rushpair1:<base64url(B), no padding>
 ```
 
-CBOR is used (deterministic encoding, RFC 8949 §4.2) because the same data as
-JSON makes the QR code roughly 40% denser.
-Integer keys keep it small.
-Unknown keys are ignored; an unknown version prefix is rejected with "update
-rush / Crush".
-The same string is accepted by paste, so it also works over AirDrop,
-clipboard, or SSH.
+`B` is a compact binary encoding owned by this spec (no CBOR dependency):
 
-### Kind `node` (flow a, node shows the code)
+```
+B      = kind:u8 || field*
+field  = tag:u8 || len:u16be || value[len]
+```
 
-| Key | Name | Type | Notes |
+- Fields appear in ascending tag order.
+  Only tag `6` (`endpoint`) may repeat; any other duplicate rejects the payload.
+- Unknown tags are skipped (forward compatibility); an unknown `kind` or an unknown envelope prefix is rejected with "update rush / Crush".
+- `len(B)` must be at most 512 bytes; text values are UTF-8 and at most 64 bytes.
+- Multi-byte integers are big-endian.
+- The same string is accepted by paste, so it also works over AirDrop, clipboard, or SSH.
+
+The QR code encodes the whole `rushpair1:...` string in byte mode, error correction level M.
+A typical node offer (two endpoints) is about 280 bytes of `B`, about 385 characters, which fits QR version 15-M.
+
+### Kind 1 `node` (flow a, node shows the code)
+
+| Tag | Name | Value | Notes |
 | --- | --- | --- | --- |
-| 0 | `kind` | uint | `1` = node offer. |
 | 1 | `cluster_id` | text | |
-| 2 | `cluster_name` | text | Optional, for display. |
-| 3 | `node_id` | text | Pairing node. |
-| 4 | `node_name` | text | |
-| 5 | `node_key_fp` | bytes(32) | `SHA-256(node ed25519 public key)`. |
-| 6 | `ca_fp` | bytes(32) | Current cluster CA fingerprint. |
-| 7 | `endpoints` | array | `[{k: kind, a: addr}]` where kind is `lan`, `wg`, `ts`, `direct`, and addr is `host:port` of the client listener. |
-| 8 | `offer_id` | bytes(16) | Random; identifies the offer. |
-| 9 | `secret` | bytes(32) | Single-use pairing secret. |
-| 10 | `expires` | uint | Unix seconds. |
-| 11 | `scopes` | array | Requested role/scopes preset by the operator (display only; the approval is authoritative). |
-| 12 | `proto` | uint | Client protocol version (`1`). |
+| 2 | `node_id` | text | Pairing node. |
+| 3 | `node_name` | text | Display only. |
+| 4 | `node_pub` | 32 bytes | Pairing node's ed25519 identity public key. |
+| 5 | `ca_fp` | 32 bytes | `SHA-256(DER SubjectPublicKeyInfo of the cluster CA)`. |
+| 6 | `endpoint` | `kind:u8 \|\| "host:port"` | Client listener address; kind `1` lan, `2` wg, `3` ts, `4` direct. Repeatable. |
+| 7 | `offer_id` | 16 bytes | Random. |
+| 8 | `secret` | 32 bytes | Single-use pairing secret `S`. |
+| 9 | `expires` | u64 | Unix seconds; display/early-reject only, the node enforces its own expiry. |
+| 10 | `proto` | u8 | Client protocol version, `1`. |
 
-### Kind `device` (flow b, phone shows the code)
+### Kind 2 `device` (flow b, phone shows the code)
 
-| Key | Name | Type | Notes |
+| Tag | Name | Value | Notes |
 | --- | --- | --- | --- |
-| 0 | `kind` | uint | `2` = device request. |
-| 1 | `device_pub` | bytes(32) | ed25519 public key. |
+| 1 | `device_pub` | 32 bytes | ed25519 public key. |
 | 2 | `device_name` | text | |
-| 3 | `platform` | text | `ios`, `android`. |
-| 4 | `offer_id` | bytes(16) | |
-| 5 | `secret` | bytes(32) | Single-use, generated by the phone. |
-| 6 | `expires` | uint | Unix seconds, default now + 10 min. |
-| 12 | `proto` | uint | |
+| 3 | `platform` | text | `ios`, `android`, `other`. |
+| 4 | `secret` | 15 bytes | Single-use pairing secret `S` (120 bits). |
+| 9 | `expires` | u64 | Unix seconds, default now + 10 min. |
+| 10 | `proto` | u8 | |
 
-A device code is also rendered as a short **typed code** for when no camera or
-clipboard is available: the first 10 bytes of `SHA-256(payload)` as
-`XXXXX-XXXXX-XXXXX-XXXXX` (Crockford base32).
-That code alone is not enough to pair; it only lets the operator select which
-pending request (created when the phone connects) to approve.
+For kind 2, `offer_id = SHA-256("crush-pair-v1 offer id" || S)[0:16]`, so both sides derive it and it never needs to be typed.
 
-## Pairing flows
+### Kind 3 `node-info` (secretless locator)
 
-Both flows use the same handshake; they differ in who generates the secret and
-how the phone learns where the cluster is.
+Same tags as kind 1 except `offer_id` and `secret`, which must be absent.
+Printed by `crush pair accept` so a phone can learn the address and pins of the accepting node by scanning instead of typing.
+It grants nothing.
 
-### Handshake (common)
+### Typed code (flow b without camera or clipboard)
 
-Let `S` be the pairing secret and `T` the transcript:
+The phone also shows its 15-byte secret as a **typed code**:
+
+- `S` is read as a 120-bit big-endian integer and written as 24 Crockford base32 symbols (5 bits each, 24 × 5 = 120, no padding).
+- A 25th check symbol is `S mod 37`, using the Crockford check alphabet (`0-9A-Z` minus `ILOU`, then `*~$=U`).
+- Displayed as five groups of five: `XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`.
+- Input is case-insensitive, ignores `-` and spaces, and maps `I`/`L` to `1` and `O` to `0`.
+  A wrong check symbol is rejected locally before contacting anything.
+
+120 bits is far beyond online guessing: an attacker gets at most three MAC failures per offer, and offers live 10 minutes.
+The typed code carries no `device_pub`; the node learns it from the claim, and the SAS comparison is what binds it to the phone the operator is holding.
+The full kind 2 payload additionally pins `device_pub`, and a claim with a different key is rejected.
+
+## Pairing protocol (v1, normative)
+
+Both flows run the same handshake over the client listener (HTTPS, see [Transport](#transport)).
+They differ only in who generates `S` and how the phone learns where the cluster is.
+
+### Encoding primitives
+
+- `LP(x) = len(x):u32be || x` for every transcript component, so no two different field sequences produce the same bytes.
+- `H = SHA-256`, `HMAC = HMAC-SHA256`, `HKDF = HKDF-SHA256` (RFC 5869).
+- All byte values in JSON bodies are base64url without padding.
+- `device_id = "dev_" || lowercase base32, no padding (H(device_pub)[0:16])` (26 characters after the prefix).
+- Labels (ASCII, used exactly as written):
+
+| Constant | Value | Used for |
+| --- | --- | --- |
+| `L_T` | `crush-pair-v1 transcript` | First transcript component. |
+| `L_MACKEY` | `crush-pair-v1 mac key` | HKDF info for `K`. |
+| `L_SAS` | `crush-pair-v1 sas` | HKDF info for the SAS. |
+| `L_CLAIM` | `crush-pair-v1 claim` | Device → node claim. |
+| `L_NODE` | `crush-pair-v1 node` | Node → device claim response. |
+| `L_CONFIRM` | `crush-pair-v1 confirm` | Device confirms SAS. |
+| `L_POLL` | `crush-pair-v1 poll` | Device polls for the result. |
+| `L_ABORT` | `crush-pair-v1 abort` | Either side aborts. |
+| `L_OFFERID` | `crush-pair-v1 offer id` | Derives `offer_id` from a kind 2 secret. |
+
+### Transcript and keys
 
 ```
-T = "rushpair1" || offer_id || cluster_id || node_id || node_pub
-    || device_pub || nonce_node || nonce_device
-K = HKDF-SHA256(ikm = S, salt = offer_id, info = "rush pair v1")
-MAC_x = HMAC-SHA256(K, label_x || T)
-SAS  = HKDF-SHA256(ikm = S, salt = T, info = "rush sas v1")[0:5]
-       -> 4 emoji (index into a fixed 64-entry table, 6 bits each)
-          + 6 digits (remaining bits mod 10^6)
+T0 = LP(L_T) || LP(kind:u8) || LP(offer_id) || LP(cluster_id) || LP(node_id)
+     || LP(node_pub) || LP(ca_fp) || LP(device_pub) || LP(device_id)
+     || LP(nonce_device)
+T1 = T0 || LP(nonce_node)
+
+K   = HKDF(ikm = S, salt = offer_id, info = L_MACKEY, L = 32)
+SAS = HKDF(ikm = S, salt = H(T1),    info = L_SAS,    L = 6)
 ```
 
-1. Phone opens TLS to a client endpoint of the pairing node.
-   In flow (a) it verifies the leaf against `ca_fp` and that the CN is
-   `node_id` with a key hashing to `node_key_fp`; anything else aborts.
-2. Phone sends `POST /client/v1/pair/claim` with `offer_id`, `device_pub`,
-   device metadata, `nonce_device`, and `MAC_claim`, and signs the body with
-   the device key (proof of possession).
-3. Node checks the offer is live and unused, verifies MAC and signature,
-   marks the offer *claimed* (single use), and answers with `nonce_node`,
-   `node_pub`, the member list, and `MAC_node`.
-4. Both sides display the SAS.
-   The node raises a **pending device** request on every attached TUI of every
-   node (`crush.client.pending`, mesh-internal) and in
-   `crush cluster devices pending`.
-5. The operator compares the SAS and approves on **any** node, choosing a role
-   (default `operator`, see [Permissions](#permissions)).
-   The phone also asks the user to confirm the SAS matches; a "doesn't match"
-   tap aborts and reports the offer as compromised.
-6. The approving node writes the device record, broadcasts it, and the
-   pairing node returns `200` on the phone's long-poll
-   (`GET /client/v1/pair/{offer_id}`, authenticated by `MAC`) with the
-   final device record, the cluster CA fingerprint(s), and the member list.
-7. The phone pins the CA fingerprint(s), the member list, and connects to the
-   NATS websocket with its nkey.
+`nonce_device` and `nonce_node` are 32 random bytes, fresh per claim.
+`kind` is the payload kind that created the offer (`1` or `2`), so a flow (a) transcript can never verify as flow (b) or vice versa.
 
-Approval is required even in flow (a) — the QR is a capability to *ask*, the
-same rule as join tokens.
-An operator can pre-approve when creating the offer
-(`crush cluster pair-device --approve`), in which case step 5 is skipped but
-the SAS is still shown on both screens for a visual check.
-Pre-approved offers default to a 60 s lifetime.
+### Message authentication and signing order
+
+Every authenticated message `m` with label `L` covers exactly `M = LP(L) || T` for the transcript `T` named below:
+
+```
+mac = HMAC(K, M)
+sig = Ed25519-Sign(sender key, M)
+```
+
+The receiver checks, in this order, aborting at the first failure: offer exists → offer state allows the message → not expired → `mac` (constant-time compare) → `sig`.
+The MAC proves knowledge of `S`; the signature proves possession of the long-term key that the SAS and the pins bind.
+
+| Step | Message | Transcript | Signed by |
+| --- | --- | --- | --- |
+| 1 | `claim` | `T0` | device key |
+| 2 | `node` (claim response) | `T1` | node identity key |
+| 3 | `confirm` | `T1` | device key |
+| 4 | `poll` | `T1` | MAC only |
+
+`abort` is MAC only, over `LP(L_ABORT) || LP(offer_id) || LP(reason)`, so it works before a claim exists.
+
+### SAS
+
+The 6 SAS bytes are read as two 24-bit big-endian integers `a` (bytes 0–2) and `b` (bytes 3–5):
+
+- **Emoji**: four 6-bit indexes, `a >> 18`, `(a >> 12) & 63`, `(a >> 6) & 63`, `a & 63`, into the table below.
+- **Digits**: `b mod 1 000 000`, zero-padded to six digits and displayed `123 456`.
+
+Both halves are always shown together and the user compares both, for about 24 + 19.9 ≈ 43.9 bits.
+An attacker in the middle must guess the SAS in a single attempt per offer (the offer is single use), so success is about 2⁻⁴³.
+The emoji table (index, code point, name; names are shown next to the emoji for accessibility and screen readers):
+
+| # | Emoji | Name | # | Emoji | Name | # | Emoji | Name | # | Emoji | Name |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 🐶 U+1F436 | Dog | 16 | 🌳 U+1F333 | Tree | 32 | 🎩 U+1F3A9 | Hat | 48 | 🔨 U+1F528 | Hammer |
+| 1 | 🐱 U+1F431 | Cat | 17 | 🌵 U+1F335 | Cactus | 33 | 👓 U+1F453 | Glasses | 49 | ☎️ U+260E | Telephone |
+| 2 | 🦁 U+1F981 | Lion | 18 | 🍄 U+1F344 | Mushroom | 34 | 🔧 U+1F527 | Spanner | 50 | 🏁 U+1F3C1 | Flag |
+| 3 | 🐎 U+1F40E | Horse | 19 | 🌏 U+1F30F | Globe | 35 | 🎅 U+1F385 | Santa | 51 | 🚂 U+1F682 | Train |
+| 4 | 🦄 U+1F984 | Unicorn | 20 | 🌙 U+1F319 | Moon | 36 | 👍 U+1F44D | Thumbs up | 52 | 🚲 U+1F6B2 | Bicycle |
+| 5 | 🐷 U+1F437 | Pig | 21 | ☁️ U+2601 | Cloud | 37 | ☂️ U+2602 | Umbrella | 53 | ✈️ U+2708 | Aeroplane |
+| 6 | 🐘 U+1F418 | Elephant | 22 | 🔥 U+1F525 | Fire | 38 | ⌛ U+231B | Hourglass | 54 | 🚀 U+1F680 | Rocket |
+| 7 | 🐰 U+1F430 | Rabbit | 23 | 🍌 U+1F34C | Banana | 39 | ⏰ U+23F0 | Clock | 55 | 🏆 U+1F3C6 | Trophy |
+| 8 | 🐼 U+1F43C | Panda | 24 | 🍎 U+1F34E | Apple | 40 | 🎁 U+1F381 | Gift | 56 | ⚽ U+26BD | Ball |
+| 9 | 🐓 U+1F413 | Rooster | 25 | 🍓 U+1F353 | Strawberry | 41 | 💡 U+1F4A1 | Light bulb | 57 | 🎸 U+1F3B8 | Guitar |
+| 10 | 🐧 U+1F427 | Penguin | 26 | 🌽 U+1F33D | Corn | 42 | 📕 U+1F4D5 | Book | 58 | 🎺 U+1F3BA | Trumpet |
+| 11 | 🐢 U+1F422 | Turtle | 27 | 🍕 U+1F355 | Pizza | 43 | ✏️ U+270F | Pencil | 59 | 🔔 U+1F514 | Bell |
+| 12 | 🐟 U+1F41F | Fish | 28 | 🎂 U+1F382 | Cake | 44 | 📎 U+1F4CE | Paperclip | 60 | ⚓ U+2693 | Anchor |
+| 13 | 🐙 U+1F419 | Octopus | 29 | ❤️ U+2764 | Heart | 45 | ✂️ U+2702 | Scissors | 61 | 🎧 U+1F3A7 | Headphones |
+| 14 | 🦋 U+1F98B | Butterfly | 30 | 😀 U+1F600 | Smiley | 46 | 🔒 U+1F512 | Lock | 62 | 📁 U+1F4C1 | Folder |
+| 15 | 🌷 U+1F337 | Flower | 31 | 🤖 U+1F916 | Robot | 47 | 🔑 U+1F511 | Key | 63 | 📌 U+1F4CC | Pin |
+
+Code points below U+1F000 (☎ ☁ ☂ ✈ ✏ ❤ ✂) are followed by U+FE0F (emoji presentation) when rendered.
+The table matches the Matrix SAS emoji list, so users may already know it, and every entry renders on current iOS and Android.
+
+### Offer state machine
+
+```
+open ──claim──▶ claimed ──(device confirm + operator approve, any order)──▶ approved
+  │                │
+  └────────────────┴──▶ expired | aborted | rejected   (terminal, tombstoned)
+```
+
+- Claim is an atomic `open → claimed` transition; a second claim of the same offer returns `409 pair_offer_used` **and** aborts the offer (`reason = double_claim`), shown to the operator as a warning.
+- Three MAC or signature failures on one offer abort it (`reason = bad_mac`).
+- Claims are rate-limited to 5 per minute per node; at most 16 offers may be open or claimed at once.
+- Node offers (kind 1) expire after the requested TTL (default 120 s, max 10 min); a claimed offer must be approved within 10 minutes of the claim.
+- Terminal offers keep a tombstone (offer ID and reason) for 1 hour so a replay gets a precise error instead of `404`.
+- `approved` requires both `device_ok` (a valid `confirm`) and `operator_ok` (an approval on the node).
+
+### Client endpoints (`/client/v1`, client listener)
+
+Error responses are `{"error": "<code>", "message": "<text>"}` with codes defined as swagger enums:
+`pair_bad_request` (400), `pair_mac_invalid` (401), `pair_offer_unknown` (404), `pair_offer_used` (409), `pair_offer_expired` (410), `pair_offer_aborted` (410), `pair_rate_limited` (429).
+
+**`GET /client/v1/info`** — unauthenticated locator, also used in flow (a) to cross-check the QR:
+
+```json
+{
+  "client_proto": 1,
+  "cluster_id": "<cluster.json cluster_id>",
+  "node_id": "<node.json id, UUID>",
+  "node_name": "laptop",
+  "node_pub": "<b64url ed25519 public key>",
+  "ca_fp": "<b64url SHA-256 of CA SPKI>",
+  "endpoints": [{"kind": "ts", "addr": "laptop.tailnet.ts.net:7733"}]
+}
+```
+
+In flow (a) the phone aborts unless `cluster_id`, `node_id`, `node_pub`, and `ca_fp` equal the QR values and the TLS leaf chains to `ca_fp` with CN `node_id`.
+In flow (b) these values are unauthenticated until `mac` in the claim response verifies, which only a holder of `S` can produce, and the SAS confirms them.
+
+**`POST /client/v1/pair/claim`**
+
+```json
+{
+  "offer_id": "<b64url 16 bytes>",
+  "device_pub": "<b64url 32 bytes>",
+  "device_name": "Tai's iPhone",
+  "platform": "ios",
+  "model": "iPhone16,2",
+  "app_version": "0.3.0",
+  "nonce_device": "<b64url 32 bytes>",
+  "mac": "<b64url HMAC(K, LP(L_CLAIM) || T0)>",
+  "sig": "<b64url Ed25519(device, LP(L_CLAIM) || T0)>"
+}
+```
+
+`200`:
+
+```json
+{
+  "offer_id": "...",
+  "state": "claimed",
+  "nonce_node": "<b64url 32 bytes>",
+  "mac": "<b64url HMAC(K, LP(L_NODE) || T1)>",
+  "sig": "<b64url Ed25519(node, LP(L_NODE) || T1)>",
+  "expires_at": "2026-02-11T10:10:00Z"
+}
+```
+
+The node computes `device_id` itself; metadata fields are display only and not part of the transcript (they are shown next to the SAS so the operator also sees what claimed).
+
+**`POST /client/v1/pair/confirm`** — the user tapped "matches":
+`{"offer_id", "mac": HMAC(K, LP(L_CONFIRM) || T1), "sig": Ed25519(device, LP(L_CONFIRM) || T1)}` → `200 {"offer_id", "state"}` where `state` is `claimed` (waiting for the operator) or `approved`.
+
+**`POST /client/v1/pair/poll`** — long poll for the outcome:
+`{"offer_id", "mac": HMAC(K, LP(L_POLL) || T1), "wait_ms": 25000}` (`wait_ms` ≤ 30000).
+Returns as soon as the state differs from `claimed`, or after `wait_ms` with the current state:
+
+```json
+{
+  "offer_id": "...",
+  "state": "approved",
+  "device": { "...": "device record, see Registry" },
+  "nats": {
+    "user": "<device_pub as NATS user nkey, U...>",
+    "account": "CLIENTS",
+    "permissions": {
+      "publish": ["crush.client.v1.<device_id>.>"],
+      "subscribe": ["crush.client.v1.<device_id>.>", "crush.client.v1.broadcast.>", "_INBOX.<device_id>.>"]
+    },
+    "urls": ["wss://laptop.tailnet.ts.net:7733/nats"]
+  },
+  "ca_fps": ["<b64url>"],
+  "members": [{"node_id": "...", "name": "...", "node_pub": "...", "endpoints": []}]
+}
+```
+
+A replayed poll only returns what the legitimate device already learns; nothing in it is secret (the credential is the device's own private key, never sent).
+
+**`POST /client/v1/pair/abort`** — "doesn't match" or cancel:
+`{"offer_id", "reason": "sas_mismatch" | "user_cancel", "mac": HMAC(K, LP(L_ABORT) || LP(offer_id) || LP(reason))}` → `200 {"offer_id", "state": "aborted"}`.
+A `sas_mismatch` is logged as a warning and shown on every attached surface for that offer as "possible interception".
 
 ### Flow (a): node shows QR
 
 ```mermaid
 sequenceDiagram
-    participant Op as Operator (TUI/CLI on node A)
+    participant Op as Operator (CLI/TUI on node A)
     participant A as Node A
     participant P as Phone (rush)
     participant M as Other members
-    Op->>A: pair-device (role, ttl)
-    A-->>Op: QR (kind=node, secret, endpoints, ca_fp)
+    Op->>A: crush pair (ttl)
+    A-->>Op: QR (kind 1: offer_id, S, node_pub, ca_fp, endpoints)
     P->>P: scan QR
-    P->>A: TLS (pin ca_fp + node key) /client/v1/pair/claim
-    A-->>P: nonce_node, MAC_node
-    A->>M: crush.client.pending
-    P-->>P: show SAS
-    A-->>Op: show SAS, approve?
+    P->>A: GET /client/v1/info (TLS, pin ca_fp + node_id)
+    P->>A: POST pair/claim (T0, mac, sig)
+    A-->>P: nonce_node, mac, sig (T1)
+    P-->>P: show SAS, user confirms
+    A-->>Op: show SAS + device name
+    P->>A: POST pair/confirm
     Op->>A: approve (role)
     A->>M: crush.devices (record rev 1)
-    A-->>P: device record, members, CA fps
-    P->>A: NATS websocket (nkey auth)
+    A-->>P: poll → approved, device record, NATS credential, members
 ```
 
-Surfaces:
+- **CLI**: `crush pair [--ttl 2m] [--role operator] [--invert] [--no-qr] [--yes]` renders the QR with half-block characters plus the payload string, waits for the claim, prints the SAS and device metadata, and asks `Does the phone show the same code? [y/N]`.
+  `--yes` approves without the prompt but still prints the SAS.
+- **TUI**: command palette `Pair Mobile Device` opens a dialog with the QR and a countdown; once claimed it shows the device name and SAS with Approve / Reject.
 
-- **CLI**: `crush cluster pair-device [--name hint] [--role operator]
-  [--scopes ...] [--ttl 2m] [--approve] [--endpoint kind=addr ...]`
-  renders the QR in the terminal (half-block characters) and the payload
-  string, then waits for the claim, prints the SAS, and prompts for approval.
-- **TUI**: command palette `Pair Mobile Device` opens a dialog with the QR,
-  a countdown, and, once claimed, the device name, SAS, role picker, and
-  Approve / Deny.
+### Flow (b): phone shows QR (reverse direction)
 
-### Flow (b): phone shows QR
+1. rush generates `S` (15 bytes), shows a kind 2 QR, the payload string (share sheet), and the typed code.
+2. The operator runs `crush pair accept <payload|code>` on any node (or pastes it in the TUI dialog's "Accept code" field).
+   That node registers an **inbound offer** (`kind = 2`, `offer_id` derived from `S`, optional pinned `device_pub`), and prints a kind 3 QR plus its endpoints.
+3. The phone needs that node's address: it scans the kind 3 QR (which also gives it `ca_fp` and `node_pub` to pin), or the user types a host.
+4. The phone fetches `/client/v1/info` and runs the common handshake with `kind = 2`.
+   A MITM that substituted the endpoint cannot produce the claim response `mac`, because `S` only travelled phone → operator through camera, clipboard, or typing; the SAS then confirms both sides saw the same `cluster_id`, `node_pub`, and `ca_fp`.
+5. `crush pair accept` waits for the claim, shows the SAS, and asks for confirmation exactly like flow (a).
 
-Used when the node cannot be scanned (headless daemon over SSH, no terminal
-QR rendering) or when the operator prefers to approve from the machine in
-front of them.
-
-1. rush shows a `kind=device` QR, the payload string (share sheet), and the
-   typed code.
-2. The operator runs `crush cluster devices add <payload>` (or pastes it in
-   the TUI `Add Mobile Device` dialog).
-   That node creates a **device offer** keyed by `offer_id`, holding
-   `device_pub` and `secret`, and replicates it to every member over the mesh
-   (`crush.devices.offer`), so the phone may connect to any node.
-   The command prints the node QR (kind `node`, *without* a secret) and its
-   endpoints, so a phone that can scan learns the CA fingerprint the easy way.
-3. The phone needs an address: it either scans that node QR, or the user
-   enters a host (`laptop.tailnet.ts.net`, a WireGuard IP, a LAN IP).
-4. Without a scanned `ca_fp` the phone cannot pin the CA in advance, so it
-   connects, records the presented CA fingerprint, and runs the handshake;
-   the node proves knowledge of `S` via `MAC_node`, which a MITM does not
-   have because `S` only travelled phone → operator through the camera or
-   clipboard.
-   The SAS then confirms both ends saw the same transcript, including the CA.
-5. Approval and completion are as in the common handshake.
-   The node that ran `devices add` counts as the approval if the operator
-   chose `--approve`; otherwise any node can approve after comparing the SAS.
-
-An already paired device with the `devices:approve` scope can also scan
-another phone's `kind=device` QR and submit it, which is how a second phone
-is added from the first without a terminal.
-
-### Abort and expiry
-
-- Offers expire at `expires`; pending device requests expire 10 minutes after
-  their claim.
-- A deny, a SAS mismatch report, or three bad MACs tombstones the offer on
-  every node.
-- Expired offers and pending requests are pruned at startup and every minute.
+Inbound offers are held only by the node that accepted the code (deferred: replicating them on `crush.devices.offer` so the phone can claim on any member).
+Phone-to-phone pairing (a paired device with `devices:approve` submitting another phone's code) is deferred to rollout phase 4.
 
 ## Device registry (full-cluster validity)
 
@@ -339,9 +479,29 @@ Modelled on `credsync` but per record rather than whole file:
 - A node that joins the cluster receives the registry as part of the join
   response members payload as well, so it can authenticate devices before the
   mesh is up.
-- Offers (`crush.devices.offer`) replicate the same way but are ephemeral and
-  never written for `kind=node` secrets: a node offer's secret stays on the
-  node that created it, so only flow (b) offers are replicated.
+- Node offer secrets (kind 1) never leave the node that created them.
+  Replicating inbound (kind 2) offers on `crush.devices.offer` is deferred.
+- Join-response delivery of the registry is deferred; until then a newly
+  joined node converges through `crush.devices.request` once its mesh is up.
+
+### Credential issuance
+
+The device credential is a **scoped NATS user**, not a shared secret:
+
+- The NATS user nkey is the device's own ed25519 public key (`U...` encoding),
+  so the private half never leaves the phone.
+- On approval the approving node writes the record with its NATS permission
+  set (publish `crush.client.v1.<device_id>.>`; subscribe the same plus
+  `crush.client.v1.broadcast.>` and `_INBOX.<device_id>.>`; everything else
+  denied) and publishes it on `crush.devices`, the same member-only,
+  mTLS-protected mesh path `crush.creds` uses for provider credentials.
+- Every node that applies a non-revoked record installs that nkey user, with
+  exactly those permissions, in the `CLIENTS` account of its embedded NATS
+  server (`:7732` routes stay member-only).
+  Applying a revoked record removes the user and disconnects its clients.
+- The device-facing NATS listener (websocket on the client listener) is
+  phase 2; until then the issued credential is installed but only reachable
+  from the node itself.
 
 ### Authentication on any node
 
@@ -550,7 +710,7 @@ Rules:
   member API.
 - `cluster:approve` and `shell` are **opt-in** even for `admin`: an operator
   must name them explicitly
-  (`crush cluster devices scopes <dev> +cluster:approve`), and the CLI warns.
+  (a deferred `crush pair scopes <dev> +cluster:approve`), and the CLI warns.
   Default: a phone cannot approve new nodes.
 - Every route in `swagger.yaml` gets an `x-crush-scope` extension; routes
   without one are denied to devices (default deny), and a unit test fails if a
@@ -607,15 +767,11 @@ Privacy rules, all modes:
 
 | Command | Purpose |
 | --- | --- |
-| `crush cluster pair-device` | Flow (a): show a QR + payload, wait, show SAS, approve (`--role`, `--scopes`, `--ttl`, `--approve`, `--endpoint`, `--no-qr`). |
-| `crush cluster devices` | List devices (name, ID, role, last seen, entry node, revoked). |
-| `crush cluster devices add <payload\|->` | Flow (b): register a phone's `kind=device` payload (`--approve`, `--role`). |
-| `crush cluster devices pending` | Pending device requests with SAS. |
-| `crush cluster devices approve <id\|code>` / `deny` | Decide a pending request (`--role`, `--scopes`). |
-| `crush cluster devices revoke <id\|name>` | Revoke everywhere; closes live connections. |
-| `crush cluster devices role <id> <viewer\|operator\|admin>` | Change role. |
-| `crush cluster devices scopes <id> [+scope] [-scope]` | Adjust scopes. |
-| `crush cluster devices rename <id> <name>` | Rename. |
+| `crush pair` | Flow (a): show a QR + payload, wait for the claim, show the SAS, approve (`--ttl`, `--role`, `--invert`, `--no-qr`, `--yes`). |
+| `crush pair accept <payload\|code>` | Flow (b): accept a phone's kind 2 payload or typed code, show a kind 3 QR, wait, show the SAS, approve. |
+| `crush pair list` | List devices (name, ID, role, paired via, revoked). |
+| `crush pair revoke <device-id>` | Revoke everywhere; removes the NATS user on every node. |
+| Deferred | `pending`, `role`, `scopes`, `rename` subcommands. |
 | `crush push-relay` | Optional self-hosted push relay (phase 5). |
 
 `crush cluster status` gains a devices section, and `crush cluster top` a
@@ -638,25 +794,25 @@ For the TUI and CLI (local socket only, never exposed to devices unless noted):
 
 | Method & path | Purpose |
 | --- | --- |
-| `POST /v1/cluster/devices/offers` | Create a node offer; returns payload, QR matrix, expiry. |
-| `GET /v1/cluster/devices/offers/{id}` | Offer state (open, claimed + SAS, approved, expired). |
-| `DELETE /v1/cluster/devices/offers/{id}` | Cancel. |
-| `POST /v1/cluster/devices/requests` | Flow (b): submit a device payload. |
-| `GET /v1/cluster/devices` | List records. Device-visible with `devices:approve` (minus push fields). |
-| `GET /v1/cluster/devices/pending` | Pending requests. |
-| `POST /v1/cluster/devices/{id}/approve` / `deny` | Decide. Device-visible with `devices:approve`. |
-| `POST /v1/cluster/devices/{id}/revoke` | Revoke. Device-visible with `devices:approve`. |
-| `PATCH /v1/cluster/devices/{id}` | Name, role, scopes. |
+| `POST /v1/cluster/pairing/offers` | Create a kind 1 offer (`ttl_seconds`, `role`); returns offer ID, payload, expiry. |
+| `POST /v1/cluster/pairing/accept` | Flow (b): accept a kind 2 payload or typed code; returns the offer and a kind 3 payload. |
+| `GET /v1/cluster/pairing/offers/{offer_id}` | Offer state, device metadata, and SAS once claimed. |
+| `GET /v1/cluster/pairing/offers/{offer_id}/qr.png` | The offer payload as a PNG QR code. |
+| `POST /v1/cluster/pairing/offers/{offer_id}/approve` | Operator approves (`role`). |
+| `POST /v1/cluster/pairing/offers/{offer_id}/reject` | Operator rejects (SAS mismatch or cancel); tombstones the offer. |
+| `GET /v1/cluster/devices` | List device records. |
+| `POST /v1/cluster/devices/{device_id}/revoke` | Revoke cluster-wide. |
 | `GET /v1/client/self` | For devices: own record, scopes, entry node. |
 
-Client listener (`/client/v1`, devices only): `pair/claim`,
-`pair/{offer_id}`, `auth/challenge`, `auth/token`, `push/register`,
+Client listener (`/client/v1`, devices only): `info`, `pair/claim`,
+`pair/confirm`, `pair/poll`, `pair/abort` (phase 1), `auth/challenge`, `auth/token`, `push/register`,
 `push/action`, `api/...`, `api/nodes/{node_id}/...`.
 These are documented in the same `swagger.yaml` under a `client` tag so rush
 can generate its client from it.
-New error codes (`device_revoked`, `device_scope_denied`,
-`pair_offer_expired`, `pair_offer_used`, `pair_mac_invalid`) are defined as
-swagger enums, not string literals.
+Error codes (`pair_bad_request`, `pair_mac_invalid`, `pair_offer_unknown`,
+`pair_offer_used`, `pair_offer_expired`, `pair_offer_aborted`,
+`pair_rate_limited`, and later `device_revoked`, `device_scope_denied`) are
+defined as swagger enums, not string literals.
 
 ### Config (`crush.json`)
 
@@ -698,11 +854,14 @@ Per the project rule, the `crush-config` builtin skill is updated alongside.
 ## Rollout
 
 1. **Registry and pairing over HTTPS.**
-   `devices.json`, replication (`crush.devices*`), client listener with
-   `/client/v1/pair/*` and `auth/*`, flows (a) and (b), CLI commands, TUI
-   dialogs, scope annotations on swagger with default deny, HTTPS fallback API
-   with bearer tokens.
-   rush works end to end over HTTPS + SSE.
+   Implemented: QR encoder and rendering, `devices.json`, replication
+   (`crush.devices`, `crush.devices.request`), scoped NATS credential
+   issuance, client listener with `/client/v1/info` and `/client/v1/pair/*`,
+   flows (a) and (b), `crush pair` CLI, TUI pairing dialog, revoke and list.
+   Deferred within phase 1: `auth/*` bearer tokens and the HTTPS fallback
+   API, scope annotations on swagger with default deny, inbound offer
+   replication, registry in the join response, `pending`/`role`/`scopes`
+   subcommands.
 2. **NATS websocket.**
    `CLIENTS` account, auth callout, subject namespace, NATS-to-HTTP bridge,
    event streams with flow control, attention and node fan-out.
@@ -720,9 +879,11 @@ Per the project rule, the `crush-config` builtin skill is updated alongside.
 ## Testing plan
 
 - **Unit**
-  - QR payload CBOR round-trip, deterministic encoding, version rejection,
-    size budget (node payload ≤ 400 bytes so the QR stays at version ≤ 15
-    with medium ECC).
+  - QR encoder: format/version information bits, mask penalty selection,
+    capacity per version, and decode round-trip vectors.
+  - QR payload binary round-trip, tag ordering, version rejection, size
+    budget (node payload ≤ 400 characters so the QR stays at version ≤ 15
+    with medium ECC), typed code check symbol.
   - Handshake: MAC/SAS test vectors shared with rush (a JSON fixture under
     `internal/cluster/testdata/pairing/` that the rush repo vendors).
   - Offer single use, expiry, rate limit, three-strikes.
@@ -744,13 +905,14 @@ Per the project rule, the `crush-config` builtin skill is updated alongside.
 - **Cluster harness (`test/cluster`, `task test:cluster`)**
   - Add a `device` container running a Go test client (no phone needed) that
     implements the rush side of the protocol from the shared fixtures.
-  - Scenario: node A creates an offer (`pair-device --approve --no-qr`), the
+  - Scenario: node A creates an offer (`crush pair --yes --no-qr`), the
     device claims it, connects to node B, lists sessions on both nodes,
     answers a permission on a session owned by B, follows a session move
     A → B without re-pairing, then is revoked from A and must fail on B
     within one heartbeat.
-  - Flow (b) scenario: device prints a `kind=device` payload, node B runs
-    `devices add --approve`, device connects to A.
+  - Flow (b) scenario: device prints a kind 2 payload, node B runs
+    `crush pair accept --yes <code>`, the device claims on B and then
+    authenticates on A from the replicated record.
   - Rotation scenario: `rotate-key` while the device is connected; device
     reconnects to the other node with the new CA pin.
 - **rush side**
