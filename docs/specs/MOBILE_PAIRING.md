@@ -753,10 +753,10 @@ The websocket port is the node's `--client-ws-addr` port (default `7734`); for a
 Every device port presents the chain `[leaf, CA]`.
 Rush must accept the connection only if all of these hold, and must not rely on system trust or host names:
 
-1. Some certificate after the leaf is a CA (`basicConstraints CA:TRUE`) whose `SHA-256(DER SubjectPublicKeyInfo)` equals a pinned `ca_fps` entry (compare bytes after base64url-decoding the pin).
-2. The leaf's signature verifies with that CA's public key (ed25519).
+1. Some certificate after the leaf is a CA (`basicConstraints CA:TRUE`), within its validity period, whose `SHA-256(DER SubjectPublicKeyInfo)` equals a pinned `ca_fps` entry (compare bytes after base64url-decoding the pin).
+2. The leaf is not a CA, allows server authentication (`extKeyUsage serverAuth`), and its signature verifies with that CA's public key (ed25519).
 3. The leaf is within its validity period.
-4. The leaf's subject common name is the node ID rush meant to reach (from the QR, `/client/v1/info`, or `members`).
+4. The leaf's subject common name is the node ID rush meant to reach (from the QR, `/client/v1/info`, or `members`). This check is mandatory: every member's certificate chains to the same CA.
 
 `internal/pairing/pin.go` (`VerifyPinnedChain`) is the reference implementation.
 React Native's built-in WebSocket cannot run custom certificate checks, so rush needs a native module (an `URLSessionDelegate` / OkHttp `X509TrustManager` or `CertificatePinner` replacement) that applies these four rules for the pinned host; this is an open item on the rush side.
@@ -801,7 +801,9 @@ Mesh subjects (`crush.creds`, `crush.devices`, `crush.repl.*`, `$SYS`, `$JS.API`
 
 - On disconnect, retry the `urls`, then the endpoints of other `members`, with backoff.
 - The device ports are bound only while the device is paired (or an offer is open), so after revocation the port may be closed: a connection refused after a revocation is expected.
-- A revoked device's connections are closed by every node within one registry update, and new connections fail with `Authorization Violation`. Treat that as terminal: stop reconnecting, delete the seed and pins, and show "This device was removed; pair again".
+- A revoked device's connections are closed by every node within one registry update, and new connections fail with `Authorization Violation`.
+- `Authorization Violation` alone is **not** proof of revocation: a member that has not yet received the device record (replication lag, a partition) refuses the same way. The pairing node installs the user before the poll reports `approved`, so connect to it first. Treat the device as removed only when the pairing node (or every reachable member) has refused for at least 60 seconds across at least 3 attempts; until then, back off and try other members. An explicit revocation notice on `crush.client.v1.<dev>.control` is phase 2b.
+- After a confirmed removal: stop reconnecting, delete the seed and pins, and show "This device was removed; pair again".
 - Re-pairing a revoked phone requires a new seed (a new device ID).
 
 ### Errors
@@ -809,10 +811,15 @@ Mesh subjects (`crush.creds`, `crush.devices`, `crush.repl.*`, `$SYS`, `$JS.API`
 | Symptom | Meaning | Rush should |
 | --- | --- | --- |
 | TLS failure, pin mismatch | Wrong node, a MITM, or the cluster key was rotated | Stop; offer re-pair (rotation handling is phase 3). |
-| `Authorization Violation` | Unknown or revoked device, or not a websocket connection | Treat as revoked (see above). |
+| `Authorization Violation` | Unknown (not yet replicated) or revoked device | Retry with backoff; treat as revoked only as described above. |
 | `Permissions Violation` (async) | A subject outside the scopes above | Bug in rush; log it. |
 | Connection refused | Port gated closed (no devices or offers) or node down | Try other members; if all refuse after a revocation, treat as revoked. |
-| Connection closed right after connect | More than 8 websocket connections from this address | Reuse one connection. |
+| Connection closed right after connect | More than 8 websocket connections from this address (IPv6 grouped by /64), or the TLS handshake took over 3 s | Reuse one connection. |
+
+### Server-side notes
+
+- The embedded NATS server's websocket listener is plain and bound to a random **loopback** port; only the gated `:7734` front is reachable from the network. Local processes can reach the loopback port, but it accepts only paired device keys, like the public port. NATS sees proxied connections as coming from `127.0.0.1`, so per-address limits live in the front.
+- NATS does not check a message's reply subject against permissions. Any node service answering device requests (phase 2b) **must** reply only to `_INBOX.<same device_id>.>`, or a device could direct a node's answer into another device's subjects.
 
 ## Permissions
 
