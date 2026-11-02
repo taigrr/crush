@@ -30,6 +30,29 @@ func HashID(id string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
+// ShortIDLen is the number of hash characters shown by `crush session list`.
+const ShortIDLen = 7
+
+// ShortID returns the short hash of a session ID as shown by
+// `crush session list`.
+func ShortID(id string) string {
+	hash := HashID(id)
+	if len(hash) > ShortIDLen {
+		return hash[:ShortIDLen]
+	}
+	return hash
+}
+
+// MatchesRef reports whether ref is a case-insensitive prefix of the
+// session's UUID or of its hash ID.
+func MatchesRef(id, ref string) bool {
+	if ref == "" {
+		return false
+	}
+	ref = strings.ToLower(ref)
+	return strings.HasPrefix(strings.ToLower(id), ref) || strings.HasPrefix(HashID(id), ref)
+}
+
 type Todo struct {
 	Content    string     `json:"content"`
 	Status     TodoStatus `json:"status"`

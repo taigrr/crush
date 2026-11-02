@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/swarm"
 )
 
@@ -61,6 +62,7 @@ func (b Baseline) Enrich(ctx context.Context, c ReportClient, workspaceID, sessi
 		r.DurationMS = time.Since(b.Started).Milliseconds()
 	}
 	r.SessionID = sessionID
+	r.ShortID = session.ShortID(sessionID)
 	r.WorkspaceID = workspaceID
 
 	if sess, err := c.GetSession(ctx, workspaceID, sessionID); err == nil && sess != nil {

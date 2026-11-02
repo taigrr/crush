@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/session"
 )
 
 // SessionState is the coarse state reported by `crush session status`.
@@ -25,6 +26,7 @@ type SessionStatus struct {
 	Type          EventType             `json:"type"`
 	State         SessionState          `json:"state"`
 	SessionID     string                `json:"session_id"`
+	ShortID       string                `json:"short_id,omitempty"`
 	Address       string                `json:"address,omitempty"`
 	Title         string                `json:"title,omitempty"`
 	WorkspaceID   string                `json:"workspace_id"`
@@ -57,6 +59,7 @@ func BuildStatus(ctx context.Context, c StatusClient, workspaceID, cwd string, s
 		Type:          EventStatus,
 		State:         StateIdle,
 		SessionID:     sess.ID,
+		ShortID:       session.ShortID(sess.ID),
 		Address:       SessionAddress(sess),
 		Title:         sess.Title,
 		WorkspaceID:   workspaceID,
