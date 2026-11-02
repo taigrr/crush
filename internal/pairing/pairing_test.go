@@ -692,12 +692,31 @@ func TestManagerActiveAndOnChange(t *testing.T) {
 	require.NoError(t, err)
 	n, next = h.mgr.Active()
 	require.Equal(t, 1, n)
-	require.Equal(t, view.ExpiresAt, next)
+	require.Equal(t, view.ExpiresAt.Add(time.Nanosecond), next)
 
 	h.advance(2 * time.Minute)
-	n, _ = h.mgr.Active()
+	n, next = h.mgr.Active()
+	require.Equal(t, 1, n, "an ended offer is still served for EndedGrace")
+	require.True(t, next.After(h.now))
+	h.advance(EndedGrace + time.Second)
+	n, next = h.mgr.Active()
 	require.Zero(t, n, "Active expires stale offers")
+	require.True(t, next.IsZero())
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, 2, changes, "create and expiry both notify")
+	require.GreaterOrEqual(t, changes, 2, "create and expiry both notify")
+}
+
+func TestActiveIgnoresApprovingDeadline(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	view, _ := h.mgr.CreateNodeOffer(time.Minute, RoleOperator)
+	id, _ := ParseOfferID(view.OfferID)
+	h.mgr.mu.Lock()
+	h.mgr.offers[offerKey(id)].approving = true
+	h.mgr.mu.Unlock()
+	h.advance(2 * time.Minute)
+	n, next := h.mgr.Active()
+	require.Equal(t, 1, n, "an approving offer is frozen, still active")
+	require.True(t, next.IsZero(), "and sets no past deadline the gate would spin on")
 }

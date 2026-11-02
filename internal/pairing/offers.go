@@ -147,6 +147,8 @@ type Manager struct {
 	offers  map[string]*offer
 	sources map[string][]time.Time
 	unknown []time.Time
+	// lastEnded is when an offer last reached a terminal state.
+	lastEnded time.Time
 }
 
 // NewManager creates an offer manager.
@@ -189,6 +191,9 @@ func (m *Manager) endLocked(o *offer, st State, reason string, now time.Time) {
 	// the device can re-poll an approved offer.
 	o.secret = nil
 	o.signal()
+	if st.Terminal() {
+		m.lastEnded = now
+	}
 	m.changedLocked()
 }
 
@@ -198,21 +203,40 @@ func (m *Manager) changedLocked() {
 	}
 }
 
-// Active reports how many offers are open or claimed (expiring stale ones
-// first) and when the earliest of them expires.
+// EndedGrace is how long the device listener stays wanted after the last
+// offer ends, so a phone between polls still learns the final state
+// instead of hitting a closed port.
+const EndedGrace = 5 * time.Second
+
+// Active reports how many offers are open or claimed, counting an offer
+// that ended within EndedGrace (expiring stale ones first), and the next
+// time that count can drop without an event. Offers being approved count
+// but never set the deadline: they cannot expire, and finishing the
+// approval notifies.
 func (m *Manager) Active() (int, time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.refreshLocked(m.cfg.Now())
+	now := m.cfg.Now()
+	m.refreshLocked(now)
 	n, next := 0, time.Time{}
+	later := func(t time.Time) {
+		if t.After(now) && (next.IsZero() || t.Before(next)) {
+			next = t
+		}
+	}
 	for _, o := range m.offers {
 		if o.state.Terminal() {
 			continue
 		}
 		n++
-		if next.IsZero() || o.expires.Before(next) {
-			next = o.expires
+		if !o.approving {
+			// refreshLocked expires strictly after the deadline.
+			later(o.expires.Add(time.Nanosecond))
 		}
+	}
+	if tail := m.lastEnded.Add(EndedGrace); n == 0 && !m.lastEnded.IsZero() && tail.After(now) {
+		n = 1
+		later(tail)
 	}
 	return n, next
 }
@@ -494,6 +518,7 @@ func (m *Manager) Claim(source string, req ClaimRequest) (ClaimResponse, error) 
 	}
 	o.state = StateClaimed
 	o.expires = now.Add(ClaimApprovalTTL)
+	m.changedLocked()
 	nodeMsg := Message(LabelNode, o.t1)
 	o.claimResp = ClaimResponse{
 		OfferID: o.id, State: StateClaimed, NonceNode: tr.NonceNode,
@@ -614,6 +639,7 @@ func (m *Manager) commitApproval(o *offer, d *Device) error {
 	if err != nil {
 		o.operatorOK = false
 		o.signal()
+		m.changedLocked()
 		return fmt.Errorf("store device: %w", err)
 	}
 	o.device = d
