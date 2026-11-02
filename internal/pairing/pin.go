@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -21,12 +22,12 @@ func SPKIFingerprint(cert *x509.Certificate) []byte {
 }
 
 // VerifyPinnedChain checks a node's presented chain the way rush must:
-// some presented certificate is a CA whose SPKI hashes to caFP, the leaf
-// (first certificate) is signed by it and currently valid, and, when
-// nodeID is set, the leaf's common name is that node ID. Host names are
-// not checked; the pin replaces them.
+// some presented certificate is a currently valid CA whose SPKI hashes to
+// caFP; the leaf (first certificate) is not a CA, is signed by it, is
+// currently valid, allows server authentication, and its common name is
+// nodeID. Host names are not checked; the pin replaces them.
 func VerifyPinnedChain(rawCerts [][]byte, caFP []byte, nodeID string, now time.Time) error {
-	if len(rawCerts) < 2 || len(caFP) != FingerprintSize {
+	if len(rawCerts) < 2 || len(caFP) != FingerprintSize || nodeID == "" {
 		return ErrPin
 	}
 	certs := make([]*x509.Certificate, 0, len(rawCerts))
@@ -48,20 +49,26 @@ func VerifyPinnedChain(rawCerts [][]byte, caFP []byte, nodeID string, now time.T
 	if ca == nil {
 		return fmt.Errorf("%w: no CA with the pinned fingerprint", ErrPin)
 	}
+	if now.Before(ca.NotBefore) || now.After(ca.NotAfter) {
+		return fmt.Errorf("%w: CA certificate expired or not yet valid", ErrPin)
+	}
+	if leaf.IsCA || !slices.Contains(leaf.ExtKeyUsage, x509.ExtKeyUsageServerAuth) {
+		return fmt.Errorf("%w: leaf is not a server certificate", ErrPin)
+	}
 	if err := leaf.CheckSignatureFrom(ca); err != nil {
 		return fmt.Errorf("%w: leaf not signed by the pinned CA", ErrPin)
 	}
 	if now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
 		return fmt.Errorf("%w: leaf certificate expired or not yet valid", ErrPin)
 	}
-	if nodeID != "" && leaf.Subject.CommonName != nodeID {
+	if leaf.Subject.CommonName != nodeID {
 		return fmt.Errorf("%w: leaf is for another node", ErrPin)
 	}
 	return nil
 }
 
-// PinnedTLSConfig is a client TLS config that trusts exactly the pinned
-// cluster CA (and, if set, one node). It is the Go reference for rush.
+// PinnedTLSConfig is a client TLS config that trusts exactly one node
+// certified by the pinned cluster CA. It is the Go reference for rush.
 func PinnedTLSConfig(caFP []byte, nodeID string) *tls.Config {
 	return &tls.Config{
 		MinVersion: tls.VersionTLS13,

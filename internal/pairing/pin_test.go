@@ -20,7 +20,7 @@ func testChain(t *testing.T, cn string) (leaf, ca []byte, caFP []byte) {
 	require.NoError(t, err)
 	caCert, _ := x509.ParseCertificate(ca)
 	leafPub, _, _ := ed25519.GenerateKey(nil)
-	leafTmpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: cn}, Issuer: name, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	leafTmpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: cn}, Issuer: name, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 	leaf, err = x509.CreateCertificate(nil, leafTmpl, caTmpl, leafPub, caKey)
 	require.NoError(t, err)
 	return leaf, ca, SPKIFingerprint(caCert)
@@ -31,11 +31,13 @@ func TestVerifyPinnedChain(t *testing.T) {
 	leaf, ca, fp := testChain(t, "node-1")
 	now := time.Now()
 	require.NoError(t, VerifyPinnedChain([][]byte{leaf, ca}, fp, "node-1", now))
-	require.NoError(t, VerifyPinnedChain([][]byte{leaf, ca}, fp, "", now))
+	require.ErrorIs(t, VerifyPinnedChain([][]byte{leaf, ca}, fp, "", now), ErrPin, "the node ID is required")
 	require.ErrorIs(t, VerifyPinnedChain([][]byte{leaf, ca}, fp, "node-2", now), ErrPin)
-	require.ErrorIs(t, VerifyPinnedChain([][]byte{leaf}, fp, "", now), ErrPin, "the CA must be presented")
-	require.ErrorIs(t, VerifyPinnedChain([][]byte{leaf, ca}, RandomBytes(FingerprintSize), "", now), ErrPin)
-	require.ErrorIs(t, VerifyPinnedChain([][]byte{leaf, ca}, fp, "", now.Add(2*time.Hour)), ErrPin, "expired leaf")
+	require.ErrorIs(t, VerifyPinnedChain([][]byte{leaf}, fp, "node-1", now), ErrPin, "the CA must be presented")
+	require.ErrorIs(t, VerifyPinnedChain([][]byte{leaf, ca}, RandomBytes(FingerprintSize), "node-1", now), ErrPin)
+	require.ErrorIs(t, VerifyPinnedChain([][]byte{leaf, ca}, fp, "node-1", now.Add(2*time.Hour)), ErrPin, "expired")
+	// The CA itself is not acceptable as the leaf.
+	require.ErrorIs(t, VerifyPinnedChain([][]byte{ca, ca}, fp, "crush-cluster test", now), ErrPin)
 
 	// A leaf from another CA, even next to the pinned CA, is refused.
 	otherLeaf, _, _ := testChain(t, "node-1")
