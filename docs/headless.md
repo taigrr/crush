@@ -80,7 +80,9 @@ stdout.
 - `pending` lists what a `blocked` run is waiting on (see
   [Permissions](#permissions)).
 - `attach_command` opens the session in the TUI so a person can review or
-  take over.
+  take over. `crush --session <id>` also works without `--cwd`: it accepts
+  the full ID or an unambiguous prefix, finds the session across every
+  known project, and opens it in that project's directory.
 
 #### Stream events
 
