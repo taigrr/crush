@@ -293,9 +293,10 @@ open ──claim──▶ claimed ──(device confirm + operator approve, any 
   └────────────────┴──▶ expired | aborted | rejected   (terminal, tombstoned)
 ```
 
-- Claim is an atomic `open → claimed` transition; a second claim of the same offer returns `409 pair_offer_used` **and** aborts the offer (`reason = double_claim`), shown to the operator as a warning.
+- Claim is an atomic `open → claimed` transition; a second claim of the same offer that passes the MAC check returns `409 pair_offer_used` **and** aborts the offer (`reason = double_claim`), shown to the operator as a warning. A claim that fails the MAC never aborts the offer by itself (it counts as a strike), so knowing only the offer ID cannot cancel a pairing.
 - Three MAC or signature failures on one offer abort it (`reason = bad_mac`).
-- Claims are rate-limited to 5 per minute per node; at most 16 offers may be open or claimed at once.
+- Claims are rate-limited to 5 per minute per source address (IPv6 grouped by /64), never node-wide, so a LAN attacker cannot lock a real phone out; claims of unknown offer IDs are additionally capped at 120 per minute per node, which cannot affect a live offer. At most 16 offers may be open or claimed at once.
+- The client listener uses read/write timeouts and at most 256 concurrent connections.
 - Node offers (kind 1) expire after the requested TTL (default 120 s, max 10 min); a claimed offer must be approved within 10 minutes of the claim.
 - Terminal offers keep a tombstone (offer ID and reason) for 1 hour so a replay gets a precise error instead of `404`.
 - `approved` requires both `device_ok` (a valid `confirm`) and `operator_ok` (an approval on the node).
@@ -303,7 +304,8 @@ open ──claim──▶ claimed ──(device confirm + operator approve, any 
 ### Client endpoints (`/client/v1`, client listener)
 
 Error responses are `{"error": "<code>", "message": "<text>"}` with codes defined as swagger enums:
-`pair_bad_request` (400), `pair_mac_invalid` (401), `pair_offer_unknown` (404), `pair_offer_used` (409), `pair_offer_expired` (410), `pair_offer_aborted` (410), `pair_rate_limited` (429).
+`pair_bad_request` (400), `pair_mac_invalid` (401), `pair_offer_unknown` (404), `pair_offer_used` (409), `pair_not_in_cluster` (409), `pair_offer_expired` (410), `pair_offer_aborted` (410), `pair_rate_limited` (429), `pair_internal` (500).
+Request bodies are capped at 16 KiB and unknown JSON fields are ignored for forward compatibility.
 
 **`GET /client/v1/info`** — unauthenticated locator, also used in flow (a) to cross-check the QR:
 
@@ -478,7 +480,10 @@ Modelled on `credsync` but per record rather than whole file:
 - Subject `crush.devices.request`: on start, join, or reconnect a node asks
   every peer to announce its registry digest
   (`SHA-256` of sorted `device_id:rev:revoked`); peers with a different digest
-  send their records.
+  send their records to the requester only, on `crush.devices.to.<node-id>`.
+- Incoming records are validated: the device ID must match the key, scopes
+  must belong to the role (plus the opt-in scopes), and text fields are
+  bounded. NATS permissions are never read from a record.
   This is the same "ask everyone to announce" convergence `credsync` uses.
 - A node that joins the cluster receives the registry as part of the join
   response members payload as well, so it can authenticate devices before the
