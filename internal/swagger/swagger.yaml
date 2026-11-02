@@ -661,6 +661,351 @@ definitions:
       refresh_token:
         type: string
     type: object
+  pairing.AbortRequest:
+    properties:
+      mac:
+        type: string
+      offer_id:
+        type: string
+      reason:
+        enum:
+        - sas_mismatch
+        - user_cancel
+        type: string
+    type: object
+  pairing.AcceptRequest:
+    properties:
+      code:
+        type: string
+      role:
+        type: string
+    type: object
+  pairing.ApproveRequest:
+    properties:
+      role:
+        type: string
+    type: object
+  pairing.ClaimRequest:
+    properties:
+      app_version:
+        type: string
+      device_name:
+        type: string
+      device_pub:
+        type: string
+      mac:
+        type: string
+      model:
+        type: string
+      nonce_device:
+        type: string
+      offer_id:
+        type: string
+      platform:
+        type: string
+      sig:
+        type: string
+    type: object
+  pairing.ClaimResponse:
+    properties:
+      expires_at:
+        type: string
+      mac:
+        type: string
+      nonce_node:
+        type: string
+      offer_id:
+        type: string
+      sig:
+        type: string
+      state:
+        $ref: '#/definitions/pairing.State'
+    type: object
+  pairing.ConfirmRequest:
+    properties:
+      mac:
+        type: string
+      offer_id:
+        type: string
+      sig:
+        type: string
+    type: object
+  pairing.CreateOfferRequest:
+    properties:
+      role:
+        type: string
+      ttl_seconds:
+        type: integer
+    type: object
+  pairing.Device:
+    properties:
+      app_version:
+        type: string
+      approved_by:
+        type: string
+      device_id:
+        type: string
+      model:
+        type: string
+      name:
+        type: string
+      paired_at:
+        type: string
+      paired_via:
+        type: string
+      platform:
+        type: string
+      public_key:
+        items:
+          type: integer
+        type: array
+      rev:
+        type: integer
+      revoked_at:
+        type: string
+      role:
+        $ref: '#/definitions/pairing.Role'
+      scopes:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+    type: object
+  pairing.DeviceMeta:
+    properties:
+      app_version:
+        type: string
+      device_id:
+        type: string
+      model:
+        type: string
+      name:
+        type: string
+      platform:
+        type: string
+    type: object
+  pairing.Error:
+    properties:
+      error:
+        allOf:
+        - $ref: '#/definitions/pairing.ErrorCode'
+        enum:
+        - pair_bad_request
+        - pair_mac_invalid
+        - pair_offer_unknown
+        - pair_offer_used
+        - pair_offer_expired
+        - pair_offer_aborted
+        - pair_rate_limited
+      message:
+        type: string
+    type: object
+  pairing.ErrorCode:
+    enum:
+    - pair_bad_request
+    - pair_mac_invalid
+    - pair_offer_unknown
+    - pair_offer_used
+    - pair_offer_expired
+    - pair_offer_aborted
+    - pair_rate_limited
+    type: string
+    x-enum-varnames:
+    - ErrCodeBadRequest
+    - ErrCodeMACInvalid
+    - ErrCodeOfferUnknown
+    - ErrCodeOfferUsed
+    - ErrCodeOfferExpired
+    - ErrCodeOfferAborted
+    - ErrCodeRateLimited
+  pairing.Info:
+    properties:
+      ca_fp:
+        type: string
+      client_proto:
+        type: integer
+      cluster_id:
+        type: string
+      endpoints:
+        items:
+          $ref: '#/definitions/pairing.InfoEndpoint'
+        type: array
+      node_id:
+        type: string
+      node_name:
+        type: string
+      node_pub:
+        type: string
+    type: object
+  pairing.InfoEndpoint:
+    properties:
+      addr:
+        type: string
+      kind:
+        type: string
+    type: object
+  pairing.Kind:
+    enum:
+    - 1
+    - 2
+    - 3
+    format: int32
+    type: integer
+    x-enum-comments:
+      KindDevice: Phone shows the code (flow b).
+      KindNode: Node shows the code (flow a).
+      KindNodeInfo: Secretless node locator.
+    x-enum-descriptions:
+    - Node shows the code (flow a).
+    - Phone shows the code (flow b).
+    - Secretless node locator.
+    x-enum-varnames:
+    - KindNode
+    - KindDevice
+    - KindNodeInfo
+  pairing.MemberInfo:
+    properties:
+      endpoints:
+        items:
+          $ref: '#/definitions/pairing.InfoEndpoint'
+        type: array
+      name:
+        type: string
+      node_id:
+        type: string
+      node_pub:
+        type: string
+    type: object
+  pairing.NATSCredential:
+    properties:
+      account:
+        type: string
+      permissions:
+        $ref: '#/definitions/pairing.NATSPermissions'
+      urls:
+        items:
+          type: string
+        type: array
+      user:
+        type: string
+    type: object
+  pairing.NATSPermissions:
+    properties:
+      publish:
+        items:
+          type: string
+        type: array
+      subscribe:
+        items:
+          type: string
+        type: array
+    type: object
+  pairing.OfferView:
+    properties:
+      device:
+        $ref: '#/definitions/pairing.DeviceMeta'
+      device_confirmed:
+        type: boolean
+      expires_at:
+        type: string
+      info_payload:
+        type: string
+      kind:
+        $ref: '#/definitions/pairing.Kind'
+      offer_id:
+        type: string
+      operator_approved:
+        type: boolean
+      payload:
+        type: string
+      reason:
+        type: string
+      role:
+        $ref: '#/definitions/pairing.Role'
+      sas:
+        $ref: '#/definitions/pairing.SASView'
+      state:
+        $ref: '#/definitions/pairing.State'
+    type: object
+  pairing.PollRequest:
+    properties:
+      mac:
+        type: string
+      offer_id:
+        type: string
+      wait_ms:
+        type: integer
+    type: object
+  pairing.PollResponse:
+    properties:
+      ca_fps:
+        items:
+          type: string
+        type: array
+      device:
+        $ref: '#/definitions/pairing.Device'
+      members:
+        items:
+          $ref: '#/definitions/pairing.MemberInfo'
+        type: array
+      nats:
+        $ref: '#/definitions/pairing.NATSCredential'
+      offer_id:
+        type: string
+      state:
+        $ref: '#/definitions/pairing.State'
+    type: object
+  pairing.Role:
+    enum:
+    - viewer
+    - operator
+    - admin
+    - operator
+    type: string
+    x-enum-varnames:
+    - RoleViewer
+    - RoleOperator
+    - RoleAdmin
+    - DefaultRole
+  pairing.SASView:
+    properties:
+      digits:
+        type: string
+      emoji:
+        items:
+          type: string
+        type: array
+      names:
+        items:
+          type: string
+        type: array
+    type: object
+  pairing.State:
+    enum:
+    - open
+    - claimed
+    - approved
+    - expired
+    - aborted
+    - rejected
+    type: string
+    x-enum-varnames:
+    - StateOpen
+    - StateClaimed
+    - StateApproved
+    - StateExpired
+    - StateAborted
+    - StateRejected
+  pairing.StateResponse:
+    properties:
+      offer_id:
+        type: string
+      state:
+        $ref: '#/definitions/pairing.State'
+    type: object
   proto.APIKeyKind:
     enum:
     - string
@@ -1553,6 +1898,402 @@ info:
   title: Crush API
   version: "1.0"
 paths:
+  /client/v1/info:
+    get:
+      description: Device client listener (TLS, default :7733); the path is absolute,
+        not under the /v1 base path.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.Info'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Client node info
+      tags:
+      - client
+  /client/v1/pair/abort:
+    post:
+      consumes:
+      - application/json
+      description: Device client listener (TLS, default :7733); the path is absolute,
+        not under the /v1 base path.
+      parameters:
+      - description: Abort
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/pairing.AbortRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.StateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Abort pairing
+      tags:
+      - client
+  /client/v1/pair/claim:
+    post:
+      consumes:
+      - application/json
+      description: Device client listener (TLS, default :7733); the path is absolute,
+        not under the /v1 base path.
+      parameters:
+      - description: Claim
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/pairing.ClaimRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.ClaimResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Claim a pairing offer
+      tags:
+      - client
+  /client/v1/pair/confirm:
+    post:
+      consumes:
+      - application/json
+      description: Device client listener (TLS, default :7733); the path is absolute,
+        not under the /v1 base path.
+      parameters:
+      - description: Confirm
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/pairing.ConfirmRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.StateResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Confirm the SAS
+      tags:
+      - client
+  /client/v1/pair/poll:
+    post:
+      consumes:
+      - application/json
+      description: Device client listener (TLS, default :7733); the path is absolute,
+        not under the /v1 base path.
+      parameters:
+      - description: Poll
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/pairing.PollRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.PollResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Poll the pairing outcome
+      tags:
+      - client
+  /cluster/devices:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/pairing.Device'
+            type: array
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: List paired devices
+      tags:
+      - devices
+  /cluster/devices/{device_id}/revoke:
+    post:
+      parameters:
+      - description: Device ID
+        in: path
+        name: device_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.Device'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Revoke a paired device
+      tags:
+      - devices
+  /cluster/pairing/accept:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Code or payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/pairing.AcceptRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.OfferView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Accept a device pairing code
+      tags:
+      - pairing
+  /cluster/pairing/offers:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Offer options
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/pairing.CreateOfferRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.OfferView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Create a pairing offer
+      tags:
+      - pairing
+  /cluster/pairing/offers/{offer_id}:
+    get:
+      parameters:
+      - description: Offer ID (base64url)
+        in: path
+        name: offer_id
+        required: true
+        type: string
+      - description: Wait until the state differs from this
+        in: query
+        name: state
+        type: string
+      - description: Maximum wait (≤ 30000)
+        in: query
+        name: wait_ms
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.OfferView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Get a pairing offer
+      tags:
+      - pairing
+  /cluster/pairing/offers/{offer_id}/approve:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Offer ID (base64url)
+        in: path
+        name: offer_id
+        required: true
+        type: string
+      - description: Role
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/pairing.ApproveRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.OfferView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Approve a pairing offer
+      tags:
+      - pairing
+  /cluster/pairing/offers/{offer_id}/qr.png:
+    get:
+      parameters:
+      - description: Offer ID (base64url)
+        in: path
+        name: offer_id
+        required: true
+        type: string
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Pairing offer QR code
+      tags:
+      - pairing
+  /cluster/pairing/offers/{offer_id}/reject:
+    post:
+      parameters:
+      - description: Offer ID (base64url)
+        in: path
+        name: offer_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/pairing.OfferView'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/pairing.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/pairing.Error'
+      summary: Reject a pairing offer
+      tags:
+      - pairing
   /config:
     get:
       produces:

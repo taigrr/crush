@@ -22,6 +22,607 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/client/v1/info": {
+            "get": {
+                "description": "Device client listener (TLS, default :7733); the path is absolute, not under the /v1 base path.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "client"
+                ],
+                "summary": "Client node info",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Info"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/client/v1/pair/abort": {
+            "post": {
+                "description": "Device client listener (TLS, default :7733); the path is absolute, not under the /v1 base path.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "client"
+                ],
+                "summary": "Abort pairing",
+                "parameters": [
+                    {
+                        "description": "Abort",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pairing.AbortRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.StateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/client/v1/pair/claim": {
+            "post": {
+                "description": "Device client listener (TLS, default :7733); the path is absolute, not under the /v1 base path.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "client"
+                ],
+                "summary": "Claim a pairing offer",
+                "parameters": [
+                    {
+                        "description": "Claim",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pairing.ClaimRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.ClaimResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/client/v1/pair/confirm": {
+            "post": {
+                "description": "Device client listener (TLS, default :7733); the path is absolute, not under the /v1 base path.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "client"
+                ],
+                "summary": "Confirm the SAS",
+                "parameters": [
+                    {
+                        "description": "Confirm",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pairing.ConfirmRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.StateResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/client/v1/pair/poll": {
+            "post": {
+                "description": "Device client listener (TLS, default :7733); the path is absolute, not under the /v1 base path.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "client"
+                ],
+                "summary": "Poll the pairing outcome",
+                "parameters": [
+                    {
+                        "description": "Poll",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pairing.PollRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.PollResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/cluster/devices": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "List paired devices",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/pairing.Device"
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/cluster/devices/{device_id}/revoke": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "devices"
+                ],
+                "summary": "Revoke a paired device",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Device ID",
+                        "name": "device_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Device"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/cluster/pairing/accept": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pairing"
+                ],
+                "summary": "Accept a device pairing code",
+                "parameters": [
+                    {
+                        "description": "Code or payload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/pairing.AcceptRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.OfferView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/cluster/pairing/offers": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pairing"
+                ],
+                "summary": "Create a pairing offer",
+                "parameters": [
+                    {
+                        "description": "Offer options",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.CreateOfferRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.OfferView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/cluster/pairing/offers/{offer_id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pairing"
+                ],
+                "summary": "Get a pairing offer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Offer ID (base64url)",
+                        "name": "offer_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Wait until the state differs from this",
+                        "name": "state",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Maximum wait (≤ 30000)",
+                        "name": "wait_ms",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.OfferView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/cluster/pairing/offers/{offer_id}/approve": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pairing"
+                ],
+                "summary": "Approve a pairing offer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Offer ID (base64url)",
+                        "name": "offer_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Role",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.ApproveRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.OfferView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/cluster/pairing/offers/{offer_id}/qr.png": {
+            "get": {
+                "produces": [
+                    "image/png"
+                ],
+                "tags": [
+                    "pairing"
+                ],
+                "summary": "Pairing offer QR code",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Offer ID (base64url)",
+                        "name": "offer_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
+        "/cluster/pairing/offers/{offer_id}/reject": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pairing"
+                ],
+                "summary": "Reject a pairing offer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Offer ID (base64url)",
+                        "name": "offer_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.OfferView"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/pairing.Error"
+                        }
+                    }
+                }
+            }
+        },
         "/config": {
             "get": {
                 "produces": [
@@ -5760,6 +6361,514 @@ const docTemplate = `{
                 },
                 "refresh_token": {
                     "type": "string"
+                }
+            }
+        },
+        "pairing.AbortRequest": {
+            "type": "object",
+            "properties": {
+                "mac": {
+                    "type": "string"
+                },
+                "offer_id": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string",
+                    "enum": [
+                        "sas_mismatch",
+                        "user_cancel"
+                    ]
+                }
+            }
+        },
+        "pairing.AcceptRequest": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.ApproveRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.ClaimRequest": {
+            "type": "object",
+            "properties": {
+                "app_version": {
+                    "type": "string"
+                },
+                "device_name": {
+                    "type": "string"
+                },
+                "device_pub": {
+                    "type": "string"
+                },
+                "mac": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "nonce_device": {
+                    "type": "string"
+                },
+                "offer_id": {
+                    "type": "string"
+                },
+                "platform": {
+                    "type": "string"
+                },
+                "sig": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.ClaimResponse": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "mac": {
+                    "type": "string"
+                },
+                "nonce_node": {
+                    "type": "string"
+                },
+                "offer_id": {
+                    "type": "string"
+                },
+                "sig": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/pairing.State"
+                }
+            }
+        },
+        "pairing.ConfirmRequest": {
+            "type": "object",
+            "properties": {
+                "mac": {
+                    "type": "string"
+                },
+                "offer_id": {
+                    "type": "string"
+                },
+                "sig": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.CreateOfferRequest": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "type": "string"
+                },
+                "ttl_seconds": {
+                    "type": "integer"
+                }
+            }
+        },
+        "pairing.Device": {
+            "type": "object",
+            "properties": {
+                "app_version": {
+                    "type": "string"
+                },
+                "approved_by": {
+                    "type": "string"
+                },
+                "device_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "paired_at": {
+                    "type": "string"
+                },
+                "paired_via": {
+                    "type": "string"
+                },
+                "platform": {
+                    "type": "string"
+                },
+                "public_key": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "rev": {
+                    "type": "integer"
+                },
+                "revoked_at": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/pairing.Role"
+                },
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.DeviceMeta": {
+            "type": "object",
+            "properties": {
+                "app_version": {
+                    "type": "string"
+                },
+                "device_id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "platform": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.Error": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "enum": [
+                        "pair_bad_request",
+                        "pair_mac_invalid",
+                        "pair_offer_unknown",
+                        "pair_offer_used",
+                        "pair_offer_expired",
+                        "pair_offer_aborted",
+                        "pair_rate_limited"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/pairing.ErrorCode"
+                        }
+                    ]
+                },
+                "message": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.ErrorCode": {
+            "type": "string",
+            "enum": [
+                "pair_bad_request",
+                "pair_mac_invalid",
+                "pair_offer_unknown",
+                "pair_offer_used",
+                "pair_offer_expired",
+                "pair_offer_aborted",
+                "pair_rate_limited"
+            ],
+            "x-enum-varnames": [
+                "ErrCodeBadRequest",
+                "ErrCodeMACInvalid",
+                "ErrCodeOfferUnknown",
+                "ErrCodeOfferUsed",
+                "ErrCodeOfferExpired",
+                "ErrCodeOfferAborted",
+                "ErrCodeRateLimited"
+            ]
+        },
+        "pairing.Info": {
+            "type": "object",
+            "properties": {
+                "ca_fp": {
+                    "type": "string"
+                },
+                "client_proto": {
+                    "type": "integer"
+                },
+                "cluster_id": {
+                    "type": "string"
+                },
+                "endpoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pairing.InfoEndpoint"
+                    }
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "node_name": {
+                    "type": "string"
+                },
+                "node_pub": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.InfoEndpoint": {
+            "type": "object",
+            "properties": {
+                "addr": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.Kind": {
+            "type": "integer",
+            "format": "int32",
+            "enum": [
+                1,
+                2,
+                3
+            ],
+            "x-enum-comments": {
+                "KindDevice": "Phone shows the code (flow b).",
+                "KindNode": "Node shows the code (flow a).",
+                "KindNodeInfo": "Secretless node locator."
+            },
+            "x-enum-descriptions": [
+                "Node shows the code (flow a).",
+                "Phone shows the code (flow b).",
+                "Secretless node locator."
+            ],
+            "x-enum-varnames": [
+                "KindNode",
+                "KindDevice",
+                "KindNodeInfo"
+            ]
+        },
+        "pairing.MemberInfo": {
+            "type": "object",
+            "properties": {
+                "endpoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pairing.InfoEndpoint"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "node_pub": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.NATSCredential": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "type": "string"
+                },
+                "permissions": {
+                    "$ref": "#/definitions/pairing.NATSPermissions"
+                },
+                "urls": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "user": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.NATSPermissions": {
+            "type": "object",
+            "properties": {
+                "publish": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "subscribe": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "pairing.OfferView": {
+            "type": "object",
+            "properties": {
+                "device": {
+                    "$ref": "#/definitions/pairing.DeviceMeta"
+                },
+                "device_confirmed": {
+                    "type": "boolean"
+                },
+                "expires_at": {
+                    "type": "string"
+                },
+                "info_payload": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/pairing.Kind"
+                },
+                "offer_id": {
+                    "type": "string"
+                },
+                "operator_approved": {
+                    "type": "boolean"
+                },
+                "payload": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/pairing.Role"
+                },
+                "sas": {
+                    "$ref": "#/definitions/pairing.SASView"
+                },
+                "state": {
+                    "$ref": "#/definitions/pairing.State"
+                }
+            }
+        },
+        "pairing.PollRequest": {
+            "type": "object",
+            "properties": {
+                "mac": {
+                    "type": "string"
+                },
+                "offer_id": {
+                    "type": "string"
+                },
+                "wait_ms": {
+                    "type": "integer"
+                }
+            }
+        },
+        "pairing.PollResponse": {
+            "type": "object",
+            "properties": {
+                "ca_fps": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "device": {
+                    "$ref": "#/definitions/pairing.Device"
+                },
+                "members": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pairing.MemberInfo"
+                    }
+                },
+                "nats": {
+                    "$ref": "#/definitions/pairing.NATSCredential"
+                },
+                "offer_id": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/pairing.State"
+                }
+            }
+        },
+        "pairing.Role": {
+            "type": "string",
+            "enum": [
+                "viewer",
+                "operator",
+                "admin",
+                "operator"
+            ],
+            "x-enum-varnames": [
+                "RoleViewer",
+                "RoleOperator",
+                "RoleAdmin",
+                "DefaultRole"
+            ]
+        },
+        "pairing.SASView": {
+            "type": "object",
+            "properties": {
+                "digits": {
+                    "type": "string"
+                },
+                "emoji": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "names": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "pairing.State": {
+            "type": "string",
+            "enum": [
+                "open",
+                "claimed",
+                "approved",
+                "expired",
+                "aborted",
+                "rejected"
+            ],
+            "x-enum-varnames": [
+                "StateOpen",
+                "StateClaimed",
+                "StateApproved",
+                "StateExpired",
+                "StateAborted",
+                "StateRejected"
+            ]
+        },
+        "pairing.StateResponse": {
+            "type": "object",
+            "properties": {
+                "offer_id": {
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/pairing.State"
                 }
             }
         },
