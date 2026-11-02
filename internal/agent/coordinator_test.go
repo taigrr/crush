@@ -22,6 +22,7 @@ import (
 type mockSessionAgent struct {
 	model     Model
 	runFunc   func(ctx context.Context, call SessionAgentCall) (*fantasy.AgentResult, error)
+	advance   func(ctx context.Context, sessionID string) (bool, string)
 	cancelled []string
 }
 
@@ -65,6 +66,9 @@ func (m *mockSessionAgent) GoalStatus(sessionID string) (string, int, int, bool)
 }
 
 func (m *mockSessionAgent) AdvanceGoal(ctx context.Context, sessionID string) (bool, string) {
+	if m.advance != nil {
+		return m.advance(ctx, sessionID)
+	}
 	return false, ""
 }
 
