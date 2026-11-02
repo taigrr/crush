@@ -71,7 +71,7 @@ func (s Self) Info() Info {
 // InfoPayload is the secretless kind 3 payload for s.
 func (s Self) InfoPayload() (string, error) {
 	return Payload{
-		Kind: KindNodeInfo, ClusterID: s.ClusterID, NodeID: s.NodeID, NodeName: s.NodeName,
+		Kind: KindNodeInfo, ClusterID: s.ClusterID, NodeID: s.NodeID, NodeName: TruncateText(s.NodeName),
 		NodePub: s.NodePub(), CAFP: s.CAFP, Endpoints: s.Endpoints, Proto: ProtoVersion,
 	}.Encode()
 }
@@ -284,7 +284,7 @@ func (m *Manager) CreateNodeOffer(ttl time.Duration, role Role) (OfferView, erro
 	}
 	o.key = MACKey(o.secret, o.id)
 	o.payload, err = Payload{
-		Kind: KindNode, ClusterID: self.ClusterID, NodeID: self.NodeID, NodeName: self.NodeName,
+		Kind: KindNode, ClusterID: self.ClusterID, NodeID: self.NodeID, NodeName: TruncateText(self.NodeName),
 		NodePub: self.NodePub(), CAFP: self.CAFP, Endpoints: self.Endpoints,
 		OfferID: o.id, Secret: o.secret, Expires: o.expires, Proto: ProtoVersion,
 	}.Encode()

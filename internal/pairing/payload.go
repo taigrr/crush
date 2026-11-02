@@ -227,6 +227,19 @@ func DecodePayload(s string) (Payload, error) {
 	return p, nil
 }
 
+// TruncateText shortens a display string (such as a long host name) to
+// the payload's text limit without splitting a UTF-8 sequence.
+func TruncateText(s string) string {
+	if len(s) <= maxTextBytes {
+		return s
+	}
+	cut := maxTextBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
 func text(value []byte) (string, error) {
 	if len(value) > maxTextBytes || !utf8.Valid(value) {
 		return "", fmt.Errorf("%w: bad text field", ErrPayloadInvalid)
