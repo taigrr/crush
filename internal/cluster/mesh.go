@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nats-io/jwt/v2"
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )
@@ -39,6 +40,7 @@ type Mesh struct {
 	opts   *natsserver.Options
 	nc     *nats.Conn
 	routes []string
+	wsAddr string
 }
 
 // StartMesh starts the embedded NATS server with its route listener on
@@ -72,10 +74,25 @@ func (n *Node) StartMesh(routeAddr string) (*Mesh, error) {
 		// The mesh connection is a password user in the global account;
 		// paired devices are nkey users in the CLIENTS account
 		// (SetClientUsers).
-		Users:    []*natsserver.User{{Username: meshUser, Password: clientToken}},
+		// The mesh user may only connect in-process, so neither the
+		// loopback client port nor the device websocket can use it.
+		Users: []*natsserver.User{{
+			Username: meshUser, Password: clientToken,
+			AllowedConnectionTypes: connTypes(jwt.ConnectionTypeInProcess),
+		}},
 		Accounts: []*natsserver.Account{natsserver.NewAccount(ClientsAccount)},
 		NoSigs:   true,
 		NoLog:    true,
+		// Device websocket: plain (no TLS) on loopback only. The public,
+		// gated, TLS-terminating listener in front of it is the server's
+		// job (websocket settings cannot be changed by config reload, so
+		// gating happens there). Only device users may use it.
+		Websocket: natsserver.WebsocketOpts{
+			Host:             "127.0.0.1",
+			Port:             natsserver.RANDOM_PORT,
+			NoTLS:            true,
+			HandshakeTimeout: wsHandshakeTimeout,
+		},
 		Cluster: natsserver.ClusterOpts{
 			Name:       "crush-" + st.ClusterID,
 			Host:       host,
@@ -103,6 +120,9 @@ func (n *Node) StartMesh(routeAddr string) (*Mesh, error) {
 		srv.Shutdown()
 		return nil, fmt.Errorf("connect mesh: %w", err)
 	}
+	// The server writes the chosen websocket port back into opts (it
+	// keeps our pointer); record it so later reloads compare equal.
+	m.wsAddr = net.JoinHostPort(opts.Websocket.Host, strconv.Itoa(opts.Websocket.Port))
 	m.srv, m.opts, m.nc = srv, opts, nc
 	m.routes = urlStrings(opts.Routes)
 	n.store.Watch(func(State) { m.Reconcile() })

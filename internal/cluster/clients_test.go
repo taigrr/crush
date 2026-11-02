@@ -2,9 +2,12 @@ package cluster
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
+	"crypto/x509"
 	"testing"
 	"time"
 
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 	"github.com/stretchr/testify/require"
@@ -33,7 +36,7 @@ func TestClientUsersAreScopedAndRevocable(t *testing.T) {
 	require.Equal(t, string(encoded), user)
 
 	own := "crush.client.v1.dev_x.>"
-	require.NoError(t, mesh.SetClientUsers([]ClientUser{{Nkey: user, Publish: []string{own}, Subscribe: []string{own}}}))
+	require.NoError(t, mesh.SetClientUsers([]ClientUser{{Nkey: user, Publish: []string{own}, Subscribe: []string{own}, ConnectionTypes: []string{jwt.ConnectionTypeInProcess}}}))
 
 	// The mesh connection still works after the auth reload.
 	got := make(chan string, 4)
@@ -105,4 +108,28 @@ func TestCAFingerprintOrder(t *testing.T) {
 	fpPrev, err := CAFingerprint(prev)
 	require.NoError(t, err)
 	require.NotEqual(t, fpCur, fpPrev)
+}
+
+func TestClientChainCarriesDeterministicCA(t *testing.T) {
+	t.Parallel()
+	key, err := NewKey()
+	require.NoError(t, err)
+	a, err := CACertificate("c1", key)
+	require.NoError(t, err)
+	b, err := CACertificate("c1", key)
+	require.NoError(t, err)
+	require.Equal(t, a, b, "every node presents the same CA bytes")
+	ca, err := x509.ParseCertificate(a)
+	require.NoError(t, err)
+	require.True(t, ca.IsCA)
+	fp, err := CAFingerprint(key)
+	require.NoError(t, err)
+	sum := sha256.Sum256(ca.RawSubjectPublicKeyInfo)
+	require.Equal(t, fp, sum[:], "ca_fp is the SPKI hash of the presented CA")
+
+	id, err := LoadOrCreateIdentity(t.TempDir())
+	require.NoError(t, err)
+	leaf, err := IssueNodeCert("c1", key, id)
+	require.NoError(t, err)
+	require.NoError(t, leaf.Leaf.CheckSignatureFrom(ca))
 }
