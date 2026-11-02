@@ -295,7 +295,9 @@ open ──claim──▶ claimed ──(device confirm + operator approve, any 
 
 - Claim is an atomic `open → claimed` transition; a second claim of the same offer that passes the MAC check returns `409 pair_offer_used` **and** aborts the offer (`reason = double_claim`), shown to the operator as a warning. A claim that fails the MAC never aborts the offer by itself (it counts as a strike), so knowing only the offer ID cannot cancel a pairing.
 - Three MAC or signature failures on one offer abort it (`reason = bad_mac`).
-- Claims are rate-limited to 5 per minute per source address (IPv6 grouped by /64), never node-wide, so a LAN attacker cannot lock a real phone out; claims of unknown offer IDs are additionally capped at 120 per minute per node, which cannot affect a live offer. At most 16 offers may be open or claimed at once.
+- An exact retry of a claim (same `device_pub` and `nonce_device`, valid MAC and signature) returns the original response, so a lost response does not burn the offer; retries must reuse the original nonce.
+- A key whose device record is revoked cannot claim again (re-pairing needs a new key, hence a new device ID); re-pairing an active device bumps its record's `rev`.
+- Only *failed* claims are rate-limited: 5 per minute per source address (IPv6 grouped by /64), never node-wide, and a valid claim is never throttled, so a LAN attacker sharing the phone's address range cannot lock it out; claims of unknown offer IDs are additionally capped at 120 per minute per node, which cannot affect a live offer. At most 16 offers may be open or claimed at once.
 - The client listener uses read/write timeouts and at most 256 concurrent connections.
 - Node offers (kind 1) expire after the requested TTL (default 120 s, max 10 min); a claimed offer must be approved within 10 minutes of the claim.
 - Terminal offers keep a tombstone (offer ID and reason) for 1 hour so a replay gets a precise error instead of `404`.
@@ -481,6 +483,10 @@ Modelled on `credsync` but per record rather than whole file:
   every peer to announce its registry digest
   (`SHA-256` of sorted `device_id:rev:revoked`); peers with a different digest
   send their records to the requester only, on `crush.devices.to.<node-id>`.
+  Nodes repeat the request every 30 s, so a missed publish (for example a
+  revocation during a partition) still converges.
+- `devices.json` records its `cluster_id`; a node that leaves and joins
+  another cluster drops the old devices.
 - Incoming records are validated: the device ID must match the key, scopes
   must belong to the role (plus the opt-in scopes), and text fields are
   bounded. NATS permissions are never read from a record.
