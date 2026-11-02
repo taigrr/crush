@@ -784,12 +784,13 @@ Privacy rules, all modes:
 
 ### TUI
 
-- Palette: `Pair Mobile Device` (QR dialog, flow a), `Add Mobile Device`
-  (paste payload, flow b), `Mobile Devices` (list with revoke / role).
-- A pending-device prompt like the join prompt, shown on every attached TUI of
-  every node, with the SAS in large emoji.
-- "via <device>" badge on messages and permission decisions made from a
-  device.
+- Palette: `Pair Mobile Device` (implemented: QR dialog for flow a, then the
+  SAS with `y` approve / `n` reject; closing the dialog cancels the offer).
+- Deferred: `Add Mobile Device` (paste payload, flow b; use
+  `crush pair accept`), `Mobile Devices` (list with revoke / role; use
+  `crush pair list` / `revoke`), a pending-device prompt on every attached
+  TUI of every node (offers are local to the pairing node in phase 1, so it
+  is approved there), and a "via <device>" badge.
 - New keybindings, if any, go into `FullHelp()` in
   `internal/ui/model/ui.go`.
 
