@@ -10,6 +10,9 @@ Implemented in phase 1 (see [Rollout](#rollout) for what is deferred):
 - The `/client/v1` pairing endpoints and the `/v1/cluster/pairing` and `/v1/cluster/devices` local API.
 - The device registry with scoped NATS credentials, replicated over the mesh, and cluster-wide revocation.
 
+Implementation map: `internal/qr` (encoder), `internal/pairing` (payloads, crypto, offers, registry, device-side session), `internal/cluster/clients.go` (CLIENTS account, device NATS users, CA fingerprints), `internal/server/pairing.go` (client listener, local API, `crush.devices` replication), `internal/cmd/pair.go` (CLI), `internal/ui/dialog/pair_qr.go` (TUI).
+Known-answer vectors for rush live in `internal/pairing/testdata/vectors.json`.
+
 ## Overview
 
 This spec adds a **client device** trust class to the Crush cluster so a phone
@@ -369,13 +372,14 @@ Returns as soon as the state differs from `claimed`, or after `wait_ms` with the
       "publish": ["crush.client.v1.<device_id>.>"],
       "subscribe": ["crush.client.v1.<device_id>.>", "crush.client.v1.broadcast.>", "_INBOX.<device_id>.>"]
     },
-    "urls": ["wss://laptop.tailnet.ts.net:7733/nats"]
+    "urls": []
   },
   "ca_fps": ["<b64url>"],
   "members": [{"node_id": "...", "name": "...", "node_pub": "...", "endpoints": []}]
 }
 ```
 
+`urls` stays empty until the device-facing NATS websocket ships in phase 2 (it will list e.g. `wss://laptop.tailnet.ts.net:7733/nats`).
 A replayed poll only returns what the legitimate device already learns; nothing in it is secret (the credential is the device's own private key, never sent).
 
 **`POST /client/v1/pair/abort`** — "doesn't match" or cancel:
@@ -537,9 +541,10 @@ CA, which would break the phone's CA pin.
 
 ### Client listener
 
-A new TLS listener per node, default `:7733` (`--client-addr`, off unless the
-node has at least one device or an open offer, or `cluster.clients.enabled`
-is set).
+A new TLS listener per node, default `:7733` (`crush server --client-addr`;
+an empty value disables it).
+It starts with the mesh once the node is in a cluster.
+Starting it only when a device or offer exists is deferred.
 It is separate from the member listener (`:7731`) because that one requires
 member client certificates, and from the mesh route port (`:7732`).
 
@@ -814,7 +819,9 @@ Error codes (`pair_bad_request`, `pair_mac_invalid`, `pair_offer_unknown`,
 `pair_rate_limited`, and later `device_revoked`, `device_scope_denied`) are
 defined as swagger enums, not string literals.
 
-### Config (`crush.json`)
+### Config (`crush.json`, deferred)
+
+Phase 1 is configured with server flags only (`--client-addr`); the block below is the planned shape.
 
 ```json
 {
