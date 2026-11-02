@@ -27,7 +27,11 @@ func newClusterTestServerWith(t *testing.T, clientAddr string) (*Server, *client
 	t.Helper()
 	// Every test node gets a device websocket on a free port; the gate
 	// keeps it unbound until there is something to serve.
-	srv := &Server{clientAddr: clientAddr, clientWSAddr: freeTCPAddr(t)}
+	// It binds the wildcard host, as in production, so the advertised
+	// URLs use the node's endpoint hosts.
+	_, wsPort, err := net.SplitHostPort(freeTCPAddr(t))
+	require.NoError(t, err)
+	srv := &Server{clientAddr: clientAddr, clientWSAddr: ":" + wsPort}
 	srv.backend = backend.New(t.Context(), nil, func() {})
 	// Never touch the real user registry or credentials.
 	srv.backend.SetRegistryPathForTest(filepath.Join(t.TempDir(), "workspaces.jsonl"))

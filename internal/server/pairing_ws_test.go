@@ -211,8 +211,10 @@ func TestDeviceWebsocketRejectsBadPinAndUnknownKeys(t *testing.T) {
 	require.True(t, strings.Contains(strings.ToLower(err.Error()), "authorization"), err.Error())
 
 	// A paired key cannot use the mesh's loopback client port.
-	kp, _ := nkeys.FromRawSeed(nkeys.PrefixByteUser, ph.key.Seed())
-	user, _ := kp.PublicKey()
+	kp, err := nkeys.FromRawSeed(nkeys.PrefixByteUser, ph.key.Seed())
+	require.NoError(t, err)
+	user, err := kp.PublicKey()
+	require.NoError(t, err)
 	_, err = nats.Connect(srv.mesh.Server().ClientURL(), nats.Nkey(user, kp.Sign), nats.NoReconnect())
 	require.Error(t, err)
 }
@@ -252,4 +254,99 @@ func TestDeviceWebsocketGatingAndConnLimits(t *testing.T) {
 	_, err = c.PairReject(context.Background(), offer.OfferID)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return !dialable(ws) }, gateWait, 20*time.Millisecond)
+}
+
+func TestDeviceWebsocketIsolationAndPartialRevoke(t *testing.T) {
+	t.Parallel()
+	srv, c := initPhoneNode(t)
+	alice, bob := pairPhone(t, srv, c), pairPhone(t, srv, c)
+
+	errs := make(chan error, 4)
+	aliceClosed := make(chan struct{})
+	an, err := alice.connect(t,
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { errs <- err }),
+		nats.ClosedHandler(func(*nats.Conn) { close(aliceClosed) }))
+	require.NoError(t, err)
+	defer an.Close()
+	bobClosed := make(chan struct{})
+	bn, err := bob.connect(t, nats.ClosedHandler(func(*nats.Conn) { close(bobClosed) }))
+	require.NoError(t, err)
+	defer bn.Close()
+
+	// Bob listens on his own subjects; Alice tries to write into them,
+	// including as the reply subject of an allowed publish.
+	got := make(chan string, 4)
+	_, err = bn.Subscribe("crush.client.v1."+bob.id+".>", func(m *nats.Msg) { got <- m.Subject })
+	require.NoError(t, err)
+	require.NoError(t, bn.Flush())
+	require.NoError(t, an.Publish("crush.client.v1."+bob.id+".api.x", []byte("forged")))
+	require.NoError(t, an.Flush())
+	select {
+	case err := <-errs:
+		require.ErrorContains(t, err, "Permissions Violation")
+	case <-time.After(5 * time.Second):
+		t.Fatal("expected a permissions violation")
+	}
+	select {
+	case subj := <-got:
+		t.Fatalf("bob received alice's message on %s", subj)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// Revoking Alice closes only her connection; Bob keeps the port open.
+	_, err = c.RevokeDevice(t.Context(), alice.id)
+	require.NoError(t, err)
+	select {
+	case <-aliceClosed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("revoked device stayed connected")
+	}
+	require.NoError(t, bn.Publish("crush.client.v1."+bob.id+".still", nil))
+	require.NoError(t, bn.Flush())
+	select {
+	case <-bobClosed:
+		t.Fatal("other device was disconnected")
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("bob's connection stopped working")
+	}
+	require.True(t, srv.pairing.ws.Running())
+}
+
+func TestWSURLs(t *testing.T) {
+	t.Parallel()
+	eps := []cluster.Endpoint{
+		{Kind: cluster.EndpointDirect, Addr: "127.0.0.1:7731"},
+		{Kind: cluster.EndpointDirect, Addr: "192.168.1.5:7731"},
+		{Kind: cluster.EndpointDirect, Addr: "laptop.example:7731"},
+	}
+	p := &pairingService{wsAddr: ":7734", ws: &tlsProxyListener{}}
+	require.Equal(t, []string{"wss://192.168.1.5:7734", "wss://laptop.example:7734"}, p.wsURLs(eps))
+	p.wsAddr = "10.0.0.5:9000"
+	require.Equal(t, []string{"wss://10.0.0.5:9000"}, p.wsURLs(eps), "a bound host is the only one advertised")
+	p.wsAddr = "127.0.0.1:9000"
+	require.Empty(t, p.wsURLs(eps), "loopback binds are not reachable by phones")
+	p.wsAddr = ":0"
+	require.Empty(t, p.wsURLs(eps), "an ephemeral port is unknown until bound")
+	p.wsAddr = ""
+	require.Empty(t, p.wsURLs(eps))
+}
+
+func TestTLSProxyPerSourceLimit(t *testing.T) {
+	t.Parallel()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	l := &tlsProxyListener{perSource: 2, ln: ln, conns: map[net.Conn]struct{}{}, sources: map[string]int{}}
+	a1, a2, a3, b1 := &net.TCPConn{}, &net.TCPConn{}, &net.TCPConn{}, &net.TCPConn{}
+	require.True(t, l.track(ln, a1, "a"))
+	require.True(t, l.track(ln, a2, "a"))
+	require.False(t, l.track(ln, a3, "a"), "a source over its limit is refused")
+	require.True(t, l.track(ln, b1, "b"), "other sources are unaffected")
+	l.untrack(a1, "a")
+	require.True(t, l.track(ln, a3, "a"))
+	other, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer other.Close()
+	require.False(t, l.track(other, &net.TCPConn{}, "c"), "a stale listener cannot register")
 }

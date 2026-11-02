@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -34,6 +35,7 @@ const (
 	DefaultClientWSPort = 7734
 	// maxWSConnsPerSource bounds websocket connections from one address.
 	maxWSConnsPerSource = 8
+	natsRetry           = 5 * time.Second
 
 	maxPairBody   = 16 << 10
 	maxDeviceMsg  = 64 << 10
@@ -71,6 +73,8 @@ type pairingService struct {
 	meshRef atomic.Pointer[cluster.Mesh]
 	// natsDirty coalesces NATS user reloads onto the apply goroutine.
 	natsDirty chan struct{}
+	// natsMu serializes user reloads (the apply loop and approvals).
+	natsMu sync.Mutex
 
 	// gate binds the client listener only while an offer is open or an
 	// active device exists. It lives while the mesh is attached.
@@ -219,6 +223,13 @@ func (p *pairingService) onApprove(d pairing.Device) error {
 	if !changed {
 		return errors.New("device record was superseded; try again")
 	}
+	// Install the NATS user before the poll reports success, so the
+	// device's first connection to this node never races the reload.
+	if mesh := p.meshRef.Load(); mesh != nil {
+		if err := p.applyNATS(mesh); err != nil {
+			return fmt.Errorf("install device NATS user: %w", err)
+		}
+	}
 	p.publish(subjDevices, d)
 	slog.Info("Paired mobile device", "device", d.DeviceID, "name", d.Name, "role", d.Role)
 	return nil
@@ -241,12 +252,43 @@ func (p *pairingService) extras() pairing.Extras {
 		}
 		ex.Members = append(ex.Members, info)
 	}
-	if self, ok := st.Member(p.node.Identity().ID); ok && p.wsAddr != "" {
-		for _, ep := range clientEndpoints(self.Endpoints, portOf(p.wsAddr, DefaultClientWSPort)) {
-			ex.NATSURLs = append(ex.NATSURLs, "wss://"+ep.Addr)
-		}
+	if self, ok := st.Member(p.node.Identity().ID); ok {
+		ex.NATSURLs = p.wsURLs(self.Endpoints)
 	}
 	return ex
+}
+
+// wsURLs lists the device websocket URLs a phone can use: the bound host
+// when --client-ws-addr names one, otherwise every usable endpoint host,
+// always with the real port.
+func (p *pairingService) wsURLs(eps []cluster.Endpoint) []string {
+	if p.wsAddr == "" {
+		return nil
+	}
+	host, port, err := net.SplitHostPort(p.wsAddr)
+	if err != nil {
+		return nil
+	}
+	if port == "0" {
+		// An ephemeral port is only known once bound.
+		if _, bound, err := net.SplitHostPort(p.ws.Addr()); err == nil {
+			port = bound
+		} else {
+			return nil
+		}
+	}
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		return nil
+	}
+	if ip, err := netip.ParseAddr(host); host != "" && (err != nil || !ip.IsUnspecified()) {
+		eps = []cluster.Endpoint{{Kind: cluster.EndpointDirect, Addr: net.JoinHostPort(host, port)}}
+	}
+	var urls []string
+	for _, ep := range clientEndpoints(eps, portNum) {
+		urls = append(urls, "wss://"+ep.Addr)
+	}
+	return urls
 }
 
 func (p *pairingService) markNATSDirty() {
@@ -259,7 +301,9 @@ func (p *pairingService) markNATSDirty() {
 // applyNATS installs every non-revoked device as a scoped NATS user and
 // drops revoked ones (which disconnects them). Only the apply goroutine
 // calls it.
-func (p *pairingService) applyNATS(mesh *cluster.Mesh) {
+func (p *pairingService) applyNATS(mesh *cluster.Mesh) error {
+	p.natsMu.Lock()
+	defer p.natsMu.Unlock()
 	var users []cluster.ClientUser
 	for _, d := range p.reg.List() {
 		if d.Revoked() {
@@ -274,7 +318,9 @@ func (p *pairingService) applyNATS(mesh *cluster.Mesh) {
 	}
 	if err := mesh.SetClientUsers(users); err != nil {
 		slog.Warn("Failed to install device NATS users", "error", err)
+		return err
 	}
+	return nil
 }
 
 func (p *pairingService) publish(subject string, d pairing.Device) {
@@ -386,7 +432,11 @@ func (p *pairingService) applyLoop(ctx context.Context, mesh *cluster.Mesh) {
 		case <-ctx.Done():
 			return
 		case <-p.natsDirty:
-			p.applyNATS(mesh)
+			if p.applyNATS(mesh) != nil {
+				// A failed reload could leave a revoked device connected;
+				// keep trying.
+				time.AfterFunc(natsRetry, p.markNATSDirty)
+			}
 		}
 	}
 }

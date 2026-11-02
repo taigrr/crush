@@ -38,7 +38,7 @@ type tlsProxyListener struct {
 }
 
 const (
-	proxyHandshakeTimeout = 10 * time.Second
+	proxyHandshakeTimeout = 3 * time.Second
 	proxyDialTimeout      = 5 * time.Second
 )
 
@@ -87,12 +87,19 @@ func (l *tlsProxyListener) serve(ln net.Listener) {
 		if err != nil {
 			l.mu.Lock()
 			owned := l.ln == ln
+			var conns map[net.Conn]struct{}
 			if owned {
-				l.ln, l.bound = nil, ""
+				conns = l.conns
+				l.ln, l.bound, l.conns, l.sources = nil, "", nil, nil
 				l.failedAt = time.Now()
 			}
 			l.mu.Unlock()
 			if owned {
+				// Release the port and the sessions so a retry can bind.
+				_ = ln.Close()
+				for c := range conns {
+					_ = c.Close()
+				}
 				slog.Error("Listener stopped unexpectedly", "listener", l.name, "error", err)
 				if l.onDown != nil {
 					l.onDown()
@@ -146,6 +153,7 @@ func (l *tlsProxyListener) handle(ln net.Listener, raw net.Conn, source string) 
 	defer l.untrack(raw, source)
 	defer raw.Close()
 	conn := tls.Server(raw, l.tls())
+	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(proxyHandshakeTimeout))
 	if err := conn.Handshake(); err != nil {
 		return
