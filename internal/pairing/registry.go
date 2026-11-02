@@ -36,6 +36,10 @@ var roleScopes = map[Role][]string{
 	RoleAdmin:    {"sessions:read", "sessions:prompt", "permissions:answer", "permissions:always", "config:model", "sessions:move", "devices:approve"},
 }
 
+// optInScopes may be granted explicitly on top of any role (deferred:
+// the CLI to grant them).
+var optInScopes = []string{"shell", "cluster:approve"}
+
 // ParseRole validates a role name; empty means DefaultRole.
 func ParseRole(s string) (Role, error) {
 	if s == "" {
@@ -104,8 +108,19 @@ func (d Device) Validate() error {
 	if _, ok := roleScopes[d.Role]; !ok {
 		return fmt.Errorf("device record: unknown role %q", d.Role)
 	}
-	if d.Rev < 1 || len(d.Name) > maxTextBytes {
-		return errors.New("device record: bad rev or name")
+	if d.Rev < 1 {
+		return errors.New("device record: bad rev")
+	}
+	for _, f := range []string{d.Name, d.Platform, d.Model, d.AppVersion, d.PairedVia, d.ApprovedBy, d.UpdatedBy} {
+		if len(f) > maxTextBytes {
+			return errors.New("device record: text field too long")
+		}
+	}
+	allowed := append(d.Role.Scopes(), optInScopes...)
+	for _, sc := range d.Scopes {
+		if !slices.Contains(allowed, sc) {
+			return fmt.Errorf("device record: scope %q not allowed for role %s", sc, d.Role)
+		}
 	}
 	return nil
 }

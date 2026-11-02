@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -551,4 +552,61 @@ func TestAttackerCannotLockOutPhone(t *testing.T) {
 	dev, _ := NewDeviceSessionFromPayload(newDevice(t), p)
 	_, err = h.mgr.Claim("192.0.2.77", dev.Claim(h.self.Info(), "phone", "ios"))
 	require.NoError(t, err, "the real phone still claims")
+}
+
+func TestRegistryRejectsWidenedScopes(t *testing.T) {
+	t.Parallel()
+	reg, err := OpenRegistry(t.TempDir())
+	require.NoError(t, err)
+	d := testDevice(t, 1)
+	d.Role, d.Scopes = RoleViewer, []string{"sessions:read", "sessions:move"}
+	_, err = reg.Merge(d)
+	require.ErrorContains(t, err, "not allowed")
+	d.Scopes = []string{"sessions:read", "shell"}
+	_, err = reg.Merge(d)
+	require.NoError(t, err, "opt-in scopes are allowed")
+	long := testDevice(t, 1)
+	long.Model = strings.Repeat("x", maxTextBytes+1)
+	_, err = reg.Merge(long)
+	require.Error(t, err)
+}
+
+func TestClaimWithoutSecretCannotAbortClaimedOffer(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	view, _ := h.mgr.CreateNodeOffer(0, RoleOperator)
+	p, _ := DecodePayload(view.Payload)
+	dev, _ := NewDeviceSessionFromPayload(newDevice(t), p)
+	_, err := h.mgr.Claim("192.0.2.1", dev.Claim(h.self.Info(), "a", "ios"))
+	require.NoError(t, err)
+
+	// Someone who only knows the offer ID gets a MAC error, not an abort.
+	wrong := p
+	wrong.Secret = RandomBytes(NodeSecretSize)
+	attacker, _ := NewDeviceSessionFromPayload(newDevice(t), wrong)
+	_, err = h.mgr.Claim("192.0.2.2", attacker.Claim(h.self.Info(), "b", "ios"))
+	requireCode(t, err, ErrCodeMACInvalid)
+	got, _ := h.mgr.Get(p.OfferID)
+	require.Equal(t, StateClaimed, got.State)
+}
+
+func TestWaitReturnsForTerminalState(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	view, _ := h.mgr.CreateNodeOffer(time.Second, RoleOperator)
+	p, _ := DecodePayload(view.Payload)
+	h.advance(2 * time.Second)
+	start := time.Now()
+	got, err := h.mgr.Wait(context.Background(), p.OfferID, StateExpired, 5*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, StateExpired, got.State)
+	require.Less(t, time.Since(start), time.Second, "no busy wait on terminal offers")
+}
+
+func TestSourceKey(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, "192.0.2.1", SourceKey("192.0.2.1"))
+	require.Equal(t, "192.0.2.1", SourceKey("::ffff:192.0.2.1"))
+	require.Equal(t, SourceKey("2001:db8::1"), SourceKey("2001:db8::ffff:2"))
+	require.NotEqual(t, SourceKey("2001:db8::1"), SourceKey("2001:db8:0:1::1"))
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/netip"
 	"slices"
 	"sync"
 	"time"
@@ -29,6 +30,8 @@ const (
 	claimsPerWindow = 5
 	claimWindow     = time.Minute
 	maxSources      = 1024
+	// unknownPerWindow caps claims of unknown offer IDs node-wide.
+	unknownPerWindow = 120
 
 	macSize = 32
 )
@@ -115,6 +118,7 @@ type offer struct {
 	claimResp  ClaimResponse
 	deviceOK   bool
 	operatorOK bool
+	approving  bool
 	device     *Device
 
 	changed chan struct{}
@@ -133,6 +137,7 @@ type Manager struct {
 	mu      sync.Mutex
 	offers  map[string]*offer
 	sources map[string][]time.Time
+	unknown []time.Time
 }
 
 // NewManager creates an offer manager.
@@ -160,7 +165,7 @@ func ParseOfferID(s string) ([]byte, error) {
 // refreshLocked expires stale offers and prunes old tombstones.
 func (m *Manager) refreshLocked(now time.Time) {
 	for k, o := range m.offers {
-		if !o.state.Terminal() && now.After(o.expires) {
+		if !o.state.Terminal() && !o.approving && now.After(o.expires) {
 			m.endLocked(o, StateExpired, "", now)
 		}
 		if o.state.Terminal() && now.Sub(o.endedAt) > TombstoneTTL {
@@ -292,7 +297,7 @@ func (m *Manager) lookupLocked(id []byte) (*offer, error) {
 // failLocked records a MAC or signature failure.
 func (m *Manager) failLocked(o *offer) error {
 	o.failures++
-	if o.failures >= maxFailures && !o.state.Terminal() {
+	if o.failures >= maxFailures && !o.state.Terminal() && !o.approving {
 		m.endLocked(o, StateAborted, ReasonBadMAC, m.cfg.Now())
 	}
 	return pairErr(ErrCodeMACInvalid, "pairing authentication failed")
@@ -313,6 +318,33 @@ func (m *Manager) rateLimitLocked(source string, now time.Time) bool {
 	}
 	m.sources[source] = append(hits, now)
 	return true
+}
+
+// unknownLimitLocked bounds node-wide probing of unknown offer IDs. It
+// never affects claims of a live offer, so it cannot lock a phone out.
+func (m *Manager) unknownLimitLocked(now time.Time) bool {
+	m.unknown = slices.DeleteFunc(m.unknown, func(t time.Time) bool { return now.Sub(t) >= claimWindow })
+	if len(m.unknown) >= unknownPerWindow {
+		return false
+	}
+	m.unknown = append(m.unknown, now)
+	return true
+}
+
+// SourceKey normalizes a client IP for rate limiting: IPv6 clients are
+// grouped by /64, since one host can hold a whole /64.
+func SourceKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	addr = addr.Unmap()
+	if addr.Is6() {
+		if p, err := addr.Prefix(64); err == nil {
+			return p.String()
+		}
+	}
+	return addr.String()
 }
 
 // pruneSourcesLocked drops idle sources, then the least recently seen
@@ -374,12 +406,12 @@ func (m *Manager) Claim(source string, req ClaimRequest) (ClaimResponse, error) 
 	}
 	o, err := m.lookupLocked(req.OfferID)
 	if err != nil {
+		if pe, ok := err.(*Error); ok && pe.Code == ErrCodeOfferUnknown && !m.unknownLimitLocked(now) {
+			return ClaimResponse{}, pairErr(ErrCodeRateLimited, "too many pairing attempts; wait a minute")
+		}
 		return ClaimResponse{}, err
 	}
-	if o.state != StateOpen {
-		if o.state == StateClaimed {
-			m.endLocked(o, StateAborted, ReasonDoubleClaim, now)
-		}
+	if o.state == StateApproved {
 		return ClaimResponse{}, pairErr(ErrCodeOfferUsed, "pairing offer was already used")
 	}
 
@@ -397,6 +429,15 @@ func (m *Manager) Claim(source string, req ClaimRequest) (ClaimResponse, error) 
 	}
 	if len(o.pinned) > 0 && !o.pinned.Equal(tr.DevicePub) {
 		return ClaimResponse{}, m.failLocked(o)
+	}
+	if o.state != StateOpen {
+		// A second valid claim proves someone else holds the secret (a
+		// leaked QR); the offer is burned. Only checked after the MAC so
+		// knowing the offer ID alone cannot abort a pairing.
+		if !o.approving {
+			m.endLocked(o, StateAborted, ReasonDoubleClaim, now)
+		}
+		return ClaimResponse{}, pairErr(ErrCodeOfferUsed, "pairing offer was already used")
 	}
 
 	tr.NonceNode = RandomBytes(NonceSize)
@@ -435,51 +476,66 @@ func (m *Manager) claimedLocked(id []byte) (*offer, error) {
 // Confirm handles POST /client/v1/pair/confirm.
 func (m *Manager) Confirm(req ConfirmRequest) (StateResponse, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	o, err := m.claimedLocked(req.OfferID)
 	if err != nil {
+		m.mu.Unlock()
 		return StateResponse{}, err
 	}
 	msg := Message(LabelConfirm, o.t1)
 	if !CheckMAC(o.key, msg, req.MAC) || !ed25519.Verify(o.transcript.DevicePub, msg, req.Sig) {
-		return StateResponse{}, m.failLocked(o)
+		err := m.failLocked(o)
+		m.mu.Unlock()
+		return StateResponse{}, err
 	}
 	if o.state == StateApproved {
+		m.mu.Unlock()
 		return StateResponse{OfferID: o.id, State: o.state}, nil
 	}
 	o.deviceOK = true
-	if err := m.maybeApproveLocked(o); err != nil {
+	d := m.prepareApprovalLocked(o)
+	o.signal()
+	m.mu.Unlock()
+	if err := m.commitApproval(o, d); err != nil {
 		return StateResponse{}, err
 	}
-	o.signal()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return StateResponse{OfferID: o.id, State: o.state}, nil
 }
 
 // Approve records the operator's approval of a claimed offer.
 func (m *Manager) Approve(id []byte, role Role) (OfferView, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	o, err := m.claimedLocked(id)
 	if err != nil {
+		m.mu.Unlock()
 		return OfferView{}, err
 	}
-	if o.state == StateApproved {
-		return m.viewLocked(o), nil
+	if o.state == StateApproved || o.approving {
+		view := m.viewLocked(o)
+		m.mu.Unlock()
+		return view, nil
 	}
 	if role != "" {
 		o.role = role
 	}
 	o.operatorOK = true
-	if err := m.maybeApproveLocked(o); err != nil {
-		o.operatorOK = false
+	d := m.prepareApprovalLocked(o)
+	o.signal()
+	m.mu.Unlock()
+	if err := m.commitApproval(o, d); err != nil {
 		return OfferView{}, err
 	}
-	o.signal()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.viewLocked(o), nil
 }
 
-func (m *Manager) maybeApproveLocked(o *offer) error {
-	if !o.deviceOK || !o.operatorOK {
+// prepareApprovalLocked builds the device record once both sides agreed
+// and marks the offer as approving, which freezes it (no expiry, reject,
+// or abort) until commitApproval finishes outside the lock.
+func (m *Manager) prepareApprovalLocked(o *offer) *Device {
+	if !o.deviceOK || !o.operatorOK || o.approving || o.state != StateClaimed {
 		return nil
 	}
 	now := m.cfg.Now().UTC()
@@ -493,12 +549,29 @@ func (m *Manager) maybeApproveLocked(o *offer) error {
 	if d.Name == "" {
 		d.Name = d.DeviceID
 	}
-	if m.cfg.OnApprove != nil {
-		if err := m.cfg.OnApprove(d); err != nil {
-			return fmt.Errorf("store device: %w", err)
-		}
+	o.approving = true
+	return &d
+}
+
+// commitApproval stores the device (without holding the manager lock,
+// since storing replicates and reloads NATS) and finishes the offer.
+func (m *Manager) commitApproval(o *offer, d *Device) error {
+	if d == nil {
+		return nil
 	}
-	o.device = &d
+	var err error
+	if m.cfg.OnApprove != nil {
+		err = m.cfg.OnApprove(*d)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	o.approving = false
+	if err != nil {
+		o.operatorOK = false
+		o.signal()
+		return fmt.Errorf("store device: %w", err)
+	}
+	o.device = d
 	m.endLocked(o, StateApproved, "", m.cfg.Now())
 	return nil
 }
@@ -511,7 +584,7 @@ func (m *Manager) Reject(id []byte) (OfferView, error) {
 	if err != nil {
 		return OfferView{}, err
 	}
-	if o.state == StateApproved {
+	if o.state == StateApproved || o.approving {
 		return OfferView{}, pairErr(ErrCodeOfferUsed, "device already approved; revoke it instead")
 	}
 	m.endLocked(o, StateRejected, ReasonRejected, m.cfg.Now())
@@ -532,7 +605,7 @@ func (m *Manager) Abort(req AbortRequest) (StateResponse, error) {
 	if err != nil {
 		return StateResponse{}, err
 	}
-	if o.state == StateApproved {
+	if o.state == StateApproved || o.approving {
 		return StateResponse{}, pairErr(ErrCodeOfferUsed, "device already approved")
 	}
 	if !CheckMAC(o.key, AbortMessage(o.id, req.Reason), req.MAC) {
@@ -627,22 +700,24 @@ func (m *Manager) Wait(ctx context.Context, id []byte, since State, wait time.Du
 		}
 		view, ch := m.viewLocked(o), o.changed
 		m.mu.Unlock()
-		if view.State != since {
+		if view.State != since || view.State.Terminal() {
 			return view, nil
 		}
-		// Expiry is lazy; wake up for it too.
-		expiry := time.NewTimer(time.Until(view.ExpiresAt) + 10*time.Millisecond)
+		// Expiry is lazy; wake up for it too, but only while it is ahead.
+		var expiryC <-chan time.Time
+		if left := view.ExpiresAt.Sub(m.cfg.Now()); left > 0 {
+			expiry := time.NewTimer(left + 10*time.Millisecond)
+			defer expiry.Stop()
+			expiryC = expiry.C
+		}
 		select {
 		case <-ch:
-		case <-expiry.C:
+		case <-expiryC:
 		case <-timer.C:
-			expiry.Stop()
 			return view, nil
 		case <-ctx.Done():
-			expiry.Stop()
 			return OfferView{}, ctx.Err()
 		}
-		expiry.Stop()
 	}
 }
 

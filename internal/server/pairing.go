@@ -327,9 +327,9 @@ func (p *pairingService) clientHandler() http.Handler {
 func remoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
-	return host
+	return pairing.SourceKey(host)
 }
 
 func writePairError(w http.ResponseWriter, err error) {
