@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -148,8 +149,9 @@ const (
 )
 
 type registryFile struct {
-	Version int      `json:"version"`
-	Devices []Device `json:"devices"`
+	Version   int      `json:"version"`
+	ClusterID string   `json:"cluster_id,omitempty"`
+	Devices   []Device `json:"devices"`
 }
 
 // Registry is this node's copy of the replicated device registry,
@@ -157,8 +159,9 @@ type registryFile struct {
 type Registry struct {
 	path string
 
-	mu      sync.Mutex
-	devices map[string]Device
+	mu        sync.Mutex
+	clusterID string
+	devices   map[string]Device
 
 	watchMu  sync.Mutex
 	watchers []func(Device)
@@ -181,12 +184,30 @@ func OpenRegistry(dir string) (*Registry, error) {
 	if f.Version != devicesVersion {
 		return nil, fmt.Errorf("%s: unsupported version %d", r.path, f.Version)
 	}
+	r.clusterID = f.ClusterID
 	for _, d := range f.Devices {
 		if d.Validate() == nil {
 			r.devices[d.DeviceID] = d
 		}
 	}
 	return r, nil
+}
+
+// BindCluster ties the registry to clusterID. Devices paired in another
+// cluster (this node left and joined elsewhere) are dropped, so trust never
+// carries across clusters.
+func (r *Registry) BindCluster(clusterID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.clusterID == clusterID {
+		return nil
+	}
+	if r.clusterID != "" && len(r.devices) > 0 {
+		slog.Warn("Dropping devices paired in a previous cluster", "devices", len(r.devices))
+		r.devices = map[string]Device{}
+	}
+	r.clusterID = clusterID
+	return r.saveLocked()
 }
 
 // Watch registers fn to run after every applied change.
@@ -292,7 +313,7 @@ func (r *Registry) sortedByID() []Device {
 }
 
 func (r *Registry) saveLocked() error {
-	f := registryFile{Version: devicesVersion, Devices: make([]Device, 0, len(r.devices))}
+	f := registryFile{Version: devicesVersion, ClusterID: r.clusterID, Devices: make([]Device, 0, len(r.devices))}
 	for _, d := range r.devices {
 		f.Devices = append(f.Devices, d)
 	}

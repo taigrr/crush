@@ -3,6 +3,7 @@ package pairing
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/hmac"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -89,6 +90,9 @@ type Config struct {
 	// OnApprove stores and replicates a newly approved device. The offer
 	// only becomes approved if it succeeds.
 	OnApprove func(Device) error
+	// Revoked reports whether a device ID was revoked; such keys cannot
+	// pair again (their record would lose to the revocation).
+	Revoked func(deviceID string) bool
 	// Extras returns the post-approval data for a device.
 	Extras func() Extras
 	// Now overrides the clock (tests).
@@ -303,8 +307,9 @@ func (m *Manager) failLocked(o *offer) error {
 	return pairErr(ErrCodeMACInvalid, "pairing authentication failed")
 }
 
-// rateLimitLocked admits one claim attempt from source.
-func (m *Manager) rateLimitLocked(source string, now time.Time) bool {
+// recordFailureLocked counts a failed claim from source and reports
+// whether the source is still under its limit.
+func (m *Manager) recordFailureLocked(source string, now time.Time) bool {
 	recent := func(ts []time.Time) []time.Time {
 		return slices.DeleteFunc(ts, func(t time.Time) bool { return now.Sub(t) >= claimWindow })
 	}
@@ -401,15 +406,20 @@ func (m *Manager) Claim(source string, req ClaimRequest) (ClaimResponse, error) 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := m.cfg.Now()
-	if !m.rateLimitLocked(source, now) {
-		return ClaimResponse{}, pairErr(ErrCodeRateLimited, "too many pairing attempts; wait a minute")
+	// Only failed attempts are rate limited, so a valid claim always goes
+	// through even if an attacker shares the phone's address range.
+	limited := func(err error) error {
+		if !m.recordFailureLocked(source, now) {
+			return pairErr(ErrCodeRateLimited, "too many failed pairing attempts; wait a minute")
+		}
+		return err
 	}
 	o, err := m.lookupLocked(req.OfferID)
 	if err != nil {
 		if pe, ok := err.(*Error); ok && pe.Code == ErrCodeOfferUnknown && !m.unknownLimitLocked(now) {
 			return ClaimResponse{}, pairErr(ErrCodeRateLimited, "too many pairing attempts; wait a minute")
 		}
-		return ClaimResponse{}, err
+		return ClaimResponse{}, limited(err)
 	}
 	if o.state == StateApproved {
 		return ClaimResponse{}, pairErr(ErrCodeOfferUsed, "pairing offer was already used")
@@ -421,14 +431,17 @@ func (m *Manager) Claim(source string, req ClaimRequest) (ClaimResponse, error) 
 		DevicePub: ed25519.PublicKey(clone(req.DevicePub)), NonceDevice: clone(req.NonceDevice),
 	}
 	msg := Message(LabelClaim, tr.T0())
-	if !CheckMAC(o.key, msg, req.MAC) {
-		return ClaimResponse{}, m.failLocked(o)
+	if !CheckMAC(o.key, msg, req.MAC) || !ed25519.Verify(tr.DevicePub, msg, req.Sig) ||
+		(len(o.pinned) > 0 && !o.pinned.Equal(tr.DevicePub)) {
+		return ClaimResponse{}, limited(m.failLocked(o))
 	}
-	if !ed25519.Verify(tr.DevicePub, msg, req.Sig) {
-		return ClaimResponse{}, m.failLocked(o)
+	if m.cfg.Revoked != nil && m.cfg.Revoked(DeviceID(tr.DevicePub)) {
+		return ClaimResponse{}, pairErr(ErrCodeBadRequest, "this device key was revoked; reinstall rush or reset its key to pair again")
 	}
-	if len(o.pinned) > 0 && !o.pinned.Equal(tr.DevicePub) {
-		return ClaimResponse{}, m.failLocked(o)
+	if o.state == StateClaimed && tr.DevicePub.Equal(o.transcript.DevicePub) &&
+		hmac.Equal(tr.NonceDevice, o.transcript.NonceDevice) {
+		// An exact retry (the response was lost) gets the same answer.
+		return o.claimResp, nil
 	}
 	if o.state != StateOpen {
 		// A second valid claim proves someone else holds the secret (a
@@ -704,21 +717,30 @@ func (m *Manager) Wait(ctx context.Context, id []byte, since State, wait time.Du
 			return view, nil
 		}
 		// Expiry is lazy; wake up for it too, but only while it is ahead.
-		var expiryC <-chan time.Time
-		if left := view.ExpiresAt.Sub(m.cfg.Now()); left > 0 {
-			expiry := time.NewTimer(left + 10*time.Millisecond)
-			defer expiry.Stop()
-			expiryC = expiry.C
-		}
-		select {
-		case <-ch:
-		case <-expiryC:
-		case <-timer.C:
-			return view, nil
-		case <-ctx.Done():
-			return OfferView{}, ctx.Err()
+		if done, err := m.waitOnce(ctx, ch, timer.C, view.ExpiresAt); done {
+			return view, err
 		}
 	}
+}
+
+// waitOnce blocks until the offer changes, its expiry passes, the overall
+// wait ends (done), or ctx is cancelled (done with its error).
+func (m *Manager) waitOnce(ctx context.Context, changed <-chan struct{}, deadline <-chan time.Time, expires time.Time) (bool, error) {
+	var expiryC <-chan time.Time
+	if left := expires.Sub(m.cfg.Now()); left > 0 {
+		expiry := time.NewTimer(left + 10*time.Millisecond)
+		defer expiry.Stop()
+		expiryC = expiry.C
+	}
+	select {
+	case <-changed:
+	case <-expiryC:
+	case <-deadline:
+		return true, nil
+	case <-ctx.Done():
+		return true, ctx.Err()
+	}
+	return false, nil
 }
 
 func (m *Manager) viewLocked(o *offer) OfferView {

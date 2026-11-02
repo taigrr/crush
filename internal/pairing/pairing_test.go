@@ -610,3 +610,69 @@ func TestSourceKey(t *testing.T) {
 	require.Equal(t, SourceKey("2001:db8::1"), SourceKey("2001:db8::ffff:2"))
 	require.NotEqual(t, SourceKey("2001:db8::1"), SourceKey("2001:db8:0:1::1"))
 }
+
+func TestSharedSourceCannotBlockValidClaim(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	view, _ := h.mgr.CreateNodeOffer(0, RoleOperator)
+	p, _ := DecodePayload(view.Payload)
+	// The attacker shares the phone's IPv6 /64 and exhausts its budget.
+	src := SourceKey("2001:db8::bad")
+	for range claimsPerWindow + 2 {
+		_, _ = h.mgr.Claim(src, ClaimRequest{
+			OfferID: RandomBytes(OfferIDSize), DevicePub: RandomBytes(KeySize), NonceDevice: RandomBytes(NonceSize),
+			MAC: RandomBytes(macSize), Sig: RandomBytes(ed25519.SignatureSize),
+		})
+	}
+	dev, _ := NewDeviceSessionFromPayload(newDevice(t), p)
+	_, err := h.mgr.Claim(SourceKey("2001:db8::1"), dev.Claim(h.self.Info(), "phone", "ios"))
+	require.NoError(t, err)
+}
+
+func TestClaimRetryIsIdempotent(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	view, _ := h.mgr.CreateNodeOffer(0, RoleOperator)
+	p, _ := DecodePayload(view.Payload)
+	dev, _ := NewDeviceSessionFromPayload(newDevice(t), p)
+	req := dev.Claim(h.self.Info(), "phone", "ios")
+	first, err := h.mgr.Claim("192.0.2.1", req)
+	require.NoError(t, err)
+	again, err := h.mgr.Claim("192.0.2.1", req)
+	require.NoError(t, err, "a lost response can be retried")
+	require.Equal(t, first, again)
+	_, err = dev.Accept(again)
+	require.NoError(t, err)
+	got, _ := h.mgr.Get(p.OfferID)
+	require.Equal(t, StateClaimed, got.State)
+}
+
+func TestRevokedKeyCannotClaim(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	key := newDevice(t)
+	revoked := DeviceID(key.Public().(ed25519.PublicKey))
+	h.mgr.cfg.Revoked = func(id string) bool { return id == revoked }
+	view, _ := h.mgr.CreateNodeOffer(0, RoleOperator)
+	p, _ := DecodePayload(view.Payload)
+	dev, _ := NewDeviceSessionFromPayload(key, p)
+	_, err := h.mgr.Claim("192.0.2.1", dev.Claim(h.self.Info(), "phone", "ios"))
+	requireCode(t, err, ErrCodeBadRequest)
+}
+
+func TestRegistryBindCluster(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	reg, err := OpenRegistry(dir)
+	require.NoError(t, err)
+	require.NoError(t, reg.BindCluster("c1"))
+	_, err = reg.Merge(testDevice(t, 1))
+	require.NoError(t, err)
+	require.NoError(t, reg.BindCluster("c1"))
+	require.Len(t, reg.List(), 1)
+
+	reopened, err := OpenRegistry(dir)
+	require.NoError(t, err)
+	require.NoError(t, reopened.BindCluster("c2"))
+	require.Empty(t, reopened.List(), "trust does not carry across clusters")
+}
