@@ -25,7 +25,9 @@ func newClusterTestServer(t *testing.T) (*Server, *client.Client) {
 // listener address ("" disables it).
 func newClusterTestServerWith(t *testing.T, clientAddr string) (*Server, *client.Client) {
 	t.Helper()
-	srv := &Server{clientAddr: clientAddr}
+	// Every test node gets a device websocket on a free port; the gate
+	// keeps it unbound until there is something to serve.
+	srv := &Server{clientAddr: clientAddr, clientWSAddr: freeTCPAddr(t)}
 	srv.backend = backend.New(t.Context(), nil, func() {})
 	// Never touch the real user registry or credentials.
 	srv.backend.SetRegistryPathForTest(filepath.Join(t.TempDir(), "workspaces.jsonl"))

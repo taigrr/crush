@@ -128,14 +128,24 @@ func pairFlowA(t *testing.T, srv *Server, c *client.Client, key ed25519.PrivateK
 	return poll
 }
 
-func deviceConn(t *testing.T, srv *Server, key ed25519.PrivateKey) (*nats.Conn, error) {
+// deviceConn connects like rush: wss to the node's device websocket,
+// pinned to the cluster CA and node, authenticated by signing the
+// server nonce with the device key, with a private inbox prefix.
+func deviceConn(t *testing.T, srv *Server, key ed25519.PrivateKey, opts ...nats.Option) (*nats.Conn, error) {
 	t.Helper()
+	self, err := srv.pairing.self()
+	require.NoError(t, err)
 	kp, err := nkeys.FromRawSeed(nkeys.PrefixByteUser, key.Seed())
 	require.NoError(t, err)
 	user, err := kp.PublicKey()
 	require.NoError(t, err)
-	return nats.Connect("", nats.InProcessServer(srv.mesh.Server()),
-		nats.Nkey(user, kp.Sign), nats.NoReconnect())
+	id := pairing.DeviceID(key.Public().(ed25519.PublicKey))
+	base := []nats.Option{
+		nats.Secure(pairing.PinnedTLSConfig(self.CAFP, self.NodeID)),
+		nats.Nkey(user, kp.Sign), nats.NoReconnect(), nats.Timeout(3 * time.Second),
+		nats.CustomInboxPrefix("_INBOX." + id),
+	}
+	return nats.Connect("wss://"+srv.pairing.wsAddr, append(base, opts...)...)
 }
 
 func TestPairingFlowAHappyPathAndRevoke(t *testing.T) {

@@ -30,6 +30,10 @@ const (
 
 	// DefaultClientPort is the default client listener port for devices.
 	DefaultClientPort = 7733
+	// DefaultClientWSPort is the default device NATS websocket port.
+	DefaultClientWSPort = 7734
+	// maxWSConnsPerSource bounds websocket connections from one address.
+	maxWSConnsPerSource = 8
 
 	maxPairBody   = 16 << 10
 	maxDeviceMsg  = 64 << 10
@@ -59,6 +63,7 @@ type pairingService struct {
 	reg  *pairing.Registry
 
 	clientAddr string
+	wsAddr     string
 
 	// meshRef is the running mesh, set and cleared by startMesh/stopMesh.
 	// It is read without srv.meshMu so NATS callbacks and registry
@@ -71,6 +76,7 @@ type pairingService struct {
 	// active device exists. It lives while the mesh is attached.
 	gate   atomic.Pointer[listenerGate]
 	client *httpListener
+	ws     *tlsProxyListener
 
 	mu   sync.Mutex
 	subs []*nats.Subscription
@@ -83,7 +89,7 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, natsDirty: make(chan struct{}, 1)}
+	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, wsAddr: s.clientWSAddr, natsDirty: make(chan struct{}, 1)}
 	p.mgr = pairing.NewManager(pairing.Config{
 		Self: p.self, OnApprove: p.onApprove, Extras: p.extras, Revoked: p.revoked,
 		OnChange: p.kickGate,
@@ -106,6 +112,16 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 				IdleTimeout:       serverIdleTimeout,
 				MaxHeaderBytes:    maxPairBody,
 			}
+		},
+	}
+	p.ws = &tlsProxyListener{
+		name: "client-ws", addr: p.wsAddr, maxConn: maxClientConns, perSource: maxWSConnsPerSource,
+		backoff: listenerRetry, onDown: p.kickGate, tls: n.ClientTLSConfig,
+		target: func() string {
+			if m := p.meshRef.Load(); m != nil {
+				return m.WebsocketAddr()
+			}
+			return ""
 		},
 	}
 	return p, nil
@@ -225,8 +241,11 @@ func (p *pairingService) extras() pairing.Extras {
 		}
 		ex.Members = append(ex.Members, info)
 	}
-	// The device-facing NATS websocket is rollout phase 2, so no URLs are
-	// advertised yet; the scoped user is already installed.
+	if self, ok := st.Member(p.node.Identity().ID); ok && p.wsAddr != "" {
+		for _, ep := range clientEndpoints(self.Endpoints, portOf(p.wsAddr, DefaultClientWSPort)) {
+			ex.NATSURLs = append(ex.NATSURLs, "wss://"+ep.Addr)
+		}
+	}
 	return ex
 }
 
@@ -345,8 +364,15 @@ func (p *pairingService) startMesh(mesh *cluster.Mesh) error {
 	p.markNATSDirty()
 	p.wg.Go(func() { p.applyLoop(ctx, mesh) })
 	p.wg.Go(func() { p.syncLoop(ctx, mesh) })
+	var gated []gatedListener
 	if p.clientAddr != "" {
-		gate := newListenerGate(p.listenersWanted, listenerRetry, p.client)
+		gated = append(gated, p.client)
+	}
+	if p.wsAddr != "" {
+		gated = append(gated, p.ws)
+	}
+	if len(gated) > 0 {
+		gate := newListenerGate(p.listenersWanted, listenerRetry, gated...)
 		p.gate.Store(gate)
 		p.wg.Go(func() { gate.run(ctx) })
 	}

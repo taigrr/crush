@@ -29,6 +29,7 @@ var (
 	serverClusterAddr string
 	serverMeshAddr    string
 	serverClientAddr  string
+	serverClientWS    string
 	serverEnvFile     string
 )
 
@@ -38,6 +39,7 @@ func init() {
 	serverCmd.Flags().StringVar(&serverClusterAddr, "cluster-addr", fmt.Sprintf(":%d", cluster.DefaultPort), "Address for the cluster listener (used once this node joins a cluster)")
 	serverCmd.Flags().StringVar(&serverMeshAddr, "mesh-addr", fmt.Sprintf(":%d", cluster.DefaultRoutePort), "Address for the cluster NATS mesh routes")
 	serverCmd.Flags().StringVar(&serverClientAddr, "client-addr", fmt.Sprintf(":%d", server.DefaultClientPort), "Address for the mobile device client listener (TLS; empty disables it)")
+	serverCmd.Flags().StringVar(&serverClientWS, "client-ws-addr", fmt.Sprintf(":%d", server.DefaultClientWSPort), "Address for the mobile device NATS websocket (TLS; empty disables it)")
 	serverCmd.Flags().StringVar(&serverEnvFile, "env-file", "", "Load environment variables from this JSON snapshot before starting (written by `crush cluster install-service`)")
 	rootCmd.AddCommand(serverCmd)
 }
@@ -180,5 +182,6 @@ func enableCluster(srv *server.Server) error {
 		return nil
 	}
 	srv.SetClientAddr(serverClientAddr)
+	srv.SetClientWSAddr(serverClientWS)
 	return srv.EnableCluster(node, serverClusterAddr, serverMeshAddr)
 }
