@@ -583,6 +583,26 @@ Crush can manage git worktrees for isolated work environments.
 
 Default `post_create` hooks handle common package managers: `bun i`, `pnpm i`, `yarn`, `npm ci`, `go mod download`, `cargo fetch`, `pip install -r requirements.txt`.
 
+## Cluster autobalance
+
+On a machine in a Crush cluster, new `crush run` jobs can be placed on the
+least loaded online node (opt-in):
+
+```json
+{
+  "cluster": {
+    "autobalance": true,
+    "autobalance_margin": 0.15
+  }
+}
+```
+
+- `autobalance` (default `false`): Move each new `crush run` session to the
+  least loaded online node before its first turn. Also set per run with
+  `crush run --balance` / `--balance=false` or `CRUSH_CLUSTER_AUTOBALANCE`.
+- `autobalance_margin` (default `0.15`, range 0-1): How much less loaded
+  another node must be before a job moves.
+
 ## Hooks
 
 Hooks are user-defined shell commands that fire on agent events. Currently only `PreToolUse` is supported, which runs before a tool is executed.
