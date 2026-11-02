@@ -64,7 +64,17 @@ func (m *UI) handlePairOffer(msg pairOfferMsg) tea.Cmd {
 		d = dialog.NewPairOffer(m.com, msg.offer)
 		m.dialog.OpenDialog(d)
 	case !ok || d.OfferID() != msg.offer.OfferID:
-		// The dialog was closed (which rejects the offer) or replaced.
+		// The dialog was closed (which rejects the offer) or already shows
+		// another offer; never leave a second open offer behind.
+		if msg.offer.State == pairing.StateOpen {
+			ws, id := m.com.Workspace, msg.offer.OfferID
+			return func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				_, _ = ws.PairReject(ctx, id)
+				return nil
+			}
+		}
 		return nil
 	default:
 		d.SetOffer(msg.offer)

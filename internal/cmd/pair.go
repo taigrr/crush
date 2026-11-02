@@ -244,7 +244,9 @@ func runPairing(cmd *cobra.Command, c *client.Client, offer pairing.OfferView) e
 	out := cmd.OutOrStdout()
 	view := offer
 	defer func() {
-		if ctx.Err() != nil && !view.State.Terminal() {
+		// Any unfinished exit (interrupt or error) cancels the offer, so it
+		// cannot be completed later behind the operator's back.
+		if !view.State.Terminal() {
 			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			defer cancel()
 			_, _ = c.PairReject(cleanup, offer.OfferID)

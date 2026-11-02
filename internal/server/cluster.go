@@ -25,11 +25,13 @@ func (s *Server) EnableCluster(n *cluster.Node, listenAddr, meshAddr string) err
 	s.clusterAddr = listenAddr
 	s.meshAddr = meshAddr
 	n.SetAPIHandler(s.h.Handler)
-	p, err := newPairingService(s, n)
-	if err != nil {
-		return fmt.Errorf("device registry: %w", err)
+	if s.pairing == nil {
+		p, err := newPairingService(s, n)
+		if err != nil {
+			return fmt.Errorf("device registry: %w", err)
+		}
+		s.pairing = p
 	}
-	s.pairing = p
 	n.OnJoinRequest = func(r cluster.JoinRequest) {
 		s.backend.PublishClusterJoin(r.ID, r.Name)
 	}

@@ -178,6 +178,17 @@ func TestPairingFlowAHappyPathAndRevoke(t *testing.T) {
 
 	_, err = c.RevokeDevice(t.Context(), "dev_unknown")
 	require.Error(t, err)
+
+	// A revoked key cannot pair again (its record would lose to the
+	// revocation and the phone would look paired but never connect).
+	dev := newDeviceAPI(t, srv)
+	offer, err := c.PairCreateOffer(t.Context(), pairing.CreateOfferRequest{})
+	require.NoError(t, err)
+	payload, _ := pairing.DecodePayload(offer.Payload)
+	sess, _ := pairing.NewDeviceSessionFromPayload(key, payload)
+	status, code := dev.do(http.MethodPost, "/client/v1/pair/claim", sess.Claim(dev.info(), "again", "ios"), nil)
+	require.Equal(t, http.StatusBadRequest, status)
+	require.Equal(t, pairing.ErrCodeBadRequest, code)
 }
 
 func TestPairingExpiredOffer(t *testing.T) {

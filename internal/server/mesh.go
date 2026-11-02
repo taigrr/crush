@@ -382,12 +382,13 @@ func (s *Server) startMesh() error {
 
 // stopMesh detaches the bridge and shuts the mesh down.
 func (s *Server) stopMesh() {
-	// The pairing loop takes meshMu, so stop it first.
+	s.meshMu.Lock()
+	defer s.meshMu.Unlock()
+	// Pairing never takes meshMu, so it can stop under it; doing so keeps
+	// a concurrent startMesh from attaching it to a mesh being torn down.
 	if s.pairing != nil {
 		s.pairing.stopMesh()
 	}
-	s.meshMu.Lock()
-	defer s.meshMu.Unlock()
 	if s.mesh == nil {
 		return
 	}

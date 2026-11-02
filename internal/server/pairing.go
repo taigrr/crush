@@ -79,7 +79,7 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 		return nil, err
 	}
 	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, natsDirty: make(chan struct{}, 1)}
-	p.mgr = pairing.NewManager(pairing.Config{Self: p.self, OnApprove: p.onApprove, Extras: p.extras})
+	p.mgr = pairing.NewManager(pairing.Config{Self: p.self, OnApprove: p.onApprove, Extras: p.extras, Revoked: p.revoked})
 	reg.Watch(func(pairing.Device) { p.markNATSDirty() })
 	return p, nil
 }
@@ -141,9 +141,25 @@ func clientEndpoints(eps []cluster.Endpoint, port int) []pairing.Endpoint {
 	return out
 }
 
+func (p *pairingService) revoked(deviceID string) bool {
+	d, ok := p.reg.Get(deviceID)
+	return ok && d.Revoked()
+}
+
 func (p *pairingService) onApprove(d pairing.Device) error {
-	if _, err := p.reg.Merge(d); err != nil {
+	if cur, ok := p.reg.Get(d.DeviceID); ok {
+		if cur.Revoked() {
+			return errors.New("this device key was revoked and cannot pair again")
+		}
+		// Re-pairing an active device updates its record.
+		d.Rev, d.PairedAt = cur.Rev+1, cur.PairedAt
+	}
+	changed, err := p.reg.Merge(d)
+	if err != nil {
 		return err
+	}
+	if !changed {
+		return errors.New("device record was superseded; try again")
 	}
 	p.publish(subjDevices, d)
 	slog.Info("Paired mobile device", "device", d.DeviceID, "name", d.Name, "role", d.Role)
@@ -257,6 +273,14 @@ func (p *pairingService) receiveRequest(m *nats.Msg) {
 func (p *pairingService) startMesh(mesh *cluster.Mesh) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.stop != nil {
+		return errors.New("pairing is already attached to a mesh")
+	}
+	if st, err := p.node.Store().Snapshot(); err == nil {
+		if err := p.reg.BindCluster(st.ClusterID); err != nil {
+			return err
+		}
+	}
 	subjects := map[string]func(*nats.Msg){
 		subjDevices:                          p.receive,
 		subjDevicesTo + p.node.Identity().ID: p.receive,
@@ -308,9 +332,9 @@ func (p *pairingService) syncLoop(ctx context.Context, mesh *cluster.Mesh) {
 			return
 		case <-time.After(wait):
 		}
-		if i < len(waits) {
-			p.requestSync(mesh)
-		}
+		// Keep reconciling after start-up too, so a missed publish (a
+		// partition or route flap) cannot leave a revoked device trusted.
+		p.requestSync(mesh)
 		p.mu.Lock()
 		if ctx.Err() == nil {
 			if err := p.startListenerLocked(); err != nil {
@@ -329,6 +353,7 @@ func (p *pairingService) stopMesh() {
 	p.subs = nil
 	if p.stop != nil {
 		p.stop()
+		p.stop = nil
 	}
 	p.meshRef.Store(nil)
 	hs := p.hs
@@ -338,7 +363,11 @@ func (p *pairingService) stopMesh() {
 	if hs != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = hs.Shutdown(ctx)
+		if hs.Shutdown(ctx) != nil {
+			// Long-polls can outlast the grace period; cut them so the
+			// port is free for a rejoin.
+			_ = hs.Close()
+		}
 	}
 }
 
@@ -362,7 +391,12 @@ func (p *pairingService) startListenerLocked() error {
 	p.hs = hs
 	go func() {
 		if err := hs.ServeTLS(netutil.LimitListener(ln, maxClientConns), "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("Client listener stopped", "error", err)
+			slog.Error("Client listener stopped; will retry", "error", err)
+			p.mu.Lock()
+			if p.hs == hs {
+				p.hs = nil
+			}
+			p.mu.Unlock()
 		}
 	}()
 	slog.Info("Client listener started", "addr", ln.Addr().String())
