@@ -376,14 +376,14 @@ Returns as soon as the state differs from `claimed`, or after `wait_ms` with the
       "publish": ["crush.client.v1.<device_id>.>"],
       "subscribe": ["crush.client.v1.<device_id>.>", "crush.client.v1.broadcast.>", "_INBOX.<device_id>.>"]
     },
-    "urls": []
+    "urls": ["wss://laptop.tailnet.ts.net:7734"]
   },
   "ca_fps": ["<b64url>"],
   "members": [{"node_id": "...", "name": "...", "node_pub": "...", "endpoints": []}]
 }
 ```
 
-`urls` stays empty until the device-facing NATS websocket ships in phase 2 (it will list e.g. `wss://laptop.tailnet.ts.net:7733/nats`).
+`urls` lists the pairing node's device websocket (see [Rush client connection](#rush-client-connection)), one per reachable endpoint host; it is empty when the node runs without `--client-ws-addr`.
 A replayed poll only returns what the legitimate device already learns; nothing in it is secret (the credential is the device's own private key, never sent).
 
 **`POST /client/v1/pair/abort`** — "doesn't match" or cancel:
@@ -514,9 +514,10 @@ The device credential is a **scoped NATS user**, not a shared secret:
   exactly those permissions, in the `CLIENTS` account of its embedded NATS
   server (`:7732` routes stay member-only).
   Applying a revoked record removes the user and disconnects its clients.
-- The device-facing NATS listener (websocket on the client listener) is
-  phase 2; until then the issued credential is installed but only reachable
-  from the node itself.
+- Device users may only connect over the websocket (NATS
+  `allowed_connection_types: [WEBSOCKET]`), and the mesh's own user only
+  in-process, so neither can use the other's path (see
+  [Rush client connection](#rush-client-connection)).
 
 ### Authentication on any node
 
@@ -578,43 +579,55 @@ least one paired device is not revoked. Otherwise the port is not bound.
 It is separate from the member listener (`:7731`) because that one requires
 member client certificates, and from the mesh route port (`:7732`).
 
-One port serves two things, selected by path:
+Two device ports, both behind the same gate:
 
-- `GET /nats` → NATS websocket (`nats-server` websocket listener behind a
-  path handler, TLS terminated by Crush with the node's leaf certificate).
-- `/client/v1/...` → HTTPS: pairing endpoints and the HTTP fallback API.
+- `:7733` (`--client-addr`): HTTPS `/client/v1/...` (pairing, later the HTTP
+  fallback API).
+- `:7734` (`--client-ws-addr`): the NATS websocket.
+  nats-server cannot enable or disable its websocket listener by config
+  reload, so the embedded server always runs it in plain mode on a random
+  **loopback** port, and Crush owns the public, gated listener: it
+  terminates TLS with the client certificate chain and splices bytes to the
+  loopback port. Sharing `:7733` (a `/nats` path) was rejected because
+  long-lived websockets would fight the HTTP server's request timeouts.
 
-Certificates: the node's existing leaf; SANs gain every advertised client
-endpoint host so standard hostname verification also passes for clients that
-want it, but rush verifies by CA pin + node ID, not hostname.
+Certificates: both ports present the chain `[node leaf, cluster CA]`. The CA
+certificate is self-signed by the CA key derived from the cluster key and is
+deterministic, so every node sends the same bytes; `ca_fp` is the SHA-256 of
+its SubjectPublicKeyInfo. Rush verifies by CA pin + node ID, never by host
+name.
 
 ### NATS isolation
 
 Devices connect to the embedded server in a separate **`CLIENTS` account**.
 The mesh account (where `crush.creds`, `crush.repl.*`, `crush.swarm.*` live)
-is never visible to it.
-Crush's in-process connection bridges between the accounts explicitly, so no
-mesh subject can leak through a permission mistake.
+is a different account, so its subjects do not exist for a device, whatever
+the permissions say.
+Bridging selected device subjects to node handlers (the NATS-to-HTTP bridge
+below) is deferred to phase 2b.
 
-Authentication uses **auth callout** (nats-server ≥ 2.10) rather than
-operator/JWT mode, because the cluster has no operator and the registry is
-already replicated:
+Authentication is plain **nkey users** (implemented; auth callout and JWTs
+were not needed because every node already holds the replicated registry):
 
-1. The device connects with its nkey; the server sends a nonce.
-2. The callout handler (in-process) verifies the nonce signature against the
-   registry, rejects revoked or unknown keys, and issues a user JWT for the
-   `CLIENTS` account with:
-   - `name` = device ID;
+1. Each node installs every non-revoked device as an nkey user (the
+   device's public key) in `CLIENTS`, with `allowed_connection_types:
+   [WEBSOCKET]` and these permissions, deny-by-default:
    - publish allow: `crush.client.v1.<device_id>.>`;
    - subscribe allow: `crush.client.v1.<device_id>.>`,
      `crush.client.v1.broadcast.>`, `_INBOX.<device_id>.>`;
-   - deny everything else; no `$SYS`, no JetStream API;
-   - `exp` = 15 minutes; the client reconnects transparently (re-auth) on
-     expiry, which re-checks the registry.
-3. The device uses a custom inbox prefix `_INBOX.<device_id>` so replies are
+   - `allow_responses: {max: 1, ttl: 1m}` so the device may answer a
+     request it received (once, within a minute) without a publish grant on
+     the requester's inbox;
+   - everything else, including `$SYS.>`, `$JS.API.>`, other devices'
+     subjects, and plain `_INBOX.>`, is denied (there is no JetStream).
+2. The device connects; the server sends a nonce; the device signs it with
+   its key (standard NATS nkey authentication). Unknown or revoked keys are
+   refused.
+3. The device uses the inbox prefix `_INBOX.<device_id>` so replies are
    private.
 
-On revocation the node kicks the client by its connection ID.
+On revocation every node removes the user and reloads, which closes the
+device's connections on that node.
 
 Leaf/route behaviour: client connections are local to their entry node.
 The entry node forwards to other nodes over the existing mesh, so devices
@@ -718,6 +731,88 @@ For networks that block websockets or for simple tooling:
   `--advertise` for members.
 - mDNS (`_crush-client._tcp`) is a later phase and only ever provides
   *addresses*; trust always comes from pins.
+
+## Rush client connection
+
+This is the contract rush implements to talk NATS to a node after pairing.
+
+### What rush stores after pairing
+
+| Item | Source | Notes |
+| --- | --- | --- |
+| Device seed | Generated on the phone | The 32-byte ed25519 seed. Store it in the Keychain / Keystore. NATS wants it as an nkey user seed: `nkeys` encoding with prefix `S`+`U`, i.e. the string `SU...` (58 characters). |
+| `device_id` | Poll response `device.device_id` | Also derivable: `dev_` + lowercase base32 (no padding) of `SHA-256(public key)[0:16]`. |
+| `urls` | Poll response `nats.urls` | `wss://host:port`, one per reachable endpoint of the pairing node. Loopback, unspecified, and empty hosts are never listed. |
+| `ca_fps` | Poll response `ca_fps` | base64url (no padding) SHA-256 values. The first is current. |
+| Members | Poll response `members` | Node IDs, names, and keys for every node; their client endpoints. |
+
+The websocket port is the node's `--client-ws-addr` port (default `7734`); for another member, combine its endpoint hosts with that port.
+
+### TLS pinning
+
+Every device port presents the chain `[leaf, CA]`.
+Rush must accept the connection only if all of these hold, and must not rely on system trust or host names:
+
+1. Some certificate after the leaf is a CA (`basicConstraints CA:TRUE`) whose `SHA-256(DER SubjectPublicKeyInfo)` equals a pinned `ca_fps` entry (compare bytes after base64url-decoding the pin).
+2. The leaf's signature verifies with that CA's public key (ed25519).
+3. The leaf is within its validity period.
+4. The leaf's subject common name is the node ID rush meant to reach (from the QR, `/client/v1/info`, or `members`).
+
+`internal/pairing/pin.go` (`VerifyPinnedChain`) is the reference implementation.
+React Native's built-in WebSocket cannot run custom certificate checks, so rush needs a native module (an `URLSessionDelegate` / OkHttp `X509TrustManager` or `CertificatePinner` replacement) that applies these four rules for the pinned host; this is an open item on the rush side.
+
+### Connecting
+
+With `@nats-io/nats-core` (websocket transport, `wsconnect`):
+
+```ts
+import { wsconnect, nkeyAuthenticator } from "@nats-io/nats-core";
+
+const nc = await wsconnect({
+  servers: urls,                       // from the poll response
+  authenticator: nkeyAuthenticator(new TextEncoder().encode(seed)), // "SU..."
+  inboxPrefix: `_INBOX.${deviceId}`,   // required: plain _INBOX.> is denied
+  name: deviceId,
+  reconnect: true,
+  maxReconnectAttempts: -1,
+  reconnectTimeWait: 2000,
+});
+```
+
+The handshake is standard NATS nkey auth: the server's `INFO` carries a nonce, the client signs it with the seed and sends `CONNECT {"nkey": "U...", "sig": "<base64url signature>"}`.
+No token, password, or JWT is used.
+
+### Subjects
+
+`<dev>` is the device ID.
+
+| Action | Allowed | Example |
+| --- | --- | --- |
+| Publish | `crush.client.v1.<dev>.>` | `crush.client.v1.dev_k3x9....api.any` (a bridged request, phase 2b) |
+| Subscribe | `crush.client.v1.<dev>.>` | `crush.client.v1.dev_k3x9....ev.<stream>` |
+| Subscribe | `crush.client.v1.broadcast.>` | `crush.client.v1.broadcast.attention` |
+| Subscribe | `_INBOX.<dev>.>` | replies to the device's own requests |
+| Reply | to a message it received with a reply subject, once, within 1 minute | answering a node's request |
+
+Everything else is denied; the server reports `Permissions Violation for Publish/Subscription to "<subject>"` as an async error and drops the message.
+Mesh subjects (`crush.creds`, `crush.devices`, `crush.repl.*`, `$SYS`, `$JS.API`) live in another account and are unreachable even by name.
+
+### Reconnect and revocation
+
+- On disconnect, retry the `urls`, then the endpoints of other `members`, with backoff.
+- The device ports are bound only while the device is paired (or an offer is open), so after revocation the port may be closed: a connection refused after a revocation is expected.
+- A revoked device's connections are closed by every node within one registry update, and new connections fail with `Authorization Violation`. Treat that as terminal: stop reconnecting, delete the seed and pins, and show "This device was removed; pair again".
+- Re-pairing a revoked phone requires a new seed (a new device ID).
+
+### Errors
+
+| Symptom | Meaning | Rush should |
+| --- | --- | --- |
+| TLS failure, pin mismatch | Wrong node, a MITM, or the cluster key was rotated | Stop; offer re-pair (rotation handling is phase 3). |
+| `Authorization Violation` | Unknown or revoked device, or not a websocket connection | Treat as revoked (see above). |
+| `Permissions Violation` (async) | A subject outside the scopes above | Bug in rush; log it. |
+| Connection refused | Port gated closed (no devices or offers) or node down | Try other members; if all refuse after a revocation, treat as revoked. |
+| Connection closed right after connect | More than 8 websocket connections from this address | Reuse one connection. |
 
 ## Permissions
 
@@ -901,9 +996,13 @@ Per the project rule, the `crush-config` builtin skill is updated alongside.
    replication, registry in the join response, `pending`/`role`/`scopes`
    subcommands.
 2. **NATS websocket.**
-   `CLIENTS` account, auth callout, subject namespace, NATS-to-HTTP bridge,
-   event streams with flow control, attention and node fan-out.
-   rush switches its primary transport.
+   Implemented (phase 2a): gated TLS websocket on `:7734`, nkey auth,
+   websocket-only scoped users in `CLIENTS`, `urls` in the poll response,
+   CA certificate in the client chain, revocation closes connections.
+   Deferred (phase 2b): NATS-to-HTTP bridge, event streams with flow
+   control, attention and node fan-out, per-device message-rate and
+   payload limits (need account JWTs), so rush can connect but no node
+   service answers on device subjects yet.
 3. **Rotation and membership updates.**
    `crush.client.trust` / `members`, CA fingerprint sets, re-pair UX.
 4. **Device admin from devices.**
