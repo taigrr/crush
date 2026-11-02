@@ -93,3 +93,16 @@ func TestClientUsersAreScopedAndRevocable(t *testing.T) {
 		t.Fatal("mesh connection broken after reload")
 	}
 }
+
+func TestCAFingerprintOrder(t *testing.T) {
+	t.Parallel()
+	cur, prev := []byte("current-key-current-key-current!"), []byte("previous-key-previous-key-previo")
+	st := State{Key: cur, PrevKey: prev}
+	keys := st.trustedKeys()
+	require.Equal(t, cur, keys[0], "the current key must come first: pairing pins fps[0]")
+	fpCur, err := CAFingerprint(cur)
+	require.NoError(t, err)
+	fpPrev, err := CAFingerprint(prev)
+	require.NoError(t, err)
+	require.NotEqual(t, fpCur, fpPrev)
+}
