@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -427,7 +428,7 @@ func TestPairingNotInClusterAndEndpoints(t *testing.T) {
 		{Kind: cluster.EndpointDirect, Addr: "100.100.1.2:7731"},
 		{Kind: cluster.EndpointDirect, Addr: "laptop.example:7731"},
 		{Kind: cluster.EndpointNATS, Addr: "192.168.1.5:7732"},
-	}, DefaultClientPort)
+	}, strconv.Itoa(DefaultClientPort))
 	require.Equal(t, []pairing.Endpoint{
 		{Kind: pairing.EndpointLAN, Addr: "192.168.1.5:7733"},
 		{Kind: pairing.EndpointTailscale, Addr: "100.100.1.2:7733"},

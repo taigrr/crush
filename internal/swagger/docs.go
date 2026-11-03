@@ -6316,6 +6316,52 @@ const docTemplate = `{
                 }
             }
         },
+        "cluster.DeviceEndpoints": {
+            "type": "object",
+            "properties": {
+                "client": {
+                    "$ref": "#/definitions/cluster.DeviceListener"
+                },
+                "seq": {
+                    "description": "Seq increases with every advertisement from the member; an older or\nequal Seq never replaces a stored record.",
+                    "type": "integer"
+                },
+                "v": {
+                    "type": "integer"
+                },
+                "ws": {
+                    "$ref": "#/definitions/cluster.DeviceListener"
+                }
+            }
+        },
+        "cluster.DeviceListener": {
+            "type": "object",
+            "properties": {
+                "addrs": {
+                    "description": "Addrs are host:port pairs built from the bound listener address: a\nspecific bind is its own host only, a wildcard bind every direct\nendpoint host of the member.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "state": {
+                    "$ref": "#/definitions/cluster.DeviceListenerState"
+                }
+            }
+        },
+        "cluster.DeviceListenerState": {
+            "type": "string",
+            "enum": [
+                "on",
+                "idle",
+                "off"
+            ],
+            "x-enum-varnames": [
+                "DeviceListenerOn",
+                "DeviceListenerIdle",
+                "DeviceListenerOff"
+            ]
+        },
         "cluster.Endpoint": {
             "type": "object",
             "properties": {
@@ -6341,6 +6387,14 @@ const docTemplate = `{
         "cluster.Member": {
             "type": "object",
             "properties": {
+                "device": {
+                    "description": "Device is the member's own advertisement of its device listeners\n(nil: the member predates advertising).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/cluster.DeviceEndpoints"
+                        }
+                    ]
+                },
                 "endpoints": {
                     "type": "array",
                     "items": {
@@ -7563,6 +7617,15 @@ const docTemplate = `{
         "pairing.MemberInfo": {
             "type": "object",
             "properties": {
+                "device_ports": {
+                    "description": "DevicePorts says where Endpoints and NATSURLs come from:\n\"advertised\" (the member's own record), \"legacy\" (the member\npredates advertising; the pairing node's ports on its hosts), or\n\"unknown\" (a record version this node does not know; both empty).\nAbsent from older pairing nodes.",
+                    "type": "string",
+                    "enum": [
+                        "advertised",
+                        "legacy",
+                        "unknown"
+                    ]
+                },
                 "endpoints": {
                     "type": "array",
                     "items": {
@@ -7571,6 +7634,13 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                },
+                "nats_urls": {
+                    "description": "NATSURLs are the member's device websocket URLs (wss://host:port).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "node_id": {
                     "type": "string"

@@ -117,10 +117,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 // searchJSONResult is the JSON envelope for `crush search --json`.
 type searchJSONResult struct {
-	Query        string          `json:"query"`
-	Total        int             `json:"total"`
-	Offset       int             `json:"offset"`
-	SemanticUsed bool            `json:"semantic_used"`
+	Query        string `json:"query"`
+	Total        int    `json:"total"`
+	Offset       int    `json:"offset"`
+	SemanticUsed bool   `json:"semantic_used"`
 	// Mode and FallbackReason match the /v1 history search response.
 	Mode           embedding.SearchMode     `json:"mode"`
 	FallbackReason embedding.FallbackReason `json:"fallback_reason,omitempty"`
@@ -133,9 +133,9 @@ func searchJSONOutput(query string, res embedding.SearchResult) searchJSONResult
 		hits = []embedding.Hit{}
 	}
 	return searchJSONResult{
-		Query:        query,
-		Total:        res.Total,
-		Offset:       res.Offset,
+		Query:          query,
+		Total:          res.Total,
+		Offset:         res.Offset,
 		SemanticUsed:   res.SemanticUsed,
 		Mode:           res.Mode,
 		FallbackReason: res.FallbackReason,

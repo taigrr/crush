@@ -49,6 +49,9 @@ type Member struct {
 	Version   string     `json:"version,omitempty"`
 	JoinedAt  time.Time  `json:"joined_at"`
 	LastSeen  time.Time  `json:"last_seen,omitzero"`
+	// Device is the member's own advertisement of its device listeners
+	// (nil: the member predates advertising).
+	Device *DeviceEndpoints `json:"device,omitempty"`
 }
 
 // JoinRequest is a node asking to join that has not been approved yet.
@@ -263,6 +266,7 @@ func cloneState(st State) State {
 	for i, m := range st.Members {
 		m.PublicKey = slices.Clone(m.PublicKey)
 		m.Endpoints = slices.Clone(m.Endpoints)
+		m.Device = m.Device.Clone()
 		out.Members[i] = m
 	}
 	out.Pending = make([]JoinRequest, len(st.Pending))

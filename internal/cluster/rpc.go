@@ -270,7 +270,7 @@ func (n *Node) handleJoin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, joinResponse{Status: JoinPending, RequestID: req.ID})
 }
 
-func (n *Node) handleMembers(w http.ResponseWriter, r *http.Request, _ Member) {
+func (n *Node) handleMembers(w http.ResponseWriter, r *http.Request, from Member) {
 	var body membersBody
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -287,6 +287,8 @@ func (n *Node) handleMembers(w http.ResponseWriter, r *http.Request, _ Member) {
 			if m.NodeID == n.id.ID {
 				continue
 			}
+			existing, known := st.Member(m.NodeID)
+			m.Device = mergeDevice(m.NodeID, from.NodeID, existing.Device, m.Device, known)
 			m.LastSeen = time.Time{}
 			st.upsertMember(m)
 			st.Pending = slices.DeleteFunc(st.Pending, func(p JoinRequest) bool { return p.NodeID == m.NodeID })

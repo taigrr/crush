@@ -36,6 +36,9 @@ type Node struct {
 	seenMu sync.Mutex
 	seen   map[string]time.Time
 
+	// deviceSeq numbers this node's device endpoint advertisements.
+	deviceSeq deviceSeq
+
 	apiMu sync.Mutex
 	api   http.Handler
 

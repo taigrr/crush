@@ -326,7 +326,7 @@ func TestWSURLs(t *testing.T) {
 		{Kind: cluster.EndpointDirect, Addr: "192.168.1.5:7731"},
 		{Kind: cluster.EndpointDirect, Addr: "laptop.example:7731"},
 	}
-	p := &pairingService{wsAddr: ":7734", ws: &tlsProxyListener{}}
+	p := &pairingService{wsAddr: ":7734", ws: &tlsProxyListener{}, client: &httpListener{}}
 	require.Equal(t, []string{"wss://192.168.1.5:7734", "wss://laptop.example:7734"}, p.wsURLs(eps))
 	p.wsAddr = "10.0.0.5:9000"
 	require.Equal(t, []string{"wss://10.0.0.5:9000"}, p.wsURLs(eps), "a bound host is the only one advertised")

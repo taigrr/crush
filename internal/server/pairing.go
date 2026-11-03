@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -83,6 +82,8 @@ type pairingService struct {
 	meshRef atomic.Pointer[cluster.Mesh]
 	// natsDirty coalesces NATS user reloads onto the apply goroutine.
 	natsDirty chan struct{}
+	// advDirty asks advertiseLoop to re-advertise the device ports.
+	advDirty chan struct{}
 	// natsMu serializes user reloads (the apply loop and approvals).
 	natsMu sync.Mutex
 
@@ -113,7 +114,7 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, wsAddr: s.clientWSAddr, natsDirty: make(chan struct{}, 1), revokedSeen: map[string]bool{}, perms: map[string]string{}}
+	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, wsAddr: s.clientWSAddr, natsDirty: make(chan struct{}, 1), advDirty: make(chan struct{}, 1), revokedSeen: map[string]bool{}, perms: map[string]string{}}
 	p.mgr = pairing.NewManager(pairing.Config{
 		Self: p.self, OnApprove: p.onApprove, Extras: p.extras, Revoked: p.revoked,
 		OnChange: p.kickGate,
@@ -163,7 +164,7 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	})
 	p.client = &httpListener{
 		name: "client", addr: p.clientAddr, maxConn: maxClientConns, grace: clientStopGrace, backoff: listenerRetry,
-		onDown: p.kickGate,
+		onDown: p.kickGate, onChange: p.markAdvertise,
 		server: func() *http.Server {
 			return &http.Server{
 				Handler:           p.clientHandler(),
@@ -178,7 +179,7 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	}
 	p.ws = &tlsProxyListener{
 		name: "client-ws", addr: p.wsAddr, maxConn: maxClientConns, perSource: maxWSConnsPerSource,
-		backoff: listenerRetry, onDown: p.kickGate, tls: n.ClientTLSConfig,
+		backoff: listenerRetry, onDown: p.kickGate, onChange: p.markAdvertise, tls: n.ClientTLSConfig,
 		target: func() string {
 			if m := p.meshRef.Load(); m != nil {
 				return m.WebsocketAddr()
@@ -206,44 +207,12 @@ func (p *pairingService) self() (pairing.Self, error) {
 	if m, ok := st.Member(id.ID); ok {
 		eps = m.Endpoints
 	}
+	clients, _ := p.selfDevice(eps)
 	return pairing.Self{
 		// CAFingerprints lists the current key first (TestCAFingerprintOrder).
 		ClusterID: st.ClusterID, NodeID: id.ID, NodeName: id.Name, NodeKey: id.PrivateKey(),
-		CAFP: fps[0], Endpoints: clientEndpoints(eps, portOf(p.clientAddr, DefaultClientPort)),
+		CAFP: fps[0], Endpoints: clients,
 	}, nil
-}
-
-// clientEndpoints maps a member's direct endpoints to client listener
-// endpoints, typed by address range. Hosts a phone cannot use (empty,
-// unspecified, loopback) are skipped.
-func clientEndpoints(eps []cluster.Endpoint, port int) []pairing.Endpoint {
-	var out []pairing.Endpoint
-	seen := map[string]bool{}
-	tailnet := netip.MustParsePrefix("100.64.0.0/10")
-	for _, ep := range eps {
-		if ep.Kind != cluster.EndpointDirect {
-			continue
-		}
-		host, _, err := net.SplitHostPort(ep.Addr)
-		if err != nil || host == "" || host == "localhost" || seen[host] {
-			continue
-		}
-		seen[host] = true
-		kind := pairing.EndpointDirect
-		if ip, err := netip.ParseAddr(host); err == nil {
-			if ip.IsUnspecified() || ip.IsLoopback() {
-				continue
-			}
-			switch {
-			case tailnet.Contains(ip):
-				kind = pairing.EndpointTailscale
-			case ip.IsPrivate() || ip.IsLinkLocalUnicast():
-				kind = pairing.EndpointLAN
-			}
-		}
-		out = append(out, pairing.Endpoint{Kind: kind, Addr: net.JoinHostPort(host, strconv.Itoa(port))})
-	}
-	return out
 }
 
 // permissionsChanged records d's effective scopes and reports whether
@@ -354,50 +323,33 @@ func (p *pairingService) extras() pairing.Extras {
 	if err != nil {
 		return ex
 	}
-	port := portOf(p.clientAddr, DefaultClientPort)
+	selfID := p.node.Identity().ID
+	self, _ := st.Member(selfID)
 	for _, m := range st.Members {
 		info := pairing.MemberInfo{NodeID: m.NodeID, Name: m.Name, NodePub: m.PublicKey}
-		for _, ep := range clientEndpoints(m.Endpoints, port) {
+		var clients []pairing.Endpoint
+		if m.NodeID == selfID {
+			// This node's own live listeners, not its stored record.
+			clients, info.NATSURLs = p.selfDevice(m.Endpoints)
+			info.DevicePorts = devicePortsAdvertised
+			ex.NATSURLs = info.NATSURLs
+		} else {
+			clients, info.NATSURLs, info.DevicePorts = p.memberDevice(m, self.Endpoints)
+		}
+		for _, ep := range clients {
 			info.Endpoints = append(info.Endpoints, pairing.InfoEndpoint{Kind: ep.Kind.String(), Addr: ep.Addr})
 		}
 		ex.Members = append(ex.Members, info)
 	}
-	if self, ok := st.Member(p.node.Identity().ID); ok {
-		ex.NATSURLs = p.wsURLs(self.Endpoints)
-	}
 	return ex
 }
 
-// wsURLs lists the device websocket URLs a phone can use: the bound host
-// when --client-ws-addr names one, otherwise every usable endpoint host,
-// always with the real port.
+// wsURLs lists this node's device websocket URLs a phone can use, given
+// its cluster endpoints: the bound host when the listener is bound to a
+// specific one, otherwise every usable endpoint host, always with the
+// real port.
 func (p *pairingService) wsURLs(eps []cluster.Endpoint) []string {
-	if p.wsAddr == "" {
-		return nil
-	}
-	host, port, err := net.SplitHostPort(p.wsAddr)
-	if err != nil {
-		return nil
-	}
-	if port == "0" {
-		// An ephemeral port is only known once bound.
-		if _, bound, err := net.SplitHostPort(p.ws.Addr()); err == nil {
-			port = bound
-		} else {
-			return nil
-		}
-	}
-	portNum, err := strconv.Atoi(port)
-	if err != nil {
-		return nil
-	}
-	if ip, err := netip.ParseAddr(host); host != "" && (err != nil || !ip.IsUnspecified()) {
-		eps = []cluster.Endpoint{{Kind: cluster.EndpointDirect, Addr: net.JoinHostPort(host, port)}}
-	}
-	var urls []string
-	for _, ep := range clientEndpoints(eps, portNum) {
-		urls = append(urls, "wss://"+ep.Addr)
-	}
+	_, urls := p.selfDevice(eps)
 	return urls
 }
 
@@ -534,6 +486,10 @@ func (p *pairingService) startMesh(mesh *cluster.Mesh) error {
 	p.markNATSDirty()
 	p.wg.Go(func() { p.applyLoop(ctx, mesh) })
 	p.wg.Go(func() { p.syncLoop(ctx, mesh) })
+	// Re-advertise the device ports on every start (and restart), and
+	// whenever the listeners bind or unbind.
+	p.markAdvertise()
+	p.wg.Go(func() { p.advertiseLoop(ctx) })
 	var gated []gatedListener
 	if p.clientAddr != "" {
 		gated = append(gated, p.client)

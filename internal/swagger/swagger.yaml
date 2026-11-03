@@ -87,6 +87,43 @@ definitions:
       top_p:
         type: number
     type: object
+  cluster.DeviceEndpoints:
+    properties:
+      client:
+        $ref: '#/definitions/cluster.DeviceListener'
+      seq:
+        description: |-
+          Seq increases with every advertisement from the member; an older or
+          equal Seq never replaces a stored record.
+        type: integer
+      v:
+        type: integer
+      ws:
+        $ref: '#/definitions/cluster.DeviceListener'
+    type: object
+  cluster.DeviceListener:
+    properties:
+      addrs:
+        description: |-
+          Addrs are host:port pairs built from the bound listener address: a
+          specific bind is its own host only, a wildcard bind every direct
+          endpoint host of the member.
+        items:
+          type: string
+        type: array
+      state:
+        $ref: '#/definitions/cluster.DeviceListenerState'
+    type: object
+  cluster.DeviceListenerState:
+    enum:
+    - "on"
+    - idle
+    - "off"
+    type: string
+    x-enum-varnames:
+    - DeviceListenerOn
+    - DeviceListenerIdle
+    - DeviceListenerOff
   cluster.Endpoint:
     properties:
       addr:
@@ -104,6 +141,12 @@ definitions:
     - EndpointDirect
   cluster.Member:
     properties:
+      device:
+        allOf:
+        - $ref: '#/definitions/cluster.DeviceEndpoints'
+        description: |-
+          Device is the member's own advertisement of its device listeners
+          (nil: the member predates advertising).
       endpoints:
         items:
           $ref: '#/definitions/cluster.Endpoint'
@@ -1009,12 +1052,29 @@ definitions:
     - KindNodeInfo
   pairing.MemberInfo:
     properties:
+      device_ports:
+        description: |-
+          DevicePorts says where Endpoints and NATSURLs come from:
+          "advertised" (the member's own record), "legacy" (the member
+          predates advertising; the pairing node's ports on its hosts), or
+          "unknown" (a record version this node does not know; both empty).
+          Absent from older pairing nodes.
+        enum:
+        - advertised
+        - legacy
+        - unknown
+        type: string
       endpoints:
         items:
           $ref: '#/definitions/pairing.InfoEndpoint'
         type: array
       name:
         type: string
+      nats_urls:
+        description: NATSURLs are the member's device websocket URLs (wss://host:port).
+        items:
+          type: string
+        type: array
       node_id:
         type: string
       node_pub:

@@ -120,20 +120,26 @@ func earliest(a, b time.Time) time.Time {
 
 // httpListener is a gated TLS HTTP listener.
 type httpListener struct {
-	name    string
-	addr    string
-	server  func() *http.Server
-	onDown  func()
-	maxConn int
-	grace   time.Duration
+	name   string
+	addr   string
+	server func() *http.Server
+	onDown func()
+	// onChange is called whenever the listener binds or unbinds, so the
+	// node can re-advertise its device ports. It may run with the
+	// listener locked: it must only signal, never block or call back.
+	onChange func()
+	maxConn  int
+	grace    time.Duration
 	// backoff delays a restart after the server stopped unexpectedly
 	// (bound fine, then serving failed), so it cannot flap.
 	backoff time.Duration
 
-	mu       sync.Mutex
-	hs       *http.Server
-	ln       net.Listener
-	bound    string
+	mu    sync.Mutex
+	hs    *http.Server
+	ln    net.Listener
+	bound string
+	// last is the most recent bound address, kept after unbinding.
+	last     string
 	failedAt time.Time
 }
 
@@ -152,6 +158,14 @@ func (l *httpListener) Addr() string {
 	return l.bound
 }
 
+// LastAddr returns the most recent bound address, even after unbinding
+// ("" if it never bound).
+func (l *httpListener) LastAddr() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.last
+}
+
 func (l *httpListener) Start() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -167,6 +181,7 @@ func (l *httpListener) Start() error {
 	}
 	hs := l.server()
 	l.hs, l.ln, l.bound = hs, ln, ln.Addr().String()
+	l.last = l.bound
 	go func() {
 		err := hs.ServeTLS(netutil.LimitListener(ln, l.maxConn), "", "")
 		l.mu.Lock()
@@ -184,8 +199,14 @@ func (l *httpListener) Start() error {
 		if l.onDown != nil {
 			l.onDown()
 		}
+		if l.onChange != nil {
+			l.onChange()
+		}
 	}()
 	slog.Info("Listener started", "listener", l.name, "addr", l.bound)
+	if l.onChange != nil {
+		defer l.onChange()
+	}
 	return nil
 }
 
@@ -196,6 +217,9 @@ func (l *httpListener) Stop() {
 	l.mu.Unlock()
 	if hs == nil {
 		return
+	}
+	if l.onChange != nil {
+		defer l.onChange()
 	}
 	// Free the port now so a new offer can rebind immediately; drain
 	// in-flight requests (a poll learning its final state) in the
