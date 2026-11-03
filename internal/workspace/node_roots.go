@@ -10,6 +10,7 @@ import (
 	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/history"
 	"github.com/taigrr/crush/internal/message"
+	"github.com/taigrr/crush/internal/pairing"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/session"
 )
@@ -140,6 +141,26 @@ func (w *ClientWorkspace) NodeName() string {
 		return v.(string)
 	}
 	return id
+}
+
+// PairCreateOffer creates a mobile pairing offer on the home server.
+func (w *ClientWorkspace) PairCreateOffer(ctx context.Context) (pairing.OfferView, error) {
+	return w.home.PairCreateOffer(ctx, pairing.CreateOfferRequest{})
+}
+
+// PairWaitOffer waits for a pairing offer to change state.
+func (w *ClientWorkspace) PairWaitOffer(ctx context.Context, offerID string, since pairing.State, waitMS int) (pairing.OfferView, error) {
+	return w.home.PairWaitOffer(ctx, offerID, since, waitMS)
+}
+
+// PairApprove approves a claimed pairing offer.
+func (w *ClientWorkspace) PairApprove(ctx context.Context, offerID string) (pairing.OfferView, error) {
+	return w.home.PairApprove(ctx, offerID, "")
+}
+
+// PairReject rejects a pairing offer.
+func (w *ClientWorkspace) PairReject(ctx context.Context, offerID string) (pairing.OfferView, error) {
+	return w.home.PairReject(ctx, offerID)
 }
 
 // ClusterDashboard returns the home server's view of every node.

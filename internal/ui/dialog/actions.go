@@ -116,6 +116,14 @@ type (
 	ActionToggleSound                 struct{}
 	// ActionOpenClusterDashboard opens the cluster dashboard.
 	ActionOpenClusterDashboard struct{}
+	// ActionOpenPairDevice creates a mobile pairing offer and shows its QR.
+	ActionOpenPairDevice struct{}
+	// ActionPairDecision approves or rejects a claimed pairing offer, or
+	// cancels an open one.
+	ActionPairDecision struct {
+		OfferID string
+		Approve bool
+	}
 	// ActionOpenMoveSession opens the move dialog for the current session.
 	ActionOpenMoveSession struct{}
 	// ActionOpenMigrate opens the migrate-all dialog.

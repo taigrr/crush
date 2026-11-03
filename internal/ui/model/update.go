@@ -74,6 +74,14 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case serverVersionMsg:
 		m.versionMismatch = msg.mismatch
 		m.serverVersionStr = msg.version
+	case pairOfferMsg:
+		if cmd := m.handlePairOffer(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case pairDecisionMsg:
+		if cmd := m.handlePairDecision(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	case clusterDashboardMsg:
 		if cmd := m.handleClusterDashboard(msg); cmd != nil {
 			cmds = append(cmds, cmd)
