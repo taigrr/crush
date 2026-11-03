@@ -62,8 +62,8 @@ Reply:
   "node_id": "n_7f3a9c",
   "node_name": "studio",
   "device_id": "d_q2w3e4r5t6y7u8i9",
-  "role": "operator",
-  "scopes": ["sessions:read", "sessions:prompt", "permissions:answer", "config:model"],
+  "role": "admin",
+  "scopes": ["sessions:read", "sessions:prompt", "permissions:answer", "permissions:always", "config:model", "sessions:move", "devices:approve", "shell", "cluster:approve"],
   "features": ["json_body", "stream_resume", "stream_session_filter", "heartbeat", "swarm_target", "device_attention"],
   "limits": {
     "max_request_bytes": 4194304,
@@ -160,8 +160,8 @@ Rush SHOULD set a key on every `POST` (prompts and permission answers especially
 | --- | --- | --- | --- |
 | `bad_request` | 400 | Malformed envelope, non-canonical path, both `json` and `body`, body on `GET`, bad `target`. | Fix the request. |
 | `device_revoked` | 401 | The device is revoked or unknown. Usually not delivered (the node stays silent); appears only on races where a reply is already in flight. | Wipe credentials, show "unpaired". |
-| `device_scope_denied` | 403 | The route exists and is device-reachable, but the device lacks the scope (`scope` names it). | Hide or disable the action. |
-| `route_not_allowed` | 403 | The route is not device-reachable for any role (no `x-crush-scope`, or `never`), or is a stream route called via `api`. | Bug in client; do not retry. |
+| `device_scope_denied` | 403 | The route exists and is device-reachable, but the device lacks the scope (`scope` names it). Not produced now that devices have full access (kept for compatibility with older nodes). | Hide or disable the action. |
+| `route_not_allowed` | 403 | The route is not device-reachable (no `x-crush-scope`, or `never`), or is a stream route called via `api`. | Bug in client; do not retry. |
 | `not_found` | 404 | Unknown route, workspace, session, or stream (from `/v1` or the bridge). | |
 | `node_not_found` | 404 | `<node>`, `target.node`, or `target.swarm` does not name a known member or session. | Refresh members / sessions. |
 | `method_not_allowed` | 405 | Method other than `GET`/`POST`. | |
@@ -184,7 +184,8 @@ Deny by default: an operation without the annotation is unreachable, and `TestSw
 Every route registered on the `/v1` server mux must also be documented and annotated (`TestServerRoutesHaveDeviceScope`), so a handler cannot be added without deciding its device scope; the only exceptions are method-less prefix routes (`/v1/nodes/{node}/{rest...}`, `/v1/docs/`), which the device router never matches.
 The bridge's allow-list (`internal/server/devicescopes.go`) is generated from or checked against these annotations.
 
-Scopes are checked on the **entry node** and again on the **owning node** against its own copy of the device registry; either may refuse.
+Every paired device holds every scope ([Permissions](MOBILE_PAIRING.md#permissions): there are no roles), so the table is in effect the **route allow-list**: a route tagged with any scope is reachable by every paired device, and `never` or untagged routes by none.
+The allow-list and the device (not revoked) are checked on the **entry node** and again on the **owning node** against its own route table and registry copy; either may refuse.
 
 Initial v1 set (everything else is `never` until annotated otherwise):
 
@@ -237,16 +238,13 @@ Body rules enforced by the bridge on top of the route scope:
 
 - `POST .../agent`: `client_id` is overwritten with `device:<dev>`; `permission_policy` other than empty or `prompt` needs `permissions:always`.
 - `POST .../permissions/grant`: `action: "allow_session"` needs `permissions:answer`; persistent grants need `permissions:always`.
-- `never` (all roles): provider keys and OAuth, `config/set`, `config/remove`, cluster key ops, `debug`, replication, transfer, member API, `/v1/nodes/...` proxy paths.
+- `never` (every device): provider keys and OAuth, `config/set`, `config/remove`, cluster key ops, `debug`, replication, transfer, member API, `/v1/nodes/...` proxy paths.
 
-`sessions:move` is granted to the `operator` role (and `admin`) from this revision on; see [Operator move](#operator-move).
+### Roles
 
-### Operator move
-
-`POST /v1/sessions/move` needs `sessions:move`, which `operator` now carries alongside `admin`; `viewer` never has it.
-The role's scopes are copied into the device record when it is approved, so devices paired as `operator` before this change keep their old scopes (no silent privilege change) until re-paired or their role is set again.
-Migrate and autobalance (`/v1/migrate/*`) stay `never`.
-Mixed-version clusters: a node from before this change validates device records against its own role table and rejects an `operator` record that carries `sessions:move`, so such a device is unknown on that node until it is upgraded.
+Device roles are gone: `info.role` is always `"admin"` and `info.scopes` lists every scope, whatever the stored record says (records written as `viewer` or `operator` are kept and parse unchanged).
+`POST /v1/sessions/move` (`sessions:move`) is therefore reachable by every paired device; migrate and autobalance (`/v1/migrate/*`) stay `never`.
+`scopes_changed` is no longer sent when a record's role is edited.
 
 ### Favorite is the pin
 
@@ -558,10 +556,10 @@ Request `crush.client.v1.d_q2w3.api.any`, reply to `_INBOX.d_q2w3.k8J2...`:
 The prompt is accepted asynchronously (`202`, no body; corrected from an earlier draft of this example that showed `200` with a `run_id`).
 To correlate the run, set `run_id` in the `json` body yourself; it is echoed on the run's `agent_event` and `run_complete` stream events.
 
-A viewer device gets:
+A route tagged `never` gives (for every device):
 
 ```json
-{ "v": 1, "id": "r2", "status": 403, "node_id": "n_7f3a9c", "error": { "code": "device_scope_denied", "message": "route requires scope sessions:prompt", "scope": "sessions:prompt" } }
+{ "v": 1, "id": "r2", "status": 403, "node_id": "n_7f3a9c", "error": { "code": "route_not_allowed", "message": "route is not available to devices" } }
 ```
 
 ### Subscribe to a session's message deltas
