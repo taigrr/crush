@@ -596,7 +596,26 @@ Rules for rush:
 - Unknown `device_ports` values: treat as `"advertised"`.
 - The pairing node's own entry, `nats.urls`, and the `endpoints` it puts in offers and `/client/v1/info` come from its own listeners: the bound address when bound, else the last bound address, else (an offer is created just before the gate binds) the configured port when it is not `0`.
 - Members whose listeners are `idle` are listed with their last bound addresses: the listener binds once the new device is active.
-- A listener bound on a wildcard host (`[::]`, `0.0.0.0`) is advertised on every usable address of the host's current interfaces merged with the member's recorded cluster endpoints, deduplicated and ranked: private LAN addresses first, then other physical addresses, hostnames, tunnel (WireGuard, `utun`) and finally Tailscale addresses. Loopback and link-local addresses are never advertised. This applies to the poll response (the pairing node's own entry and the record each member gossips), `/client/v1/info`, and the addresses `crush pair` prints. `crush pair --host` still pins the advertised hosts.
+- A listener bound on a wildcard host (`[::]`, `0.0.0.0`) is advertised on every usable address of the host's current interfaces merged with the member's recorded cluster endpoints, deduplicated and ranked by priority (below). Loopback, link-local, and down-interface addresses are never advertised. This applies to the poll response (the pairing node's own entry and the record each member gossips), `/client/v1/info`, and the addresses `crush pair` prints. Interfaces are re-read every 30 seconds and the record is re-gossiped when it changes.
+- `crush pair --host` / `--advertise` overrides win: they replace the detected client endpoints with kind `override`, priority `0`, in the given order. A listener configured off advertises nothing.
+
+### Multipath discovery
+
+Every entry of `endpoints[]` (in `/client/v1/info`, offers, and `members[]`) is `{addr, kind, priority}`, and `members[].nats_endpoints[]` lists the same websocket URLs as `nats_urls` as `{url, kind, priority}`. Both lists are additive: `endpoints[]` keeps its LAN-first order and `nats_urls` stays a flat string list for older rush builds.
+
+| `kind` | Addresses | `priority` |
+| --- | --- | --- |
+| `override` | `crush pair --host` | 0 |
+| `lan` | RFC 1918 / ULA on a physical interface (other members' private addresses: 15) | 10–15 |
+| `public` | public addresses on a physical interface, hostnames | 16–18 |
+| `wireguard` | `wg*`, point-to-point `utun*` | 20 |
+| `tailscale` | `tailscale*`, `100.64.0.0/10`, `fd7a:115c:a1e0::/48` | 30–31 |
+| `vpn` | other tunnels (`tun`, `tap`, `ipsec`, `ppp`, non-p2p `utun`, …) | 40 |
+| `bridge` | `docker*`, `br-*`, `veth*`, `vmnet*`, `bridge*`, `vboxnet*`, `virbr*`, `172.17.0.0/16` | 90–95 |
+
+Lower priority is preferred; clients may race several endpoints and keep the first that completes. A member classifies its own addresses (it knows its interfaces); entries from members that predate this classification are classified by address range only.
+
+The TLS pin is per node: every address of a node serves the same certificate. Clients MUST verify the pinned node key / CA fingerprint and MUST NOT verify the hostname or IP, since the same node is reached under many addresses.
 
 ## Session routes
 

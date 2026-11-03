@@ -87,6 +87,33 @@ definitions:
       top_p:
         type: number
     type: object
+  cluster.AddrKind:
+    enum:
+    - lan
+    - wireguard
+    - tailscale
+    - vpn
+    - bridge
+    - public
+    - override
+    type: string
+    x-enum-varnames:
+    - KindLAN
+    - KindWireGuard
+    - KindTailscale
+    - KindVPN
+    - KindBridge
+    - KindPublic
+    - KindOverride
+  cluster.AdvertisedEndpoint:
+    properties:
+      addr:
+        type: string
+      kind:
+        $ref: '#/definitions/cluster.AddrKind'
+      priority:
+        type: integer
+    type: object
   cluster.DeviceEndpoints:
     properties:
       client:
@@ -110,6 +137,13 @@ definitions:
           endpoint host of the member.
         items:
           type: string
+        type: array
+      endpoints:
+        description: |-
+          Endpoints are Addrs classified by the advertising member, which
+          knows its own interfaces (additive: older members omit it).
+        items:
+          $ref: '#/definitions/cluster.AdvertisedEndpoint'
         type: array
       state:
         $ref: '#/definitions/cluster.DeviceListenerState'
@@ -1056,7 +1090,21 @@ definitions:
       addr:
         type: string
       kind:
+        description: Kind is lan, wireguard, tailscale, vpn, bridge, public, or override.
+        enum:
+        - lan
+        - wireguard
+        - tailscale
+        - vpn
+        - bridge
+        - public
+        - override
         type: string
+      priority:
+        description: |-
+          Priority orders endpoints: lower is preferred (0 is an operator
+          override). Absent (0) from older nodes, which list best first.
+        type: integer
     type: object
   pairing.Kind:
     enum:
@@ -1097,6 +1145,11 @@ definitions:
         type: array
       name:
         type: string
+      nats_endpoints:
+        description: NATSEndpoints are NATSURLs classified, in the same order.
+        items:
+          $ref: '#/definitions/pairing.NATSEndpoint'
+        type: array
       nats_urls:
         description: NATSURLs are the member's device websocket URLs (wss://host:port).
         items:
@@ -1118,6 +1171,23 @@ definitions:
           type: string
         type: array
       user:
+        type: string
+    type: object
+  pairing.NATSEndpoint:
+    properties:
+      kind:
+        enum:
+        - lan
+        - wireguard
+        - tailscale
+        - vpn
+        - bridge
+        - public
+        - override
+        type: string
+      priority:
+        type: integer
+      url:
         type: string
     type: object
   pairing.NATSPermissions:

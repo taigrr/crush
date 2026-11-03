@@ -123,7 +123,7 @@ func TestMemberDevicePortsTwoNodes(t *testing.T) {
 		info = memberInfo(t, a, bID)
 		return len(info.NATSURLs) == 1 && info.NATSURLs[0] == wantWS
 	}, 15*time.Second, 20*time.Millisecond, "A never learned B's websocket")
-	require.Equal(t, []pairing.InfoEndpoint{{Kind: pairing.EndpointDirect.String(), Addr: "b.phone.test:" + portString(t, bClient)}}, info.Endpoints)
+	require.Equal(t, []pairing.InfoEndpoint{{Kind: "public", Addr: "b.phone.test:" + portString(t, bClient), Priority: cluster.PriorityHostname}}, info.Endpoints)
 	require.Equal(t, cluster.DeviceListenerOn, storedDevice(a, bID).WS.State)
 	require.Equal(t, portString(t, b.pairing.ws.Addr()), portString(t, wantWS[len("wss://"):]), "the advertised port is the bound one")
 	aInfo := memberInfo(t, a, a.cluster.Identity().ID)
@@ -235,7 +235,10 @@ func TestDeviceRecordUsesBoundAddress(t *testing.T) {
 	p := &pairingService{clientAddr: "127.0.0.1:0", wsAddr: ":0", client: &httpListener{bound: ln.Addr().String(), last: ln.Addr().String()}, ws: &tlsProxyListener{bound: "[::]:41999", last: "[::]:41999"}}
 	rec := p.deviceRecordFor(eps)
 	require.Equal(t, cluster.DeviceListener{State: cluster.DeviceListenerOn, Addrs: []string{"127.0.0.1:" + port}}, rec.Client)
-	require.Equal(t, cluster.DeviceListener{State: cluster.DeviceListenerOn, Addrs: []string{"10.0.0.2:41999", "box.ts.net:41999"}}, rec.WS)
+	require.Equal(t, cluster.DeviceListener{State: cluster.DeviceListenerOn, Addrs: []string{"10.0.0.2:41999", "box.ts.net:41999"}, Endpoints: []cluster.AdvertisedEndpoint{
+		{Addr: "10.0.0.2:41999", Kind: cluster.KindLAN, Priority: cluster.PriorityLANForeign},
+		{Addr: "box.ts.net:41999", Kind: cluster.KindPublic, Priority: cluster.PriorityHostname},
+	}}, rec.WS)
 
 	p.ws = &tlsProxyListener{last: "[::]:41999"}
 	require.Equal(t, cluster.DeviceListenerIdle, p.deviceRecordFor(eps).WS.State)

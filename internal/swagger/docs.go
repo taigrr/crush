@@ -6910,6 +6910,41 @@ const docTemplate = `{
                 }
             }
         },
+        "cluster.AddrKind": {
+            "type": "string",
+            "enum": [
+                "lan",
+                "wireguard",
+                "tailscale",
+                "vpn",
+                "bridge",
+                "public",
+                "override"
+            ],
+            "x-enum-varnames": [
+                "KindLAN",
+                "KindWireGuard",
+                "KindTailscale",
+                "KindVPN",
+                "KindBridge",
+                "KindPublic",
+                "KindOverride"
+            ]
+        },
+        "cluster.AdvertisedEndpoint": {
+            "type": "object",
+            "properties": {
+                "addr": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/cluster.AddrKind"
+                },
+                "priority": {
+                    "type": "integer"
+                }
+            }
+        },
         "cluster.DeviceEndpoints": {
             "type": "object",
             "properties": {
@@ -6936,6 +6971,13 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "type": "string"
+                    }
+                },
+                "endpoints": {
+                    "description": "Endpoints are Addrs classified by the advertising member, which\nknows its own interfaces (additive: older members omit it).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.AdvertisedEndpoint"
                     }
                 },
                 "state": {
@@ -8210,7 +8252,21 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "kind": {
-                    "type": "string"
+                    "description": "Kind is lan, wireguard, tailscale, vpn, bridge, public, or override.",
+                    "type": "string",
+                    "enum": [
+                        "lan",
+                        "wireguard",
+                        "tailscale",
+                        "vpn",
+                        "bridge",
+                        "public",
+                        "override"
+                    ]
+                },
+                "priority": {
+                    "description": "Priority orders endpoints: lower is preferred (0 is an operator\noverride). Absent (0) from older nodes, which list best first.",
+                    "type": "integer"
                 }
             }
         },
@@ -8259,6 +8315,13 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "nats_endpoints": {
+                    "description": "NATSEndpoints are NATSURLs classified, in the same order.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pairing.NATSEndpoint"
+                    }
+                },
                 "nats_urls": {
                     "description": "NATSURLs are the member's device websocket URLs (wss://host:port).",
                     "type": "array",
@@ -8290,6 +8353,29 @@ const docTemplate = `{
                     }
                 },
                 "user": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.NATSEndpoint": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "lan",
+                        "wireguard",
+                        "tailscale",
+                        "vpn",
+                        "bridge",
+                        "public",
+                        "override"
+                    ]
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "url": {
                     "type": "string"
                 }
             }

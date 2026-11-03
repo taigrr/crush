@@ -36,6 +36,9 @@ type DeviceListener struct {
 	// specific bind is its own host only, a wildcard bind every direct
 	// endpoint host of the member.
 	Addrs []string `json:"addrs,omitempty"`
+	// Endpoints are Addrs classified by the advertising member, which
+	// knows its own interfaces (additive: older members omit it).
+	Endpoints []AdvertisedEndpoint `json:"endpoints,omitempty"`
 }
 
 // DeviceEndpoints is a member's own advertisement of its device
@@ -68,7 +71,8 @@ func (d *DeviceEndpoints) SameListeners(o *DeviceEndpoints) bool {
 		return d == o
 	}
 	return d.V == o.V && d.Client.State == o.Client.State && d.WS.State == o.WS.State &&
-		slices.Equal(d.Client.Addrs, o.Client.Addrs) && slices.Equal(d.WS.Addrs, o.WS.Addrs)
+		slices.Equal(d.Client.Addrs, o.Client.Addrs) && slices.Equal(d.WS.Addrs, o.WS.Addrs) &&
+		slices.Equal(d.Client.Endpoints, o.Client.Endpoints) && slices.Equal(d.WS.Endpoints, o.WS.Endpoints)
 }
 
 // newerDevice reports whether incoming should replace stored.
@@ -172,28 +176,33 @@ func (n *Node) AdvertiseDevice(ctx context.Context, rec DeviceEndpoints) (stored
 	return rec, pushErrs, nil
 }
 
-// HostAdvertisedAddrs is AdvertisedAddrs for a listener on this host,
-// with the host's addresses taken from ifs (see [SystemInterfaces]): a
-// wildcard bind is also advertised on every usable address of the host's
-// current interfaces, since a phone on the LAN may not reach the recorded
-// cluster endpoints (often WireGuard or tailnet addresses). The result is
-// deduplicated and ranked best first for a phone on this host's LAN (see
-// [OrderAdvertisedAddrs]); loopback and link-local addresses are never
-// included.
+// HostAdvertisedAddrs is EndpointAddrs of HostAdvertisedEndpoints.
 func HostAdvertisedAddrs(ifs []NetInterface, bound string, eps []Endpoint) []string {
+	return EndpointAddrs(HostAdvertisedEndpoints(ifs, bound, eps))
+}
+
+// HostAdvertisedEndpoints is AdvertisedAddrs for a listener on this host,
+// classified and ranked with the host's interfaces ifs (see
+// [SystemInterfaces], [ClassifyAddrs]). A wildcard bind is advertised on
+// every usable address of the host's current interfaces (LAN, WireGuard,
+// Tailscale, VPN, bridges), since a phone may not reach the recorded
+// cluster endpoints. Loopback and link-local addresses are never
+// included.
+func HostAdvertisedEndpoints(ifs []NetInterface, bound string, eps []Endpoint) []AdvertisedEndpoint {
 	out := AdvertisedAddrs(bound, eps)
 	host, port, err := net.SplitHostPort(bound)
-	if err != nil || port == "" || port == "0" {
-		return out
-	}
-	if ip := net.ParseIP(host); host != "" && (ip == nil || !ip.IsUnspecified()) {
-		return out
-	}
-	for _, c := range candidateAddrs(ifs) {
-		addr := net.JoinHostPort(c.ip.String(), port)
-		if !slices.Contains(out, addr) {
-			out = append(out, addr)
+	if err == nil && port != "" && port != "0" {
+		if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+			for _, c := range candidateAddrs(ifs) {
+				addr := net.JoinHostPort(c.ip.String(), port)
+				if !slices.Contains(out, addr) {
+					out = append(out, addr)
+				}
+			}
 		}
 	}
-	return orderAddrs(ifs, out)
+	if len(out) == 0 {
+		return nil
+	}
+	return ClassifyAddrs(ifs, out)
 }

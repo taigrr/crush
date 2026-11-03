@@ -80,6 +80,30 @@ func (k EndpointKind) String() string {
 	return fmt.Sprintf("kind%d", k)
 }
 
+// jsonKinds are the JSON kind names of the binary kinds.
+var jsonKinds = map[EndpointKind]string{
+	EndpointLAN:       "lan",
+	EndpointWireGuard: "wireguard",
+	EndpointTailscale: "tailscale",
+	EndpointDirect:    "public",
+}
+
+// JSONKind is the kind name ep has in JSON payloads.
+func (ep Endpoint) JSONKind() string {
+	if ep.Class != "" {
+		return ep.Class
+	}
+	if n, ok := jsonKinds[ep.Kind]; ok {
+		return n
+	}
+	return ep.Kind.String()
+}
+
+// InfoEndpoint renders ep for JSON payloads.
+func (ep Endpoint) InfoEndpoint() InfoEndpoint {
+	return InfoEndpoint{Kind: ep.JSONKind(), Addr: ep.Addr, Priority: ep.Priority}
+}
+
 // ParseEndpointKind maps a spec name to its kind.
 func ParseEndpointKind(name string) (EndpointKind, bool) {
 	for k, n := range endpointNames {
@@ -94,6 +118,13 @@ func ParseEndpointKind(name string) (EndpointKind, bool) {
 type Endpoint struct {
 	Kind EndpointKind
 	Addr string
+	// Class is the finer reachability shown in JSON payloads (lan,
+	// wireguard, tailscale, vpn, bridge, public, override); empty means
+	// derived from Kind. It is not part of the binary payload.
+	Class string
+	// Priority orders endpoints for clients (lower is preferred). It is
+	// not part of the binary payload.
+	Priority int
 }
 
 // Payload is a decoded rushpair1 payload of any kind.

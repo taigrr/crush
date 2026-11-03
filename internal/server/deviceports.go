@@ -19,6 +19,11 @@ import (
 // member did not receive is pushed again.
 const deviceAdvertiseRetry = 5 * time.Second
 
+// deviceRescanInterval is how often the host interfaces are re-read so
+// wildcard device listeners are re-advertised when addresses change (a
+// new Wi-Fi network, a VPN coming up). Only a changed record is pushed.
+var deviceRescanInterval = 30 * time.Second
+
 // Values of pairing.MemberInfo.DevicePorts.
 const (
 	devicePortsAdvertised = "advertised"
@@ -36,20 +41,24 @@ func (p *pairingService) markAdvertise() {
 }
 
 // advertiseLoop pushes this node's device listener record to the cluster
-// whenever it changes (the listeners bind or unbind) and on start, and
-// retries until every member has it.
+// whenever it changes (the listeners bind or unbind, or the host's
+// interface addresses change, checked every deviceRescanInterval) and on
+// start, and retries until every member has it.
 func (p *pairingService) advertiseLoop(ctx context.Context) {
 	var last *cluster.DeviceEndpoints
 	failed := false
 	retry := time.NewTimer(time.Hour)
 	retry.Stop()
 	defer retry.Stop()
+	rescan := time.NewTicker(deviceRescanInterval)
+	defer rescan.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-p.advDirty:
 		case <-retry.C:
+		case <-rescan.C:
 		}
 		rec := p.deviceRecord()
 		if !failed && last.SameListeners(&rec) {
@@ -123,71 +132,101 @@ func (p *pairingService) deviceRecordFor(eps []cluster.Endpoint) cluster.DeviceE
 }
 
 // listenerRecord is one listener's record; a wildcard bind is advertised
-// on the host's current interface addresses (ifs) and on eps.
+// on the host's current interface addresses (ifs) and on eps, classified
+// with the host's interfaces.
 func listenerRecord(ifs []cluster.NetInterface, enabled bool, bound, last string, eps []cluster.Endpoint) cluster.DeviceListener {
-	switch {
-	case !enabled:
+	if !enabled {
 		return cluster.DeviceListener{State: cluster.DeviceListenerOff}
-	case bound != "":
-		return cluster.DeviceListener{State: cluster.DeviceListenerOn, Addrs: cluster.HostAdvertisedAddrs(ifs, bound, eps)}
-	default:
-		return cluster.DeviceListener{State: cluster.DeviceListenerIdle, Addrs: cluster.HostAdvertisedAddrs(ifs, last, eps)}
 	}
+	l := cluster.DeviceListener{State: cluster.DeviceListenerOn}
+	addr := bound
+	if bound == "" {
+		l.State, addr = cluster.DeviceListenerIdle, last
+	}
+	l.Endpoints = cluster.HostAdvertisedEndpoints(ifs, addr, eps)
+	if len(l.Endpoints) == 0 {
+		// Nothing a phone can use (a loopback bind): record the bind as is.
+		l.Endpoints = nil
+		l.Addrs = cluster.AdvertisedAddrs(addr, eps)
+		return l
+	}
+	l.Addrs = cluster.EndpointAddrs(l.Endpoints)
+	return l
 }
 
-// selfListenerAddrs are the addresses this node gives phones for one of
-// its own listeners: bound, else last bound, else (an offer is created
+// selfListenerEndpoints are the endpoints this node gives phones for one
+// of its own listeners: bound, else last bound, else (an offer is created
 // just before the gate binds) the configured address unless its port is
 // ephemeral.
-func selfListenerAddrs(ifs []cluster.NetInterface, l cluster.DeviceListener, configured string, eps []cluster.Endpoint) []string {
-	if l.State == cluster.DeviceListenerOff {
+func selfListenerEndpoints(ifs []cluster.NetInterface, l cluster.DeviceListener, configured string, eps []cluster.Endpoint) []cluster.AdvertisedEndpoint {
+	switch {
+	case l.State == cluster.DeviceListenerOff:
 		return nil
+	case len(l.Endpoints) > 0:
+		return l.Endpoints
+	case len(l.Addrs) > 0:
+		return cluster.ClassifyAddrs(ifs, l.Addrs)
 	}
-	if len(l.Addrs) > 0 {
-		return l.Addrs
-	}
-	return cluster.HostAdvertisedAddrs(ifs, configured, eps)
+	return cluster.HostAdvertisedEndpoints(ifs, configured, eps)
 }
 
 // selfDevice is this node's own client endpoints and websocket URLs,
-// best first for a phone on this host's LAN (recorded endpoints may
-// predate the current interfaces, so they are re-ranked on every call).
+// best first (recorded endpoints may predate the current interfaces, so
+// they are re-classified on every call).
 func (p *pairingService) selfDevice(eps []cluster.Endpoint) ([]pairing.Endpoint, []string) {
+	clients, ws := p.selfDeviceEndpoints(eps)
+	return clients, wssURLs(ws)
+}
+
+// selfDeviceEndpoints is selfDevice with the websocket endpoints typed.
+func (p *pairingService) selfDeviceEndpoints(eps []cluster.Endpoint) (clients, ws []pairing.Endpoint) {
 	ifs := p.hostInterfaces()
 	rec := p.deviceRecordFor(eps)
-	clients := addrEndpoints(cluster.OrderAddrsOn(ifs, selfListenerAddrs(ifs, rec.Client, p.clientAddr, eps)))
-	return clients, wssURLs(addrEndpoints(cluster.OrderAddrsOn(ifs, selfListenerAddrs(ifs, rec.WS, p.wsAddr, eps))))
+	return classifiedEndpoints(selfListenerEndpoints(ifs, rec.Client, p.clientAddr, eps)),
+		classifiedEndpoints(selfListenerEndpoints(ifs, rec.WS, p.wsAddr, eps))
 }
 
 // memberDevice is what phones are told about another member's device
 // ports: its own advertisement when it has one, the v1 fallback (this
 // node's ports on its hosts) when it predates advertising, and nothing
-// for a record version this node does not know.
-func (p *pairingService) memberDevice(m cluster.Member, selfEps []cluster.Endpoint) ([]pairing.Endpoint, []string, string) {
+// for a record version this node does not know. ws are the websocket
+// endpoints (host:port).
+func (p *pairingService) memberDevice(m cluster.Member, selfEps []cluster.Endpoint) (clients, ws []pairing.Endpoint, source string) {
 	switch {
 	case m.Device == nil:
-		selfClient, selfWS := p.selfDevice(selfEps)
-		var urls []string
-		if wsPort := portOfAny(selfWS); wsPort != "" {
-			urls = wssURLs(clientEndpoints(m.Endpoints, wsPort))
+		selfClient, selfWS := p.selfDeviceEndpoints(selfEps)
+		if wsPort := portOfAny(endpointAddrs(selfWS)); wsPort != "" {
+			ws = clientEndpoints(m.Endpoints, wsPort)
 		}
-		var clients []pairing.Endpoint
 		if clientPort := portOfAny(endpointAddrs(selfClient)); clientPort != "" {
 			clients = clientEndpoints(m.Endpoints, clientPort)
 		}
-		return clients, urls, devicePortsLegacy
+		return clients, ws, devicePortsLegacy
 	case m.Device.V != cluster.DeviceEndpointsVersion:
 		return nil, nil, devicePortsUnknown
 	}
-	var clients []pairing.Endpoint
-	if m.Device.Client.State != cluster.DeviceListenerOff {
-		clients = addrEndpoints(m.Device.Client.Addrs)
+	return memberListener(m.Device.Client), memberListener(m.Device.WS), devicePortsAdvertised
+}
+
+// memberListener is another member's advertised listener: classified by
+// the member itself when it says how, else by address range.
+func memberListener(l cluster.DeviceListener) []pairing.Endpoint {
+	switch {
+	case l.State == cluster.DeviceListenerOff:
+		return nil
+	case len(l.Endpoints) > 0:
+		return classifiedEndpoints(l.Endpoints)
 	}
-	var urls []string
-	if m.Device.WS.State != cluster.DeviceListenerOff {
-		urls = wssURLs(addrEndpoints(m.Device.WS.Addrs))
+	return addrEndpoints(l.Addrs)
+}
+
+// natsEndpoints types websocket endpoints as wss:// URLs, in order.
+func natsEndpoints(eps []pairing.Endpoint) []pairing.NATSEndpoint {
+	var out []pairing.NATSEndpoint
+	for _, ep := range eps {
+		out = append(out, pairing.NATSEndpoint{URL: "wss://" + ep.Addr, Kind: ep.JSONKind(), Priority: ep.Priority})
 	}
-	return clients, urls, devicePortsAdvertised
+	return out
 }
 
 // portOfAny is the port of the first address (or wss:// URL) in addrs.
@@ -234,34 +273,47 @@ func clientEndpoints(eps []cluster.Endpoint, port string) []pairing.Endpoint {
 	return addrEndpoints(addrs)
 }
 
-// addrEndpoints types host:port addresses by address range. Hosts a
-// phone cannot use (empty, unspecified, loopback) and repeated hosts are
-// skipped.
+// addrEndpoints types host:port addresses of another node by address
+// range, best first. Hosts a phone cannot use (empty, unspecified,
+// loopback) and repeated hosts are skipped.
 func addrEndpoints(addrs []string) []pairing.Endpoint {
+	return classifiedEndpoints(cluster.ClassifyAddrs(nil, addrs))
+}
+
+// classifiedEndpoints maps classified addresses to typed endpoints, in
+// order, skipping repeated hosts and hosts a phone cannot use.
+func classifiedEndpoints(eps []cluster.AdvertisedEndpoint) []pairing.Endpoint {
 	var out []pairing.Endpoint
 	seen := map[string]bool{}
-	tailnet := netip.MustParsePrefix("100.64.0.0/10")
-	for _, addr := range addrs {
-		host, port, err := net.SplitHostPort(addr)
+	for _, ep := range eps {
+		host, port, err := net.SplitHostPort(ep.Addr)
 		if err != nil || host == "" || host == "localhost" || port == "" || port == "0" || seen[host] {
 			continue
 		}
-		seen[host] = true
-		kind := pairing.EndpointDirect
-		if ip, err := netip.ParseAddr(host); err == nil {
-			if ip.IsUnspecified() || ip.IsLoopback() {
-				continue
-			}
-			switch {
-			case tailnet.Contains(ip):
-				kind = pairing.EndpointTailscale
-			case ip.IsPrivate() || ip.IsLinkLocalUnicast():
-				kind = pairing.EndpointLAN
-			}
+		if ip, err := netip.ParseAddr(host); err == nil && (ip.IsUnspecified() || ip.IsLoopback()) {
+			continue
 		}
-		out = append(out, pairing.Endpoint{Kind: kind, Addr: net.JoinHostPort(host, port)})
+		seen[host] = true
+		out = append(out, pairing.Endpoint{
+			Kind: binaryKind(ep.Kind), Addr: net.JoinHostPort(host, port),
+			Class: string(ep.Kind), Priority: ep.Priority,
+		})
 	}
 	return out
+}
+
+// binaryKind is the QR payload kind for a classified endpoint.
+func binaryKind(k cluster.AddrKind) pairing.EndpointKind {
+	switch k {
+	case cluster.KindLAN:
+		return pairing.EndpointLAN
+	case cluster.KindWireGuard:
+		return pairing.EndpointWireGuard
+	case cluster.KindTailscale:
+		return pairing.EndpointTailscale
+	default:
+		return pairing.EndpointDirect
+	}
 }
 
 // hostOptions pins an offer's advertised client endpoints to hosts
@@ -284,7 +336,7 @@ func (p *pairingService) hostOptions(hosts []string) ([]pairing.SelfOption, erro
 		}
 		addrs = append(addrs, addr)
 	}
-	eps := addrEndpoints(addrs)
+	eps := overrideEndpoints(addrs)
 	if len(eps) == 0 {
 		return nil, &pairing.Error{Code: pairing.ErrCodeBadRequest, Message: "no usable advertised host (loopback and unspecified addresses cannot reach a phone)"}
 	}
@@ -312,4 +364,25 @@ func pinnedAddr(h, port string) (string, error) {
 		return "", fmt.Errorf("advertised host %q needs a port: the client listener is not configured", h)
 	}
 	return net.JoinHostPort(h, port), nil
+}
+
+// overrideEndpoints types operator-pinned addresses (crush pair --host):
+// kind override, priority 0, in the given order.
+func overrideEndpoints(addrs []string) []pairing.Endpoint {
+	var out []pairing.Endpoint
+	ranked := map[string]cluster.AdvertisedEndpoint{}
+	for _, ep := range cluster.ClassifyAddrs(nil, addrs) {
+		ranked[ep.Addr] = ep
+	}
+	var keep []cluster.AdvertisedEndpoint
+	for _, a := range addrs {
+		if ep, ok := ranked[a]; ok {
+			keep = append(keep, ep)
+		}
+	}
+	for _, ep := range classifiedEndpoints(keep) {
+		ep.Class, ep.Priority = string(cluster.KindOverride), cluster.PriorityOverride
+		out = append(out, ep)
+	}
+	return out
 }
