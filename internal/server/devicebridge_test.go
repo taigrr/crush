@@ -360,6 +360,14 @@ func TestDeviceBridgeEndToEnd(t *testing.T) {
 		require.Eventually(t, func() bool { return b.stream(ph.id, opened.Stream) == nil }, deviceWait, 20*time.Millisecond)
 
 		require.Equal(t, codeRouteNotAllowed, dev.sub(streamRequest{Path: base + "/sessions"}).Error.Code)
+
+		// A filter for a session the workspace does not have is refused,
+		// not left silent; so is an unknown workspace.
+		unknown := dev.sub(streamRequest{Path: base + "/events", Query: json.RawMessage(`{"session_id":"` + uuid.NewString() + `"}`)})
+		require.Equal(t, http.StatusNotFound, unknown.Status)
+		require.Equal(t, codeNotFound, unknown.Error.Code)
+		unknown = dev.sub(streamRequest{Path: "/v1/workspaces/" + uuid.NewString() + "/events", Query: json.RawMessage(`{"session_id":"` + alpha.ID + `"}`)})
+		require.Equal(t, codeNotFound, unknown.Error.Code)
 	})
 
 	t.Run("permission answer and attention", func(t *testing.T) {
@@ -529,6 +537,11 @@ func TestDeviceBridgeCrossNode(t *testing.T) {
 			return false
 		}
 	}, deviceWait, 10*time.Millisecond)
+	// The owning node decides whether the filtered session exists.
+	missing := dev.sub(streamRequest{Node: bID, Path: "/v1/workspaces/" + ws.ID + "/events", Query: json.RawMessage(`{"session_id":"` + uuid.NewString() + `"}`)})
+	require.Equal(t, codeNotFound, missing.Error.Code)
+	require.Equal(t, bID, missing.NodeID)
+
 	var closed bridgeResponse
 	dev.request(subjClientRoot+id+"."+verbUnsub, unsubRequest{ID: "u", Stream: opened.Stream}, &closed)
 	require.Equal(t, http.StatusOK, closed.Status)
@@ -638,6 +651,19 @@ func TestDeviceStreamSessionOf(t *testing.T) {
 	check(`garbage`, "", true)
 	check(`{"type":"new_kind","payload":{"type":"x","payload":{"other":"s9"}}}`, "", true)
 	check(`{"type":"config_changed","payload":{"type":"x","payload":{}}}`, "", false)
+}
+
+func TestDeviceBridgeCheckSession(t *testing.T) {
+	t.Parallel()
+	b := &deviceBridge{ctx: t.Context()}
+	require.Nil(t, b.checkSession("w", "s"), "no lookup, no refusal")
+	b.sessionExists = func(_ context.Context, ws, sid string) (bool, error) { return ws == "w" && sid == "s", nil }
+	require.Nil(t, b.checkSession("w", "s"))
+	require.Equal(t, codeNotFound, b.checkSession("w", "x").Code)
+	require.Equal(t, codeNotFound, b.checkSession("other", "s").Code)
+	b.sessionExists = func(context.Context, string, string) (bool, error) { return false, context.DeadlineExceeded }
+	require.Equal(t, codeInternal, b.checkSession("w", "s").Code)
+	require.Equal(t, "ws_1", workspaceOf("/v1/workspaces/ws_1/events"))
 }
 
 func TestDeviceStreamRingBounds(t *testing.T) {

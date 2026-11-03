@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -82,6 +83,9 @@ type deviceBridge struct {
 	attention func(context.Context) <-chan pubsub.Event[proto.AttentionEvent]
 	// swarmOf returns a session's swarm address, or "" (a seam for tests).
 	swarmOf func(ctx context.Context, workspaceID, sessionID string) string
+	// sessionExists reports whether a workspace here has a session (a seam
+	// for tests).
+	sessionExists func(ctx context.Context, workspaceID, sessionID string) (bool, error)
 	// lookup resolves a swarm address to its owner (a seam for tests).
 	lookup func(ctx context.Context, address string) (backend.SwarmLookupResult, error)
 
@@ -115,6 +119,7 @@ func newDeviceBridge(p *pairingService, mesh *cluster.Mesh) *deviceBridge {
 		inflight: map[string]int{}, streams: map[string]*deviceStream{}, devices: map[string]*deviceWork{},
 	}
 	b.swarmOf = b.sessionAddress
+	b.sessionExists = b.hasSession
 	return b
 }
 
@@ -953,6 +958,22 @@ func (b *deviceBridge) publishAttention(a proto.AttentionEvent) {
 		}
 		_ = b.nc.Publish(subj, data)
 	}
+}
+
+// hasSession reports whether workspace workspaceID on this node has the
+// session. An unknown workspace has no sessions.
+func (b *deviceBridge) hasSession(ctx context.Context, workspaceID, sessionID string) (bool, error) {
+	ws, err := b.p.srv.backend.GetWorkspace(workspaceID)
+	if err != nil || ws.App == nil || ws.Sessions == nil {
+		return false, nil //nolint:nilerr // A missing workspace is a missing session.
+	}
+	if _, err := ws.Sessions.Get(ctx, sessionID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // sessionAddress is a session's swarm address from its stored identity.

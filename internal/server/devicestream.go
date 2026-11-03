@@ -224,7 +224,8 @@ func streamKey(p string, q url.Values) string {
 // the device's scopes here, whichever node the device asked.
 func (b *deviceBridge) openStream(d pairing.Device, req streamRequest) streamOpened {
 	fail := func(e *bridgeError) streamOpened { return streamFailure(req.ID, b.nodeID, e) }
-	if _, berr := b.streamPattern(d, req.Path); berr != nil {
+	pattern, berr := b.streamPattern(d, req.Path)
+	if berr != nil {
 		return fail(berr)
 	}
 	query, berr := parseQuery(req.Query)
@@ -232,6 +233,14 @@ func (b *deviceBridge) openStream(d pairing.Device, req streamRequest) streamOpe
 		return fail(berr)
 	}
 	session := query.Get(querySessionID)
+	// A filter for a session this node does not have would just be
+	// silent; refuse it. Only the node that runs a workspace stream can
+	// tell (global streams carry other nodes' sessions too).
+	if session != "" && req.Resume == nil && pattern == routeWorkspaceEvents {
+		if berr := b.checkSession(workspaceOf(req.Path), session); berr != nil {
+			return fail(berr)
+		}
+	}
 	keyQuery := maps.Clone(query)
 	keyQuery.Del(querySessionID)
 	key := streamKey(req.Path, keyQuery)
@@ -298,6 +307,30 @@ func (b *deviceBridge) openStream(d pairing.Device, req streamRequest) streamOpe
 		return fail(unavailable("node is shutting down"))
 	}
 	return streamOpened{V: wireVersion, ID: req.ID, Status: http.StatusOK, NodeID: b.nodeID, Stream: id}
+}
+
+// workspaceOf is the {id} of a /v1/workspaces/{id}/... path.
+func workspaceOf(p string) string {
+	rest, _ := strings.CutPrefix(p, "/v1/workspaces/")
+	id, _, _ := strings.Cut(rest, "/")
+	return id
+}
+
+// checkSession reports whether a workspace on this node has the session.
+func (b *deviceBridge) checkSession(workspaceID, sessionID string) *bridgeError {
+	if b.sessionExists == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(b.ctx, streamOpenTimeout)
+	defer cancel()
+	ok, err := b.sessionExists(ctx, workspaceID, sessionID)
+	switch {
+	case err != nil:
+		return newBridgeError(codeInternal, "cannot look up the session")
+	case !ok:
+		return newBridgeError(codeNotFound, "no such session in this workspace")
+	}
+	return nil
 }
 
 // stream returns the device's stream id on this node, or nil.
