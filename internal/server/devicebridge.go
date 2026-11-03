@@ -6,10 +6,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
@@ -23,6 +23,8 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
 )
+
+var errResponseTooLarge = errors.New("bridged response too large")
 
 // Device subject layout: crush.client.v1.<dev>.<verb>[.<arg>].
 const (
@@ -99,8 +101,17 @@ type deviceBridge struct {
 	subs   []*nats.Subscription
 
 	mu       sync.Mutex
+	stopped  bool
 	inflight map[string]int
 	streams  map[string]*deviceStream
+	// devices cancels a device's in-flight requests on revocation.
+	devices map[string]*deviceWork
+}
+
+// deviceWork is one device's in-flight bridged requests.
+type deviceWork struct {
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func newDeviceBridge(p *pairingService, mesh *cluster.Mesh) *deviceBridge {
@@ -109,20 +120,37 @@ func newDeviceBridge(p *pairingService, mesh *cluster.Mesh) *deviceBridge {
 		p: p, nc: mesh.ClientsConn(), mesh: mesh, router: newDeviceRouter(),
 		local: p.srv.h.Handler, nodeID: p.node.Identity().ID, attention: p.srv.backend.AttentionEvents,
 		ctx: ctx, cancel: cancel,
-		inflight: map[string]int{}, streams: map[string]*deviceStream{},
+		inflight: map[string]int{}, streams: map[string]*deviceStream{}, devices: map[string]*deviceWork{},
 	}
 }
 
+// spawn runs fn on the bridge's wait group unless the bridge is stopping,
+// so NATS callbacks still in flight during stop never add work after
+// Wait has begun.
+func (b *deviceBridge) spawn(fn func()) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.stopped {
+		return false
+	}
+	b.wg.Go(fn)
+	return true
+}
+
 func (b *deviceBridge) start() error {
-	handlers := map[string]nats.MsgHandler{
+	// Requests and stream opens go to one node (a queue group; NATS
+	// prefers the local member). Acks and unsubscribes go to every node,
+	// because only the node that opened a stream knows it; the others
+	// ignore the unknown stream ID.
+	queued := map[string]nats.MsgHandler{
 		subjClientRoot + "*.api.*": b.onAPI,
 		subjClientRoot + "*.sub":   b.onSub,
+	}
+	broadcast := map[string]nats.MsgHandler{
 		subjClientRoot + "*.unsub": b.onUnsub,
 		subjClientRoot + "*.ack.*": b.onAck,
 	}
-	for subj, fn := range handlers {
-		// A queue group makes exactly one node in the cluster answer; NATS
-		// prefers the local member.
+	for subj, fn := range queued {
 		sub, err := b.nc.QueueSubscribe(subj, bridgeQueue, fn)
 		if err != nil {
 			b.stop()
@@ -130,7 +158,15 @@ func (b *deviceBridge) start() error {
 		}
 		b.subs = append(b.subs, sub)
 	}
-	b.wg.Go(b.attentionLoop)
+	for subj, fn := range broadcast {
+		sub, err := b.nc.Subscribe(subj, fn)
+		if err != nil {
+			b.stop()
+			return err
+		}
+		b.subs = append(b.subs, sub)
+	}
+	b.spawn(b.attentionLoop)
 	return b.nc.Flush()
 }
 
@@ -138,8 +174,24 @@ func (b *deviceBridge) stop() {
 	for _, s := range b.subs {
 		_ = s.Unsubscribe()
 	}
+	b.mu.Lock()
+	b.stopped = true
+	b.mu.Unlock()
 	b.cancel()
 	b.wg.Wait()
+}
+
+// work returns the context for a device's bridged requests.
+func (b *deviceBridge) work(deviceID string) context.Context {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	w := b.devices[deviceID]
+	if w == nil {
+		ctx, cancel := context.WithCancel(b.ctx)
+		w = &deviceWork{ctx: ctx, cancel: cancel}
+		b.devices[deviceID] = w
+	}
+	return w.ctx
 }
 
 // device resolves the device that sent m from its subject (the device's
@@ -207,10 +259,22 @@ func (b *deviceBridge) onAPI(m *nats.Msg) {
 		b.respond(m, bridgeResponse{ID: req.ID, Status: http.StatusTooManyRequests})
 		return
 	}
-	b.wg.Go(func() {
+	ctx := b.work(d.DeviceID)
+	if !b.spawn(func() {
 		defer b.release(d.DeviceID)
-		b.respond(m, b.serveAPI(d, tokens[5], req))
-	})
+		resp := b.serveAPI(ctx, d, tokens[5], req)
+		// A device revoked while the request ran gets no answer.
+		if ctx.Err() == nil && b.active(d.DeviceID) {
+			b.respond(m, resp)
+		}
+	}) {
+		b.release(d.DeviceID)
+	}
+}
+
+func (b *deviceBridge) active(deviceID string) bool {
+	d, ok := b.p.reg.Get(deviceID)
+	return ok && !d.Revoked()
 }
 
 // target resolves the node a request should run on to a local path:
@@ -225,9 +289,11 @@ func (b *deviceBridge) target(node, p string) (string, bool) {
 	return "/v1/nodes/" + node + p, true
 }
 
-func (b *deviceBridge) serveAPI(d pairing.Device, node string, req bridgeRequest) bridgeResponse {
+func (b *deviceBridge) serveAPI(parent context.Context, d pairing.Device, node string, req bridgeRequest) bridgeResponse {
 	resp := bridgeResponse{ID: req.ID}
-	if b.router.authorize(req.Method, req.Path, d.Scopes) == "" {
+	pattern := b.router.authorize(req.Method, req.Path, d.Scopes)
+	// Event streams only run through .sub, never buffered here.
+	if pattern == "" || streamRoutes[pattern] {
 		resp.Status = http.StatusForbidden
 		return resp
 	}
@@ -246,7 +312,9 @@ func (b *deviceBridge) serveAPI(d pairing.Device, node string, req bridgeRequest
 		resp.Status = http.StatusBadRequest
 		return resp
 	}
-	ctx, cancel := context.WithTimeout(b.ctx, bridgeTimeout)
+	// The client identity is the bridge's to set, never the device's.
+	query.Del("client_id")
+	ctx, cancel := context.WithTimeout(parent, bridgeTimeout)
 	defer cancel()
 	hreq, err := http.NewRequestWithContext(ctx, req.Method, (&url.URL{Path: p, RawQuery: query.Encode()}).String(), bytes.NewReader(body))
 	if err != nil {
@@ -258,19 +326,51 @@ func (b *deviceBridge) serveAPI(d pairing.Device, node string, req bridgeRequest
 	if ct := req.Headers["content-type"]; ct != "" {
 		hreq.Header.Set("Content-Type", ct)
 	}
-	rec := httptest.NewRecorder()
+	rec := &cappedRecorder{header: http.Header{}, limit: maxBridgeBody}
 	b.local.ServeHTTP(rec, hreq)
-	if rec.Body.Len() > maxBridgeBody {
+	if rec.overflow {
 		resp.Status = http.StatusRequestEntityTooLarge
 		return resp
 	}
-	resp.Status = rec.Code
+	resp.Status = rec.status
+	if resp.Status == 0 {
+		resp.Status = http.StatusOK
+	}
 	resp.Headers = map[string]string{}
-	if ct := rec.Header().Get("Content-Type"); ct != "" {
+	if ct := rec.header.Get("Content-Type"); ct != "" {
 		resp.Headers["content-type"] = ct
 	}
-	resp.Body = base64.RawURLEncoding.EncodeToString(rec.Body.Bytes())
+	resp.Body = base64.RawURLEncoding.EncodeToString(rec.body.Bytes())
 	return resp
+}
+
+// cappedRecorder buffers a handler's response up to limit bytes and
+// drops the rest, so a large answer cannot exhaust memory.
+type cappedRecorder struct {
+	header   http.Header
+	body     bytes.Buffer
+	status   int
+	limit    int
+	overflow bool
+}
+
+func (r *cappedRecorder) Header() http.Header { return r.header }
+
+func (r *cappedRecorder) WriteHeader(status int) {
+	if r.status == 0 {
+		r.status = status
+	}
+}
+
+func (r *cappedRecorder) Write(p []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	if r.overflow || r.body.Len()+len(p) > r.limit {
+		r.overflow = true
+		return 0, errResponseTooLarge
+	}
+	return r.body.Write(p)
 }
 
 // deviceStream is one event stream opened by a device.
@@ -354,10 +454,12 @@ func (b *deviceBridge) onSub(m *nats.Msg) {
 	query.Set("client_id", uuid.NewString())
 	data, _ := json.Marshal(map[string]string{"stream": id})
 	_ = b.nc.Publish(m.Reply, data)
-	b.wg.Go(func() {
+	if !b.spawn(func() {
 		defer b.closeStream(id)
 		b.runStream(ctx, s, p, query)
-	})
+	}) {
+		b.closeStream(id)
+	}
 }
 
 func jsonScalar(v any) string {
@@ -436,9 +538,14 @@ func (b *deviceBridge) closeStream(id string) {
 	}
 }
 
-// closeDevice ends every stream of a device (revocation).
+// closeDevice ends every stream and in-flight request of a device
+// (revocation).
 func (b *deviceBridge) closeDevice(deviceID string) {
 	b.mu.Lock()
+	if w := b.devices[deviceID]; w != nil {
+		w.cancel()
+		delete(b.devices, deviceID)
+	}
 	var ids []string
 	for id, s := range b.streams {
 		if s.deviceID == deviceID {
@@ -461,11 +568,13 @@ func (b *deviceBridge) runStream(ctx context.Context, s *deviceStream, p string,
 	if err != nil {
 		return
 	}
-	b.wg.Go(func() {
+	if !b.spawn(func() {
 		b.local.ServeHTTP(w, req)
 		_ = pw.Close()
-	})
-	b.wg.Go(func() { b.watchStream(ctx, s) })
+	}) {
+		return
+	}
+	b.spawn(func() { b.watchStream(ctx, s) })
 	go func() {
 		<-ctx.Done()
 		_ = pr.CloseWithError(context.Canceled)

@@ -99,6 +99,10 @@ func cleanDevicePath(p string) (string, bool) {
 // authorize returns the route pattern for method and path if scopes allow
 // it, or "" when it is denied or unknown.
 func (r *deviceRouter) authorize(method, p string, scopes []string) string {
+	// ServeMux lets GET patterns match HEAD; devices only use these.
+	if method != http.MethodGet && method != http.MethodPost {
+		return ""
+	}
 	clean, ok := cleanDevicePath(p)
 	if !ok {
 		return ""

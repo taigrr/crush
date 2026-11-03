@@ -81,6 +81,9 @@ type pairingService struct {
 	// natsMu serializes user reloads (the apply loop and approvals).
 	natsMu sync.Mutex
 
+	revokedMu   sync.Mutex
+	revokedSeen map[string]bool
+
 	// gate binds the client listener only while an offer is open or an
 	// active device exists. It lives while the mesh is attached.
 	gate   atomic.Pointer[listenerGate]
@@ -99,15 +102,16 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, wsAddr: s.clientWSAddr, natsDirty: make(chan struct{}, 1)}
+	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, wsAddr: s.clientWSAddr, natsDirty: make(chan struct{}, 1), revokedSeen: map[string]bool{}}
 	p.mgr = pairing.NewManager(pairing.Config{
 		Self: p.self, OnApprove: p.onApprove, Extras: p.extras, Revoked: p.revoked,
 		OnChange: p.kickGate,
 	})
 	reg.Watch(func(d pairing.Device) {
-		if d.Revoked() {
+		if d.Revoked() && p.firstRevocation(d.DeviceID) {
 			// Tell the device first, while it is still connected, then
 			// end its streams; the reload below closes the connection.
+			// Each node notices once; devices treat repeats as idempotent.
 			if b := p.bridge.Load(); b != nil {
 				b.control(d.DeviceID, "revoked")
 				b.closeDevice(d.DeviceID)
@@ -200,6 +204,18 @@ func clientEndpoints(eps []cluster.Endpoint, port int) []pairing.Endpoint {
 		out = append(out, pairing.Endpoint{Kind: kind, Addr: net.JoinHostPort(host, strconv.Itoa(port))})
 	}
 	return out
+}
+
+// firstRevocation reports whether this node has not yet acted on the
+// device's revocation.
+func (p *pairingService) firstRevocation(deviceID string) bool {
+	p.revokedMu.Lock()
+	defer p.revokedMu.Unlock()
+	if p.revokedSeen[deviceID] {
+		return false
+	}
+	p.revokedSeen[deviceID] = true
+	return true
 }
 
 func (p *pairingService) kickGate() {

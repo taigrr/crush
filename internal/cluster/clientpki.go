@@ -65,14 +65,16 @@ func CACertificate(clusterID string, clusterKey []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	fp, err := CAFingerprint(clusterKey)
+	// Each node signs its own copy, so serials are random like any other
+	// certificate's; only the public key (the pin) is shared.
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
 	if err != nil {
 		return nil, err
 	}
 	name := clientCAName(clusterID)
 	now := time.Now()
 	tmpl := &x509.Certificate{
-		SerialNumber:          new(big.Int).SetBytes(fp[:16]),
+		SerialNumber:          serial,
 		Subject:               name,
 		Issuer:                name,
 		NotBefore:             now.Add(-time.Hour),
@@ -187,8 +189,10 @@ func (n *Node) ClientTLSConfig() *tls.Config {
 	}
 }
 
-// CAFingerprints returns the device pins for the current and (after a
-// rotation) previous cluster key, current first.
+// CAFingerprints returns the device pins devices may trust: only the
+// current cluster key's. TLS serves only the current chain, so a previous
+// pin would not verify; carrying devices across rotate-key is rollout
+// phase 3.
 func (n *Node) CAFingerprints() ([][]byte, error) {
 	st, err := n.store.Snapshot()
 	if err != nil {
@@ -197,37 +201,19 @@ func (n *Node) CAFingerprints() ([][]byte, error) {
 	if st.ClusterID == "" {
 		return nil, ErrNotInCluster
 	}
-	var out [][]byte
-	for _, key := range st.trustedKeys() {
-		fp, err := CAFingerprint(key)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, fp)
-	}
-	return out, nil
-}
-
-// CACertificates returns client CA certificates in CAFingerprints order.
-func (n *Node) CACertificates() ([][]byte, error) {
-	st, err := n.store.Snapshot()
+	fp, err := CAFingerprint(st.Key)
 	if err != nil {
 		return nil, err
 	}
-	if st.ClusterID == "" {
-		return nil, ErrNotInCluster
-	}
+	return [][]byte{fp}, nil
+}
+
+// CACertificates returns the client CA certificate devices see, in
+// CAFingerprints order.
+func (n *Node) CACertificates() ([][]byte, error) {
 	cur, err := n.currentClientChain()
 	if err != nil {
 		return nil, err
 	}
-	out := [][]byte{cur.caDER}
-	if len(st.PrevKey) > 0 {
-		prev, err := CACertificate(st.ClusterID, st.PrevKey)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, prev)
-	}
-	return out, nil
+	return [][]byte{cur.caDER}, nil
 }

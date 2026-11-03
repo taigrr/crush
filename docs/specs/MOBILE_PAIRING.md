@@ -685,8 +685,9 @@ and receives on its inbox:
 1. The bridge (a queue group across the cluster; the local member is preferred) takes the device ID from the subject, which the device's permissions make unforgeable, and rejects revoked or unknown devices silently.
 2. It answers only if the reply subject starts with `_INBOX.<dev>.`, so a device cannot aim an answer at another device.
 3. The path must be canonical (`/v1/...`, no dot segments, doubled or encoded slashes) and match the route allow-list for one of the device's scopes (`internal/server/devicescopes.go`); otherwise `403`. Unknown nodes give `404`.
-4. Only `content-type` is taken from the device's headers.
-5. The request runs in-process against the `/v1` handler, or for another node through the existing member proxy (`/v1/nodes/<node>/...`). Timeout 30 s; at most 8 concurrent requests per device (`429`); bodies over 4 MiB give `413`.
+4. Only `content-type` is taken from the device's headers, and `client_id` is removed from the query (the bridge, not the device, owns client identity). Only `GET` and `POST` are routable, and the event-stream routes are refused here (they only run through `.sub`).
+5. The request runs in-process against the `/v1` handler, or for another node through the existing member proxy (`/v1/nodes/<node>/...`). Timeout 30 s; at most 8 concurrent requests per device per node (`429`); request or response bodies over 4 MiB give `413` (responses are never buffered past that). Revoking a device cancels its in-flight requests, which then get no answer.
+6. The mesh's NATS `max_payload` is 8 MiB so a 4 MiB body fits after base64; it applies to device connections too (per-device limits need account JWTs, deferred). Nodes on older releases keep 1 MiB; the cluster expects homogeneous versions anyway.
 
 Deferred: re-checking scopes on the owning node and stamping `device_id` on device-originated actions.
 
@@ -694,13 +695,13 @@ Deferred: re-checking scopes on the owning node and stamping `device_id` on devi
 
 1. Open: NATS request on `crush.client.v1.<dev>.sub` with `{"node": "<id>|any", "path": "/v1/workspaces/{id}/events" | "/v1/events", "query": {"wire": 2, "frame_ms": 100}, "credit": 256}`. The reply is `{"stream": "<id>"}`, or `{"error", "status"}` (`403` for a path outside the stream routes or scopes, `404`, `429` over 16 streams per device).
 2. Frames: `crush.client.v1.<dev>.ev.<stream>` carries `{"seq": n, "data": "<one SSE data payload>"}` with `seq` from 0. `data` is exactly what the SSE endpoint would send in one `data:` line (wire 2 envelopes for workspace streams, attention events for `/v1/events`).
-3. Credit: the node stops reading the stream while `sent - acked >= credit`. The device publishes `{"seq": n, "credit": c}` on `crush.client.v1.<dev>.ack.<stream>` (rush acks every 16th frame). A stream stuck at zero credit for 60 s is closed. Credit is capped at 1024.
+3. Credit: the node stops reading the stream while `sent - acked >= credit`. The device publishes `{"seq": n, "credit": c}` on `crush.client.v1.<dev>.ack.<stream>` (rush acks every 16th frame). A stream stuck at zero credit for 60 s is closed. Credit is capped at 1024. Acks and unsubscribes reach every node (only the stream's node acts), so they work whichever member the device is attached to. Up to 16 streams per device per node.
 4. Close: `{"stream": "<id>"}` on `crush.client.v1.<dev>.unsub`. A stream also ends when the device is revoked, or when nothing in `CLIENTS` has subscribed to its frame subject for 30 s (the phone went away).
 5. Frames are never dropped or reordered, so there are no gaps and no `resync` frames; a phone that sees a gap (after its own reconnect) resubscribes.
 
 Attention: every node publishes its own attention events (not ones relayed from other members, and never `cluster_join`) on `crush.client.v1.broadcast.attention` as the `proto.AttentionEvent` JSON, tagged with `node_id` and `node_name`.
 
-Control: before revoking a device's NATS user, each node publishes `{"type": "revoked"}` on `crush.client.v1.<dev>.control`.
+Control: before revoking a device's NATS user, each node publishes `{"type": "revoked"}` on `crush.client.v1.<dev>.control`, once per node; devices treat repeats as idempotent.
 
 ### HTTPS fallback
 
@@ -743,7 +744,7 @@ This is the contract rush implements to talk NATS to a node after pairing.
 | Device seed | Generated on the phone | The 32-byte ed25519 seed. Store it in the Keychain / Keystore. NATS wants it as an nkey user seed: `nkeys` encoding with prefix `S`+`U`, i.e. the string `SU...` (58 characters). |
 | `device_id` | Poll response `device.device_id` | Also derivable: `dev_` + lowercase base32 (no padding) of `SHA-256(public key)[0:16]`. |
 | `urls` | Poll response `nats.urls` | `wss://host:port`, one per reachable endpoint of the pairing node. Loopback, unspecified, and empty hosts are never listed. |
-| `ca_fps` | Poll response `ca_fps` | base64url (no padding) SHA-256 values. The first is current. |
+| `ca_fps` | Poll response `ca_fps` | base64url (no padding) SHA-256 values; currently exactly one (the current cluster key's). Carrying devices across `rotate-key` is phase 3; until then a rotation means re-pairing. |
 | CA certificates | Poll response `ca_certs` | DER, base64url. Keep only those whose `SHA-256(SubjectPublicKeyInfo)` equals a pin (in flow a, the pin from the QR). |
 | Members | Poll response `members` | Node IDs, names, and keys for every node; their client endpoints. |
 
@@ -755,7 +756,7 @@ Every device port presents the chain `[leaf, CA]`.
 Rush must accept the connection only if all of these hold, and must not rely on system trust or host names:
 
 1. Some certificate after the leaf is a CA (`basicConstraints CA:TRUE`), within its validity period, whose `SHA-256(DER SubjectPublicKeyInfo)` equals a pinned `ca_fps` entry (compare bytes after base64url-decoding the pin).
-2. The leaf is not a CA, allows server authentication (`extKeyUsage serverAuth`), and its signature verifies with that CA's public key (ed25519).
+2. The leaf is not a CA, allows server authentication (`extKeyUsage serverAuth`), carries the DNS name `crush-node`, and its signature verifies with that CA's public key (ECDSA P-256).
 3. The leaf is within its validity period.
 4. The leaf's subject common name is the node ID rush meant to reach (from the QR, `/client/v1/info`, or `members`). This check is mandatory: every member's certificate chains to the same CA.
 

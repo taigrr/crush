@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -240,4 +241,59 @@ func TestDeviceBridgeAttentionFanOut(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no attention event")
 	}
+}
+
+func TestDeviceBridgeHardening(t *testing.T) {
+	t.Parallel()
+	srv, c := initPhoneNode(t)
+	ph := pairPhone(t, srv, c)
+
+	// One fake /v1 handler, installed before any bridged request, so the
+	// bridge never sees it change.
+	const (
+		echoQuery = iota
+		hugeBody
+	)
+	var mode atomic.Int32
+	seen := make(chan string, 1)
+	b := srv.pairing.bridge.Load()
+	b.local = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mode.Load() == hugeBody {
+			chunk := make([]byte, 1<<20)
+			for range 8 {
+				if _, err := w.Write(chunk); err != nil {
+					return
+				}
+			}
+			return
+		}
+		seen <- r.URL.Query().Get("client_id") + "|" + r.URL.Query().Get("limit")
+		_, _ = w.Write([]byte("[]"))
+	})
+
+	nc, err := ph.connect(t)
+	require.NoError(t, err)
+	defer nc.Close()
+
+	// Event streams never run through the buffered API path, and only GET
+	// and POST are routable.
+	require.Equal(t, http.StatusForbidden, bridgeCall(t, nc, ph.id, anyNode, "GET", "/v1/events", nil).Status)
+	require.Equal(t, http.StatusForbidden, bridgeCall(t, nc, ph.id, anyNode, "HEAD", "/v1/workspace-overviews", nil).Status)
+
+	// A device cannot choose the client identity of a bridged request.
+	reqID := uuid.NewString()
+	data, _ := json.Marshal(bridgeRequest{ID: reqID, Method: "GET", Path: "/v1/workspace-overviews", Query: "client_id=victim&limit=5"})
+	msg, err := nc.Request("crush.client.v1."+ph.id+".api.any", data, 5*time.Second)
+	require.NoError(t, err)
+	require.Contains(t, string(msg.Data), reqID)
+	require.Equal(t, "|5", <-seen)
+
+	// Oversized answers are refused, not buffered without bound.
+	mode.Store(hugeBody)
+	require.Equal(t, http.StatusRequestEntityTooLarge, bridgeCall(t, nc, ph.id, anyNode, "GET", "/v1/workspace-overviews", nil).Status)
+
+	// Revocation cancels in-flight work.
+	ctx := b.work(ph.id)
+	b.closeDevice(ph.id)
+	require.Error(t, ctx.Err())
 }
