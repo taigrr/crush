@@ -11,6 +11,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/pairing"
 )
 
 func TestClientUsersAreScopedAndRevocable(t *testing.T) {
@@ -110,26 +111,39 @@ func TestCAFingerprintOrder(t *testing.T) {
 	require.NotEqual(t, fpCur, fpPrev)
 }
 
-func TestClientChainCarriesDeterministicCA(t *testing.T) {
+func TestClientChainIsP256AndPinned(t *testing.T) {
 	t.Parallel()
-	key, err := NewKey()
+	n := newTestNode(t, "v1")
+	_, err := n.Init(nil)
 	require.NoError(t, err)
-	a, err := CACertificate("c1", key)
+	st, err := n.store.Snapshot()
 	require.NoError(t, err)
-	b, err := CACertificate("c1", key)
+
+	c, err := n.currentClientChain()
 	require.NoError(t, err)
-	require.Equal(t, a, b, "every node presents the same CA bytes")
-	ca, err := x509.ParseCertificate(a)
+	again, err := n.currentClientChain()
 	require.NoError(t, err)
+	require.Same(t, c, again, "handshakes reuse the cached chain")
+
+	require.Len(t, c.cert.Certificate, 2)
+	leaf, err := x509.ParseCertificate(c.cert.Certificate[0])
+	require.NoError(t, err)
+	ca, err := x509.ParseCertificate(c.cert.Certificate[1])
+	require.NoError(t, err)
+	require.Equal(t, x509.ECDSA, leaf.PublicKeyAlgorithm, "phones need P-256, not ed25519")
+	require.Equal(t, x509.ECDSA, ca.PublicKeyAlgorithm)
 	require.True(t, ca.IsCA)
-	fp, err := CAFingerprint(key)
+	require.NoError(t, leaf.CheckSignatureFrom(ca))
+	require.Equal(t, n.Identity().ID, leaf.Subject.CommonName)
+	require.Contains(t, leaf.DNSNames, pairing.NodeServerName)
+
+	fp, err := CAFingerprint(st.Key)
 	require.NoError(t, err)
 	sum := sha256.Sum256(ca.RawSubjectPublicKeyInfo)
 	require.Equal(t, fp, sum[:], "ca_fp is the SPKI hash of the presented CA")
-
-	id, err := LoadOrCreateIdentity(t.TempDir())
+	other, err := CACertificate(st.ClusterID, st.Key)
 	require.NoError(t, err)
-	leaf, err := IssueNodeCert("c1", key, id)
+	otherCA, err := x509.ParseCertificate(other)
 	require.NoError(t, err)
-	require.NoError(t, leaf.Leaf.CheckSignatureFrom(ca))
+	require.Equal(t, ca.RawSubjectPublicKeyInfo, otherCA.RawSubjectPublicKeyInfo, "every node derives the same CA key")
 }

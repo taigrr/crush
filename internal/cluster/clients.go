@@ -1,14 +1,9 @@
 package cluster
 
 import (
-	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
@@ -22,142 +17,6 @@ const ClientsAccount = "CLIENTS"
 
 // meshUser is the in-process mesh connection's user name.
 const meshUser = "crush-mesh"
-
-// CAFingerprint returns SHA-256 of the DER SubjectPublicKeyInfo of the
-// CA derived from clusterKey.
-func CAFingerprint(clusterKey []byte) ([]byte, error) {
-	ca, err := caKey(clusterKey)
-	if err != nil {
-		return nil, err
-	}
-	spki, err := x509.MarshalPKIXPublicKey(ca.Public())
-	if err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256(spki)
-	return sum[:], nil
-}
-
-// CAFingerprints returns the current and (after a rotation) previous CA
-// fingerprints.
-func (n *Node) CAFingerprints() ([][]byte, error) {
-	st, err := n.store.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	if st.ClusterID == "" {
-		return nil, ErrNotInCluster
-	}
-	var out [][]byte
-	for _, key := range st.trustedKeys() {
-		fp, err := CAFingerprint(key)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, fp)
-	}
-	return out, nil
-}
-
-// CACertificates returns the CA certificates for the current and (after a
-// rotation) previous cluster key, in CAFingerprints order.
-func (n *Node) CACertificates() ([][]byte, error) {
-	st, err := n.store.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	if st.ClusterID == "" {
-		return nil, ErrNotInCluster
-	}
-	var out [][]byte
-	for _, key := range st.trustedKeys() {
-		der, err := CACertificate(st.ClusterID, key)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, der)
-	}
-	return out, nil
-}
-
-// ClientTLSConfig serves the node's leaf certificate, followed by the
-// cluster CA certificate, to devices. Sending the CA lets a phone check
-// the pin (SHA-256 of the CA's SubjectPublicKeyInfo, the QR's ca_fp) and
-// verify the leaf's signature with standard tooling. Devices are not
-// members, so no client certificate is requested; they authenticate
-// inside the pairing protocol and with their nkey.
-func (n *Node) ClientTLSConfig() *tls.Config {
-	return &tls.Config{
-		MinVersion: tls.VersionTLS13,
-		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-			return n.clientCert()
-		},
-	}
-}
-
-func (n *Node) clientCert() (*tls.Certificate, error) {
-	st, err := n.store.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	leaf, err := n.certFor(st.ClusterID, st.Key, st.KeyVersion)
-	if err != nil {
-		return nil, err
-	}
-	ca, err := n.caCertFor(st.ClusterID, st.Key, st.KeyVersion)
-	if err != nil {
-		return nil, err
-	}
-	chain := *leaf
-	chain.Certificate = append([][]byte{leaf.Certificate[0]}, ca)
-	return &chain, nil
-}
-
-// caCertFor caches the CA certificate per cluster key, so TLS handshakes
-// (which unauthenticated clients can trigger) never re-sign it.
-func (n *Node) caCertFor(clusterID string, key []byte, keyVer int) ([]byte, error) {
-	n.certMu.Lock()
-	defer n.certMu.Unlock()
-	if n.caDER != nil && n.caKeyVer == keyVer && n.caCID == clusterID {
-		return n.caDER, nil
-	}
-	der, err := CACertificate(clusterID, key)
-	if err != nil {
-		return nil, err
-	}
-	n.caDER, n.caKeyVer, n.caCID = der, keyVer, clusterID
-	return der, nil
-}
-
-// caEpoch fixes the CA certificate's validity start so its DER is
-// deterministic for a given cluster key.
-var caEpoch = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-
-// CACertificate returns the self-signed DER certificate of the CA derived
-// from clusterKey. It is deterministic (ed25519 signatures are), so every
-// node presents the same bytes; its SPKI hash is the device pin.
-func CACertificate(clusterID string, clusterKey []byte) ([]byte, error) {
-	ca, err := caKey(clusterKey)
-	if err != nil {
-		return nil, err
-	}
-	fp, err := CAFingerprint(clusterKey)
-	if err != nil {
-		return nil, err
-	}
-	name := pkix.Name{CommonName: "crush-cluster " + clusterID}
-	tmpl := &x509.Certificate{
-		SerialNumber:          new(big.Int).SetBytes(fp[:16]),
-		Subject:               name,
-		Issuer:                name,
-		NotBefore:             caEpoch,
-		NotAfter:              caEpoch.AddDate(100, 0, 0),
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
-	return x509.CreateCertificate(nil, tmpl, tmpl, ca.Public(), ca)
-}
 
 const (
 	wsHandshakeTimeout = 5 * time.Second
