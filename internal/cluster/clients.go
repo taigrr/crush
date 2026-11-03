@@ -57,6 +57,7 @@ func bridgePermissions() *natsserver.Permissions {
 		Publish: &natsserver.SubjectPermission{Allow: []string{"crush.client.v1.>", "_INBOX.>"}},
 		Subscribe: &natsserver.SubjectPermission{Allow: []string{
 			"crush.client.v1.*.api.*", "crush.client.v1.*.sub", "crush.client.v1.*.unsub",
+			"crush.client.v1.*.info",
 			"crush.client.v1.*.ack.*",
 		}},
 	}

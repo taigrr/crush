@@ -388,13 +388,13 @@ func TestPairingPropagatesAcrossCluster(t *testing.T) {
 		return true
 	}, 10*time.Second, 50*time.Millisecond)
 
-	// A bridged request from a device on A runs on B through the member
-	// proxy.
-	nc, err := deviceConn(t, a, key)
-	require.NoError(t, err)
-	resp := bridgeCall(t, nc, id, b.Cluster().Identity().ID, "GET", "/v1/workspace-overviews", nil)
+	// A bridged request from a device on A runs on B, forwarded over the
+	// mesh.
+	dev := newFakeDevice(t, id, func(o ...nats.Option) (*nats.Conn, error) { return deviceConn(t, a, key, o...) })
+	resp := dev.call(b.Cluster().Identity().ID, bridgeRequest{Method: "GET", Path: "/v1/workspace-overviews"})
 	require.Equal(t, http.StatusOK, resp.Status)
-	nc.Close()
+	require.Equal(t, b.Cluster().Identity().ID, resp.NodeID)
+	dev.nc.Close()
 
 	// Revoking on B reaches A.
 	_, err = bc.RevokeDevice(ctx, id)

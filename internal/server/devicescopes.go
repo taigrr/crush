@@ -1,79 +1,40 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
+
+	"github.com/taigrr/crush/internal/pairing"
+	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/server/devicescope"
 )
 
-// Device scopes (docs/specs/MOBILE_PAIRING.md, Permissions).
+//go:generate go run ./gendevicescopes
+
+// Routes with bridge-enforced body rules, and the event-stream routes
+// (reachable only through .sub, never buffered through .api).
 const (
-	scopeSessionsRead      = "sessions:read"
-	scopeSessionsPrompt    = "sessions:prompt"
-	scopePermissionsAnswer = "permissions:answer"
-	scopePermissionsAlways = "permissions:always"
-	scopeConfigModel       = "config:model"
-	scopeSessionsMove      = "sessions:move"
-	scopeShell             = "shell"
+	routePostAgent       = "POST /v1/workspaces/{id}/agent"
+	routePermissionGrant = "POST /v1/workspaces/{id}/permissions/grant"
+	routeWorkspaceEvents = "GET /v1/workspaces/{id}/events"
+	routeGlobalEvents    = "GET /v1/events"
 )
 
-// deviceRoutes is the allow-list of /v1 routes a device may call through
-// the bridge, each with the scope it needs. Anything not listed is denied:
-// provider keys and OAuth, config writes, cluster and key operations,
-// debug, replication, transfer, and the member API are never reachable.
-var deviceRoutes = map[string]string{
-	"GET /v1/workspaces":                                          scopeSessionsRead,
-	"GET /v1/workspace-overviews":                                 scopeSessionsRead,
-	"GET /v1/workspaces/{id}":                                     scopeSessionsRead,
-	"GET /v1/workspaces/{id}/events":                              scopeSessionsRead,
-	"GET /v1/events":                                              scopeSessionsRead,
-	"GET /v1/workspaces/{id}/sessions":                            scopeSessionsRead,
-	"GET /v1/workspaces/{id}/sessions/archived":                   scopeSessionsRead,
-	"GET /v1/workspaces/{id}/sessions/{sid}":                      scopeSessionsRead,
-	"GET /v1/workspaces/{id}/sessions/{sid}/history":              scopeSessionsRead,
-	"GET /v1/workspaces/{id}/sessions/{sid}/pending":              scopeSessionsRead,
-	"GET /v1/workspaces/{id}/sessions/{sid}/messages":             scopeSessionsRead,
-	"GET /v1/workspaces/{id}/sessions/{sid}/messages/user":        scopeSessionsRead,
-	"GET /v1/workspaces/{id}/sessions/{sid}/milestones":           scopeSessionsRead,
-	"GET /v1/workspaces/{id}/agent":                               scopeSessionsRead,
-	"GET /v1/workspaces/{id}/agent/sessions/{sid}":                scopeSessionsRead,
-	"GET /v1/workspaces/{id}/agent/sessions/{sid}/goal":           scopeSessionsRead,
-	"GET /v1/workspaces/{id}/agent/sessions/{sid}/prompts/list":   scopeSessionsRead,
-	"GET /v1/workspaces/{id}/agent/sessions/{sid}/prompts/queued": scopeSessionsRead,
-	"GET /v1/cluster/dashboard":                                   scopeSessionsRead,
-	"GET /v1/swarm/resolve":                                       scopeSessionsRead,
+var streamRoutes = map[string]bool{routeWorkspaceEvents: true, routeGlobalEvents: true}
 
-	"POST /v1/workspaces/{id}/agent":                                    scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/sessions":                                 scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/agent/sessions/{sid}/cancel":              scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/agent/sessions/{sid}/tools/cancel":        scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/agent/sessions/{sid}/goal":                scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/agent/sessions/{sid}/goal/clear":          scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/agent/sessions/{sid}/title":               scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/agent/sessions/{sid}/summarize":           scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/agent/sessions/{sid}/prompts/clear":       scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/agent/sessions/{sid}/prompts/promote-btw": scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/agent/sessions/{sid}/runs/{rid}/drop":     scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/sessions/{sid}/seen":                      scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/sessions/{sid}/favorite":                  scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/sessions/{sid}/archive":                   scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/sessions/{sid}/unarchive":                 scopeSessionsPrompt,
-	"POST /v1/workspaces/{id}/permissions/grant":                        scopePermissionsAnswer,
-	"POST /v1/workspaces/{id}/questions/answer":                         scopePermissionsAnswer,
-	"POST /v1/workspaces/{id}/permissions/skip":                         scopePermissionsAlways,
-	"POST /v1/workspaces/{id}/config/model":                             scopeConfigModel,
-	"POST /v1/sessions/move":                                            scopeSessionsMove,
-	"POST /v1/workspaces/{id}/agent/sessions/{sid}/shell":               scopeShell,
-}
+// deviceClientPrefix prefixes the client_id the bridge stamps on turns a
+// device starts.
+const deviceClientPrefix = "device:"
 
-// streamRoutes are the routes a device may open as an event stream.
-var streamRoutes = map[string]bool{
-	"GET /v1/workspaces/{id}/events": true,
-	"GET /v1/events":                 true,
-}
+// maxDevicePath bounds a device-supplied path.
+const maxDevicePath = 2048
 
-// deviceRouter matches bridged requests against deviceRoutes.
+// deviceRouter matches bridged requests against deviceRoutes (generated
+// from the x-crush-scope annotations in swagger).
 type deviceRouter struct{ mux *http.ServeMux }
 
 func newDeviceRouter() *deviceRouter {
@@ -85,10 +46,18 @@ func newDeviceRouter() *deviceRouter {
 }
 
 // cleanDevicePath validates a device-supplied path: absolute, under /v1,
-// already canonical (no dot segments, doubled or encoded slashes).
+// already canonical (no dot segments, doubled or encoded slashes), and
+// free of query, fragment, escapes, backslashes, and control or space
+// characters, so the path the router matches is exactly the path the
+// handler sees.
 func cleanDevicePath(p string) (string, bool) {
-	if !strings.HasPrefix(p, "/v1/") || strings.ContainsAny(p, "?#%\\") {
+	if !strings.HasPrefix(p, "/v1/") || len(p) > maxDevicePath || strings.ContainsAny(p, "?#%\\") {
 		return "", false
+	}
+	for i := range len(p) {
+		if c := p[i]; c <= ' ' || c == 0x7f {
+			return "", false
+		}
 	}
 	if path.Clean(p) != p {
 		return "", false
@@ -96,27 +65,77 @@ func cleanDevicePath(p string) (string, bool) {
 	return p, true
 }
 
-// authorize returns the route pattern for method and path if scopes allow
-// it, or "" when it is denied or unknown.
-func (r *deviceRouter) authorize(method, p string, scopes []string) string {
-	// ServeMux lets GET patterns match HEAD; devices only use these.
+// authorize returns the route pattern for method and path, or the bridge
+// error that refuses it.
+func (r *deviceRouter) authorize(method, p string, scopes []string) (string, *bridgeError) {
 	if method != http.MethodGet && method != http.MethodPost {
-		return ""
+		return "", newBridgeError(codeMethodNotAllowed, "only GET and POST are routable")
 	}
 	clean, ok := cleanDevicePath(p)
 	if !ok {
-		return ""
+		return "", newBridgeError(codeBadRequest, "path must be a canonical /v1 path")
 	}
 	req := &http.Request{Method: method, URL: &url.URL{Path: clean}, Host: "bridge"}
 	_, pattern := r.mux.Handler(req)
 	need, ok := deviceRoutes[pattern]
 	if !ok {
-		return ""
+		return "", newBridgeError(codeNotFound, "unknown route")
 	}
-	for _, s := range scopes {
-		if s == need {
-			return pattern
+	if need == devicescope.Never {
+		return "", newBridgeError(codeRouteNotAllowed, "route is not available to devices")
+	}
+	if !slices.Contains(scopes, need) {
+		return "", scopeDenied(need)
+	}
+	return pattern, nil
+}
+
+func scopeDenied(scope string) *bridgeError {
+	return &bridgeError{Code: codeDeviceScopeDenied, Message: "route requires scope " + scope, Scope: scope}
+}
+
+// applyBodyRules enforces per-route body rules on top of the route
+// scope and returns the body to forward: a device's turns always carry
+// its own client identity, and it cannot loosen a turn's permission
+// policy or make persistent grants without permissions:always.
+func applyBodyRules(pattern string, d pairing.Device, body []byte) ([]byte, *bridgeError) {
+	switch pattern {
+	case routePostAgent:
+		var msg map[string]json.RawMessage
+		if json.Unmarshal(body, &msg) != nil || msg == nil {
+			return nil, newBridgeError(codeBadRequest, "body must be a JSON object")
+		}
+		var policy string
+		if raw, ok := msg["permission_policy"]; ok && string(raw) != "null" {
+			if json.Unmarshal(raw, &policy) != nil {
+				return nil, newBridgeError(codeBadRequest, "permission_policy must be a string")
+			}
+		}
+		if policy != "" && policy != string(proto.PermissionPolicyPrompt) && !slices.Contains(d.Scopes, devicescope.PermissionsAlways) {
+			return nil, scopeDenied(devicescope.PermissionsAlways)
+		}
+		id, _ := json.Marshal(deviceClientPrefix + d.DeviceID)
+		msg["client_id"] = id
+		out, err := json.Marshal(msg)
+		if err != nil {
+			return nil, newBridgeError(codeBadRequest, "invalid body")
+		}
+		return out, nil
+	case routePermissionGrant:
+		var grant struct {
+			Action string `json:"action"`
+		}
+		if json.Unmarshal(body, &grant) != nil {
+			return nil, newBridgeError(codeBadRequest, "body must be a JSON object")
+		}
+		switch proto.PermissionAction(grant.Action) {
+		case proto.PermissionAllow, proto.PermissionAllowForSession, proto.PermissionDeny:
+		default:
+			// Anything beyond a one-off or per-session answer persists.
+			if !slices.Contains(d.Scopes, devicescope.PermissionsAlways) {
+				return nil, scopeDenied(devicescope.PermissionsAlways)
+			}
 		}
 	}
-	return ""
+	return body, nil
 }

@@ -1,87 +1,72 @@
 package server
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
+	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/pairing"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
+	"github.com/taigrr/crush/internal/server/devicescope"
+	"github.com/taigrr/crush/internal/swarm"
 )
 
 var errResponseTooLarge = errors.New("bridged response too large")
 
-// Device subject layout: crush.client.v1.<dev>.<verb>[.<arg>].
+// Device subject layout: crush.client.v1.<dev>.<verb>[.<arg>]. Forwarded
+// requests travel member to member on crush.client.fwd.<node>, in the
+// mesh's global account, which device connections can never reach.
 const (
 	subjClientRoot      = "crush.client.v1."
 	subjClientAttention = "crush.client.v1.broadcast.attention"
+	subjClientFwd       = "crush.client.fwd."
 	bridgeQueue         = "crush-device-bridge"
 	anyNode             = "any"
 
-	bridgeTimeout          = 30 * time.Second
-	maxBridgeBody          = 4 << 20
-	maxInflightPerDevice   = 8
-	maxStreamsPerDevice    = 16
-	defaultStreamCredit    = 256
-	maxStreamCredit        = 1024
-	streamInterestInterval = 10 * time.Second
-	streamInterestGrace    = 30 * time.Second
-	streamBlockedLease     = 60 * time.Second
-	maxSSELine             = 4 << 20
+	verbInfo      = "info"
+	verbAPI       = "api"
+	verbSub       = "sub"
+	verbUnsub     = "unsub"
+	verbAck       = "ack"
+	verbEvents    = "ev"
+	verbControl   = "control"
+	verbAttention = "attention"
+
+	bridgeTimeout    = 30 * time.Second
+	minBridgeTimeout = time.Second
+	// handlerGrace lets a handler that outlived its device's timeout
+	// finish, so an idempotent retry learns the real outcome.
+	handlerGrace = 30 * time.Second
+	// fwdGrace is how much longer the entry node waits for the owner than
+	// the owner's own timeout, so the owner's 504 wins over a 502.
+	fwdGrace             = 2 * time.Second
+	maxBridgeBody        = 4 << 20
+	maxInflightPerDevice = 8
+	maxRequestID         = 128
+	rateLimitRetry       = 250 * time.Millisecond
+	unreachableRetry     = 5 * time.Second
+	// atFormat is RFC 3339 in UTC with millisecond precision.
+	atFormat = "2006-01-02T15:04:05.000Z"
+
+	msgUnsupportedVersion = "unsupported version"
 )
 
-// bridgeRequest is the NATS-to-HTTP envelope a device sends on
-// crush.client.v1.<dev>.api.<node>.
-type bridgeRequest struct {
-	ID      string            `json:"id"`
-	Method  string            `json:"method"`
-	Path    string            `json:"path"`
-	Query   string            `json:"query"`
-	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body"`
-}
-
-// bridgeResponse answers a bridgeRequest.
-type bridgeResponse struct {
-	ID      string            `json:"id"`
-	Status  int               `json:"status"`
-	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body"`
-}
-
-// streamRequest opens an event stream (crush.client.v1.<dev>.sub).
-type streamRequest struct {
-	Node   string         `json:"node"`
-	Path   string         `json:"path"`
-	Query  map[string]any `json:"query"`
-	Credit int            `json:"credit"`
-}
-
-type streamAck struct {
-	Stream string `json:"stream"`
-	Seq    int64  `json:"seq"`
-	Credit int    `json:"credit"`
-}
-
-type streamFrame struct {
-	Seq  int64  `json:"seq"`
-	Data string `json:"data"`
-}
+func wireNow() string { return time.Now().UTC().Format(atFormat) }
 
 // deviceBridge serves device subjects from the CLIENTS account: bridged
 // /v1 requests, event streams, attention fan-out, and control notices.
@@ -92,8 +77,13 @@ type deviceBridge struct {
 	router *deviceRouter
 	local  http.Handler
 	nodeID string
+	idem   *idemCache
 	// attention is the local attention feed (a seam for tests).
 	attention func(context.Context) <-chan pubsub.Event[proto.AttentionEvent]
+	// swarmOf returns a session's swarm address, or "" (a seam for tests).
+	swarmOf func(ctx context.Context, workspaceID, sessionID string) string
+	// lookup resolves a swarm address to its owner (a seam for tests).
+	lookup func(ctx context.Context, address string) (backend.SwarmLookupResult, error)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -101,6 +91,7 @@ type deviceBridge struct {
 	subs   []*nats.Subscription
 
 	mu       sync.Mutex
+	tune     streamTuning
 	stopped  bool
 	inflight map[string]int
 	streams  map[string]*deviceStream
@@ -116,12 +107,15 @@ type deviceWork struct {
 
 func newDeviceBridge(p *pairingService, mesh *cluster.Mesh) *deviceBridge {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &deviceBridge{
+	b := &deviceBridge{
 		p: p, nc: mesh.ClientsConn(), mesh: mesh, router: newDeviceRouter(),
 		local: p.srv.h.Handler, nodeID: p.node.Identity().ID, attention: p.srv.backend.AttentionEvents,
-		ctx: ctx, cancel: cancel,
+		idem: newIdemCache(), lookup: p.srv.backend.LookupSwarmAddress,
+		ctx: ctx, cancel: cancel, tune: defaultStreamTuning(),
 		inflight: map[string]int{}, streams: map[string]*deviceStream{}, devices: map[string]*deviceWork{},
 	}
+	b.swarmOf = b.sessionAddress
+	return b
 }
 
 // spawn runs fn on the bridge's wait group unless the bridge is stopping,
@@ -138,17 +132,18 @@ func (b *deviceBridge) spawn(fn func()) bool {
 }
 
 func (b *deviceBridge) start() error {
-	// Requests and stream opens go to one node (a queue group; NATS
-	// prefers the local member). Acks and unsubscribes go to every node,
-	// because only the node that opened a stream knows it; the others
-	// ignore the unknown stream ID.
+	// Requests, hellos, and stream opens go to one node (a queue group;
+	// NATS prefers the local member). Acks and unsubscribes go to every
+	// node, because only the node that opened a stream knows it; the
+	// others ignore the unknown stream ID.
 	queued := map[string]nats.MsgHandler{
-		subjClientRoot + "*.api.*": b.onAPI,
-		subjClientRoot + "*.sub":   b.onSub,
+		subjClientRoot + "*." + verbAPI + ".*": b.onAPI,
+		subjClientRoot + "*." + verbSub:        b.onSub,
+		subjClientRoot + "*." + verbInfo:       b.onInfo,
 	}
 	broadcast := map[string]nats.MsgHandler{
-		subjClientRoot + "*.unsub": b.onUnsub,
-		subjClientRoot + "*.ack.*": b.onAck,
+		subjClientRoot + "*." + verbUnsub:      b.onUnsub,
+		subjClientRoot + "*." + verbAck + ".*": b.onAck,
 	}
 	for subj, fn := range queued {
 		sub, err := b.nc.QueueSubscribe(subj, bridgeQueue, fn)
@@ -166,7 +161,16 @@ func (b *deviceBridge) start() error {
 		}
 		b.subs = append(b.subs, sub)
 	}
+	fwd, err := b.mesh.Subscribe(subjClientFwd+b.nodeID, b.onFwd)
+	if err != nil {
+		b.stop()
+		return err
+	}
+	b.subs = append(b.subs, fwd)
 	b.spawn(b.attentionLoop)
+	if err := b.mesh.Conn().Flush(); err != nil {
+		return err
+	}
 	return b.nc.Flush()
 }
 
@@ -202,11 +206,21 @@ func (b *deviceBridge) device(m *nats.Msg) (pairing.Device, []string, bool) {
 	if len(tokens) < 5 {
 		return pairing.Device{}, nil, false
 	}
-	d, ok := b.p.reg.Get(tokens[3])
+	d, ok := b.activeDevice(tokens[3])
+	return d, tokens, ok
+}
+
+func (b *deviceBridge) activeDevice(deviceID string) (pairing.Device, bool) {
+	d, ok := b.p.reg.Get(deviceID)
 	if !ok || d.Revoked() {
-		return pairing.Device{}, nil, false
+		return pairing.Device{}, false
 	}
-	return d, tokens, true
+	return d, true
+}
+
+func (b *deviceBridge) active(deviceID string) bool {
+	_, ok := b.activeDevice(deviceID)
+	return ok
 }
 
 // replyOK reports whether a reply subject belongs to the device's private
@@ -234,15 +248,200 @@ func (b *deviceBridge) release(deviceID string) {
 	}
 }
 
-func (b *deviceBridge) respond(m *nats.Msg, resp bridgeResponse) {
-	data, err := json.Marshal(resp)
+func rateLimited() *bridgeError {
+	return &bridgeError{Code: codeRateLimited, Message: "too many requests in flight", RetryAfterMS: rateLimitRetry.Milliseconds()}
+}
+
+func unavailable(msg string) *bridgeError { return newBridgeError(codeUnavailable, msg) }
+
+// encode marshals a reply, replacing anything over the connection's
+// payload limit with a payload_too_large error.
+func (b *deviceBridge) encode(nc *nats.Conn, v any, id string) []byte {
+	data, err := json.Marshal(v)
 	if err != nil {
+		data, _ = json.Marshal(errorResponse(id, b.nodeID, newBridgeError(codeInternal, "cannot encode reply")))
+	}
+	if nc != nil && int64(len(data)) > nc.MaxPayload() {
+		data, _ = json.Marshal(errorResponse(id, b.nodeID, newBridgeError(codePayloadTooLarge, "reply exceeds the payload limit")))
+	}
+	return data
+}
+
+// reply answers a device request on its inbox (the caller checked
+// replyOK).
+func (b *deviceBridge) reply(m *nats.Msg, v any, id string) {
+	_ = b.nc.Publish(m.Reply, b.encode(b.nc, v, id))
+}
+
+func (b *deviceBridge) onInfo(m *nats.Msg) {
+	d, tokens, ok := b.device(m)
+	if !ok || len(tokens) != 5 || !replyOK(m, d.DeviceID) {
 		return
 	}
-	if len(data) > int(b.nc.MaxPayload()) {
-		data, _ = json.Marshal(bridgeResponse{ID: resp.ID, Status: http.StatusRequestEntityTooLarge})
+	scopes := slices.Clone(d.Scopes)
+	if scopes == nil {
+		scopes = []string{}
 	}
-	_ = b.nc.Publish(m.Reply, data)
+	b.reply(m, infoReply{
+		V: wireVersion, Versions: []int{wireVersion}, NodeID: b.nodeID, NodeName: b.p.node.Identity().Name,
+		DeviceID: d.DeviceID, Role: string(d.Role), Scopes: scopes, Features: slices.Clone(bridgeFeatures),
+		Limits: b.limits(),
+	}, "")
+}
+
+func (b *deviceBridge) limits() bridgeLimits {
+	b.mu.Lock()
+	t := b.tune
+	b.mu.Unlock()
+	return bridgeLimits{
+		MaxRequestBytes: maxBridgeBody, MaxResponseBytes: maxBridgeBody,
+		MaxInflightRequests: maxInflightPerDevice, MaxStreams: maxStreamsPerDevice, MaxCredit: maxStreamCredit,
+		RequestTimeoutMS: bridgeTimeout.Milliseconds(), HeartbeatMS: t.heartbeat.Milliseconds(),
+		ResumeWindowMS: t.idle.Milliseconds(), ResumeBufferFrames: t.ring,
+	}
+}
+
+// parseRequest decodes and validates a request envelope. The returned
+// request carries its ID whenever it could be read.
+func parseRequest(data []byte) (bridgeRequest, *bridgeError) {
+	var req bridgeRequest
+	if err := json.Unmarshal(data, &req); err != nil {
+		var idOnly struct {
+			ID string `json:"id"`
+		}
+		_ = json.Unmarshal(data, &idOnly)
+		if len(idOnly.ID) <= maxRequestID {
+			req.ID = idOnly.ID
+		}
+		return req, newBridgeError(codeBadRequest, "malformed envelope")
+	}
+	switch {
+	case len(req.ID) > maxRequestID:
+		req.ID = ""
+		return req, newBridgeError(codeBadRequest, "id must be at most 128 bytes")
+	case req.V != 0 && req.V != wireVersion:
+		return req, newBridgeError(codeBadRequest, msgUnsupportedVersion)
+	case req.ID == "":
+		return req, newBridgeError(codeBadRequest, "id is required")
+	case len(req.JSON) > 0 && req.Body != "":
+		return req, newBridgeError(codeBadRequest, "use json or body, not both")
+	case req.Method == http.MethodGet && (len(req.JSON) > 0 || req.Body != ""):
+		return req, newBridgeError(codeBadRequest, "GET requests carry no body")
+	case req.IdempotencyKey != "" && !validIdemKey(req.IdempotencyKey):
+		return req, newBridgeError(codeBadRequest, "idempotency_key must be 1 to 64 of [A-Za-z0-9_-]")
+	}
+	return req, nil
+}
+
+func validIdemKey(k string) bool {
+	if k == "" || len(k) > maxIdempotencyKey {
+		return false
+	}
+	for _, c := range []byte(k) {
+		ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-'
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (req bridgeRequest) timeout() time.Duration {
+	if req.TimeoutMS <= 0 {
+		return bridgeTimeout
+	}
+	return min(max(time.Duration(req.TimeoutMS)*time.Millisecond, minBridgeTimeout), bridgeTimeout)
+}
+
+// body decodes the request body (inline JSON or base64url).
+func (req bridgeRequest) body() ([]byte, *bridgeError) {
+	if len(req.JSON) > 0 {
+		if len(req.JSON) > maxBridgeBody {
+			return nil, newBridgeError(codePayloadTooLarge, "body exceeds 4 MiB")
+		}
+		return req.JSON, nil
+	}
+	if base64.RawURLEncoding.DecodedLen(len(req.Body)) > maxBridgeBody {
+		return nil, newBridgeError(codePayloadTooLarge, "body exceeds 4 MiB")
+	}
+	body, err := base64.RawURLEncoding.DecodeString(req.Body)
+	if err != nil {
+		return nil, newBridgeError(codeBadRequest, "body must be base64url without padding")
+	}
+	return body, nil
+}
+
+// contentType is the request's content type: JSON for inline bodies,
+// otherwise only what the device named (identity headers are dropped).
+func (req bridgeRequest) contentType() string {
+	if len(req.JSON) > 0 {
+		return "application/json"
+	}
+	return req.Headers["content-type"]
+}
+
+// wantsJSON reports whether replies may inline JSON bodies: v1 clients
+// and anyone who sent one. Phase 2a clients keep base64 bodies.
+func (req bridgeRequest) wantsJSON() bool { return req.V >= wireVersion || len(req.JSON) > 0 }
+
+// parseQuery accepts the v1 object form ({"k": "v"} or {"k": ["a"]}) and
+// the phase 2a string form, and strips client_id (the bridge owns
+// client identity).
+func parseQuery(raw json.RawMessage) (url.Values, *bridgeError) {
+	out := url.Values{}
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" {
+		return out, nil
+	}
+	bad := newBridgeError(codeBadRequest, "query must be an object of strings or string lists")
+	if raw[0] == '"' {
+		var s string
+		if json.Unmarshal(raw, &s) != nil {
+			return nil, bad
+		}
+		q, err := url.ParseQuery(s)
+		if err != nil {
+			return nil, bad
+		}
+		out = q
+	} else {
+		var m map[string]json.RawMessage
+		if json.Unmarshal(raw, &m) != nil {
+			return nil, bad
+		}
+		for k, v := range m {
+			var list []any
+			if json.Unmarshal(v, &list) != nil {
+				var one any
+				if json.Unmarshal(v, &one) != nil {
+					return nil, bad
+				}
+				list = []any{one}
+			}
+			for _, item := range list {
+				s, ok := jsonScalar(item)
+				if !ok {
+					return nil, bad
+				}
+				out.Add(k, s)
+			}
+		}
+	}
+	out.Del("client_id")
+	return out, nil
+}
+
+func jsonScalar(v any) (string, bool) {
+	switch t := v.(type) {
+	case string:
+		return t, true
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64), true
+	case bool:
+		return strconv.FormatBool(t), true
+	default:
+		return "", false
+	}
 }
 
 func (b *deviceBridge) onAPI(m *nats.Msg) {
@@ -250,97 +449,361 @@ func (b *deviceBridge) onAPI(m *nats.Msg) {
 	if !ok || len(tokens) != 6 || !replyOK(m, d.DeviceID) {
 		return
 	}
-	var req bridgeRequest
-	if json.Unmarshal(m.Data, &req) != nil || len(req.ID) > 128 {
-		b.respond(m, bridgeResponse{ID: req.ID, Status: http.StatusBadRequest})
+	req, berr := parseRequest(m.Data)
+	if berr != nil {
+		resp := errorResponse(req.ID, b.nodeID, berr)
+		if berr.Message == msgUnsupportedVersion {
+			resp.Versions = []int{wireVersion}
+		}
+		b.reply(m, resp, req.ID)
 		return
 	}
 	if !b.acquire(d.DeviceID) {
-		b.respond(m, bridgeResponse{ID: req.ID, Status: http.StatusTooManyRequests})
+		b.reply(m, errorResponse(req.ID, b.nodeID, rateLimited()), req.ID)
 		return
 	}
 	ctx := b.work(d.DeviceID)
 	if !b.spawn(func() {
 		defer b.release(d.DeviceID)
-		resp := b.serveAPI(ctx, d, tokens[5], req)
+		resp, done := b.route(ctx, d, tokens[5], req)
 		// A device revoked while the request ran gets no answer.
 		if ctx.Err() == nil && b.active(d.DeviceID) {
-			b.respond(m, resp)
+			b.reply(m, resp, req.ID)
 		}
+		// The slot stays taken until the handler really returned.
+		<-done
 	}) {
 		b.release(d.DeviceID)
+		b.reply(m, errorResponse(req.ID, b.nodeID, unavailable("node is shutting down")), req.ID)
 	}
 }
 
-func (b *deviceBridge) active(deviceID string) bool {
-	d, ok := b.p.reg.Get(deviceID)
-	return ok && !d.Revoked()
+var closedDone = func() chan struct{} {
+	c := make(chan struct{})
+	close(c)
+	return c
+}()
+
+// route checks a request on the entry node and runs it here or on the
+// node that owns it. done is closed once no handler on this node is
+// still running for it.
+func (b *deviceBridge) route(ctx context.Context, d pairing.Device, node string, req bridgeRequest) (bridgeResponse, <-chan struct{}) {
+	fail := func(e *bridgeError) (bridgeResponse, <-chan struct{}) {
+		return errorResponse(req.ID, b.nodeID, e), closedDone
+	}
+	if _, berr := b.check(d, req); berr != nil {
+		return fail(berr)
+	}
+	owner, _, berr := b.resolveNode(ctx, node, req.Target)
+	if berr != nil {
+		return fail(berr)
+	}
+	if owner == b.nodeID {
+		return b.execute(ctx, d, req)
+	}
+	req.Target = nil
+	var resp bridgeResponse
+	if berr := b.forward(ctx, d.DeviceID, owner, fwdAPI, req, &resp, req.timeout()+fwdGrace); berr != nil {
+		return fail(berr)
+	}
+	return resp, closedDone
 }
 
-// target resolves the node a request should run on to a local path:
-// this node's own path, or the member proxy for another node.
-func (b *deviceBridge) target(node, p string) (string, bool) {
-	if node == anyNode || node == b.nodeID {
-		return p, true
+// check authorizes req for d: route scope, stream routes refused, body
+// limits and body rules. Every node that handles the request runs it.
+func (b *deviceBridge) check(d pairing.Device, req bridgeRequest) (string, *bridgeError) {
+	pattern, berr := b.router.authorize(req.Method, req.Path, d.Scopes)
+	if berr != nil {
+		return "", berr
+	}
+	if streamRoutes[pattern] {
+		return "", newBridgeError(codeRouteNotAllowed, "event streams are opened with sub")
+	}
+	if _, berr := parseQuery(req.Query); berr != nil {
+		return "", berr
+	}
+	body, berr := req.body()
+	if berr != nil {
+		return "", berr
+	}
+	if _, berr := applyBodyRules(pattern, d, body); berr != nil {
+		return "", berr
+	}
+	return pattern, nil
+}
+
+// resolveNode picks the node a request runs on: the subject's node, or
+// for "any" the request's target (a node or a swarm address), else this
+// node. For a swarm target it also returns the session it names.
+func (b *deviceBridge) resolveNode(ctx context.Context, node string, target *bridgeTarget) (string, string, *bridgeError) {
+	if node != anyNode {
+		if target != nil && (target.Node != "" || target.Swarm != "") {
+			return "", "", newBridgeError(codeBadRequest, "target is only valid on api.any")
+		}
+		owner, berr := b.memberNode(node)
+		return owner, "", berr
+	}
+	if target == nil || (target.Node == "" && target.Swarm == "") {
+		return b.nodeID, "", nil
+	}
+	if target.Node != "" && target.Swarm != "" {
+		return "", "", newBridgeError(codeBadRequest, "target names a node or a swarm address, not both")
+	}
+	if target.Node != "" {
+		owner, berr := b.memberNode(target.Node)
+		return owner, "", berr
+	}
+	res, err := b.lookup(ctx, target.Swarm)
+	switch {
+	case err == nil:
+	case errors.Is(err, backend.ErrSwarmAddressInvalid):
+		return "", "", newBridgeError(codeBadRequest, "invalid swarm address")
+	case errors.Is(err, backend.ErrSwarmAddressAmbiguous):
+		return "", "", newBridgeError(codeBadRequest, "swarm address is ambiguous; use the color-animal-xxxx form")
+	case errors.Is(err, backend.ErrSwarmAddressNotFound):
+		return "", "", newBridgeError(codeNodeNotFound, "no session has that swarm address")
+	default:
+		return "", "", newBridgeError(codeInternal, "swarm lookup failed")
+	}
+	owner := b.nodeID
+	if res.NodeID != "" {
+		var berr *bridgeError
+		if owner, berr = b.memberNode(res.NodeID); berr != nil {
+			return "", "", berr
+		}
+	}
+	return owner, res.SessionID, nil
+}
+
+func (b *deviceBridge) memberNode(node string) (string, *bridgeError) {
+	if node == b.nodeID {
+		return node, nil
 	}
 	if _, err := b.p.node.MemberByID(node); err != nil {
-		return "", false
+		return "", newBridgeError(codeNodeNotFound, "unknown node")
 	}
-	return "/v1/nodes/" + node + p, true
+	return node, nil
 }
 
-func (b *deviceBridge) serveAPI(parent context.Context, d pairing.Device, node string, req bridgeRequest) bridgeResponse {
-	resp := bridgeResponse{ID: req.ID}
-	pattern := b.router.authorize(req.Method, req.Path, d.Scopes)
-	// Event streams only run through .sub, never buffered here.
-	if pattern == "" || streamRoutes[pattern] {
-		resp.Status = http.StatusForbidden
-		return resp
-	}
-	p, ok := b.target(node, req.Path)
-	if !ok {
-		resp.Status = http.StatusNotFound
-		return resp
-	}
-	body, err := base64.RawURLEncoding.DecodeString(req.Body)
-	if err != nil || len(body) > maxBridgeBody {
-		resp.Status = http.StatusBadRequest
-		return resp
-	}
-	query, err := url.ParseQuery(req.Query)
+// forward sends a device message to its owning node over the mesh and
+// decodes the owner's reply into out.
+func (b *deviceBridge) forward(ctx context.Context, deviceID, owner string, kind fwdKind, req, out any, wait time.Duration) *bridgeError {
+	raw, err := json.Marshal(req)
 	if err != nil {
-		resp.Status = http.StatusBadRequest
-		return resp
+		return newBridgeError(codeInternal, "cannot encode request")
 	}
-	// The client identity is the bridge's to set, never the device's.
-	query.Del("client_id")
-	ctx, cancel := context.WithTimeout(parent, bridgeTimeout)
+	data, err := json.Marshal(fwdEnvelope{V: wireVersion, Kind: kind, DeviceID: deviceID, EntryNode: b.nodeID, Request: raw})
+	if err != nil {
+		return newBridgeError(codeInternal, "cannot encode request")
+	}
+	cctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
-	hreq, err := http.NewRequestWithContext(ctx, req.Method, (&url.URL{Path: p, RawQuery: query.Encode()}).String(), bytes.NewReader(body))
+	msg, err := b.mesh.Request(cctx, subjClientFwd+owner, data)
 	if err != nil {
-		resp.Status = http.StatusBadRequest
-		return resp
+		e := newBridgeError(codeNodeUnreachable, "node "+owner+" did not answer")
+		e.RetryAfterMS = unreachableRetry.Milliseconds()
+		return e
 	}
-	// Only the content type is taken from the device; identity headers
-	// it might send are dropped.
-	if ct := req.Headers["content-type"]; ct != "" {
+	if json.Unmarshal(msg.Data, out) != nil {
+		return newBridgeError(codeInternal, "bad reply from node "+owner)
+	}
+	return nil
+}
+
+// onFwd serves a device message forwarded by another member. The owner
+// re-checks the device and its scopes against its own registry, so an
+// entry node with a stale (or wrong) view cannot grant more than the
+// owner would.
+func (b *deviceBridge) onFwd(m *nats.Msg) {
+	if m.Reply == "" {
+		return
+	}
+	var env fwdEnvelope
+	if json.Unmarshal(m.Data, &env) != nil || env.V != wireVersion {
+		return
+	}
+	respond := func(v any, id string) { _ = m.Respond(b.encode(b.mesh.Conn(), v, id)) }
+	d, ok := b.activeDevice(env.DeviceID)
+	switch env.Kind {
+	case fwdAPI:
+		req, berr := parseRequest(env.Request)
+		if berr == nil && !ok {
+			berr = newBridgeError(codeDeviceRevoked, "device is revoked or unknown")
+		}
+		if berr != nil {
+			respond(errorResponse(req.ID, b.nodeID, berr), req.ID)
+			return
+		}
+		if !b.acquire(d.DeviceID) {
+			respond(errorResponse(req.ID, b.nodeID, rateLimited()), req.ID)
+			return
+		}
+		ctx := b.work(d.DeviceID)
+		if !b.spawn(func() {
+			defer b.release(d.DeviceID)
+			resp, done := b.execute(ctx, d, req)
+			if ctx.Err() == nil {
+				respond(resp, req.ID)
+			}
+			<-done
+		}) {
+			b.release(d.DeviceID)
+			respond(errorResponse(req.ID, b.nodeID, unavailable("node is shutting down")), req.ID)
+		}
+	case fwdSub:
+		var req streamRequest
+		if json.Unmarshal(env.Request, &req) != nil {
+			respond(streamFailure(req.ID, b.nodeID, newBridgeError(codeBadRequest, "malformed envelope")), req.ID)
+			return
+		}
+		if !ok {
+			respond(streamFailure(req.ID, b.nodeID, newBridgeError(codeDeviceRevoked, "device is revoked or unknown")), req.ID)
+			return
+		}
+		respond(b.openStream(d, req), req.ID)
+	}
+}
+
+// execute runs req on this node's /v1 handler. It returns when the
+// handler answered or the request timed out; done is closed when the
+// handler has returned.
+func (b *deviceBridge) execute(ctx context.Context, d pairing.Device, req bridgeRequest) (bridgeResponse, <-chan struct{}) {
+	fail := func(e *bridgeError) (bridgeResponse, <-chan struct{}) {
+		return errorResponse(req.ID, b.nodeID, e), closedDone
+	}
+	pattern, berr := b.check(d, req)
+	if berr != nil {
+		return fail(berr)
+	}
+	query, _ := parseQuery(req.Query)
+	raw, _ := req.body()
+	body, _ := applyBodyRules(pattern, d, raw)
+
+	var entry *idemEntry
+	key := ""
+	if req.Method == http.MethodPost && req.IdempotencyKey != "" {
+		key = req.IdempotencyKey
+		e, leader, conflict := b.idem.begin(d.DeviceID, key, idemFingerprint(req.Method, req.Path, raw))
+		if conflict {
+			return fail(newBridgeError(codeIdempotencyConflict, "idempotency_key was used for a different request"))
+		}
+		if !leader {
+			return b.awaitReplay(ctx, req, e)
+		}
+		entry = e
+	}
+	forget := func() {
+		if entry != nil {
+			b.idem.finish(d.DeviceID, key, entry, bridgeResponse{}, false)
+		}
+	}
+
+	timeout := req.timeout()
+	hctx, cancel := context.WithTimeout(ctx, timeout+handlerGrace)
+	hreq, err := http.NewRequestWithContext(hctx, req.Method, (&url.URL{Path: req.Path, RawQuery: query.Encode()}).String(), bytes.NewReader(body))
+	if err != nil {
+		cancel()
+		forget()
+		return fail(newBridgeError(codeBadRequest, "invalid request"))
+	}
+	if ct := req.contentType(); ct != "" {
 		hreq.Header.Set("Content-Type", ct)
 	}
-	rec := &cappedRecorder{header: http.Header{}, limit: maxBridgeBody}
-	b.local.ServeHTTP(rec, hreq)
+	done := make(chan struct{})
+	result := make(chan bridgeResponse, 1)
+	if !b.spawn(func() {
+		defer close(done)
+		defer cancel()
+		rec := &cappedRecorder{header: http.Header{}, limit: maxBridgeBody}
+		b.local.ServeHTTP(rec, hreq)
+		resp := b.build(req, rec)
+		if entry != nil {
+			// Only an answer the handler finished is remembered; a
+			// revoked device's or a stopping node's work is forgotten.
+			b.idem.finish(d.DeviceID, key, entry, resp, ctx.Err() == nil)
+		}
+		result <- resp
+	}) {
+		cancel()
+		forget()
+		return fail(unavailable("node is shutting down"))
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case resp := <-result:
+		return resp, done
+	case <-timer.C:
+		return errorResponse(req.ID, b.nodeID, newBridgeError(codeTimeout, "request timed out; it may still complete")), done
+	case <-ctx.Done():
+		return errorResponse(req.ID, b.nodeID, unavailable("request cancelled")), done
+	}
+}
+
+// awaitReplay answers a retry of an idempotent request with the first
+// attempt's response, waiting for it if it is still running.
+func (b *deviceBridge) awaitReplay(ctx context.Context, req bridgeRequest, e *idemEntry) (bridgeResponse, <-chan struct{}) {
+	timer := time.NewTimer(req.timeout())
+	defer timer.Stop()
+	select {
+	case <-e.done:
+	case <-timer.C:
+		return errorResponse(req.ID, b.nodeID, newBridgeError(codeTimeout, "the first attempt is still running")), closedDone
+	case <-ctx.Done():
+		return errorResponse(req.ID, b.nodeID, unavailable("request cancelled")), closedDone
+	}
+	if !e.ok {
+		return errorResponse(req.ID, b.nodeID, unavailable("the first attempt did not complete")), closedDone
+	}
+	resp := e.resp
+	resp.ID, resp.Replayed = req.ID, true
+	if req.wantsJSON() && len(resp.JSON) == 0 && resp.Body != "" {
+		resp = rewrapJSON(resp)
+	}
+	return resp, closedDone
+}
+
+// rewrapJSON moves a base64 JSON body inline.
+func rewrapJSON(resp bridgeResponse) bridgeResponse {
+	body, err := base64.RawURLEncoding.DecodeString(resp.Body)
+	if err == nil && isJSONType(resp.Headers["content-type"]) && json.Valid(body) {
+		resp.JSON, resp.Body = body, ""
+	}
+	return resp
+}
+
+func isJSONType(ct string) bool {
+	mt, _, err := mime.ParseMediaType(ct)
+	return err == nil && (mt == "application/json" || strings.HasSuffix(mt, "+json"))
+}
+
+// build turns a recorded handler response into a response envelope.
+func (b *deviceBridge) build(req bridgeRequest, rec *cappedRecorder) bridgeResponse {
+	resp := bridgeResponse{V: wireVersion, ID: req.ID, NodeID: b.nodeID}
 	if rec.overflow {
-		resp.Status = http.StatusRequestEntityTooLarge
+		e := newBridgeError(codePayloadTooLarge, "response exceeds 4 MiB; paginate")
+		resp.Status, resp.Error = e.status(), e
 		return resp
 	}
 	resp.Status = rec.status
 	if resp.Status == 0 {
 		resp.Status = http.StatusOK
 	}
-	resp.Headers = map[string]string{}
-	if ct := rec.header.Get("Content-Type"); ct != "" {
-		resp.Headers["content-type"] = ct
+	ct := rec.header.Get("Content-Type")
+	if ct != "" {
+		resp.Headers = map[string]string{"content-type": ct}
 	}
-	resp.Body = base64.RawURLEncoding.EncodeToString(rec.body.Bytes())
+	body := rec.body.Bytes()
+	if req.wantsJSON() && isJSONType(ct) && json.Valid(body) {
+		resp.JSON = bytes.TrimSpace(body)
+	} else if len(body) > 0 {
+		resp.Body = base64.RawURLEncoding.EncodeToString(body)
+	}
+	if resp.Status >= http.StatusBadRequest {
+		var perr proto.Error
+		_ = json.Unmarshal(body, &perr)
+		resp.Error = &bridgeError{Code: codeForStatus(resp.Status), Message: perr.Message}
+	}
 	return resp
 }
 
@@ -373,169 +836,17 @@ func (r *cappedRecorder) Write(p []byte) (int, error) {
 	return r.body.Write(p)
 }
 
-// deviceStream is one event stream opened by a device.
-type deviceStream struct {
-	id       string
-	deviceID string
-	subject  string
-	cancel   context.CancelFunc
-
-	mu     sync.Mutex
-	cond   *sync.Cond
-	acked  int64
-	credit int64
-	sent   int64
-}
-
-func (b *deviceBridge) onSub(m *nats.Msg) {
-	d, _, ok := b.device(m)
-	if !ok || !replyOK(m, d.DeviceID) {
-		return
-	}
-	fail := func(status int) {
-		data, _ := json.Marshal(map[string]any{"error": http.StatusText(status), "status": status})
-		_ = b.nc.Publish(m.Reply, data)
-	}
-	var req streamRequest
-	if json.Unmarshal(m.Data, &req) != nil {
-		fail(http.StatusBadRequest)
-		return
-	}
-	pattern := b.router.authorize(http.MethodGet, req.Path, d.Scopes)
-	if !streamRoutes[pattern] {
-		fail(http.StatusForbidden)
-		return
-	}
-	node := req.Node
-	if node == "" {
-		node = anyNode
-	}
-	p, ok := b.target(node, req.Path)
-	if !ok {
-		fail(http.StatusNotFound)
-		return
-	}
-	credit := int64(req.Credit)
-	if credit <= 0 {
-		credit = defaultStreamCredit
-	}
-	credit = min(credit, maxStreamCredit)
-
-	b.mu.Lock()
-	open := 0
-	for _, s := range b.streams {
-		if s.deviceID == d.DeviceID {
-			open++
-		}
-	}
-	if open >= maxStreamsPerDevice {
-		b.mu.Unlock()
-		fail(http.StatusTooManyRequests)
-		return
-	}
-	id := strings.ReplaceAll(uuid.NewString(), "-", "")
-	ctx, cancel := context.WithCancel(b.ctx)
-	s := &deviceStream{
-		id: id, deviceID: d.DeviceID, cancel: cancel, credit: credit,
-		subject: subjClientRoot + d.DeviceID + ".ev." + id,
-	}
-	s.cond = newCond(s)
-	b.streams[id] = s
-	b.mu.Unlock()
-
-	query := url.Values{}
-	for k, v := range req.Query {
-		if k == "client_id" {
-			continue
-		}
-		query.Set(k, strings.Trim(strings.TrimSpace(jsonScalar(v)), `"`))
-	}
-	// Each stream is its own client of the workspace.
-	query.Set("client_id", uuid.NewString())
-	data, _ := json.Marshal(map[string]string{"stream": id})
-	_ = b.nc.Publish(m.Reply, data)
-	if !b.spawn(func() {
-		defer b.closeStream(id)
-		b.runStream(ctx, s, p, query)
-	}) {
-		b.closeStream(id)
-	}
-}
-
-func jsonScalar(v any) string {
-	switch t := v.(type) {
-	case string:
-		return t
-	case float64:
-		return strconv.FormatFloat(t, 'f', -1, 64)
-	case bool:
-		return strconv.FormatBool(t)
-	default:
-		return ""
-	}
-}
-
-func (b *deviceBridge) stream(m *nats.Msg, id string) *deviceStream {
-	d, _, ok := b.device(m)
-	if !ok {
-		return nil
-	}
+// deviceStreams lists the streams a device has open on this node.
+func (b *deviceBridge) deviceStreams(deviceID string) []*deviceStream {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	s := b.streams[id]
-	if s == nil || s.deviceID != d.DeviceID {
-		return nil
+	var out []*deviceStream
+	for _, s := range b.streams {
+		if s.deviceID == deviceID {
+			out = append(out, s)
+		}
 	}
-	return s
-}
-
-func (b *deviceBridge) onUnsub(m *nats.Msg) {
-	var req struct {
-		Stream string `json:"stream"`
-	}
-	if json.Unmarshal(m.Data, &req) != nil {
-		return
-	}
-	if s := b.stream(m, req.Stream); s != nil {
-		s.cancel()
-	}
-}
-
-func (b *deviceBridge) onAck(m *nats.Msg) {
-	tokens := strings.Split(m.Subject, ".")
-	if len(tokens) != 6 {
-		return
-	}
-	var ack streamAck
-	if json.Unmarshal(m.Data, &ack) != nil {
-		return
-	}
-	s := b.stream(m, tokens[5])
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	if ack.Seq >= s.acked && ack.Seq < s.sent {
-		s.acked = ack.Seq + 1
-	}
-	if ack.Credit > 0 {
-		s.credit = min(int64(ack.Credit), maxStreamCredit)
-	}
-	s.cond.Broadcast()
-	s.mu.Unlock()
-}
-
-func (b *deviceBridge) closeStream(id string) {
-	b.mu.Lock()
-	s := b.streams[id]
-	delete(b.streams, id)
-	b.mu.Unlock()
-	if s != nil {
-		s.cancel()
-		s.mu.Lock()
-		s.cond.Broadcast()
-		s.mu.Unlock()
-	}
+	return out
 }
 
 // closeDevice ends every stream and in-flight request of a device
@@ -546,135 +857,12 @@ func (b *deviceBridge) closeDevice(deviceID string) {
 		w.cancel()
 		delete(b.devices, deviceID)
 	}
-	var ids []string
-	for id, s := range b.streams {
-		if s.deviceID == deviceID {
-			ids = append(ids, id)
-		}
-	}
 	b.mu.Unlock()
-	for _, id := range ids {
-		b.closeStream(id)
+	b.idem.forget(deviceID)
+	for _, s := range b.deviceStreams(deviceID) {
+		s.end(endRevoked)
 	}
 }
-
-// runStream runs the SSE handler in-process and publishes each event as a
-// frame. It stops when the device unsubscribes, stops listening, is
-// revoked, or holds the stream at zero credit for too long.
-func (b *deviceBridge) runStream(ctx context.Context, s *deviceStream, p string, query url.Values) {
-	pr, pw := io.Pipe()
-	w := &streamWriter{header: http.Header{}, w: pw}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, (&url.URL{Path: p, RawQuery: query.Encode()}).String(), nil)
-	if err != nil {
-		return
-	}
-	if !b.spawn(func() {
-		b.local.ServeHTTP(w, req)
-		_ = pw.Close()
-	}) {
-		return
-	}
-	b.spawn(func() { b.watchStream(ctx, s) })
-	go func() {
-		<-ctx.Done()
-		_ = pr.CloseWithError(context.Canceled)
-	}()
-
-	sc := bufio.NewScanner(pr)
-	sc.Buffer(make([]byte, 64<<10), maxSSELine)
-	for sc.Scan() {
-		data, ok := strings.CutPrefix(sc.Text(), "data: ")
-		if !ok {
-			continue
-		}
-		if !s.waitCredit(ctx) {
-			return
-		}
-		s.mu.Lock()
-		seq := s.sent
-		s.sent++
-		s.mu.Unlock()
-		frame, _ := json.Marshal(streamFrame{Seq: seq, Data: data})
-		if err := b.nc.Publish(s.subject, frame); err != nil {
-			return
-		}
-	}
-}
-
-func newCond(s *deviceStream) *sync.Cond { return sync.NewCond(&s.mu) }
-
-// waitCredit blocks while the device has too many unacknowledged frames,
-// giving up after streamBlockedLease.
-func (s *deviceStream) waitCredit(ctx context.Context) bool {
-	deadline := time.Now().Add(streamBlockedLease)
-	timer := time.AfterFunc(streamBlockedLease, func() {
-		s.mu.Lock()
-		s.cond.Broadcast()
-		s.mu.Unlock()
-	})
-	defer timer.Stop()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for s.sent-s.acked >= s.credit {
-		if ctx.Err() != nil || time.Now().After(deadline) {
-			return false
-		}
-		s.cond.Wait()
-	}
-	return ctx.Err() == nil
-}
-
-// watchStream ends a stream once its device is revoked or no longer
-// subscribed to the frames (it left without unsubscribing).
-func (b *deviceBridge) watchStream(ctx context.Context, s *deviceStream) {
-	tick := time.NewTicker(streamInterestInterval)
-	defer tick.Stop()
-	lastInterest := time.Now()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-		if d, ok := b.p.reg.Get(s.deviceID); !ok || d.Revoked() {
-			b.closeStream(s.id)
-			return
-		}
-		if b.mesh.ClientsInterest(s.subject) {
-			lastInterest = time.Now()
-		} else if time.Since(lastInterest) > streamInterestGrace {
-			b.closeStream(s.id)
-			return
-		}
-	}
-}
-
-// streamWriter is an in-process http.ResponseWriter for SSE handlers.
-type streamWriter struct {
-	header http.Header
-	w      io.Writer
-	status int
-}
-
-func (w *streamWriter) Header() http.Header { return w.header }
-
-func (w *streamWriter) WriteHeader(status int) {
-	if w.status == 0 {
-		w.status = status
-	}
-}
-
-func (w *streamWriter) Write(p []byte) (int, error) {
-	if w.status == 0 {
-		w.status = http.StatusOK
-	}
-	if w.status != http.StatusOK {
-		return len(p), nil
-	}
-	return w.w.Write(p)
-}
-
-func (w *streamWriter) Flush() {}
 
 // attentionLoop forwards this node's own attention events to devices.
 // Events relayed from other members are skipped: their owners publish
@@ -695,22 +883,118 @@ func (b *deviceBridge) attentionLoop() {
 				continue
 			}
 			a.NodeID, a.NodeName = b.nodeID, name
-			data, err := json.Marshal(a)
-			if err != nil {
-				continue
-			}
-			if err := b.nc.Publish(subjClientAttention, data); err != nil {
-				slog.Warn("Failed to publish device attention", "error", err)
-			}
+			b.publishAttention(a)
 		}
 	}
 }
 
-// control tells a device's connected client something, before the
-// change takes effect (for "revoked", before its user is removed).
-func (b *deviceBridge) control(deviceID, kind string) {
-	data, _ := json.Marshal(map[string]string{"type": kind})
-	if err := b.nc.Publish(subjClientRoot+deviceID+".control", data); err == nil {
+// attentionWire is the attention notice. It also carries the
+// proto.AttentionEvent fields at the top level, so phase 2a clients that
+// read the legacy broadcast as a bare AttentionEvent keep working.
+type attentionWire struct {
+	proto.AttentionEvent
+	attentionNotice
+}
+
+const attentionType = "attention"
+
+func (b *deviceBridge) publishAttention(a proto.AttentionEvent) {
+	event, err := json.Marshal(a)
+	if err != nil {
+		return
+	}
+	n := attentionWire{AttentionEvent: a, attentionNotice: attentionNotice{
+		V: wireVersion, Type: attentionType, At: wireNow(), Event: event,
+	}}
+	if a.SessionID != "" && b.swarmOf != nil {
+		ctx, cancel := context.WithTimeout(b.ctx, time.Second)
+		n.Swarm = b.swarmOf(ctx, a.WorkspaceID, a.SessionID)
+		cancel()
+	}
+	blocked := a.Kind == proto.AttentionBlockedPermission || a.Kind == proto.AttentionBlockedQuestion
+	if data, err := json.Marshal(n); err == nil {
+		if err := b.nc.Publish(subjClientAttention, data); err != nil {
+			slog.Warn("Failed to publish device attention", "error", err)
+		}
+	}
+	for _, d := range b.p.reg.List() {
+		if d.Revoked() || !slices.Contains(d.Scopes, devicescope.SessionsRead) {
+			continue
+		}
+		subj := subjClientRoot + d.DeviceID + "." + verbAttention
+		if b.mesh != nil && !b.mesh.ClientsInterest(subj) {
+			continue
+		}
+		n.Actionable = blocked && slices.Contains(d.Scopes, devicescope.PermissionsAnswer)
+		data, err := json.Marshal(n)
+		if err != nil {
+			continue
+		}
+		_ = b.nc.Publish(subj, data)
+	}
+}
+
+// sessionAddress is a session's swarm address from its stored identity.
+func (b *deviceBridge) sessionAddress(ctx context.Context, workspaceID, sessionID string) string {
+	ws, err := b.p.srv.backend.GetWorkspace(workspaceID)
+	if err != nil || ws.App == nil || ws.Sessions == nil {
+		return ""
+	}
+	s, err := ws.Sessions.Get(ctx, sessionID)
+	if err != nil || s.Color == "" || s.Animal == "" {
+		return ""
+	}
+	return swarm.FormatAddress(swarm.Identity{Color: s.Color, Animal: s.Animal}, sessionID)
+}
+
+// control publishes a control notice to one device and flushes it, so
+// it is on the wire before whatever it announces takes effect.
+func (b *deviceBridge) control(n controlNotice) {
+	n.V = wireVersion
+	if n.At == "" {
+		n.At = wireNow()
+	}
+	data, err := json.Marshal(n)
+	if err != nil {
+		return
+	}
+	if err := b.nc.Publish(subjClientRoot+n.DeviceID+"."+verbControl, data); err == nil {
 		_ = b.nc.Flush()
+	}
+}
+
+// revoked tells a device it was revoked and ends its streams and
+// requests at once.
+func (b *deviceBridge) revoked(d pairing.Device) {
+	n := controlNotice{Type: controlRevoked, DeviceID: d.DeviceID, Reason: revokeReasonOperator, ByNode: d.UpdatedBy}
+	if d.RevokedAt != nil {
+		n.At = d.RevokedAt.UTC().Format(atFormat)
+	}
+	b.control(n)
+	b.closeDevice(d.DeviceID)
+}
+
+// scopesChanged tells a device its permissions changed and ends streams
+// it may no longer read.
+func (b *deviceBridge) scopesChanged(d pairing.Device) {
+	scopes := slices.Clone(d.Scopes)
+	if scopes == nil {
+		scopes = []string{}
+	}
+	b.control(controlNotice{Type: controlScopesChanged, DeviceID: d.DeviceID, Role: string(d.Role), Scopes: scopes})
+	if slices.Contains(d.Scopes, devicescope.SessionsRead) {
+		return
+	}
+	for _, s := range b.deviceStreams(d.DeviceID) {
+		s.end(endError)
+	}
+}
+
+// reauth asks every active device to reconnect (trust changed).
+func (b *deviceBridge) reauth(reason string) {
+	for _, d := range b.p.reg.List() {
+		if !d.Revoked() {
+			b.control(controlNotice{Type: controlReauth, DeviceID: d.DeviceID, Reason: reason})
+		}
 	}
 }

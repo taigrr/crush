@@ -10,7 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -86,6 +88,10 @@ type pairingService struct {
 
 	revokedMu   sync.Mutex
 	revokedSeen map[string]bool
+	// perms is each known device's role and scopes, to notice changes.
+	perms map[string]string
+	// keyVersion is the cluster key version devices were last told of.
+	keyVersion int
 
 	// gate binds the client listener only while an offer is open or an
 	// active device exists. It lives while the mesh is attached.
@@ -105,7 +111,7 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, wsAddr: s.clientWSAddr, natsDirty: make(chan struct{}, 1), revokedSeen: map[string]bool{}}
+	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, wsAddr: s.clientWSAddr, natsDirty: make(chan struct{}, 1), revokedSeen: map[string]bool{}, perms: map[string]string{}}
 	p.mgr = pairing.NewManager(pairing.Config{
 		Self: p.self, OnApprove: p.onApprove, Extras: p.extras, Revoked: p.revoked,
 		OnChange: p.kickGate,
@@ -118,8 +124,7 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 			// notice is delivered rather than lost with the socket. Each
 			// node notices once; devices treat repeats as idempotent.
 			if b := p.bridge.Load(); b != nil {
-				b.control(d.DeviceID, "revoked")
-				b.closeDevice(d.DeviceID)
+				b.revoked(d)
 				time.AfterFunc(revokeNoticeGrace, func() {
 					p.markNATSDirty()
 					p.kickGate()
@@ -127,9 +132,29 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 				return
 			}
 		}
+		if !d.Revoked() && p.permissionsChanged(d) {
+			if b := p.bridge.Load(); b != nil {
+				b.scopesChanged(d)
+			}
+		}
 		p.markNATSDirty()
 		// A revocation (local or replicated) may leave nothing to serve.
 		p.kickGate()
+	})
+	for _, d := range reg.List() {
+		p.permissionsChanged(d)
+	}
+	if st, err := n.Store().Snapshot(); err == nil {
+		p.keyRotated(st.KeyVersion)
+	}
+	// A rotated cluster key changes what devices must trust: ask them to
+	// reconnect and pick up the new trust material.
+	n.Store().Watch(func(st cluster.State) {
+		if p.keyRotated(st.KeyVersion) {
+			if b := p.bridge.Load(); b != nil {
+				b.reauth(reauthKeyRotation)
+			}
+		}
 	})
 	p.client = &httpListener{
 		name: "client", addr: p.clientAddr, maxConn: maxClientConns, grace: clientStopGrace, backoff: listenerRetry,
@@ -214,6 +239,32 @@ func clientEndpoints(eps []cluster.Endpoint, port int) []pairing.Endpoint {
 		out = append(out, pairing.Endpoint{Kind: kind, Addr: net.JoinHostPort(host, strconv.Itoa(port))})
 	}
 	return out
+}
+
+// permissionsChanged records d's role and scopes and reports whether they
+// differ from what this node knew (a first sighting is not a change).
+func (p *pairingService) permissionsChanged(d pairing.Device) bool {
+	scopes := slices.Clone(d.Scopes)
+	slices.Sort(scopes)
+	sig := string(d.Role) + "|" + strings.Join(scopes, ",")
+	p.revokedMu.Lock()
+	defer p.revokedMu.Unlock()
+	old, seen := p.perms[d.DeviceID]
+	p.perms[d.DeviceID] = sig
+	return seen && old != sig
+}
+
+// keyRotated reports whether the cluster key version moved past the one
+// devices were last told of.
+func (p *pairingService) keyRotated(version int) bool {
+	p.revokedMu.Lock()
+	defer p.revokedMu.Unlock()
+	if version <= p.keyVersion {
+		return false
+	}
+	first := p.keyVersion == 0
+	p.keyVersion = version
+	return !first
 }
 
 // firstRevocation reports whether this node has not yet acted on the
