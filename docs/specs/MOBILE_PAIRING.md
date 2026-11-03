@@ -701,7 +701,7 @@ Deferred: re-checking scopes on the owning node and stamping `device_id` on devi
 
 Attention: every node publishes its own attention events (not ones relayed from other members, and never `cluster_join`) on `crush.client.v1.broadcast.attention` as the `proto.AttentionEvent` JSON, tagged with `node_id` and `node_name`.
 
-Control: before revoking a device's NATS user, each node publishes `{"type": "revoked"}` on `crush.client.v1.<dev>.control`, once per node; devices treat repeats as idempotent.
+Control: on revocation each node publishes `{"type": "revoked"}` on `crush.client.v1.<dev>.control` once (devices treat repeats as idempotent), ends the device's streams and requests at once, and removes its NATS user (closing the connection) 500 ms later so the notice is delivered first. The bridge refuses the device throughout.
 
 ### HTTPS fallback
 

@@ -41,6 +41,9 @@ const (
 	// maxWSConnsPerSource bounds websocket connections from one address.
 	maxWSConnsPerSource = 8
 	natsRetry           = 5 * time.Second
+	// revokeNoticeGrace is how long a revoked device stays connected (with
+	// every request refused) so its "revoked" notice reaches it.
+	revokeNoticeGrace = 500 * time.Millisecond
 
 	maxPairBody   = 16 << 10
 	maxDeviceMsg  = 64 << 10
@@ -109,12 +112,19 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	})
 	reg.Watch(func(d pairing.Device) {
 		if d.Revoked() && p.firstRevocation(d.DeviceID) {
-			// Tell the device first, while it is still connected, then
-			// end its streams; the reload below closes the connection.
-			// Each node notices once; devices treat repeats as idempotent.
+			// Tell the device first, while it is still connected, and end
+			// its streams and requests at once (the bridge already refuses
+			// it). Dropping the connection waits revokeNoticeGrace so the
+			// notice is delivered rather than lost with the socket. Each
+			// node notices once; devices treat repeats as idempotent.
 			if b := p.bridge.Load(); b != nil {
 				b.control(d.DeviceID, "revoked")
 				b.closeDevice(d.DeviceID)
+				time.AfterFunc(revokeNoticeGrace, func() {
+					p.markNATSDirty()
+					p.kickGate()
+				})
+				return
 			}
 		}
 		p.markNATSDirty()
