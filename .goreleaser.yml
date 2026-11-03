@@ -69,6 +69,9 @@ builds:
         goarch: "386"
       - goos: freebsd
         goarch: arm
+      # gopsutil (via nats-server) lacks netbsd/386 types up to v4.26.10.
+      - goos: netbsd
+        goarch: "386"
     ldflags:
       - -s -w
       - -X github.com/taigrr/crush/internal/version.Version={{.Version}}
