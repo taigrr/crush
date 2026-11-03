@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -184,7 +185,14 @@ func (c *Client) clientQuery() url.Values {
 	return url.Values{"client_id": []string{c.clientID}}
 }
 
+// ErrNotFound is wrapped by errors for 404 responses, e.g. a workspace the
+// server no longer has after a restart.
+var ErrNotFound = errors.New("not found")
+
 func checkStatus(rsp *http.Response, op string) error {
+	if rsp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("failed to %s: %w (status code %d)", op, ErrNotFound, rsp.StatusCode)
+	}
 	if rsp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to %s: status code %d", op, rsp.StatusCode)
 	}
