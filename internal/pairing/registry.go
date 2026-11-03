@@ -33,7 +33,7 @@ const (
 // scopes (shell, cluster:approve) are never part of a role.
 var roleScopes = map[Role][]string{
 	RoleViewer:   {"sessions:read"},
-	RoleOperator: {"sessions:read", "sessions:prompt", "permissions:answer", "config:model"},
+	RoleOperator: {"sessions:read", "sessions:prompt", "permissions:answer", "config:model", "sessions:move"},
 	RoleAdmin:    {"sessions:read", "sessions:prompt", "permissions:answer", "permissions:always", "config:model", "sessions:move", "devices:approve"},
 }
 

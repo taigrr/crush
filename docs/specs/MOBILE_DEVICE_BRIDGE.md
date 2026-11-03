@@ -255,22 +255,27 @@ There is no separate pin route or field.
 
 ## History search
 
-`POST /v1/workspaces/{id}/history/search` (`sessions:read`, api) runs the same hybrid (substring plus, when an embedder is configured, semantic) search as the TUI and the `search_history` tool, on the node that executes the request.
-Over `api.any` without a target that is the entry node; send it to `api.<node>` to search another member's workspaces.
+`POST /v1/workspaces/{id}/history/search` (`sessions:read`, api) **is** Crush's semantic (embedding) search: the same hybrid search the TUI palette and the `search_history` tool use (`internal/historysearch` over `internal/embedding`), fusing a substring signal and, when an embedder is configured, a vector signal by Reciprocal Rank Fusion.
+It is the only search route; `/v1/workspaces/{id}/embeddings/*` (status, pending, backfill) stay `never`, and the bridge adds no search logic of its own.
+It runs on the node that executes the request: over `api.any` without a target that is the entry node; send it to `api.<node>` to search another member's workspaces.
 
 Request body (`proto.SearchHistoryParams`):
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `query` | string | required | Case-insensitive search text. |
+| `query` | string | required | Search text; the substring signal matches it case-insensitively. |
 | `scope` | `"user"` or `"all"` | `"user"` | `user`: user and shell messages; `all`: also assistant replies and reasoning. |
-| `semantic` | bool | config `hybrid_search` | Force the vector signal on or off. |
-| `limit` | int | 20 (max 50) | Maximum sessions returned. |
-| `all_workspaces` | bool | `false` | Also search every other workspace known to that node (attached and detached). |
+| `semantic` | bool or absent | absent | Absent or `null`: follow the node's `hybrid_search` config. `true`: use the vector signal for this call (if an embedder is available). `false`: substring only. |
+| `limit` | int | 50 (capped at 200) | Maximum sessions returned. |
+| `all_workspaces` | bool | `false` | Also search every other workspace known to that node (attached and registry-detached) and merge the results. |
 | `offset` | int | 0 | Reserved; ignored. |
 
-Response body (`proto.SearchHistoryResult`): hits are per session (best message wins), ranked by `score`.
-`match` is `exact`, `semantic`, or `both`.
+Response body (`proto.SearchHistoryResult`): hits are per session (its best-scoring message wins), ranked by fused `score`.
+
+- `match` per hit: `exact` (substring only), `semantic` (vector only), or `both`.
+- `semantic_used`: whether the vector signal actually took part in this call.
+- No embedder configured, `hybrid_search` off with `semantic` absent, `semantic: false`, or an embedding error: the search silently degrades to substring only, every `match` is `exact`, and `semantic_used` is `false`. It is not an error.
+- `all_workspaces` only reaches workspaces on that node, all of which a device with `sessions:read` can already list and read (`GET /v1/workspace-overviews`, session routes), so it widens nothing; there is no per-workspace device scope in v1.
 
 ```json
 { "v": 1, "id": "r7", "method": "POST", "path": "/v1/workspaces/ws_1/history/search", "json": { "query": "login bug", "scope": "all", "limit": 10 } }
@@ -293,7 +298,7 @@ Response body (`proto.SearchHistoryResult`): hits are per session (best message 
 }
 ```
 
-Errors: `400 bad_request` for a malformed body, `404 not_found` for an unknown workspace, and `403 device_scope_denied` (`scope: "sessions:read"`) without the scope.
+Errors: `400 bad_request` for a malformed body, `404 not_found` for an unknown workspace, `403 device_scope_denied` (`scope: "sessions:read"`) without the scope, and `500 internal` for an empty `query` (the existing handler's behavior).
 
 ## Event streams
 
@@ -437,7 +442,7 @@ These clarify behavior the node implements; none changes a field, subject, or co
   A retry whose first attempt never completed (device revoked, node stopping) gets `503 unavailable`.
 - **Timeouts** outside 1000 to 30000 ms are clamped. A timed-out handler keeps running for up to 30 s more and keeps its in-flight slot; its eventual result is what an idempotent retry receives.
 - **Unsupported `v`**: the error response also carries `"versions": [1]`.
-- **Unknown versus refused routes**: an undocumented `/v1` path gives `404 not_found`; a documented route annotated `never`, or a stream route on `api`, gives `403 route_not_allowed`.
+- **Unknown versus refused routes**: a path no documented route matches (including `/v1/nodes/...` proxy paths) gives `404 not_found`; a documented route annotated `never`, or a stream route on `api`, gives `403 route_not_allowed`.
 - **Body rules** decode the body exactly as the `/v1` handler does (case-insensitive field names, last duplicate wins), and the bridge forwards the re-encoded body for `POST .../agent` and `POST .../permissions/grant` (unknown fields are dropped there).
 - **Stream opens** (`sub`) count against `max_inflight_requests` while they are routed.
 - **Heartbeat and end frames** carry the last event `seq`, or `-1` before the first event.

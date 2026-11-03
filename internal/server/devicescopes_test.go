@@ -117,6 +117,9 @@ func TestDeviceRouterAllowList(t *testing.T) {
 	_, e = r.authorize("POST", "/v1/workspaces/w/history/search", nil)
 	require.Equal(t, devicescope.SessionsRead, e.Scope)
 	require.Equal(t, codeDeviceScopeDenied, e.Code)
+	// Moving a session is an operator action.
+	require.Empty(t, code("POST", "/v1/sessions/move", operator))
+	require.Equal(t, codeDeviceScopeDenied, code("POST", "/v1/sessions/move", viewer))
 	// Path tricks never reach a different route.
 	for _, p := range []string{
 		"/v1/workspaces/w/../../cluster/token", "/v1/workspaces//w", "/v1/workspaces/w%2Fx", "/v1/workspaces/w/",
