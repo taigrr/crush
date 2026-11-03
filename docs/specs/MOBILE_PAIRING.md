@@ -40,8 +40,8 @@ approval-gated pairing, ID-and-key pinning, the embedded NATS mesh, the
 - One credential valid on every node; revocation propagates over the mesh.
 - A primary transport that works well on mobile networks (NATS over TLS
   websocket) and a plain HTTPS fallback.
-- Scoped permissions: a device can be read-only, an operator, or explicitly
-  granted more; it never gets node-level powers by default.
+- Full access for every paired device, limited only by the route
+  allow-list; node-level operations (keys, debug, replication) stay `never`.
 - Optional push notifications for attention events that never carry code,
   prompts, or tool input.
 
@@ -408,12 +408,12 @@ sequenceDiagram
     P-->>P: show SAS, user confirms
     A-->>Op: show SAS + device name
     P->>A: POST pair/confirm
-    Op->>A: approve (role)
+    Op->>A: approve
     A->>M: crush.devices (record rev 1)
     A-->>P: poll → approved, device record, NATS credential, members
 ```
 
-- **CLI**: `crush pair [--ttl 2m] [--role operator] [--invert] [--no-qr] [--yes]` renders the QR with half-block characters plus the payload string, waits for the claim, prints the SAS and device metadata, and asks `Does the phone show the same code? [y/N]`.
+- **CLI**: `crush pair [--ttl 2m] [--invert] [--no-qr] [--yes]` renders the QR with half-block characters plus the payload string, waits for the claim, prints the SAS and device metadata, and asks `Does the phone show the same code? [y/N]`.
   `--yes` approves without the prompt but still prints the SAS.
 - **TUI**: command palette `Pair Mobile Device` opens a dialog with the QR and a countdown; once claimed it shows the device name and SAS with Approve / Reject.
 
@@ -442,8 +442,8 @@ Phone-to-phone pairing (a paired device with `devices:approve` submitting anothe
   "model": "iPhone16,2",
   "app_version": "0.3.0",
   "public_key": "<base64 ed25519>",
-  "role": "operator",
-  "scopes": ["sessions:read", "sessions:prompt", "permissions:answer"],
+  "role": "admin",
+  "scopes": ["sessions:read", "sessions:prompt", "permissions:answer", "permissions:always", "config:model", "sessions:move", "devices:approve", "shell", "cluster:approve"],
   "paired_at": "2026-02-11T10:00:00Z",
   "paired_via": "<node id>",
   "approved_by": "<node id>",
@@ -488,8 +488,8 @@ Modelled on `credsync` but per record rather than whole file:
   revocation during a partition) still converges.
 - `devices.json` records its `cluster_id`; a node that leaves and joins
   another cluster drops the old devices.
-- Incoming records are validated: the device ID must match the key, scopes
-  must belong to the role (plus the opt-in scopes), and text fields are
+- Incoming records are validated: the device ID must match the key, the
+  role must be known and its scopes valid (kept for compatibility; not used to authorize), and text fields are
   bounded. NATS permissions are never read from a record.
   This is the same "ask everyone to announce" convergence `credsync` uses.
 - A node that joins the cluster receives the registry as part of the join
@@ -830,40 +830,46 @@ Mesh subjects (`crush.creds`, `crush.devices`, `crush.repl.*`, `$SYS`, `$JS.API`
 
 ## Permissions
 
-Devices get a **role** plus optional extra **scopes**.
-The role is chosen at approval and editable later from any node.
+There are no device roles: **every paired device has full device access**, i.e. every scope below.
+What a device can reach is decided by the route allow-list alone (`x-crush-scope` in `swagger.yaml`): routes tagged `never` and routes with no tag are unreachable for every device.
 
-| Scope | Allows | viewer | operator | admin |
-| --- | --- | :-: | :-: | :-: |
-| `sessions:read` | List workspaces, overviews, sessions, messages, history, events, diffs, milestones, swarm resolve, node dashboard. | yes | yes | yes |
-| `sessions:prompt` | Send prompts (queue / btw), cancel turns and tools, goal, title, summarize, mark seen/favorite/archive, create sessions in existing workspaces. | | yes | yes |
-| `permissions:answer` | Grant or deny tool permissions once or for the session; answer questions. | | yes | yes |
-| `permissions:always` | Persistent "always allow" grants and `yolo` / auto-approve policy changes. | | | yes |
-| `config:model` | Switch model/provider for a session. | | yes | yes |
-| `sessions:move` | Move sessions (`POST /v1/sessions/move`); migrate and autobalance stay `never`. | | yes | yes |
-| `shell` | `.../shell` (run arbitrary commands). | | | opt-in |
-| `devices:approve` | Approve/deny/revoke other devices, change their roles (never above its own). | | | yes |
-| `cluster:approve` | Approve or deny **node** join requests. | | | opt-in |
+| Scope | Allows |
+| --- | --- |
+| `sessions:read` | List workspaces, overviews, sessions, messages, history, history search, events, diffs, milestones, swarm resolve, node dashboard. |
+| `sessions:prompt` | Send prompts (queue / btw), cancel turns and tools, goal, title, summarize, mark seen/favorite/archive, create sessions in existing workspaces. |
+| `permissions:answer` | Grant or deny tool permissions once or for the session; answer questions. |
+| `permissions:always` | Persistent "always allow" grants and `yolo` / auto-approve policy changes. |
+| `config:model` | Switch model/provider for a session. |
+| `sessions:move` | Move sessions (`POST /v1/sessions/move`); migrate and autobalance stay `never`. |
+| `shell` | `.../shell` (run arbitrary commands). |
+| `devices:approve` | Approve/deny/revoke other devices. |
+| `cluster:approve` | Approve or deny **node** join requests. |
+
+Compatibility (additive, nothing removed from the wire):
+
+- The `role` and `scopes` fields stay in device records (`devices.json`, mesh replication), offer views, poll responses, `info`, and the test vectors, and stay parseable.
+  New records are written as `role: "admin"` with every scope above, which nodes running the earlier role code also accept.
+- Nodes ignore the stored `role` and `scopes` when authorizing: a record written earlier as `viewer` or `operator` gets full access too.
+  `info` and `crush pair list` report `role: "admin"` and the full scope list for every device.
+- Requests that name a role (`role` in `POST /v1/cluster/pairing/offers`, `.../accept`, `.../approve`, `crush pair --role`) are accepted and ignored; the CLI flag is hidden and prints a deprecation warning.
+- `scopes_changed` control notices remain defined but are not sent for role edits (there is nothing to change).
+- Mixed clusters: a member still running the role code enforces the stored scopes of older records until it is upgraded.
 
 Rules:
 
-- **Never** available to devices, any role: provider keys and OAuth
+- **Never** available to devices: provider keys and OAuth
   (`config/provider-key`, `refresh-oauth`, `import-copilot`, `config/set`,
   `config/remove`), cluster key ops (`token`, `rotate-key`, `leave`,
   `upgrade`), `debug` endpoints, replication and transfer endpoints, the
   member API.
-- `cluster:approve` and `shell` are **opt-in** even for `admin`: an operator
-  must name them explicitly
-  (a deferred `crush pair scopes <dev> +cluster:approve`), and the CLI warns.
-  Default: a phone cannot approve new nodes.
 - Every route in `swagger.yaml` gets an `x-crush-scope` extension; routes
   without one are denied to devices (default deny), and a unit test fails if a
-  route lacks the annotation.
+  route lacks the annotation (`TestServerRoutesHaveDeviceScope` also covers every route registered on the server).
 - Device-originated actions carry `device_id` in their context; permission
   grants, prompts, and session creation record it (message metadata
   `origin: device:<id>`), and the TUI shows "via Tai's iPhone".
 - Turns started by a device run with the session's existing permission
-  policy; a device cannot escalate the policy without `permissions:always`.
+  policy unless the request sets one.
 - rush requires biometrics for `permissions:answer` actions by default
   (client-side, defense in depth).
 
@@ -911,11 +917,11 @@ Privacy rules, all modes:
 
 | Command | Purpose |
 | --- | --- |
-| `crush pair` | Flow (a): show a QR + payload, wait for the claim, show the SAS, approve (`--ttl`, `--role`, `--invert`, `--no-qr`, `--yes`). |
+| `crush pair` | Flow (a): show a QR + payload, wait for the claim, show the SAS, approve (`--ttl`, `--invert`, `--no-qr`, `--yes`). |
 | `crush pair accept <payload\|code>` | Flow (b): accept a phone's kind 2 payload or typed code, show a kind 3 QR, wait, show the SAS, approve. |
-| `crush pair list` | List devices (name, ID, role, paired via, revoked). |
+| `crush pair list` | List devices (name, ID, paired via, revoked). |
 | `crush pair revoke <device-id>` | Revoke everywhere; removes the NATS user on every node. |
-| Deferred | `pending`, `role`, `scopes`, `rename` subcommands. |
+| Deferred | `pending`, `rename` subcommands. |
 | `crush push-relay` | Optional self-hosted push relay (phase 5). |
 
 `crush cluster status` gains a devices section, and `crush cluster top` a
@@ -926,7 +932,7 @@ Privacy rules, all modes:
 - Palette: `Pair Mobile Device` (implemented: QR dialog for flow a, then the
   SAS with `y` approve / `n` reject; closing the dialog cancels the offer).
 - Deferred: `Add Mobile Device` (paste payload, flow b; use
-  `crush pair accept`), `Mobile Devices` (list with revoke / role; use
+  `crush pair accept`), `Mobile Devices` (list with revoke; use
   `crush pair list` / `revoke`), a pending-device prompt on every attached
   TUI of every node (offers are local to the pairing node in phase 1, so it
   is approved there), and a "via <device>" badge.
@@ -939,11 +945,11 @@ For the TUI and CLI (local socket only, never exposed to devices unless noted):
 
 | Method & path | Purpose |
 | --- | --- |
-| `POST /v1/cluster/pairing/offers` | Create a kind 1 offer (`ttl_seconds`, `role`); returns offer ID, payload, expiry. |
+| `POST /v1/cluster/pairing/offers` | Create a kind 1 offer (`ttl_seconds`; `role` is ignored); returns offer ID, payload, expiry. |
 | `POST /v1/cluster/pairing/accept` | Flow (b): accept a kind 2 payload or typed code; returns the offer and a kind 3 payload. |
 | `GET /v1/cluster/pairing/offers/{offer_id}` | Offer state, device metadata, and SAS once claimed. |
 | `GET /v1/cluster/pairing/offers/{offer_id}/qr.png` | The offer payload as a PNG QR code. |
-| `POST /v1/cluster/pairing/offers/{offer_id}/approve` | Operator approves (`role`). |
+| `POST /v1/cluster/pairing/offers/{offer_id}/approve` | Operator approves (`role` is ignored). |
 | `POST /v1/cluster/pairing/offers/{offer_id}/reject` | Operator rejects (SAS mismatch or cancel); tombstones the offer. |
 | `GET /v1/cluster/devices` | List device records. |
 | `POST /v1/cluster/devices/{device_id}/revoke` | Revoke cluster-wide. |
@@ -971,7 +977,6 @@ Phase 1 is configured with server flags only (`--client-addr`); the block below 
       "addr": ":7733",
       "advertise": ["ts=laptop.tailnet.ts.net:7733"],
       "offer_ttl": "2m",
-      "default_role": "operator",
       "push": { "mode": "none" }
     }
   }
@@ -1042,7 +1047,7 @@ Per the project rule, the `crush-config` builtin skill is updated alongside.
   - Registry merge: rev ordering, tie-breaks, revoke-wins, digest
     convergence.
   - Scope table: every swagger route has `x-crush-scope`; never-list routes
-    are denied for every role.
+    are denied for every device.
   - Bearer token verification across issuers; revoked device rejected even
     with a valid token.
   - Auth callout: unknown key, revoked key, permission set contents.

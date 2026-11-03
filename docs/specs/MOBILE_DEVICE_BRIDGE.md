@@ -271,11 +271,24 @@ Request body (`proto.SearchHistoryParams`):
 | `offset` | int | 0 | Reserved; ignored. |
 
 Response body (`proto.SearchHistoryResult`): hits are per session (its best-scoring message wins), ranked by fused `score`.
+This is the same search, ranking, and limits as `crush search` (both call `historysearch.SearchAcross`; the CLI's per-message mode without `--all-workspaces` uses the same `historysearch.Search` underneath).
 
-- `match` per hit: `exact` (substring only), `semantic` (vector only), or `both`.
-- `semantic_used`: whether the vector signal actually took part in this call.
-- No embedder configured, `hybrid_search` off with `semantic` absent, `semantic: false`, or an embedding error: the search silently degrades to substring only, every `match` is `exact`, and `semantic_used` is `false`. It is not an error.
-- `all_workspaces` only reaches workspaces on that node, all of which a device with `sessions:read` can already list and read (`GET /v1/workspace-overviews`, session routes), so it widens nothing; there is no per-workspace device scope in v1.
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `hits[].session_id`, `session_title` | string | The session. |
+| `hits[].workspace_id` | string | The node's workspace ID; empty for a detached workspace found with `all_workspaces`. |
+| `hits[].workspace_root` | string | Project root of the hit's workspace. |
+| `hits[].score` | number | Fused Reciprocal Rank Fusion score (higher is better; only comparable within one response). |
+| `hits[].match` | string | `exact` (substring signal only), `semantic` (vector signal only), or `both`. |
+| `hits[].snippet` | string | Text around the match. |
+| `hits[].message_id`, `role`, `created_at` | string | The best-matching message, its role (`user`, `assistant`, ...), and its time. |
+| `total` | int | Distinct sessions found in the candidate window (before `limit`). |
+| `mode` | string | `hybrid`: the vector signal ranked at least one candidate alongside the substring signal. `text`: substring only. Additive; absent from older nodes. |
+| `fallback_reason` | string | Why `mode` is `text` (absent when `hybrid`): `no_embedder` (none configured), `disabled_by_request` (`semantic: false`), `disabled_by_config` (`semantic` absent and `hybrid_search` off), `no_embeddings` (embedder ran, but no candidate message has a vector yet, e.g. before backfill), `embed_error` (embedding the query failed). With `all_workspaces` the reason is the first one met in workspace order. Additive; unknown values mean "text only, for some other reason". |
+| `semantic_used` | bool | Kept for compatibility: whether the vector signal was attempted and did not error (true with `no_embeddings`). Prefer `mode`. |
+
+When no embedder is configured, the search is still served (substring only): `mode: "text"`, `fallback_reason: "no_embedder"`, `semantic_used: false`, every `match` is `exact`. It is not an error.
+`all_workspaces` only reaches workspaces on that node, all of which a paired device can already list and read (`GET /v1/workspace-overviews`, session routes), so it widens nothing.
 
 ```json
 { "v": 1, "id": "r7", "method": "POST", "path": "/v1/workspaces/ws_1/history/search", "json": { "query": "login bug", "scope": "all", "limit": 10 } }
@@ -293,12 +306,19 @@ Response body (`proto.SearchHistoryResult`): hits are per session (its best-scor
       }
     ],
     "total": 1,
+    "mode": "hybrid",
     "semantic_used": true
   }
 }
 ```
 
-Errors: `400 bad_request` for a malformed body, `404 not_found` for an unknown workspace, `403 device_scope_denied` (`scope: "sessions:read"`) without the scope, and `500 internal` for an empty `query` (the existing handler's behavior).
+Text-only fallback (no embedder configured on that node):
+
+```json
+{ "hits": [ { "session_id": "ses_1", "session_title": "Fix login", "workspace_id": "ws_1", "workspace_root": "/Users/tai/code/app", "score": 0.0164, "match": "exact", "snippet": "...the login bug...", "message_id": "msg_9", "role": "user", "created_at": "2026-11-02T20:16:44Z" } ], "total": 1, "mode": "text", "fallback_reason": "no_embedder", "semantic_used": false }
+```
+
+Errors: `400 bad_request` for a malformed body, `404 not_found` for an unknown workspace, and `500 internal` for an empty `query` (the existing handler's behavior).
 
 ## Event streams
 
