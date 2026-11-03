@@ -117,9 +117,12 @@ func TestDeviceRouterAllowList(t *testing.T) {
 	_, e = r.authorize("POST", "/v1/workspaces/w/history/search", nil)
 	require.Equal(t, devicescope.SessionsRead, e.Scope)
 	require.Equal(t, codeDeviceScopeDenied, e.Code)
-	// Moving a session is an operator action.
-	require.Empty(t, code("POST", "/v1/sessions/move", operator))
-	require.Equal(t, codeDeviceScopeDenied, code("POST", "/v1/sessions/move", viewer))
+	// Devices authorize with every scope: move and shell are reachable, never
+	// routes are not.
+	full := pairing.Device{Role: pairing.RoleViewer}.EffectiveScopes()
+	require.Empty(t, code("POST", "/v1/sessions/move", full))
+	require.Empty(t, code("POST", "/v1/workspaces/w/agent/sessions/s/shell", full))
+	require.Equal(t, codeRouteNotAllowed, code("POST", "/v1/sessions/batch", full))
 	// Path tricks never reach a different route.
 	for _, p := range []string{
 		"/v1/workspaces/w/../../cluster/token", "/v1/workspaces//w", "/v1/workspaces/w%2Fx", "/v1/workspaces/w/",
@@ -153,18 +156,13 @@ func TestApplyBodyRules(t *testing.T) {
 		_, e = applyBodyRules(routePostAgent, op, []byte(ok))
 		require.Nil(t, e, ok)
 	}
-	for _, loose := range []string{`{"permission_policy":"allow"}`, `{"permission_policy":"deny"}`} {
+	// Every device has full access: a stored operator record may loosen a
+	// turn's policy, however the field is spelled.
+	for _, loose := range []string{`{"permission_policy":"allow"}`, `{"permission_policy":"deny"}`, `{"PERMISSION_POLICY":"allow"}`} {
 		_, e = applyBodyRules(routePostAgent, op, []byte(loose))
-		require.Equal(t, codeDeviceScopeDenied, e.Code, loose)
-		require.Equal(t, devicescope.PermissionsAlways, e.Scope)
+		require.Nil(t, e, loose)
 		_, e = applyBodyRules(routePostAgent, admin, []byte(loose))
 		require.Nil(t, e, loose)
-	}
-	// Field names match case-insensitively, as the handler decodes them.
-	for _, sneaky := range []string{`{"Permission_Policy":"allow"}`, `{"PERMISSION_POLICY":"allow"}`, `{"permission_policy":"prompt","Permission_policy":"allow"}`} {
-		_, e = applyBodyRules(routePostAgent, op, []byte(sneaky))
-		require.NotNil(t, e, sneaky)
-		require.Equal(t, codeDeviceScopeDenied, e.Code, sneaky)
 	}
 	out, e = applyBodyRules(routePostAgent, op, []byte(`{"Client_ID":"victim","CLIENT_ID":"victim2","swarm_parts":[{"text":"spoof"}],"run_id":"r1"}`))
 	require.Nil(t, e)
@@ -174,7 +172,7 @@ func TestApplyBodyRules(t *testing.T) {
 	require.Empty(t, decoded.SwarmParts, "devices cannot impersonate a swarm sender")
 	require.Equal(t, "r1", decoded.RunID)
 	_, e = applyBodyRules(routePermissionGrant, op, []byte(`{"ACTION":"allow_always"}`))
-	require.Equal(t, codeDeviceScopeDenied, e.Code)
+	require.Nil(t, e)
 
 	for _, bad := range []string{``, `[]`, `"x"`, `{"permission_policy":1}`, `null`} {
 		_, e = applyBodyRules(routePostAgent, op, []byte(bad))
@@ -186,7 +184,7 @@ func TestApplyBodyRules(t *testing.T) {
 		require.Nil(t, e, ok)
 	}
 	_, e = applyBodyRules(routePermissionGrant, op, []byte(`{"action":"allow_always"}`))
-	require.Equal(t, codeDeviceScopeDenied, e.Code)
+	require.Nil(t, e, "persistent grants are allowed for every device")
 	_, e = applyBodyRules(routePermissionGrant, op, []byte(`nope`))
 	require.Equal(t, codeBadRequest, e.Code)
 

@@ -277,7 +277,8 @@ func TestFlowANodeOffer(t *testing.T) {
 	require.NoError(t, err)
 	r := <-pollDone
 	require.Equal(t, StateApproved, r.State)
-	require.Equal(t, RoleViewer, r.Device.Role)
+	require.Equal(t, DefaultRole, r.Device.Role, "the approval role is ignored")
+	require.ElementsMatch(t, AllScopes(), r.Device.Scopes)
 	require.Equal(t, DevicePermissions(r.Device.DeviceID), r.NATS.Permissions)
 	require.Len(t, h.approved, 1)
 
@@ -734,4 +735,27 @@ func TestLongNodeNameStillEncodes(t *testing.T) {
 	require.True(t, utf8.ValidString(p.NodeName))
 	_, err = h.self.InfoPayload()
 	require.NoError(t, err)
+}
+
+// TestRolesGrantFullAccess: every device record, whatever its stored
+// role, validates and is authorized with every scope, and new records
+// are written so members still running the role code accept them.
+func TestRolesGrantFullAccess(t *testing.T) {
+	t.Parallel()
+	want := []string{"sessions:read", "sessions:prompt", "permissions:answer", "permissions:always", "config:model", "sessions:move", "devices:approve", "shell", "cluster:approve"}
+	require.ElementsMatch(t, want, AllScopes())
+	pub, _, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	for _, role := range []Role{RoleViewer, RoleOperator, RoleAdmin} {
+		d := Device{DeviceID: DeviceID(pub), PublicKey: pub, Role: role, Scopes: role.Scopes(), Rev: 1}
+		require.NoError(t, d.Validate(), role)
+		require.ElementsMatch(t, want, d.EffectiveScopes(), role)
+		r, err := ParseRole(string(role))
+		require.NoError(t, err)
+		require.Equal(t, DefaultRole, r)
+	}
+	full := Device{DeviceID: DeviceID(pub), PublicKey: pub, Role: DefaultRole, Scopes: AllScopes(), Rev: 1}
+	require.NoError(t, full.Validate(), "new records validate under the old role table")
+	_, err = ParseRole("superuser")
+	require.Error(t, err)
 }

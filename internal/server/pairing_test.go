@@ -163,7 +163,8 @@ func TestPairingFlowAHappyPathAndRevoke(t *testing.T) {
 
 	poll := pairFlowA(t, srv, c, key)
 	require.Equal(t, pairing.DeviceID(key.Public().(ed25519.PublicKey)), poll.Device.DeviceID)
-	require.Equal(t, pairing.RoleOperator, poll.Device.Role)
+	require.Equal(t, pairing.DefaultRole, poll.Device.Role)
+	require.ElementsMatch(t, pairing.AllScopes(), poll.Device.Scopes)
 	require.Equal(t, pairing.ClientsAccount, poll.NATS.Account)
 	require.Equal(t, pairing.DevicePermissions(poll.Device.DeviceID), poll.NATS.Permissions)
 	require.Len(t, poll.CAFPs, 1)
@@ -338,7 +339,8 @@ func TestPairingFlowBTypedCodeOverTLS(t *testing.T) {
 	status, _ = dev.do(http.MethodPost, "/client/v1/pair/poll", sess.Poll(0), &poll)
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, pairing.StateApproved, poll.State)
-	require.Equal(t, pairing.RoleViewer, poll.Device.Role)
+	require.Equal(t, pairing.DefaultRole, poll.Device.Role, "a requested role is ignored")
+	require.ElementsMatch(t, pairing.AllScopes(), poll.Device.Scopes)
 }
 
 func TestPairingPropagatesAcrossCluster(t *testing.T) {
