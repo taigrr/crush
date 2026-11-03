@@ -369,6 +369,28 @@ Streams opened for a remote node are relayed frame-by-frame by the entry node; a
 - Optional behavior is gated by `info.features`; a client MUST NOT rely on a feature the node did not advertise.
 - Phase 2a clients (no `v`, base64 `body` only, `{"seq","data"}` frames) keep working: nodes accept missing `v`, always accept `body`, and the extra frame fields are ignorable.
 
+## Implementation notes (v1, additive)
+
+These clarify behavior the node implements; none changes a field, subject, or code above.
+
+- **Idempotency** keys are scoped to the authenticated device and remembered by the node that executed the request.
+  The fingerprint covers method, path, query, and body (a different query is an `idempotency_conflict`).
+  A retry through `api.any` without a target can land on another node after a reconnect and run again; retry with `target.node` (or `api.<node_id>`) set to the first reply's `node_id`.
+  A retry whose first attempt never completed (device revoked, node stopping) gets `503 unavailable`.
+- **Timeouts** outside 1000 to 30000 ms are clamped. A timed-out handler keeps running for up to 30 s more and keeps its in-flight slot; its eventual result is what an idempotent retry receives.
+- **Unsupported `v`**: the error response also carries `"versions": [1]`.
+- **Unknown versus refused routes**: an undocumented `/v1` path gives `404 not_found`; a documented route annotated `never`, or a stream route on `api`, gives `403 route_not_allowed`.
+- **Body rules** decode the body exactly as the `/v1` handler does (case-insensitive field names, last duplicate wins), and the bridge forwards the re-encoded body for `POST .../agent` and `POST .../permissions/grant` (unknown fields are dropped there).
+- **Stream opens** (`sub`) count against `max_inflight_requests` while they are routed.
+- **Heartbeat and end frames** carry the last event `seq`, or `-1` before the first event.
+- **Idle streams** stay open (and resumable) for `resume_window_ms` after the last sign of interest (subscription or ack), then end with `idle`; this is at least the 30 s stated above.
+- **Resume buffer** is bounded by `resume_buffer_frames` and by 4 MiB of encoded frames per stream, whichever is smaller. An event too large for one NATS message ends the stream with `reason: "error"` instead of leaving a gap.
+- **Session filter** also drops session events it cannot attribute (a `message_delta` whose message the stream never saw).
+- **Remote streams**: the owning node publishes frames to the device subject itself (the device account spans the cluster); there is no extra relay hop, which is not observable on the wire.
+- **`unsub` replies** come from the stream's node only (any node answers for a stream ID no member owns).
+- **Legacy `broadcast.attention`** carries the same notice, plus the `proto.AttentionEvent` fields at the top level for phase 2a readers, with `actionable: false`. Every device can read it; per-device subjects are the scope-filtered path.
+- **`reauth`** is sent to every active device when the cluster key version changes, with `reason: "key_rotation"`.
+
 ## Worked examples
 
 ### List sessions
@@ -390,8 +412,11 @@ Request `crush.client.v1.d_q2w3.api.any`, reply to `_INBOX.d_q2w3.k8J2...`:
 ```
 
 ```json
-{ "v": 1, "id": "r2", "status": 200, "node_id": "n_7f3a9c", "headers": { "content-type": "application/json" }, "json": { "run_id": "run_33" } }
+{ "v": 1, "id": "r2", "status": 202, "node_id": "n_7f3a9c" }
 ```
+
+The prompt is accepted asynchronously (`202`, no body; corrected from an earlier draft of this example that showed `200` with a `run_id`).
+To correlate the run, set `run_id` in the `json` body yourself; it is echoed on the run's `agent_event` and `run_complete` stream events.
 
 A viewer device gets:
 
