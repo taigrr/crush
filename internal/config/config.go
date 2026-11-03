@@ -354,6 +354,19 @@ type Options struct {
 	NotificationStyle         string        `json:"notification_style,omitempty" jsonschema:"description=Notification style to use. Options: auto (default), native, osc, bell, disabled. Auto selects based on environment: native for local sessions, osc for SSH (with automatic OSC 99/777 detection).,enum=auto,enum=native,enum=osc,enum=bell,enum=disabled,default=auto"`
 	DisabledSkills            []string      `json:"disabled_skills,omitempty" jsonschema:"description=List of skill names to disable and hide from the agent,example=crush-config"`
 	Sound                     *SoundOptions `json:"sound,omitempty" jsonschema:"description=Server-side notification sound settings"`
+	Voice                     *VoiceOptions `json:"voice,omitempty" jsonschema:"description=Realtime voice settings for paired mobile devices"`
+}
+
+// VoiceOptions configures the realtime voice credentials Crush mints for
+// paired devices (POST /v1/voice/client-secret).
+type VoiceOptions struct {
+	// APIKey is the xAI API key used to mint ephemeral voice secrets. It
+	// is shell-expanded at request time ($XAI_API_KEY, $(cmd)). When
+	// empty, XAI_API_KEY, then the Grok OAuth login, then the xai or
+	// grok provider api_key are used.
+	APIKey string `json:"api_key,omitempty" jsonschema:"description=xAI API key used to mint realtime voice secrets for paired devices (supports $VAR and $(cmd)),example=$XAI_API_KEY"`
+	// BaseURL overrides the xAI API base URL.
+	BaseURL string `json:"base_url,omitempty" jsonschema:"description=Override the xAI API base URL used for realtime voice secrets,format=uri,example=https://api.x.ai/v1"`
 }
 
 // SoundOptions controls the server-side notification sounds. Sounds are

@@ -210,6 +210,11 @@ Initial v1 set (everything else is `never` until annotated otherwise):
 | `GET /v1/cluster/dashboard` | `sessions:read` | api |
 | `GET /v1/swarm/resolve` | `sessions:read` | api |
 | `POST /v1/workspaces/{id}/history/search` | `sessions:read` | api |
+| `GET /v1/workspaces/{id}/providers` | `sessions:read` | api |
+| `GET /v1/workspaces/{id}/lsps` | `sessions:read` | api |
+| `GET /v1/workspaces/{id}/lsps/{lsp}/diagnostics` | `sessions:read` | api |
+| `GET /v1/workspaces/{id}/mcp/states` | `sessions:read` | api |
+| `GET /v1/workspaces/{id}/sessions/{sid}/model` | `sessions:read` | api |
 | `GET /v1/workspaces/{id}/events` | `sessions:read` | **sub only** |
 | `GET /v1/events` | `sessions:read` | **sub only** |
 | `POST /v1/workspaces/{id}/agent` | `sessions:prompt` | api |
@@ -227,10 +232,14 @@ Initial v1 set (everything else is `never` until annotated otherwise):
 | `POST /v1/workspaces/{id}/sessions/{sid}/favorite` | `sessions:prompt` | api |
 | `POST /v1/workspaces/{id}/sessions/{sid}/archive` | `sessions:prompt` | api |
 | `POST /v1/workspaces/{id}/sessions/{sid}/unarchive` | `sessions:prompt` | api |
+| `POST /v1/workspaces/{id}/lsps/start` | `sessions:prompt` | api |
+| `POST /v1/workspaces/{id}/lsps/stop` | `sessions:prompt` | api |
+| `POST /v1/voice/client-secret` | `sessions:prompt` | api |
 | `POST /v1/workspaces/{id}/permissions/grant` | `permissions:answer` | api |
 | `POST /v1/workspaces/{id}/questions/answer` | `permissions:answer` | api |
 | `POST /v1/workspaces/{id}/permissions/skip` | `permissions:always` | api |
 | `POST /v1/workspaces/{id}/config/model` | `config:model` | api |
+| `POST /v1/workspaces/{id}/sessions/{sid}/model` | `config:model` | api |
 | `POST /v1/sessions/move` | `sessions:move` | api |
 | `POST /v1/workspaces/{id}/agent/sessions/{sid}/shell` | `shell` (opt-in) | api |
 
@@ -238,7 +247,7 @@ Body rules enforced by the bridge on top of the route scope:
 
 - `POST .../agent`: `client_id` is overwritten with `device:<dev>`; `permission_policy` other than empty or `prompt` needs `permissions:always`.
 - `POST .../permissions/grant`: `action: "allow_session"` needs `permissions:answer`; persistent grants need `permissions:always`.
-- `never` (every device): provider keys and OAuth, `config/set`, `config/remove`, cluster key ops, `debug`, replication, transfer, member API, `/v1/nodes/...` proxy paths.
+- `never` (every device): provider keys and OAuth (`/providers` is a redacted view, see [Providers, LSPs, and MCP](#providers-lsps-and-mcp)), `config/set`, `config/remove`, cluster key ops, `debug`, replication, transfer, member API, `/v1/nodes/...` proxy paths.
 
 ### Roles
 
@@ -251,6 +260,61 @@ Device roles are gone: `info.role` is always `"admin"` and `info.scopes` lists e
 Rush's "pin" is the session favorite flag: `POST /v1/workspaces/{id}/sessions/{sid}/favorite` (`sessions:prompt`) with query `favorite=true` pins and `favorite=false` unpins (absent means `true`), and sessions carry it as `favorite` (omitted when false).
 Favorites sort to the top of the inbox in the TUI too, so a pin on the phone and on the desktop is the same state.
 There is no separate pin route or field.
+
+## Providers, LSPs, and MCP
+
+`GET /v1/workspaces/{id}/providers` returns a redacted array of providers: the catalog merged with the workspace's configured providers, configured ones first.
+It never carries API keys, OAuth tokens, extra headers, extra body, base URLs, or any other secret material:
+
+```json
+[{"id": "anthropic", "name": "Anthropic", "type": "anthropic", "configured": true,
+  "has_credential": true, "oauth": false,
+  "default_large_model_id": "claude-...", "default_small_model_id": "claude-...",
+  "models": [{"id": "claude-...", "name": "Claude ...", "context_window": 200000,
+              "default_max_tokens": 50000, "can_reason": true, "reasoning_levels": ["low", "high"],
+              "supports_attachments": true, "cost_per_1m_in": 3, "cost_per_1m_out": 15}]}]
+```
+
+`has_credential` reports that an API key or OAuth token is set; `oauth` that it is an OAuth token; `disabled` is present when the provider is disabled.
+
+`GET .../lsps` (map of name to `{name, state, error, diagnostic_count, connected_at}`), `GET .../lsps/{lsp}/diagnostics`, `POST .../lsps/start` (`{"path": "..."}`), `POST .../lsps/stop`, and `GET .../mcp/states` (map of name to `{name, state, error, tool_count, prompt_count, resource_count, connected_at}`) are the `/v1` routes unchanged.
+
+## Per-session model
+
+`GET /v1/workspaces/{id}/sessions/{sid}/model` returns the model a session runs on:
+
+```json
+{"model_ref": "anthropic/claude-...", "large": {"provider": "anthropic", "model": "claude-..."},
+ "small": {"provider": "anthropic", "model": "claude-haiku-..."}, "default": false}
+```
+
+`POST` (or `PUT` over HTTP) the same path with `{"model_ref": "..."}` (a role name, `provider/model`, or bare model id) or `{"model": {"provider": "...", "model": "..."}}` points the session's top-level turns at that model without touching the workspace default (`POST .../config/model`); it answers with the new view.
+An empty body (`{}`) clears it, so the session follows the workspace's large model again (`default: true`).
+Only the large slot is per-session: titles and summaries always use the workspace's small model, and `"model_type": "small"` is a 400.
+An unknown model is a 400, an unknown session a 404, and a session owned by another node a 409 (route to its owner).
+The session row's `model_ref` is the same field swarm workers are spawned with; it replicates with the session.
+
+## Voice
+
+`POST /v1/voice/client-secret` mints a short-lived xAI realtime secret so the phone can open `wss://api.x.ai/v1/realtime` directly without holding the node's credential.
+
+Request: `{"session_id": "<sid>"}` (required; it selects the workspace whose config supplies the credential, falling back to the server's).
+Response (`Cache-Control: no-store`):
+
+```json
+{"value": "<ephemeral secret>", "expires_at": 1767225600}
+```
+
+`expires_at` is unix seconds. The node calls `POST https://api.x.ai/v1/realtime/client_secrets` with `{"expires_after": {"seconds": 300}}`, authenticated with the first credential found:
+
+1. `options.voice.api_key` (shell-expanded, so `$XAI_API_KEY` or `$(cmd)` work),
+2. the `XAI_API_KEY` environment variable,
+3. the Grok OAuth login (`providers.grok` OAuth token),
+4. the `xai`, then `grok`, provider `api_key`.
+
+`options.voice.base_url` overrides the xAI base URL.
+Errors: missing `session_id` is 400; no credential is **424** with a message naming the options; xAI refusing is 502 (the upstream body is not echoed).
+Neither the credential nor the minted secret is logged.
 
 ## History search
 

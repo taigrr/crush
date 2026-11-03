@@ -596,6 +596,19 @@ definitions:
     - TrailerStyleNone
     - TrailerStyleCoAuthoredBy
     - TrailerStyleAssistedBy
+  config.VoiceOptions:
+    properties:
+      api_key:
+        description: |-
+          APIKey is the xAI API key used to mint ephemeral voice secrets. It
+          is shell-expanded at request time ($XAI_API_KEY, $(cmd)). When
+          empty, XAI_API_KEY, then the Grok OAuth login, then the xai or
+          grok provider api_key are used.
+        type: string
+      base_url:
+        description: BaseURL overrides the xAI API base URL.
+        type: string
+    type: object
   config.WorktreeConfig:
     properties:
       enabled:
@@ -736,6 +749,8 @@ definitions:
         $ref: '#/definitions/config.SoundOptions'
       tui:
         $ref: '#/definitions/config.TUIOptions'
+      voice:
+        $ref: '#/definitions/config.VoiceOptions'
     type: object
   github_com_taigrr_crush_internal_config.Scope:
     enum:
@@ -855,6 +870,11 @@ definitions:
     properties:
       code:
         type: string
+      hosts:
+        description: Hosts pins the hosts (or host:port) the locator advertises.
+        items:
+          type: string
+        type: array
       role:
         type: string
     type: object
@@ -910,6 +930,13 @@ definitions:
     type: object
   pairing.CreateOfferRequest:
     properties:
+      hosts:
+        description: |-
+          Hosts pins the hosts (or host:port) the offer advertises, in
+          preference order, instead of the detected ones.
+        items:
+          type: string
+        type: array
       role:
         type: string
       ttl_seconds:
@@ -1679,6 +1706,61 @@ definitions:
       promoted:
         type: boolean
     type: object
+  proto.ProviderInfo:
+    properties:
+      configured:
+        description: Configured reports that the workspace config has this provider.
+        type: boolean
+      default_large_model_id:
+        type: string
+      default_small_model_id:
+        type: string
+      disabled:
+        type: boolean
+      has_credential:
+        description: |-
+          HasCredential reports that an API key or OAuth token is set; the
+          credential itself is never returned.
+        type: boolean
+      id:
+        type: string
+      models:
+        items:
+          $ref: '#/definitions/proto.ProviderModelInfo'
+        type: array
+      name:
+        type: string
+      oauth:
+        description: OAuth reports that the credential is an OAuth token.
+        type: boolean
+      type:
+        type: string
+    type: object
+  proto.ProviderModelInfo:
+    properties:
+      can_reason:
+        type: boolean
+      context_window:
+        type: integer
+      cost_per_1m_in:
+        type: number
+      cost_per_1m_out:
+        type: number
+      default_max_tokens:
+        type: integer
+      default_reasoning_effort:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      reasoning_levels:
+        items:
+          type: string
+        type: array
+      supports_attachments:
+        type: boolean
+    type: object
   proto.QuestionAnswer:
     properties:
       cancelled:
@@ -1943,6 +2025,47 @@ definitions:
       workspace_root:
         type: string
     type: object
+  proto.SessionModel:
+    properties:
+      default:
+        description: |-
+          Default reports that the session follows the workspace's large
+          model (no ModelRef, or one that no longer resolves).
+        type: boolean
+      large:
+        allOf:
+        - $ref: '#/definitions/config.SelectedModel'
+        description: |-
+          Large is the model the session's top-level turns run on: the
+          resolved ModelRef, else the workspace's large model.
+      model_ref:
+        description: |-
+          ModelRef is the session's own model reference; empty when the
+          session follows the workspace's large model.
+        type: string
+      small:
+        allOf:
+        - $ref: '#/definitions/config.SelectedModel'
+        description: |-
+          Small is the model used for the session's titles and summaries. It
+          is always the workspace's small model.
+    type: object
+  proto.SessionModelRequest:
+    properties:
+      model:
+        allOf:
+        - $ref: '#/definitions/config.SelectedModel'
+        description: Model selects a provider and model explicitly.
+      model_ref:
+        description: ModelRef is a role name, "provider/model", or a bare model id.
+        type: string
+      model_type:
+        allOf:
+        - $ref: '#/definitions/config.SelectedModelType'
+        description: |-
+          ModelType is the slot to set; only "large" (the default) is
+          per-session.
+    type: object
   proto.SessionOverview:
     properties:
       animal:
@@ -2120,6 +2243,19 @@ definitions:
       protocol:
         type: integer
       version:
+        type: string
+    type: object
+  proto.VoiceClientSecret:
+    properties:
+      expires_at:
+        description: ExpiresAt is the secret's expiry in unix seconds.
+        type: integer
+      value:
+        type: string
+    type: object
+  proto.VoiceClientSecretRequest:
+    properties:
+      session_id:
         type: string
     type: object
   proto.Workspace:
@@ -3139,6 +3275,42 @@ paths:
       tags:
       - system
       x-crush-scope: never
+  /voice/client-secret:
+    post:
+      consumes:
+      - application/json
+      description: Returns an ephemeral xAI realtime secret. The node's credential
+        never leaves it. 424 when no xAI credential is configured.
+      parameters:
+      - description: Voice secret request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.VoiceClientSecretRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.VoiceClientSecret'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "424":
+          description: Failed Dependency
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Mint a realtime voice client secret
+      tags:
+      - voice
+      x-crush-scope: sessions:prompt
   /workspace-overviews:
     get:
       produces:
@@ -4488,7 +4660,7 @@ paths:
       summary: List LSP clients
       tags:
       - lsp
-      x-crush-scope: never
+      x-crush-scope: sessions:read
   /workspaces/{id}/lsps/{lsp}/diagnostics:
     get:
       parameters:
@@ -4520,7 +4692,7 @@ paths:
       summary: Get LSP diagnostics
       tags:
       - lsp
-      x-crush-scope: never
+      x-crush-scope: sessions:read
   /workspaces/{id}/lsps/start:
     post:
       consumes:
@@ -4555,7 +4727,7 @@ paths:
       summary: Start LSP server
       tags:
       - lsp
-      x-crush-scope: never
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/lsps/stop:
     post:
       parameters:
@@ -4578,7 +4750,7 @@ paths:
       summary: Stop all LSP servers
       tags:
       - lsp
-      x-crush-scope: never
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/mcp/auth-url:
     get:
       produces:
@@ -4863,7 +5035,7 @@ paths:
       summary: Get MCP client states
       tags:
       - mcp
-      x-crush-scope: never
+      x-crush-scope: sessions:read
   /workspaces/{id}/messages/{msgid}/snapshot:
     get:
       parameters:
@@ -5175,7 +5347,9 @@ paths:
         "200":
           description: OK
           schema:
-            type: object
+            items:
+              $ref: '#/definitions/proto.ProviderInfo'
+            type: array
         "404":
           description: Not Found
           schema:
@@ -5187,7 +5361,7 @@ paths:
       summary: Get workspace providers
       tags:
       - workspaces
-      x-crush-scope: never
+      x-crush-scope: sessions:read
   /workspaces/{id}/questions/answer:
     post:
       consumes:
@@ -5639,6 +5813,137 @@ paths:
       tags:
       - sessions
       x-crush-scope: sessions:read
+  /workspaces/{id}/sessions/{sid}/model:
+    get:
+      description: The large model is per-session (model_ref); the small model is
+        always the workspace's.
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.SessionModel'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Get a session's model
+      tags:
+      - sessions
+      x-crush-scope: sessions:read
+    post:
+      consumes:
+      - application/json
+      description: 'Sets the session''s large model (model_ref or model); an empty
+        body clears it so the session follows the workspace default. model_type "small"
+        is rejected: the small model is workspace-wide.'
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Session model
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.SessionModelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.SessionModel'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Set a session's model
+      tags:
+      - sessions
+      x-crush-scope: config:model
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Session model
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.SessionModelRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.SessionModel'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Set a session's model
+      tags:
+      - sessions
+      x-crush-scope: never
   /workspaces/{id}/sessions/{sid}/pending:
     get:
       description: Lists the permission requests and questions that the session, or

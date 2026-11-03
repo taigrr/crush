@@ -158,6 +158,10 @@ type Service interface {
 	// SetFavorite pins or unpins a session so the sidebar inbox sticks it
 	// to the top. Publishes an update so the sidebar reprojects.
 	SetFavorite(ctx context.Context, id string, favorite bool) error
+	// SetModelRef changes the model reference the session's top-level
+	// turns run on (see Session.ModelRef). Empty clears it, so the
+	// session follows the workspace's large model again.
+	SetModelRef(ctx context.Context, id, modelRef string) error
 	// SetSwarmIdentity stores the color/animal pair used by the swarm
 	// tool to address the session across workspaces. Idempotent.
 	SetSwarmIdentity(ctx context.Context, id, color, animal string) error
@@ -483,6 +487,17 @@ func (s *service) SetFavorite(ctx context.Context, id string, favorite bool) err
 		Favorite: fav,
 	}); err != nil {
 		return fmt.Errorf("setting session favorite: %w", err)
+	}
+	s.publishByID(ctx, id)
+	return nil
+}
+
+func (s *service) SetModelRef(ctx context.Context, id, modelRef string) error {
+	if err := s.q.SetSessionModelRef(ctx, db.SetSessionModelRefParams{
+		ID:       id,
+		ModelRef: sql.NullString{String: modelRef, Valid: modelRef != ""},
+	}); err != nil {
+		return fmt.Errorf("setting session model: %w", err)
 	}
 	s.publishByID(ctx, id)
 	return nil

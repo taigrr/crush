@@ -149,3 +149,8 @@ WHERE id = sqlc.arg('id');
 UPDATE sessions
 SET owner_node = sqlc.narg('owner_node')
 WHERE id = sqlc.arg('id') OR parent_session_id = sqlc.arg('id');
+
+-- name: SetSessionModelRef :exec
+UPDATE sessions
+SET model_ref = sqlc.narg('model_ref')
+WHERE id = sqlc.arg('id');

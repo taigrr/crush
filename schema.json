@@ -665,6 +665,10 @@
         "sound": {
           "$ref": "#/$defs/SoundOptions",
           "description": "Server-side notification sound settings"
+        },
+        "voice": {
+          "$ref": "#/$defs/VoiceOptions",
+          "description": "Realtime voice settings for paired mobile devices"
         }
       },
       "additionalProperties": false,
@@ -1047,6 +1051,27 @@
         },
         "grep": {
           "$ref": "#/$defs/ToolGrep"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "VoiceOptions": {
+      "properties": {
+        "api_key": {
+          "type": "string",
+          "description": "xAI API key used to mint realtime voice secrets for paired devices (supports $VAR and $(cmd))",
+          "examples": [
+            "$XAI_API_KEY"
+          ]
+        },
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Override the xAI API base URL used for realtime voice secrets",
+          "examples": [
+            "https://api.x.ai/v1"
+          ]
         }
       },
       "additionalProperties": false,
