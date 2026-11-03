@@ -45,7 +45,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/client/v1/pair/abort": {
@@ -97,7 +98,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/client/v1/pair/claim": {
@@ -167,7 +169,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/client/v1/pair/confirm": {
@@ -219,7 +222,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/client/v1/pair/poll": {
@@ -271,7 +275,37 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
+            }
+        },
+        "/cluster/dashboard": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Cluster dashboard",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/cluster.NodeDashboard"
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/cluster/devices": {
@@ -299,7 +333,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/devices/{device_id}/revoke": {
@@ -333,7 +368,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/accept": {
@@ -384,7 +420,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/offers": {
@@ -434,7 +471,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/offers/{offer_id}": {
@@ -486,7 +524,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/offers/{offer_id}/approve": {
@@ -543,7 +582,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/offers/{offer_id}/qr.png": {
@@ -580,7 +620,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/offers/{offer_id}/reject": {
@@ -620,7 +661,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/config": {
@@ -639,7 +681,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.ServerConfig"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/control": {
@@ -672,7 +715,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/events": {
@@ -688,7 +732,8 @@ const docTemplate = `{
                     "200": {
                         "description": "OK"
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/health": {
@@ -701,7 +746,8 @@ const docTemplate = `{
                     "200": {
                         "description": "OK"
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/peek-messages": {
@@ -755,7 +801,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/peek-session-info": {
@@ -806,7 +853,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/session-bundle": {
@@ -851,7 +899,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/sessions/batch": {
@@ -890,7 +939,48 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
+            }
+        },
+        "/sessions/move": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transfer"
+                ],
+                "summary": "Move a session",
+                "parameters": [
+                    {
+                        "description": "Move request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.MoveSessionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.MoveSessionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:move"
             }
         },
         "/swarm/resolve": {
@@ -943,7 +1033,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/version": {
@@ -962,7 +1053,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.VersionInfo"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspace-overviews": {
@@ -990,7 +1082,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces": {
@@ -1012,7 +1105,8 @@ const docTemplate = `{
                             }
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "post": {
                 "consumes": [
@@ -1055,7 +1149,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}": {
@@ -1095,7 +1190,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "delete": {
                 "tags": [
@@ -1121,7 +1217,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/agent": {
@@ -1161,7 +1258,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "post": {
                 "consumes": [
@@ -1217,7 +1315,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/cancel": {
@@ -1251,7 +1350,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/agent/default-small-model": {
@@ -1297,7 +1397,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/agent/init": {
@@ -1331,7 +1432,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}": {
@@ -1378,7 +1480,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/cancel": {
@@ -1419,7 +1522,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/cwd": {
@@ -1469,7 +1573,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/goal": {
@@ -1516,7 +1621,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "post": {
                 "consumes": [
@@ -1567,7 +1673,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/goal/clear": {
@@ -1608,7 +1715,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/prompts/clear": {
@@ -1649,7 +1757,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/prompts/list": {
@@ -1699,7 +1808,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/prompts/promote-btw": {
@@ -1747,7 +1857,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/prompts/queued": {
@@ -1794,7 +1905,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/runs/{rid}/drop": {
@@ -1849,7 +1961,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/shell": {
@@ -1914,7 +2027,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "shell"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/summarize": {
@@ -1955,7 +2069,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/title": {
@@ -1996,7 +2111,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/tools/cancel": {
@@ -2044,7 +2160,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/update": {
@@ -2078,7 +2195,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config": {
@@ -2118,7 +2236,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/compact": {
@@ -2170,7 +2289,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/import-copilot": {
@@ -2210,7 +2330,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/model": {
@@ -2262,7 +2383,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "config:model"
             }
         },
         "/workspaces/{id}/config/provider-key": {
@@ -2314,7 +2436,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/refresh-oauth": {
@@ -2366,7 +2489,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/reload": {
@@ -2400,7 +2524,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/remove": {
@@ -2452,7 +2577,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/set": {
@@ -2504,7 +2630,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/current-session": {
@@ -2560,7 +2687,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/events": {
@@ -2597,7 +2725,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/filetracker/lastread": {
@@ -2650,7 +2779,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/filetracker/read": {
@@ -2702,7 +2832,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/fork": {
@@ -2760,7 +2891,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/git/branches": {
@@ -2803,7 +2935,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/lsps": {
@@ -2846,7 +2979,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/lsps/start": {
@@ -2898,7 +3032,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/lsps/stop": {
@@ -2932,7 +3067,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/lsps/{lsp}/diagnostics": {
@@ -2979,7 +3115,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/docker/disable": {
@@ -3013,7 +3150,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/docker/enable": {
@@ -3047,7 +3185,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/get-prompt": {
@@ -3105,7 +3244,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/read-resource": {
@@ -3163,7 +3303,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/refresh-prompts": {
@@ -3215,7 +3356,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/refresh-resources": {
@@ -3267,7 +3409,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/refresh-tools": {
@@ -3319,7 +3462,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/states": {
@@ -3362,7 +3506,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/messages/user": {
@@ -3405,7 +3550,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/messages/{msgid}/snapshot": {
@@ -3452,7 +3598,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/permissions/grant": {
@@ -3507,7 +3654,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "permissions:answer"
             }
         },
         "/workspaces/{id}/permissions/skip": {
@@ -3547,7 +3695,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             },
             "post": {
                 "consumes": [
@@ -3597,7 +3746,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "permissions:always"
             }
         },
         "/workspaces/{id}/permissions/sysadmin": {
@@ -3637,7 +3787,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             },
             "post": {
                 "consumes": [
@@ -3687,7 +3838,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/project/init": {
@@ -3721,7 +3873,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/project/init-prompt": {
@@ -3761,7 +3914,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/project/needs-init": {
@@ -3801,7 +3955,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/providers": {
@@ -3841,7 +3996,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/questions/answer": {
@@ -3896,7 +4052,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "permissions:answer"
             }
         },
         "/workspaces/{id}/sessions": {
@@ -3939,7 +4096,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "post": {
                 "consumes": [
@@ -3995,7 +4153,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/sessions/archived": {
@@ -4038,7 +4197,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/sessions/{sid}": {
@@ -4085,7 +4245,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "put": {
                 "consumes": [
@@ -4148,7 +4309,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             },
             "delete": {
                 "tags": [
@@ -4187,7 +4349,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions/{sid}/archive": {
@@ -4234,7 +4397,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/sessions/{sid}/favorite": {
@@ -4287,7 +4451,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/sessions/{sid}/filetracker/files": {
@@ -4337,7 +4502,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions/{sid}/history": {
@@ -4387,7 +4553,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/sessions/{sid}/messages": {
@@ -4437,7 +4604,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/sessions/{sid}/messages/user": {
@@ -4487,7 +4655,53 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/milestones": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List session milestones",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/milestone.Milestone"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/sessions/{sid}/pending": {
@@ -4535,7 +4749,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/sessions/{sid}/seen": {
@@ -4582,7 +4797,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/sessions/{sid}/snapshots": {
@@ -4632,7 +4848,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions/{sid}/unarchive": {
@@ -4673,7 +4890,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/sessions/{sid}/worktrees": {
@@ -4723,7 +4941,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             },
             "post": {
                 "consumes": [
@@ -4786,7 +5005,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions/{sid}/worktrees/active": {
@@ -4833,7 +5053,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions/{sid}/worktrees/{wtid}/switch": {
@@ -4881,7 +5102,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/skills": {
@@ -4924,7 +5146,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/skills/read": {
@@ -4982,7 +5205,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/skills/states": {
@@ -5025,7 +5249,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/enabled": {
@@ -5065,7 +5290,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/gc": {
@@ -5105,7 +5331,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/stats": {
@@ -5145,7 +5372,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/{snapid}": {
@@ -5192,7 +5420,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/{snapid}/diff": {
@@ -5239,7 +5468,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/{snapid}/restore": {
@@ -5280,7 +5510,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/worktrees": {
@@ -5323,7 +5554,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/worktrees/enabled": {
@@ -5363,7 +5595,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/worktrees/{wtid}": {
@@ -5410,7 +5643,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             },
             "delete": {
                 "tags": [
@@ -5449,7 +5683,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/worktrees/{wtid}/merge": {
@@ -5508,7 +5743,8 @@ const docTemplate = `{
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         }
     },
@@ -5627,6 +5863,181 @@ const docTemplate = `{
                 },
                 "top_p": {
                     "type": "number"
+                }
+            }
+        },
+        "cluster.Endpoint": {
+            "type": "object",
+            "properties": {
+                "addr": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/cluster.EndpointKind"
+                }
+            }
+        },
+        "cluster.EndpointKind": {
+            "type": "string",
+            "enum": [
+                "nats",
+                "direct"
+            ],
+            "x-enum-varnames": [
+                "EndpointNATS",
+                "EndpointDirect"
+            ]
+        },
+        "cluster.Member": {
+            "type": "object",
+            "properties": {
+                "endpoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.Endpoint"
+                    }
+                },
+                "joined_at": {
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "public_key": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.NodeDashboard": {
+            "type": "object",
+            "properties": {
+                "last_seen": {
+                    "type": "string"
+                },
+                "member": {
+                    "$ref": "#/definitions/cluster.Member"
+                },
+                "online": {
+                    "type": "boolean"
+                },
+                "rtt_ms": {
+                    "description": "RTTMillis is the last mesh round-trip time; -1 when unknown.",
+                    "type": "integer"
+                },
+                "self": {
+                    "type": "boolean"
+                },
+                "stats": {
+                    "$ref": "#/definitions/cluster.NodeStats"
+                }
+            }
+        },
+        "cluster.NodeJob": {
+            "type": "object",
+            "properties": {
+                "animal": {
+                    "type": "string"
+                },
+                "blocked": {
+                    "type": "boolean"
+                },
+                "color": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "workspace_root": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.NodeStats": {
+            "type": "object",
+            "properties": {
+                "cpu_cores": {
+                    "type": "integer"
+                },
+                "cpu_percent": {
+                    "type": "number"
+                },
+                "disk_free": {
+                    "type": "integer"
+                },
+                "disk_path": {
+                    "type": "string"
+                },
+                "disk_percent": {
+                    "type": "number"
+                },
+                "disk_total": {
+                    "type": "integer"
+                },
+                "hostname": {
+                    "type": "string"
+                },
+                "jobs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.NodeJob"
+                    }
+                },
+                "load1": {
+                    "type": "number"
+                },
+                "load15": {
+                    "type": "number"
+                },
+                "load5": {
+                    "type": "number"
+                },
+                "mem_available": {
+                    "type": "integer"
+                },
+                "mem_percent": {
+                    "type": "number"
+                },
+                "mem_total": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "platform": {
+                    "type": "string"
+                },
+                "sampled_at": {
+                    "type": "string"
+                },
+                "sessions": {
+                    "type": "integer"
+                },
+                "uptime_seconds": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                },
+                "workspaces": {
+                    "type": "integer"
                 }
             }
         },
@@ -6323,6 +6734,33 @@ const docTemplate = `{
                 "StateDisabled",
                 "StateWarn"
             ]
+        },
+        "milestone.Milestone": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "fullSummary": {
+                    "description": "2-3 sentence summary.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "sessionID": {
+                    "type": "string"
+                },
+                "shortSummary": {
+                    "description": "5-8 word summary.",
+                    "type": "string"
+                },
+                "turnNumber": {
+                    "type": "integer",
+                    "format": "int64"
+                }
+            }
         },
         "oauth.OAuthClient": {
             "type": "object",
@@ -7337,6 +7775,58 @@ const docTemplate = `{
                 "Tool"
             ]
         },
+        "proto.MoveSessionRequest": {
+            "type": "object",
+            "properties": {
+                "gc": {
+                    "description": "GC garbage-collects the Crush snapshot repository before sending,\nso unreachable snapshot objects are not shipped.",
+                    "type": "boolean"
+                },
+                "on_conflict": {
+                    "$ref": "#/definitions/transfer.ConflictPolicy"
+                },
+                "resume": {
+                    "description": "Resume continues a paused in-flight turn on the destination.",
+                    "type": "boolean"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "target_node": {
+                    "description": "TargetNode is the destination cluster node ID.",
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.MoveSessionResponse": {
+            "type": "object",
+            "properties": {
+                "backup_path": {
+                    "type": "string"
+                },
+                "plan": {
+                    "$ref": "#/definitions/transfer.Plan"
+                },
+                "resumed": {
+                    "type": "boolean"
+                },
+                "root": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "target_node": {
+                    "type": "string"
+                },
+                "target_node_name": {
+                    "type": "string"
+                }
+            }
+        },
         "proto.PeekMessagesParams": {
             "type": "object",
             "properties": {
@@ -8116,6 +8606,34 @@ const docTemplate = `{
                 "Second",
                 "Minute",
                 "Hour"
+            ]
+        },
+        "transfer.ConflictPolicy": {
+            "type": "string",
+            "enum": [
+                "",
+                "backup",
+                "keep"
+            ],
+            "x-enum-varnames": [
+                "ConflictRefuse",
+                "ConflictBackup",
+                "ConflictKeep"
+            ]
+        },
+        "transfer.Plan": {
+            "type": "string",
+            "enum": [
+                "fresh",
+                "overlay",
+                "backup",
+                "db-only"
+            ],
+            "x-enum-varnames": [
+                "PlanFresh",
+                "PlanOverlay",
+                "PlanBackup",
+                "PlanDBOnly"
             ]
         }
     }

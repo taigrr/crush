@@ -17,6 +17,7 @@ import (
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/config/set [post]
 func (c *controllerV1) handlePostWorkspaceConfigSet(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -44,6 +45,7 @@ func (c *controllerV1) handlePostWorkspaceConfigSet(w http.ResponseWriter, r *ht
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/config/remove [post]
 func (c *controllerV1) handlePostWorkspaceConfigRemove(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -71,6 +73,7 @@ func (c *controllerV1) handlePostWorkspaceConfigRemove(w http.ResponseWriter, r 
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"config:model"
 //	@Router			/workspaces/{id}/config/model [post]
 func (c *controllerV1) handlePostWorkspaceConfigModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -98,6 +101,7 @@ func (c *controllerV1) handlePostWorkspaceConfigModel(w http.ResponseWriter, r *
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/config/compact [post]
 func (c *controllerV1) handlePostWorkspaceConfigCompact(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -125,6 +129,7 @@ func (c *controllerV1) handlePostWorkspaceConfigCompact(w http.ResponseWriter, r
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/config/provider-key [post]
 func (c *controllerV1) handlePostWorkspaceConfigProviderKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -157,6 +162,7 @@ func (c *controllerV1) handlePostWorkspaceConfigProviderKey(w http.ResponseWrite
 //	@Success		200	{object}	proto.ImportCopilotResponse
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/config/import-copilot [post]
 func (c *controllerV1) handlePostWorkspaceConfigImportCopilot(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -179,6 +185,7 @@ func (c *controllerV1) handlePostWorkspaceConfigImportCopilot(w http.ResponseWri
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/config/refresh-oauth [post]
 func (c *controllerV1) handlePostWorkspaceConfigRefreshOAuth(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -203,6 +210,7 @@ func (c *controllerV1) handlePostWorkspaceConfigRefreshOAuth(w http.ResponseWrit
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/config/reload [post]
 func (c *controllerV1) handlePostWorkspaceConfigReload(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -222,6 +230,7 @@ func (c *controllerV1) handlePostWorkspaceConfigReload(w http.ResponseWriter, r 
 //	@Success		200	{object}	proto.ProjectNeedsInitResponse
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/project/needs-init [get]
 func (c *controllerV1) handleGetWorkspaceProjectNeedsInit(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -241,6 +250,7 @@ func (c *controllerV1) handleGetWorkspaceProjectNeedsInit(w http.ResponseWriter,
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/project/init [post]
 func (c *controllerV1) handlePostWorkspaceProjectInit(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -260,6 +270,7 @@ func (c *controllerV1) handlePostWorkspaceProjectInit(w http.ResponseWriter, r *
 //	@Success		200	{object}	proto.ProjectInitPromptResponse
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/project/init-prompt [get]
 func (c *controllerV1) handleGetWorkspaceProjectInitPrompt(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -280,6 +291,7 @@ func (c *controllerV1) handleGetWorkspaceProjectInitPrompt(w http.ResponseWriter
 //	@Success		200	{array}		proto.SkillInfo
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/skills [get]
 func (c *controllerV1) handleGetWorkspaceSkills(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -299,6 +311,7 @@ func (c *controllerV1) handleGetWorkspaceSkills(w http.ResponseWriter, r *http.R
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/skills/read [post]
 func (c *controllerV1) handlePostWorkspaceSkillRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -324,6 +337,7 @@ func (c *controllerV1) handlePostWorkspaceSkillRead(w http.ResponseWriter, r *ht
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/mcp/docker/enable [post]
 func (c *controllerV1) handlePostWorkspaceMCPEnableDocker(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -342,6 +356,7 @@ func (c *controllerV1) handlePostWorkspaceMCPEnableDocker(w http.ResponseWriter,
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/mcp/docker/disable [post]
 func (c *controllerV1) handlePostWorkspaceMCPDisableDocker(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -363,6 +378,7 @@ func (c *controllerV1) handlePostWorkspaceMCPDisableDocker(w http.ResponseWriter
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/mcp/refresh-tools [post]
 func (c *controllerV1) handlePostWorkspaceMCPRefreshTools(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -426,6 +442,7 @@ func (c *controllerV1) handleGetWorkspaceMCPAuthURL(w http.ResponseWriter, r *ht
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/mcp/read-resource [post]
 func (c *controllerV1) handlePostWorkspaceMCPReadResource(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -451,6 +468,7 @@ func (c *controllerV1) handlePostWorkspaceMCPReadResource(w http.ResponseWriter,
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/mcp/get-prompt [post]
 func (c *controllerV1) handlePostWorkspaceMCPGetPrompt(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -477,6 +495,7 @@ func (c *controllerV1) handlePostWorkspaceMCPGetPrompt(w http.ResponseWriter, r 
 //	@Success		200	{object}	map[string]proto.MCPClientInfo
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/mcp/states [get]
 func (c *controllerV1) handleGetWorkspaceMCPStates(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -507,6 +526,7 @@ func (c *controllerV1) handleGetWorkspaceMCPStates(w http.ResponseWriter, r *htt
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/mcp/refresh-prompts [post]
 func (c *controllerV1) handlePostWorkspaceMCPRefreshPrompts(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -531,6 +551,7 @@ func (c *controllerV1) handlePostWorkspaceMCPRefreshPrompts(w http.ResponseWrite
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/mcp/refresh-resources [post]
 func (c *controllerV1) handlePostWorkspaceMCPRefreshResources(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -553,6 +574,7 @@ func (c *controllerV1) handlePostWorkspaceMCPRefreshResources(w http.ResponseWri
 //	@Success		200	{array}		proto.SkillState
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/skills/states [get]
 func (c *controllerV1) handleGetWorkspaceSkillsStates(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

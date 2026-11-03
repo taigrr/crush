@@ -356,6 +356,14 @@ func (s *Server) handleNodeProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleClusterDashboard returns live per-node health and resources.
+//
+//	@Summary		Cluster dashboard
+//	@Tags			cluster
+//	@Produce		json
+//	@Success		200	{array}		cluster.NodeDashboard
+//	@Failure		501	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
+//	@Router			/cluster/dashboard [get]
 func (s *Server) handleClusterDashboard(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireCluster(w); !ok {
 		return

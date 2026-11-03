@@ -23,6 +23,7 @@ var _ proto.Error
 //	@Success		200	{object}	object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/snapshots/enabled [get]
 func (c *controllerV1) handleGetWorkspaceSnapshotsEnabled(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -44,6 +45,7 @@ func (c *controllerV1) handleGetWorkspaceSnapshotsEnabled(w http.ResponseWriter,
 //	@Success		200	{array}		object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/sessions/{sid}/snapshots [get]
 func (c *controllerV1) handleGetWorkspaceSnapshots(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -62,6 +64,7 @@ func (c *controllerV1) handleGetWorkspaceSnapshots(w http.ResponseWriter, r *htt
 //	@Success		200		{object}	object
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/snapshots/{snapid} [get]
 func (c *controllerV1) handleGetWorkspaceSnapshot(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -80,6 +83,7 @@ func (c *controllerV1) handleGetWorkspaceSnapshot(w http.ResponseWriter, r *http
 //	@Success		200		{object}	object
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/messages/{msgid}/snapshot [get]
 func (c *controllerV1) handleGetWorkspaceSnapshotByMessage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -97,6 +101,7 @@ func (c *controllerV1) handleGetWorkspaceSnapshotByMessage(w http.ResponseWriter
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/snapshots/{snapid}/restore [post]
 func (c *controllerV1) handlePostWorkspaceSnapshotRestore(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -118,6 +123,7 @@ func (c *controllerV1) handlePostWorkspaceSnapshotRestore(w http.ResponseWriter,
 //	@Success		200		{object}	object
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/snapshots/{snapid}/diff [get]
 func (c *controllerV1) handleGetWorkspaceSnapshotDiff(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -139,6 +145,7 @@ func (c *controllerV1) handleGetWorkspaceSnapshotDiff(w http.ResponseWriter, r *
 //	@Success		200	{object}	object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/snapshots/gc [post]
 func (c *controllerV1) handlePostWorkspaceSnapshotGC(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -159,6 +166,7 @@ func (c *controllerV1) handlePostWorkspaceSnapshotGC(w http.ResponseWriter, r *h
 //	@Success		200	{object}	object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/snapshots/stats [get]
 func (c *controllerV1) handleGetWorkspaceSnapshotStats(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -175,6 +183,7 @@ func (c *controllerV1) handleGetWorkspaceSnapshotStats(w http.ResponseWriter, r 
 //	@Success		200	{object}	object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/worktrees/enabled [get]
 func (c *controllerV1) handleGetWorkspaceWorktreesEnabled(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -196,6 +205,7 @@ func (c *controllerV1) handleGetWorkspaceWorktreesEnabled(w http.ResponseWriter,
 //	@Success		200	{array}		object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/sessions/{sid}/worktrees [get]
 func (c *controllerV1) handleGetWorkspaceWorktrees(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -213,6 +223,7 @@ func (c *controllerV1) handleGetWorkspaceWorktrees(w http.ResponseWriter, r *htt
 //	@Success		200	{array}		object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/worktrees [get]
 func (c *controllerV1) handleGetAllWorkspaceWorktrees(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -230,6 +241,7 @@ func (c *controllerV1) handleGetAllWorkspaceWorktrees(w http.ResponseWriter, r *
 //	@Success		200		{object}	object
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/worktrees/{wtid} [get]
 func (c *controllerV1) handleGetWorkspaceWorktree(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -248,6 +260,7 @@ func (c *controllerV1) handleGetWorkspaceWorktree(w http.ResponseWriter, r *http
 //	@Success		200		{object}	object
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/sessions/{sid}/worktrees/active [get]
 func (c *controllerV1) handleGetWorkspaceActiveWorktree(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -281,6 +294,7 @@ type CreateWorktreeRequest struct {
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/sessions/{sid}/worktrees [post]
 func (c *controllerV1) handlePostWorkspaceWorktree(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -305,6 +319,7 @@ func (c *controllerV1) handlePostWorkspaceWorktree(w http.ResponseWriter, r *htt
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/sessions/{sid}/worktrees/{wtid}/switch [post]
 func (c *controllerV1) handlePostWorkspaceWorktreeSwitch(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -327,6 +342,7 @@ func (c *controllerV1) handlePostWorkspaceWorktreeSwitch(w http.ResponseWriter, 
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/worktrees/{wtid} [delete]
 func (c *controllerV1) handleDeleteWorkspaceWorktree(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -356,6 +372,7 @@ type MergeWorktreeRequest struct {
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/worktrees/{wtid}/merge [post]
 func (c *controllerV1) handlePostWorkspaceWorktreeMerge(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -382,6 +399,7 @@ func (c *controllerV1) handlePostWorkspaceWorktreeMerge(w http.ResponseWriter, r
 //	@Success		200	{array}		string
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/git/branches [get]
 func (c *controllerV1) handleGetWorkspaceGitBranches(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -401,6 +419,7 @@ func (c *controllerV1) handleGetWorkspaceGitBranches(w http.ResponseWriter, r *h
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/fork [post]
 func (c *controllerV1) handlePostWorkspaceFork(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

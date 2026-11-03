@@ -594,6 +594,7 @@ func decodePair[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
 //	@Produce		json
 //	@Success		200	{object}	pairing.Info
 //	@Failure		400	{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/client/v1/info [get]
 func (p *pairingService) handleInfo(w http.ResponseWriter, _ *http.Request) {
 	self, err := p.self()
@@ -619,6 +620,7 @@ func (p *pairingService) handleInfo(w http.ResponseWriter, _ *http.Request) {
 //	@Failure		409		{object}	pairing.Error
 //	@Failure		410		{object}	pairing.Error
 //	@Failure		429		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/client/v1/pair/claim [post]
 func (p *pairingService) handleClaim(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodePair[pairing.ClaimRequest](w, r)
@@ -645,6 +647,7 @@ func (p *pairingService) handleClaim(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	pairing.Error
 //	@Failure		401		{object}	pairing.Error
 //	@Failure		410		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/client/v1/pair/confirm [post]
 func (p *pairingService) handleConfirm(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodePair[pairing.ConfirmRequest](w, r)
@@ -671,6 +674,7 @@ func (p *pairingService) handleConfirm(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	pairing.Error
 //	@Failure		401		{object}	pairing.Error
 //	@Failure		410		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/client/v1/pair/poll [post]
 func (p *pairingService) handlePoll(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodePair[pairing.PollRequest](w, r)
@@ -700,6 +704,7 @@ func (p *pairingService) handlePoll(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	pairing.Error
 //	@Failure		401		{object}	pairing.Error
 //	@Failure		409		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/client/v1/pair/abort [post]
 func (p *pairingService) handleAbort(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodePair[pairing.AbortRequest](w, r)
@@ -760,6 +765,7 @@ func (s *Server) pairOffer(w http.ResponseWriter, r *http.Request) (*pairingServ
 //	@Failure		400		{object}	pairing.Error
 //	@Failure		409		{object}	pairing.Error
 //	@Failure		429		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/offers [post]
 func (s *Server) handleCreatePairOffer(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.requirePairing(w)
@@ -794,6 +800,7 @@ func (s *Server) handleCreatePairOffer(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	pairing.Error
 //	@Failure		409		{object}	pairing.Error
 //	@Failure		410		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/accept [post]
 func (s *Server) handleAcceptPairCode(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.requirePairing(w)
@@ -828,6 +835,7 @@ func (s *Server) handleAcceptPairCode(w http.ResponseWriter, r *http.Request) {
 //	@Success		200			{object}	pairing.OfferView
 //	@Failure		400			{object}	pairing.Error
 //	@Failure		404			{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/offers/{offer_id} [get]
 func (s *Server) handleGetPairOffer(w http.ResponseWriter, r *http.Request) {
 	p, id, ok := s.pairOffer(w, r)
@@ -862,6 +870,7 @@ func (s *Server) handleGetPairOffer(w http.ResponseWriter, r *http.Request) {
 //	@Success		200
 //	@Failure		404	{object}	pairing.Error
 //	@Failure		409	{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/offers/{offer_id}/qr.png [get]
 func (s *Server) handleGetPairOfferQR(w http.ResponseWriter, r *http.Request) {
 	p, id, ok := s.pairOffer(w, r)
@@ -903,6 +912,7 @@ func (s *Server) handleGetPairOfferQR(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400			{object}	pairing.Error
 //	@Failure		404			{object}	pairing.Error
 //	@Failure		410			{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/offers/{offer_id}/approve [post]
 func (s *Server) handleApprovePairOffer(w http.ResponseWriter, r *http.Request) {
 	p, id, ok := s.pairOffer(w, r)
@@ -938,6 +948,7 @@ func (s *Server) handleApprovePairOffer(w http.ResponseWriter, r *http.Request) 
 //	@Success		200			{object}	pairing.OfferView
 //	@Failure		404			{object}	pairing.Error
 //	@Failure		409			{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/offers/{offer_id}/reject [post]
 func (s *Server) handleRejectPairOffer(w http.ResponseWriter, r *http.Request) {
 	p, id, ok := s.pairOffer(w, r)
@@ -959,6 +970,7 @@ func (s *Server) handleRejectPairOffer(w http.ResponseWriter, r *http.Request) {
 //	@Produce		json
 //	@Success		200	{array}		pairing.Device
 //	@Failure		501	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/devices [get]
 func (s *Server) handleListDevices(w http.ResponseWriter, _ *http.Request) {
 	p, ok := s.requirePairing(w)
@@ -976,6 +988,7 @@ func (s *Server) handleListDevices(w http.ResponseWriter, _ *http.Request) {
 //	@Param			device_id	path		string	true	"Device ID"
 //	@Success		200			{object}	pairing.Device
 //	@Failure		404			{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/devices/{device_id}/revoke [post]
 func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.requirePairing(w)
