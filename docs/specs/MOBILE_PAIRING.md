@@ -732,6 +732,26 @@ For networks that block websockets or for simple tooling:
   one entry node at a time.
 - `--client-advertise` overrides auto-detected endpoints, like
   `--advertise` for members.
+- Address selection for the pairing node's own endpoints (QR, locator, and
+  `/client/v1/info`) skips loopback, link-local, down, point-to-point
+  (`IFF_POINTOPOINT`), and tunnel or virtual interfaces (`utun*`, `wg*`,
+  `tun*`/`tap*`, `tailscale*`, `ipsec*`, `ppp*`, VM and container bridges
+  such as `bridge*`, `vmnet*`, `docker*`, `br-*`, and Apple `awdl`/`llw`).
+  Candidates are ranked: private (RFC 1918) IPv4 on a broadcast-capable
+  physical interface, other private IPv4, public IPv4, routable IPv6,
+  addresses that are not this host's own (hostnames, NAT), then Tailscale
+  (`100.64.0.0/10`) last. Ties sort by interface name (natural order) then
+  address, so the order is deterministic. Recorded endpoints are re-ranked
+  against the current interfaces whenever an offer is built, so a node
+  initialized with a VPN address first still advertises its LAN first.
+- Tag `6` repeats, so the QR carries every good candidate in preference
+  order (at most 8). Clients that read one host must take the first, which
+  is always the best one; newer clients try them in order.
+- `crush pair --host <host[:port]>` (alias `--advertise`, repeatable or
+  comma-separated, also on `crush pair accept`) pins the advertised hosts,
+  in the given order, for that offer only (`hosts` in the create-offer and
+  accept request bodies). A host without a port gets the client listener's
+  port; loopback and unspecified hosts are refused.
 - mDNS (`_crush-client._tcp`) is a later phase and only ever provides
   *addresses*; trust always comes from pins.
 

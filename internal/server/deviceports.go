@@ -3,9 +3,12 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/netip"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/taigrr/crush/internal/cluster"
@@ -124,11 +127,13 @@ func selfListenerAddrs(l cluster.DeviceListener, configured string, eps []cluste
 	return cluster.AdvertisedAddrs(configured, eps)
 }
 
-// selfDevice is this node's own client endpoints and websocket URLs.
+// selfDevice is this node's own client endpoints and websocket URLs,
+// best first for a phone on this host's LAN (recorded endpoints may
+// predate the current interfaces, so they are re-ranked on every call).
 func (p *pairingService) selfDevice(eps []cluster.Endpoint) ([]pairing.Endpoint, []string) {
 	rec := p.deviceRecordFor(eps)
-	clients := addrEndpoints(selfListenerAddrs(rec.Client, p.clientAddr, eps))
-	return clients, wssURLs(addrEndpoints(selfListenerAddrs(rec.WS, p.wsAddr, eps)))
+	clients := addrEndpoints(cluster.OrderAdvertisedAddrs(selfListenerAddrs(rec.Client, p.clientAddr, eps)))
+	return clients, wssURLs(addrEndpoints(cluster.OrderAdvertisedAddrs(selfListenerAddrs(rec.WS, p.wsAddr, eps))))
 }
 
 // memberDevice is what phones are told about another member's device
@@ -234,4 +239,54 @@ func addrEndpoints(addrs []string) []pairing.Endpoint {
 		out = append(out, pairing.Endpoint{Kind: kind, Addr: net.JoinHostPort(host, port)})
 	}
 	return out
+}
+
+// hostOptions pins an offer's advertised client endpoints to hosts
+// (crush pair --host), in the given order. A host without a port gets
+// this node's client listener port.
+func (p *pairingService) hostOptions(hosts []string) ([]pairing.SelfOption, error) {
+	if len(hosts) == 0 {
+		return nil, nil
+	}
+	clients, _ := p.selfDevice(p.selfEndpoints())
+	port := portOfAny(endpointAddrs(clients))
+	if port == "" {
+		port = portOfAny([]string{p.clientAddr})
+	}
+	var addrs []string
+	for _, h := range hosts {
+		addr, err := pinnedAddr(h, port)
+		if err != nil {
+			return nil, &pairing.Error{Code: pairing.ErrCodeBadRequest, Message: err.Error()}
+		}
+		addrs = append(addrs, addr)
+	}
+	eps := addrEndpoints(addrs)
+	if len(eps) == 0 {
+		return nil, &pairing.Error{Code: pairing.ErrCodeBadRequest, Message: "no usable advertised host (loopback and unspecified addresses cannot reach a phone)"}
+	}
+	return []pairing.SelfOption{pairing.WithEndpoints(eps)}, nil
+}
+
+// pinnedAddr turns a --host value (host, host:port, or [v6]:port) into
+// host:port.
+func pinnedAddr(h, port string) (string, error) {
+	h = strings.TrimSpace(h)
+	if h == "" || strings.ContainsAny(h, "/?#@ ") {
+		return "", fmt.Errorf("invalid advertised host %q", h)
+	}
+	if host, p, err := net.SplitHostPort(h); err == nil {
+		if host == "" || p == "" {
+			return "", fmt.Errorf("invalid advertised host %q", h)
+		}
+		if _, err := strconv.ParseUint(p, 10, 16); err != nil {
+			return "", fmt.Errorf("invalid port in advertised host %q", h)
+		}
+		return net.JoinHostPort(host, p), nil
+	}
+	h = strings.TrimSuffix(strings.TrimPrefix(h, "["), "]")
+	if port == "" {
+		return "", fmt.Errorf("advertised host %q needs a port: the client listener is not configured", h)
+	}
+	return net.JoinHostPort(h, port), nil
 }
