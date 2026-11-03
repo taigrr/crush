@@ -12,6 +12,7 @@ const (
 	// completed entries go first.
 	maxIdempotencyPerDevice = 256
 	maxIdempotencyKey       = 64
+	idempotencySweep        = time.Minute
 )
 
 // idemEntry is one remembered POST.
@@ -31,6 +32,7 @@ type idemCache struct {
 	mu      sync.Mutex
 	now     func() time.Time
 	entries map[string]map[string]*idemEntry
+	swept   time.Time
 }
 
 func newIdemCache() *idemCache {
@@ -56,16 +58,23 @@ func (c *idemCache) begin(deviceID, key string, fp [sha256.Size]byte) (e *idemEn
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.now()
+	if now.Sub(c.swept) > idempotencySweep {
+		// Expire every device's entries now and then, so a device that
+		// went quiet does not pin its cached responses.
+		c.swept = now
+		for id, dev := range c.entries {
+			c.expire(dev, now)
+			if len(dev) == 0 {
+				delete(c.entries, id)
+			}
+		}
+	}
 	dev := c.entries[deviceID]
 	if dev == nil {
 		dev = map[string]*idemEntry{}
 		c.entries[deviceID] = dev
 	}
-	for k, old := range dev {
-		if now.Sub(old.created) > idempotencyTTL && isDone(old) {
-			delete(dev, k)
-		}
-	}
+	c.expire(dev, now)
 	if old, ok := dev[key]; ok {
 		if old.fp != fp {
 			return nil, false, true
@@ -78,6 +87,14 @@ func (c *idemCache) begin(deviceID, key string, fp [sha256.Size]byte) (e *idemEn
 	e = &idemEntry{fp: fp, created: now, done: make(chan struct{})}
 	dev[key] = e
 	return e, true, false
+}
+
+func (c *idemCache) expire(dev map[string]*idemEntry, now time.Time) {
+	for k, old := range dev {
+		if now.Sub(old.created) > idempotencyTTL && isDone(old) {
+			delete(dev, k)
+		}
+	}
 }
 
 // evictOldest drops the oldest completed entry (in-flight ones stay, and

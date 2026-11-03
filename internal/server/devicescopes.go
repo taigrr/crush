@@ -103,7 +103,8 @@ func applyBodyRules(pattern string, d pairing.Device, body []byte) ([]byte, *bri
 	// Bodies are decoded exactly as the /v1 handler will decode them
 	// (encoding/json into the same struct, case-insensitive keys, last
 	// duplicate wins), so a rule cannot be dodged by spelling a field
-	// differently, and the forwarded body is re-encoded from the struct.
+	// differently. A body the bridge changes is re-encoded from the
+	// struct.
 	switch pattern {
 	case routePostAgent:
 		var msg proto.AgentMessage
@@ -115,6 +116,9 @@ func applyBodyRules(pattern string, d pairing.Device, body []byte) ([]byte, *bri
 			return nil, scopeDenied(devicescope.PermissionsAlways)
 		}
 		msg.ClientID = deviceClientPrefix + d.DeviceID
+		// Structured swarm sender parts are the backend's to set (they
+		// name another session as the sender); a device sends text.
+		msg.SwarmParts = nil
 		out, err := json.Marshal(msg)
 		if err != nil {
 			return nil, newBridgeError(codeBadRequest, "invalid body")
@@ -133,11 +137,6 @@ func applyBodyRules(pattern string, d pairing.Device, body []byte) ([]byte, *bri
 				return nil, scopeDenied(devicescope.PermissionsAlways)
 			}
 		}
-		out, err := json.Marshal(grant)
-		if err != nil {
-			return nil, newBridgeError(codeBadRequest, "invalid body")
-		}
-		return out, nil
 	}
 	return body, nil
 }

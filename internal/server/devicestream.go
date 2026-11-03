@@ -224,8 +224,7 @@ func streamKey(p string, q url.Values) string {
 // the device's scopes here, whichever node the device asked.
 func (b *deviceBridge) openStream(d pairing.Device, req streamRequest) streamOpened {
 	fail := func(e *bridgeError) streamOpened { return streamFailure(req.ID, b.nodeID, e) }
-	pattern, berr := b.streamPattern(d, req.Path)
-	if berr != nil {
+	if _, berr := b.streamPattern(d, req.Path); berr != nil {
 		return fail(berr)
 	}
 	query, berr := parseQuery(req.Query)
@@ -282,9 +281,7 @@ func (b *deviceBridge) openStream(d pairing.Device, req streamRequest) streamOpe
 		subject:   subjClientRoot + d.DeviceID + "." + verbEvents + "." + id,
 		lastFrame: now, lastInterest: now, sessions: map[string]string{},
 	}
-	if pattern == routeWorkspaceEvents {
-		s.session = session
-	}
+	s.session = session
 	s.cond = newCond(s)
 	b.streams[id] = s
 	b.mu.Unlock()
@@ -470,6 +467,10 @@ func (b *deviceBridge) runStream(ctx context.Context, s *deviceStream, p string,
 	pr, pw := io.Pipe()
 	w := &streamWriter{header: http.Header{}, w: pw}
 	defer s.finish(w)
+	// Unblock the scanner when the stream is cancelled, and the handler
+	// (blocked writing to the pipe) whenever this function returns.
+	context.AfterFunc(ctx, func() { _ = pr.CloseWithError(context.Canceled) })
+	defer pr.CloseWithError(io.ErrClosedPipe)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, (&url.URL{Path: p, RawQuery: query.Encode()}).String(), nil)
 	if err != nil {
 		return
@@ -484,10 +485,6 @@ func (b *deviceBridge) runStream(ctx context.Context, s *deviceStream, p string,
 		s.end(endNodeShutdown)
 		return
 	}
-	// Unblock the scanner when the stream is cancelled, and the handler
-	// (blocked writing to the pipe) whenever this loop returns.
-	context.AfterFunc(ctx, func() { _ = pr.CloseWithError(context.Canceled) })
-	defer pr.CloseWithError(io.ErrClosedPipe)
 
 	sc := bufio.NewScanner(pr)
 	sc.Buffer(make([]byte, 64<<10), maxSSELine)
@@ -621,7 +618,7 @@ func (s *deviceStream) sessionOf(data string) (string, bool) {
 		Payload json.RawMessage    `json:"payload"`
 	}
 	if json.Unmarshal([]byte(data), &env) != nil {
-		return "", false
+		return "", true
 	}
 	if env.Type == pubsub.PayloadTypeMessageDelta {
 		var delta struct {
@@ -634,7 +631,7 @@ func (s *deviceStream) sessionOf(data string) (string, bool) {
 		Payload json.RawMessage `json:"payload"`
 	}
 	if json.Unmarshal(env.Payload, &inner) != nil {
-		return "", false
+		return "", !globalPayloads[env.Type]
 	}
 	var p struct {
 		ID        string `json:"id"`
@@ -656,7 +653,18 @@ func (s *deviceStream) sessionOf(data string) (string, bool) {
 	if p.SessionID != "" {
 		return p.SessionID, true
 	}
-	return p.Message.SessionID, p.Message.SessionID != ""
+	if p.Message.SessionID != "" {
+		return p.Message.SessionID, true
+	}
+	// Only known workspace-wide events pass a session filter
+	// unattributed; anything else is treated as some other session's.
+	return "", !globalPayloads[env.Type]
+}
+
+// globalPayloads are the stream events that concern no session.
+var globalPayloads = map[pubsub.PayloadType]bool{
+	pubsub.PayloadTypeLSPEvent: true, pubsub.PayloadTypeMCPEvent: true, pubsub.PayloadTypeSkillEvent: true,
+	pubsub.PayloadTypeSkillsEvent: true, pubsub.PayloadTypeConfigChanged: true,
 }
 
 func (s *deviceStream) rememberSession(messageID, sessionID string) {

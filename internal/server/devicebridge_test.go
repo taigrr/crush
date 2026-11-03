@@ -629,7 +629,9 @@ func TestDeviceStreamSessionOf(t *testing.T) {
 	check(`{"type":"agent_event","payload":{"type":"x","payload":{"message":{"session_id":"s3"}}}}`, "s3", true)
 	check(`{"type":"attention_event","payload":{"type":"x","payload":{"session_id":"s4"}}}`, "s4", true)
 	check(`{"type":"lsp_event","payload":{"type":"x","payload":{"name":"gopls"}}}`, "", false)
-	check(`garbage`, "", false)
+	check(`garbage`, "", true)
+	check(`{"type":"new_kind","payload":{"type":"x","payload":{"other":"s9"}}}`, "", true)
+	check(`{"type":"config_changed","payload":{"type":"x","payload":{}}}`, "", false)
 }
 
 func TestDeviceStreamRingBounds(t *testing.T) {

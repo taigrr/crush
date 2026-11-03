@@ -618,11 +618,18 @@ func (b *deviceBridge) onFwd(m *nats.Msg) {
 	if m.Reply == "" {
 		return
 	}
+	respond := func(v any, id string) { _ = m.Respond(b.encode(b.mesh.Conn(), v, id)) }
 	var env fwdEnvelope
-	if json.Unmarshal(m.Data, &env) != nil || env.V != wireVersion {
+	if json.Unmarshal(m.Data, &env) != nil {
+		respond(errorResponse("", b.nodeID, newBridgeError(codeInternal, "malformed forward")), "")
 		return
 	}
-	respond := func(v any, id string) { _ = m.Respond(b.encode(b.mesh.Conn(), v, id)) }
+	if env.V != wireVersion {
+		resp := errorResponse("", b.nodeID, newBridgeError(codeInternal, "node "+b.nodeID+" does not speak this forward version"))
+		resp.Versions = []int{wireVersion}
+		respond(resp, "")
+		return
+	}
 	d, ok := b.activeDevice(env.DeviceID)
 	switch env.Kind {
 	case fwdAPI:
@@ -964,17 +971,21 @@ func (b *deviceBridge) sessionAddress(ctx context.Context, workspaceID, sessionI
 // control publishes a control notice to one device and flushes it, so
 // it is on the wire before whatever it announces takes effect.
 func (b *deviceBridge) control(n controlNotice) {
+	if b.publishControl(n) {
+		_ = b.nc.Flush()
+	}
+}
+
+func (b *deviceBridge) publishControl(n controlNotice) bool {
 	n.V = wireVersion
 	if n.At == "" {
 		n.At = wireNow()
 	}
 	data, err := json.Marshal(n)
 	if err != nil {
-		return
+		return false
 	}
-	if err := b.nc.Publish(subjClientRoot+n.DeviceID+"."+verbControl, data); err == nil {
-		_ = b.nc.Flush()
-	}
+	return b.nc.Publish(subjClientRoot+n.DeviceID+"."+verbControl, data) == nil
 }
 
 // revoked tells a device it was revoked and ends its streams and
@@ -1006,9 +1017,14 @@ func (b *deviceBridge) scopesChanged(d pairing.Device) {
 
 // reauth asks every active device to reconnect (trust changed).
 func (b *deviceBridge) reauth(reason string) {
-	for _, d := range b.p.reg.List() {
-		if !d.Revoked() {
-			b.control(controlNotice{Type: controlReauth, DeviceID: d.DeviceID, Reason: reason})
+	// Publish to everyone, then flush once, off the caller's goroutine
+	// (a store watcher).
+	b.spawn(func() {
+		for _, d := range b.p.reg.List() {
+			if !d.Revoked() {
+				b.publishControl(controlNotice{Type: controlReauth, DeviceID: d.DeviceID, Reason: reason})
+			}
 		}
-	}
+		_ = b.nc.Flush()
+	})
 }

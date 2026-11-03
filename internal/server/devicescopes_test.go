@@ -152,11 +152,13 @@ func TestApplyBodyRules(t *testing.T) {
 		require.NotNil(t, e, sneaky)
 		require.Equal(t, codeDeviceScopeDenied, e.Code, sneaky)
 	}
-	out, e = applyBodyRules(routePostAgent, op, []byte(`{"Client_ID":"victim","CLIENT_ID":"victim2"}`))
+	out, e = applyBodyRules(routePostAgent, op, []byte(`{"Client_ID":"victim","CLIENT_ID":"victim2","swarm_parts":[{"text":"spoof"}],"run_id":"r1"}`))
 	require.Nil(t, e)
 	var decoded proto.AgentMessage
 	require.NoError(t, json.Unmarshal(out, &decoded))
 	require.Equal(t, "device:dev1", decoded.ClientID)
+	require.Empty(t, decoded.SwarmParts, "devices cannot impersonate a swarm sender")
+	require.Equal(t, "r1", decoded.RunID)
 	_, e = applyBodyRules(routePermissionGrant, op, []byte(`{"ACTION":"allow_always"}`))
 	require.Equal(t, codeDeviceScopeDenied, e.Code)
 
