@@ -174,9 +174,14 @@ func (b *deviceBridge) start() error {
 	b.subs = append(b.subs, fwd)
 	b.spawn(b.attentionLoop)
 	if err := b.mesh.Conn().Flush(); err != nil {
+		b.stop()
 		return err
 	}
-	return b.nc.Flush()
+	if err := b.nc.Flush(); err != nil {
+		b.stop()
+		return err
+	}
+	return nil
 }
 
 func (b *deviceBridge) stop() {
@@ -194,6 +199,18 @@ func (b *deviceBridge) stop() {
 func (b *deviceBridge) work(deviceID string) context.Context {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.workLocked(deviceID)
+}
+
+// workLocked is work with b.mu held. It rechecks the registry under the
+// lock, so a request racing a revocation gets an already-cancelled
+// context instead of a fresh one closeDevice can no longer reach.
+func (b *deviceBridge) workLocked(deviceID string) context.Context {
+	if !b.active(deviceID) {
+		ctx, cancel := context.WithCancel(b.ctx)
+		cancel()
+		return ctx
+	}
 	w := b.devices[deviceID]
 	if w == nil {
 		ctx, cancel := context.WithCancel(b.ctx)
@@ -874,6 +891,11 @@ func (b *deviceBridge) deviceStreams(deviceID string) []*deviceStream {
 // closeDevice ends every stream and in-flight request of a device
 // (revocation).
 func (b *deviceBridge) closeDevice(deviceID string) {
+	// Streams first, so they report endRevoked rather than a bare
+	// cancellation of their parent context.
+	for _, s := range b.deviceStreams(deviceID) {
+		s.end(endRevoked)
+	}
 	b.mu.Lock()
 	if w := b.devices[deviceID]; w != nil {
 		w.cancel()
@@ -881,9 +903,6 @@ func (b *deviceBridge) closeDevice(deviceID string) {
 	}
 	b.mu.Unlock()
 	b.idem.forget(deviceID)
-	for _, s := range b.deviceStreams(deviceID) {
-		s.end(endRevoked)
-	}
 }
 
 // attentionLoop forwards this node's own attention events to devices.

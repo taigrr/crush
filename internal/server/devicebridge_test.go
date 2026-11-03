@@ -837,6 +837,17 @@ func TestDeviceBridgeHardening(t *testing.T) {
 	ctx := b.work(ph.id)
 	b.closeDevice(ph.id)
 	require.Error(t, ctx.Err())
+
+	// A request or stream racing the revocation (registry already revoked,
+	// closeDevice not yet run) never gets a live context.
+	_, err := srv.pairing.reg.Revoke(ph.id, "n", time.Now())
+	require.NoError(t, err)
+	require.Error(t, b.work(ph.id).Err())
+	d, ok := srv.pairing.reg.Get(ph.id)
+	require.True(t, ok)
+	opened := b.openStream(d, streamRequest{ID: "r", Path: "/v1/workspaces/w/events"})
+	require.NotNil(t, opened.Error)
+	require.Equal(t, codeDeviceRevoked, opened.Error.Code)
 }
 
 func toString(v any) string {

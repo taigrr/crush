@@ -145,3 +145,17 @@ func TestRunPairingEndToEnd(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckRoleFlag(t *testing.T) {
+	t.Parallel()
+	for role, ok := range map[string]bool{"": true, "admin": true, "viewer": false, "operator": false, "typo": false} {
+		cmd := &cobra.Command{}
+		cmd.Flags().String(flagRole, "", "")
+		require.NoError(t, cmd.Flags().Set(flagRole, role))
+		if ok {
+			require.NoError(t, checkRoleFlag(cmd), role)
+		} else {
+			require.Error(t, checkRoleFlag(cmd), role)
+		}
+	}
+}
