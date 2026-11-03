@@ -513,7 +513,7 @@ func (c *controllerV1) handlePostWorkspaceMCPGetPrompt(w http.ResponseWriter, r 
 //	@Success		200	{object}	map[string]proto.MCPClientInfo
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
-//	@x-crush-scope	"never"
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/mcp/states [get]
 func (c *controllerV1) handleGetWorkspaceMCPStates(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")

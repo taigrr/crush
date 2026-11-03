@@ -159,3 +159,16 @@ func TestCheckRoleFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestPairHostsFlags(t *testing.T) {
+	t.Parallel()
+	for _, c := range []*cobra.Command{pairCmd, pairAcceptCmd} {
+		require.NotNil(t, c.Flags().Lookup(flagHost), c.Name())
+		require.NotNil(t, c.Flags().Lookup(flagAdvertise), c.Name())
+	}
+	cmd := &cobra.Command{}
+	cmd.Flags().StringSlice(flagHost, nil, "")
+	cmd.Flags().StringSlice(flagAdvertise, nil, "")
+	require.NoError(t, cmd.Flags().Parse([]string{"--host", "192.168.9.238, box.lan", "--advertise", "10.0.0.2:7735", "--host", " "}))
+	require.Equal(t, []string{"192.168.9.238", "box.lan", "10.0.0.2:7735"}, pairHosts(cmd))
+}

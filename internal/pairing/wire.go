@@ -244,12 +244,17 @@ type OfferView struct {
 type CreateOfferRequest struct {
 	TTLSeconds int    `json:"ttl_seconds,omitempty"`
 	Role       string `json:"role,omitempty"`
+	// Hosts pins the hosts (or host:port) the offer advertises, in
+	// preference order, instead of the detected ones.
+	Hosts []string `json:"hosts,omitempty"`
 } //@name pairing.CreateOfferRequest
 
 // AcceptRequest is the POST /v1/cluster/pairing/accept body.
 type AcceptRequest struct {
 	Code string `json:"code"`
 	Role string `json:"role,omitempty"`
+	// Hosts pins the hosts (or host:port) the locator advertises.
+	Hosts []string `json:"hosts,omitempty"`
 } //@name pairing.AcceptRequest
 
 // ApproveRequest is the approve body.

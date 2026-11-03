@@ -31,6 +31,7 @@ import (
 	"github.com/taigrr/crush/internal/sound"
 	"github.com/taigrr/crush/internal/ui/util"
 	"github.com/taigrr/crush/internal/version"
+	"github.com/taigrr/crush/internal/voice"
 )
 
 // Common errors returned by backend operations.
@@ -86,6 +87,11 @@ type Backend struct {
 	// persistent keeps the server alive after its last workspace closes
 	// (daemon / cluster node mode). Explicit shutdown still applies.
 	persistent atomic.Bool
+
+	// voiceMinter and voiceEnv override how realtime voice secrets are
+	// minted and credentials resolved (tests).
+	voiceMinter atomic.Pointer[voice.Minter]
+	voiceEnv    atomic.Pointer[func(string) string]
 
 	clusterMu sync.RWMutex
 	cluster   ClusterBridge

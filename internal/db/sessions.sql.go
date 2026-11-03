@@ -441,6 +441,22 @@ func (q *Queries) SetSessionFavorite(ctx context.Context, arg SetSessionFavorite
 	return err
 }
 
+const setSessionModelRef = `-- name: SetSessionModelRef :exec
+UPDATE sessions
+SET model_ref = ?1
+WHERE id = ?2
+`
+
+type SetSessionModelRefParams struct {
+	ModelRef sql.NullString `json:"model_ref"`
+	ID       string         `json:"id"`
+}
+
+func (q *Queries) SetSessionModelRef(ctx context.Context, arg SetSessionModelRefParams) error {
+	_, err := q.exec(ctx, q.setSessionModelRefStmt, setSessionModelRef, arg.ModelRef, arg.ID)
+	return err
+}
+
 const setSessionMovedTo = `-- name: SetSessionMovedTo :exec
 UPDATE sessions
 SET moved_to_node = ?1

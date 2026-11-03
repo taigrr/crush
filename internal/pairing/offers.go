@@ -267,14 +267,14 @@ func (m *Manager) addLocked(o *offer) error {
 }
 
 // CreateNodeOffer creates a kind 1 offer (flow a).
-func (m *Manager) CreateNodeOffer(ttl time.Duration, role Role) (OfferView, error) {
+func (m *Manager) CreateNodeOffer(ttl time.Duration, role Role, opts ...SelfOption) (OfferView, error) {
 	if ttl <= 0 {
 		ttl = DefaultOfferTTL
 	}
 	if ttl > MaxOfferTTL {
 		return OfferView{}, pairErr(ErrCodeBadRequest, fmt.Sprintf("ttl exceeds %s", MaxOfferTTL))
 	}
-	self, err := m.cfg.Self()
+	self, err := m.self(opts)
 	if err != nil {
 		return OfferView{}, err
 	}
@@ -301,7 +301,7 @@ func (m *Manager) CreateNodeOffer(ttl time.Duration, role Role) (OfferView, erro
 }
 
 // AcceptDevice registers a phone's kind 2 payload or typed code (flow b).
-func (m *Manager) AcceptDevice(input string, role Role) (OfferView, error) {
+func (m *Manager) AcceptDevice(input string, role Role, opts ...SelfOption) (OfferView, error) {
 	p, err := ParseDeviceInput(input)
 	if err != nil {
 		return OfferView{}, pairErr(ErrCodeBadRequest, err.Error())
@@ -314,7 +314,7 @@ func (m *Manager) AcceptDevice(input string, role Role) (OfferView, error) {
 		}
 		expires = minTime(expires, p.Expires)
 	}
-	self, err := m.cfg.Self()
+	self, err := m.self(opts)
 	if err != nil {
 		return OfferView{}, err
 	}
@@ -828,3 +828,34 @@ func (m *Manager) viewLocked(o *offer) OfferView {
 
 // ErrNotInCluster is returned by Self when the node has no cluster.
 var ErrNotInCluster = errors.New("this node is not part of a cluster (run `crush cluster init` first)")
+
+// SelfOption adjusts what one offer advertises about this node.
+type SelfOption func(*Self) error
+
+// WithEndpoints pins the endpoints an offer advertises (crush pair
+// --host), replacing the detected ones.
+func WithEndpoints(eps []Endpoint) SelfOption {
+	return func(s *Self) error {
+		if len(eps) == 0 {
+			return pairErr(ErrCodeBadRequest, "no usable advertised host")
+		}
+		if len(eps) > maxEndpoints {
+			return pairErr(ErrCodeBadRequest, fmt.Sprintf("at most %d advertised hosts", maxEndpoints))
+		}
+		s.Endpoints = slices.Clone(eps)
+		return nil
+	}
+}
+
+func (m *Manager) self(opts []SelfOption) (Self, error) {
+	self, err := m.cfg.Self()
+	if err != nil {
+		return Self{}, err
+	}
+	for _, opt := range opts {
+		if err := opt(&self); err != nil {
+			return Self{}, err
+		}
+	}
+	return self, nil
+}

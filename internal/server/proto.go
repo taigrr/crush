@@ -2,6 +2,7 @@ package server
 
 import (
 	"compress/gzip"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -255,20 +256,21 @@ func (c *controllerV1) handleGetWorkspaceConfig(w http.ResponseWriter, r *http.R
 	c.respond(w, r, cfg, err)
 }
 
-// handleGetWorkspaceProviders lists available providers for a workspace.
+// handleGetWorkspaceProviders lists a workspace's providers without any
+// secret material (no API keys, OAuth tokens, or headers).
 //
 //	@Summary		Get workspace providers
 //	@Tags			workspaces
 //	@Produce		json
 //	@Param			id	path		string	true	"Workspace ID"
-//	@Success		200	{object}	object
+//	@Success		200	{array}		proto.ProviderInfo
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
-//	@x-crush-scope	"never"
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/providers [get]
 func (c *controllerV1) handleGetWorkspaceProviders(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	providers, err := c.backend.GetWorkspaceProviders(id)
+	providers, err := c.backend.ListProviderInfo(id)
 	c.respond(w, r, providers, err)
 }
 
@@ -494,7 +496,7 @@ func (c *controllerV1) handleGetGlobalEvents(w http.ResponseWriter, r *http.Requ
 //	@Success		200	{object}	map[string]proto.LSPClientInfo
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
-//	@x-crush-scope	"never"
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/lsps [get]
 func (c *controllerV1) handleGetWorkspaceLSPs(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -527,7 +529,7 @@ func (c *controllerV1) handleGetWorkspaceLSPs(w http.ResponseWriter, r *http.Req
 //	@Success		200	{object}	object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
-//	@x-crush-scope	"never"
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/lsps/{lsp}/diagnostics [get]
 func (c *controllerV1) handleGetWorkspaceLSPDiagnostics(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1005,7 +1007,7 @@ func (c *controllerV1) handleGetWorkspaceFileTrackerLastRead(w http.ResponseWrit
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
-//	@x-crush-scope	"never"
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/lsps/start [post]
 func (c *controllerV1) handlePostWorkspaceLSPStart(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1030,7 +1032,7 @@ func (c *controllerV1) handlePostWorkspaceLSPStart(w http.ResponseWriter, r *htt
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
-//	@x-crush-scope	"never"
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/lsps/stop [post]
 func (c *controllerV1) handlePostWorkspaceLSPStopAll(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1877,6 +1879,12 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
 		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrInvalidSessionModel):
 		status = http.StatusBadRequest
+	case errors.Is(err, backend.ErrVoiceBadRequest):
+		status = http.StatusBadRequest
+	case errors.Is(err, backend.ErrSessionNotOwned):
+		status = http.StatusConflict
+	case errors.Is(err, sql.ErrNoRows):
+		status = http.StatusNotFound
 	case errors.Is(err, backend.ErrSnapshotsDisabled):
 		status = http.StatusBadRequest
 	case errors.Is(err, backend.ErrWorktreesDisabled):

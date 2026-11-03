@@ -1356,6 +1356,59 @@ const docTemplate = `{
                 "x-crush-scope": "never"
             }
         },
+        "/voice/client-secret": {
+            "post": {
+                "description": "Returns an ephemeral xAI realtime secret. The node's credential never leaves it. 424 when no xAI credential is configured.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "voice"
+                ],
+                "summary": "Mint a realtime voice client secret",
+                "parameters": [
+                    {
+                        "description": "Voice secret request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.VoiceClientSecretRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.VoiceClientSecret"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "424": {
+                        "description": "Failed Dependency",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:prompt"
+            }
+        },
         "/workspace-overviews": {
             "get": {
                 "produces": [
@@ -3378,7 +3431,7 @@ const docTemplate = `{
                         }
                     }
                 },
-                "x-crush-scope": "never"
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/lsps/start": {
@@ -3431,7 +3484,7 @@ const docTemplate = `{
                         }
                     }
                 },
-                "x-crush-scope": "never"
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/lsps/stop": {
@@ -3466,7 +3519,7 @@ const docTemplate = `{
                         }
                     }
                 },
-                "x-crush-scope": "never"
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/lsps/{lsp}/diagnostics": {
@@ -3514,7 +3567,7 @@ const docTemplate = `{
                         }
                     }
                 },
-                "x-crush-scope": "never"
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/mcp/auth-url": {
@@ -3944,7 +3997,7 @@ const docTemplate = `{
                         }
                     }
                 },
-                "x-crush-scope": "never"
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/messages/user": {
@@ -4418,7 +4471,10 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/proto.ProviderInfo"
+                            }
                         }
                     },
                     "404": {
@@ -4434,7 +4490,7 @@ const docTemplate = `{
                         }
                     }
                 },
-                "x-crush-scope": "never"
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/questions/answer": {
@@ -5152,6 +5208,196 @@ const docTemplate = `{
                     }
                 },
                 "x-crush-scope": "sessions:read"
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/model": {
+            "get": {
+                "description": "The large model is per-session (model_ref); the small model is always the workspace's.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get a session's model",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionModel"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Set a session's model",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Session model",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionModelRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionModel"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "never"
+            },
+            "post": {
+                "description": "Sets the session's large model (model_ref or model); an empty body clears it so the session follows the workspace default. model_type \"small\" is rejected: the small model is workspace-wide.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Set a session's model",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Session model",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionModelRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.SessionModel"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "config:model"
             }
         },
         "/workspaces/{id}/sessions/{sid}/pending": {
@@ -6972,6 +7218,19 @@ const docTemplate = `{
                 "TrailerStyleAssistedBy"
             ]
         },
+        "config.VoiceOptions": {
+            "type": "object",
+            "properties": {
+                "api_key": {
+                    "description": "APIKey is the xAI API key used to mint ephemeral voice secrets. It\nis shell-expanded at request time ($XAI_API_KEY, $(cmd)). When\nempty, XAI_API_KEY, then the Grok OAuth login, then the xai or\ngrok provider api_key are used.",
+                    "type": "string"
+                },
+                "base_url": {
+                    "description": "BaseURL overrides the xAI API base URL.",
+                    "type": "string"
+                }
+            }
+        },
         "config.WorktreeConfig": {
             "type": "object",
             "properties": {
@@ -7157,6 +7416,9 @@ const docTemplate = `{
                 },
                 "tui": {
                     "$ref": "#/definitions/config.TUIOptions"
+                },
+                "voice": {
+                    "$ref": "#/definitions/config.VoiceOptions"
                 }
             }
         },
@@ -7330,6 +7592,13 @@ const docTemplate = `{
                 "code": {
                     "type": "string"
                 },
+                "hosts": {
+                    "description": "Hosts pins the hosts (or host:port) the locator advertises.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "role": {
                     "type": "string"
                 }
@@ -7415,6 +7684,13 @@ const docTemplate = `{
         "pairing.CreateOfferRequest": {
             "type": "object",
             "properties": {
+                "hosts": {
+                    "description": "Hosts pins the hosts (or host:port) the offer advertises, in\npreference order, instead of the detected ones.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "role": {
                     "type": "string"
                 },
@@ -8501,6 +8777,85 @@ const docTemplate = `{
                 }
             }
         },
+        "proto.ProviderInfo": {
+            "type": "object",
+            "properties": {
+                "configured": {
+                    "description": "Configured reports that the workspace config has this provider.",
+                    "type": "boolean"
+                },
+                "default_large_model_id": {
+                    "type": "string"
+                },
+                "default_small_model_id": {
+                    "type": "string"
+                },
+                "disabled": {
+                    "type": "boolean"
+                },
+                "has_credential": {
+                    "description": "HasCredential reports that an API key or OAuth token is set; the\ncredential itself is never returned.",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "models": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.ProviderModelInfo"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "oauth": {
+                    "description": "OAuth reports that the credential is an OAuth token.",
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.ProviderModelInfo": {
+            "type": "object",
+            "properties": {
+                "can_reason": {
+                    "type": "boolean"
+                },
+                "context_window": {
+                    "type": "integer"
+                },
+                "cost_per_1m_in": {
+                    "type": "number"
+                },
+                "cost_per_1m_out": {
+                    "type": "number"
+                },
+                "default_max_tokens": {
+                    "type": "integer"
+                },
+                "default_reasoning_effort": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "reasoning_levels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "supports_attachments": {
+                    "type": "boolean"
+                }
+            }
+        },
         "proto.QuestionAnswer": {
             "type": "object",
             "properties": {
@@ -8859,6 +9214,60 @@ const docTemplate = `{
                 }
             }
         },
+        "proto.SessionModel": {
+            "type": "object",
+            "properties": {
+                "default": {
+                    "description": "Default reports that the session follows the workspace's large\nmodel (no ModelRef, or one that no longer resolves).",
+                    "type": "boolean"
+                },
+                "large": {
+                    "description": "Large is the model the session's top-level turns run on: the\nresolved ModelRef, else the workspace's large model.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.SelectedModel"
+                        }
+                    ]
+                },
+                "model_ref": {
+                    "description": "ModelRef is the session's own model reference; empty when the\nsession follows the workspace's large model.",
+                    "type": "string"
+                },
+                "small": {
+                    "description": "Small is the model used for the session's titles and summaries. It\nis always the workspace's small model.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.SelectedModel"
+                        }
+                    ]
+                }
+            }
+        },
+        "proto.SessionModelRequest": {
+            "type": "object",
+            "properties": {
+                "model": {
+                    "description": "Model selects a provider and model explicitly.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.SelectedModel"
+                        }
+                    ]
+                },
+                "model_ref": {
+                    "description": "ModelRef is a role name, \"provider/model\", or a bare model id.",
+                    "type": "string"
+                },
+                "model_type": {
+                    "description": "ModelType is the slot to set; only \"large\" (the default) is\nper-session.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/config.SelectedModelType"
+                        }
+                    ]
+                }
+            }
+        },
         "proto.SessionOverview": {
             "type": "object",
             "properties": {
@@ -9095,6 +9504,26 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.VoiceClientSecret": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "description": "ExpiresAt is the secret's expiry in unix seconds.",
+                    "type": "integer"
+                },
+                "value": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.VoiceClientSecretRequest": {
+            "type": "object",
+            "properties": {
+                "session_id": {
                     "type": "string"
                 }
             }

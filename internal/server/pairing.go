@@ -806,7 +806,12 @@ func (s *Server) handleCreatePairOffer(w http.ResponseWriter, r *http.Request) {
 		writePairError(w, &pairing.Error{Code: pairing.ErrCodeBadRequest, Message: err.Error()})
 		return
 	}
-	view, err := p.mgr.CreateNodeOffer(time.Duration(req.TTLSeconds)*time.Second, role)
+	opts, err := p.hostOptions(req.Hosts)
+	if err != nil {
+		writePairError(w, err)
+		return
+	}
+	view, err := p.mgr.CreateNodeOffer(time.Duration(req.TTLSeconds)*time.Second, role, opts...)
 	if err != nil {
 		writePairError(w, err)
 		return
@@ -841,7 +846,12 @@ func (s *Server) handleAcceptPairCode(w http.ResponseWriter, r *http.Request) {
 		writePairError(w, &pairing.Error{Code: pairing.ErrCodeBadRequest, Message: err.Error()})
 		return
 	}
-	view, err := p.mgr.AcceptDevice(req.Code, role)
+	opts, err := p.hostOptions(req.Hosts)
+	if err != nil {
+		writePairError(w, err)
+		return
+	}
+	view, err := p.mgr.AcceptDevice(req.Code, role, opts...)
 	if err != nil {
 		writePairError(w, err)
 		return

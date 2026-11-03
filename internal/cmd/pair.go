@@ -19,14 +19,16 @@ import (
 )
 
 const (
-	flagInvert = "invert"
-	flagPNG    = "png"
-	flagScale  = "scale"
-	flagTTL    = "ttl"
-	flagRole   = "role"
-	flagNoQR   = "no-qr"
-	flagYes    = "yes"
-	flagJSON   = "json"
+	flagInvert    = "invert"
+	flagPNG       = "png"
+	flagScale     = "scale"
+	flagTTL       = "ttl"
+	flagRole      = "role"
+	flagNoQR      = "no-qr"
+	flagYes       = "yes"
+	flagJSON      = "json"
+	flagHost      = "host"
+	flagAdvertise = "advertise"
 
 	defaultPNGScale = 8
 	pairPollMS      = 25_000
@@ -48,6 +50,9 @@ crush pair
 # On a light terminal, valid for 5 minutes
 crush pair --invert --ttl 5m
 
+# Advertise a specific LAN address (when detection picks a VPN address)
+crush pair --host 192.168.1.20
+
 # Accept a code shown on the phone instead
 crush pair accept 04106-1050R-3GG28-A1C60-T3GF6
 
@@ -65,7 +70,7 @@ crush pair revoke dev_abc...
 			return err
 		}
 		ttl, _ := cmd.Flags().GetDuration(flagTTL)
-		offer, err := c.PairCreateOffer(cmd.Context(), pairing.CreateOfferRequest{TTLSeconds: int(ttl.Seconds())})
+		offer, err := c.PairCreateOffer(cmd.Context(), pairing.CreateOfferRequest{TTLSeconds: int(ttl.Seconds()), Hosts: pairHosts(cmd)})
 		if err != nil {
 			return err
 		}
@@ -94,7 +99,7 @@ phone can connect, and confirm the short authentication string.`,
 		if err != nil {
 			return err
 		}
-		offer, err := c.PairAccept(cmd.Context(), pairing.AcceptRequest{Code: args[0]})
+		offer, err := c.PairAccept(cmd.Context(), pairing.AcceptRequest{Code: args[0], Hosts: pairHosts(cmd)})
 		if err != nil {
 			return err
 		}
@@ -225,6 +230,8 @@ func init() {
 		c.Flags().Bool(flagInvert, false, "Draw the QR code for dark-on-light terminals")
 		c.Flags().Bool(flagNoQR, false, "Do not draw the QR code")
 		c.Flags().Bool(flagYes, false, "Approve without prompting (the code is still shown)")
+		c.Flags().StringSlice(flagHost, nil, "Advertise this host (or host:port) to the phone instead of the detected addresses; repeat or comma-separate for fallbacks, best first")
+		c.Flags().StringSlice(flagAdvertise, nil, "Alias for --host")
 	}
 	pairCmd.Flags().Duration(flagTTL, pairing.DefaultOfferTTL, "How long the QR code stays valid (max 10m)")
 	pairListCmd.Flags().Bool(flagJSON, false, "Output as JSON")
@@ -406,4 +413,18 @@ func writeQRPNG(code *qr.Code, path string, scale int) error {
 		return err
 	}
 	return f.Close()
+}
+
+// pairHosts is the --host / --advertise list, in order.
+func pairHosts(cmd *cobra.Command) []string {
+	var out []string
+	for _, name := range []string{flagHost, flagAdvertise} {
+		vals, _ := cmd.Flags().GetStringSlice(name)
+		for _, v := range vals {
+			if v = strings.TrimSpace(v); v != "" {
+				out = append(out, v)
+			}
+		}
+	}
+	return out
 }

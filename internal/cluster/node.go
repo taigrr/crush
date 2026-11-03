@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -181,26 +180,16 @@ func (n *Node) Stop(ctx context.Context) error {
 	return srv.Shutdown(ctx)
 }
 
-// LocalEndpoints returns direct endpoints for every non-loopback,
-// non-link-local address of this host at port.
+// LocalEndpoints returns direct endpoints at port for this host's
+// advertisable addresses, best first (see OrderAdvertisedAddrs): loopback,
+// link-local, and down interfaces are skipped; tunnel and point-to-point
+// addresses are kept last.
 func LocalEndpoints(port int) []Endpoint {
-	addrs, err := net.InterfaceAddrs()
+	ifs, err := systemInterfaces()
 	if err != nil {
 		return nil
 	}
-	var out []Endpoint
-	for _, a := range addrs {
-		ipn, ok := a.(*net.IPNet)
-		if !ok {
-			continue
-		}
-		ip := ipn.IP
-		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
-			continue
-		}
-		out = append(out, Endpoint{Kind: EndpointDirect, Addr: net.JoinHostPort(ip.String(), strconv.Itoa(port))})
-	}
-	return out
+	return localEndpointsFrom(ifs, port)
 }
 
 // handshakeFilter forwards http.Server errors to slog, dropping the
