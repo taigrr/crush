@@ -1,16 +1,32 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/embedding"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/pairing"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/fantasy"
 )
+
+// fixedEmbedder maps texts to fixed vectors.
+type fixedEmbedder struct{ vecs map[string][]float32 }
+
+func (f *fixedEmbedder) Embed(_ context.Context, call fantasy.EmbeddingCall) (*fantasy.EmbeddingResponse, error) {
+	out := make([]fantasy.Embedding, len(call.Input))
+	for i, in := range call.Input {
+		out[i] = f.vecs[in]
+	}
+	return &fantasy.EmbeddingResponse{Embeddings: out}, nil
+}
+func (f *fixedEmbedder) Provider() string { return "fake" }
+func (f *fixedEmbedder) Model() string    { return "fake" }
 
 // TestDeviceBridgeSearchAndMove drives history search and session move
 // through a fake device over the device websocket. Every paired device
@@ -22,7 +38,7 @@ func TestDeviceBridgeSearchAndMove(t *testing.T) {
 	ph := pairPhone(t, srv, c)
 	dev := newFakeDevice(t, ph.id, func(o ...nats.Option) (*nats.Conn, error) { return ph.connect(t, o...) })
 	ws, bws, alpha, _ := newBridgeWorkspace(t, srv, c)
-	_, err := bws.Messages.Create(t.Context(), alpha.ID, message.CreateMessageParams{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "the flaky needle test"}}})
+	needle, err := bws.Messages.Create(t.Context(), alpha.ID, message.CreateMessageParams{Role: message.User, Parts: []message.ContentPart{message.TextContent{Text: "the flaky needle test"}}})
 	require.NoError(t, err)
 	base := "/v1/workspaces/" + ws.ID
 	off := false
@@ -57,6 +73,30 @@ func TestDeviceBridgeSearchAndMove(t *testing.T) {
 	}
 
 	t.Run("search", requireHit)
+	t.Run("text fallback without an embedder", func(t *testing.T) {
+		res := search(t, proto.SearchHistoryParams{Query: "needle"})
+		require.Equal(t, "text", res.Mode)
+		require.Equal(t, "no_embedder", res.FallbackReason)
+		require.False(t, res.SemanticUsed)
+		require.Equal(t, "exact", res.Hits[0].Match)
+	})
+	t.Run("hybrid with an embedder", func(t *testing.T) {
+		emb := bws.SetHistoryEmbedderForTest(
+			embedding.Params{Configured: true, Model: "fake", Hybrid: true, Signature: "sig-e2e"},
+			&fixedEmbedder{vecs: map[string][]float32{"needle": {1, 0}, "the flaky needle test": {1, 0}}},
+		)
+		require.NoError(t, emb.Embed(t.Context(), embedding.SourceMessage, needle.ID, alpha.ID, "the flaky needle test"))
+		res := search(t, proto.SearchHistoryParams{Query: "needle", Scope: "all", Limit: 5})
+		require.Equal(t, "hybrid", res.Mode)
+		require.Empty(t, res.FallbackReason)
+		require.True(t, res.SemanticUsed)
+		require.Equal(t, alpha.ID, res.Hits[0].SessionID)
+		require.Equal(t, "both", res.Hits[0].Match)
+
+		res = search(t, proto.SearchHistoryParams{Query: "needle", Semantic: &off})
+		require.Equal(t, "text", res.Mode)
+		require.Equal(t, "disabled_by_request", res.FallbackReason)
+	})
 	t.Run("move reaches the handler", requireMoveRouted)
 
 	setDeviceRole(t, srv, ph.id, pairing.RoleViewer)

@@ -1111,7 +1111,7 @@ definitions:
     - viewer
     - operator
     - admin
-    - operator
+    - admin
     type: string
     x-enum-varnames:
     - RoleViewer
@@ -1709,11 +1709,34 @@ definitions:
     type: object
   proto.SearchHistoryResult:
     properties:
+      fallback_reason:
+        description: |-
+          FallbackReason says why Mode is "text": no_embedder,
+          disabled_by_request, disabled_by_config, no_embeddings, or
+          embed_error.
+        enum:
+        - no_embedder
+        - disabled_by_request
+        - disabled_by_config
+        - no_embeddings
+        - embed_error
+        type: string
       hits:
         items:
           $ref: '#/definitions/proto.SessionHit'
         type: array
+      mode:
+        description: |-
+          Mode is the search mode actually used: "hybrid" (substring and
+          vector signals fused) or "text" (substring only).
+        enum:
+        - hybrid
+        - text
+        type: string
       semantic_used:
+        description: |-
+          SemanticUsed reports whether the vector signal ran without error.
+          Kept for older clients; prefer Mode.
         type: boolean
       total:
         type: integer

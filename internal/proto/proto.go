@@ -334,9 +334,18 @@ type SessionHit struct {
 
 // SearchHistoryResult is a ranked page of per-session hits.
 type SearchHistoryResult struct {
-	Hits         []SessionHit `json:"hits"`
-	Total        int          `json:"total"`
-	SemanticUsed bool         `json:"semantic_used"`
+	Hits  []SessionHit `json:"hits"`
+	Total int          `json:"total"`
+	// SemanticUsed reports whether the vector signal ran without error.
+	// Kept for older clients; prefer Mode.
+	SemanticUsed bool `json:"semantic_used"`
+	// Mode is the search mode actually used: "hybrid" (substring and
+	// vector signals fused) or "text" (substring only).
+	Mode string `json:"mode,omitempty" enums:"hybrid,text"`
+	// FallbackReason says why Mode is "text": no_embedder,
+	// disabled_by_request, disabled_by_config, no_embeddings, or
+	// embed_error.
+	FallbackReason string `json:"fallback_reason,omitempty" enums:"no_embedder,disabled_by_request,disabled_by_config,no_embeddings,embed_error"`
 }
 
 // PeekMessagesParams identifies a session in a possibly-foreign

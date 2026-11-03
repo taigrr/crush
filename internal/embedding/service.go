@@ -89,7 +89,39 @@ type SearchResult struct {
 	// SemanticUsed reports whether the semantic signal actually
 	// participated (false when disabled, no embedder, or it errored).
 	SemanticUsed bool
+	// Mode is the search mode actually used.
+	Mode SearchMode
+	// FallbackReason says why Mode is SearchModeText ("" when hybrid).
+	FallbackReason FallbackReason
 }
+
+// SearchMode is how a search was actually ranked.
+type SearchMode string
+
+// Search modes.
+const (
+	// SearchModeHybrid fused the substring and vector signals.
+	SearchModeHybrid SearchMode = "hybrid"
+	// SearchModeText used the substring signal only.
+	SearchModeText SearchMode = "text"
+)
+
+// FallbackReason explains a SearchModeText result.
+type FallbackReason string
+
+// Fallback reasons.
+const (
+	// FallbackNoEmbedder: no embedder is configured.
+	FallbackNoEmbedder FallbackReason = "no_embedder"
+	// FallbackDisabledByRequest: the caller turned the vector signal off.
+	FallbackDisabledByRequest FallbackReason = "disabled_by_request"
+	// FallbackDisabledByConfig: no override and hybrid search is off.
+	FallbackDisabledByConfig FallbackReason = "disabled_by_config"
+	// FallbackNoEmbeddings: no candidate document has a stored vector.
+	FallbackNoEmbeddings FallbackReason = "no_embeddings"
+	// FallbackEmbedError: embedding the query (or loading vectors) failed.
+	FallbackEmbedError FallbackReason = "embed_error"
+)
 
 type service struct {
 	store     *store
@@ -279,22 +311,32 @@ func (s *service) Search(ctx context.Context, query string, docs []Document, opt
 	}
 
 	// Semantic ranks, if enabled and available.
-	semanticOn := s.semanticEnabled(opts.Semantic)
+	semanticOn, reason := s.semanticEnabled(opts.Semantic)
 	var semantic []ranked
 	semanticUsed := false
 	if semanticOn {
-		sem, err := s.semanticRanks(ctx, query, docs)
-		if err == nil {
+		sem, withVectors, err := s.semanticRanks(ctx, query, docs)
+		switch {
+		case err != nil:
+			// Degrade to substring-only (spec §6.1).
+			reason = FallbackEmbedError
+		case withVectors == 0:
+			semanticUsed = true
+			reason = FallbackNoEmbeddings
+		default:
 			semantic = sem
 			semanticUsed = true
 		}
-		// On error we silently degrade to substring-only (spec §6.1).
+	}
+	mode := SearchModeHybrid
+	if reason != "" {
+		mode = SearchModeText
 	}
 
 	fusedList := reciprocalRankFusion(exact, semantic)
 
 	total := len(fusedList)
-	result := SearchResult{Total: total, Offset: offset, SemanticUsed: semanticUsed}
+	result := SearchResult{Total: total, Offset: offset, SemanticUsed: semanticUsed, Mode: mode, FallbackReason: reason}
 	if offset >= total {
 		return result, nil
 	}
@@ -324,26 +366,31 @@ func (s *service) Search(ctx context.Context, query string, docs []Document, opt
 	return result, nil
 }
 
-func (s *service) semanticEnabled(override *bool) bool {
-	if s.cfg == nil {
-		return false
+// semanticEnabled reports whether to run the vector signal, and if not,
+// why.
+func (s *service) semanticEnabled(override *bool) (bool, FallbackReason) {
+	switch {
+	case s.cfg == nil:
+		return false, FallbackNoEmbedder
+	case override != nil && !*override:
+		return false, FallbackDisabledByRequest
+	case override == nil && !s.cfg.Hybrid:
+		return false, FallbackDisabledByConfig
 	}
-	if override != nil {
-		return *override
-	}
-	return s.cfg.Hybrid
+	return true, ""
 }
 
 // semanticRanks embeds the query and ranks the candidate docs that have
-// stored vectors by cosine similarity (descending).
-func (s *service) semanticRanks(ctx context.Context, query string, docs []Document) ([]ranked, error) {
+// stored vectors by cosine similarity (descending). It also reports how
+// many candidates have a vector at all.
+func (s *service) semanticRanks(ctx context.Context, query string, docs []Document) ([]ranked, int, error) {
 	qvec, err := s.embedText(ctx, query)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	vectors, err := s.store.listBySignature(ctx, s.signature, "")
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	vecByID := make(map[string][]float32, len(vectors))
 	for _, v := range vectors {
@@ -355,11 +402,13 @@ func (s *service) semanticRanks(ctx context.Context, query string, docs []Docume
 		score float64
 	}
 	var scoredList []scored
+	withVectors := 0
 	for _, d := range docs {
 		vec, ok := vecByID[d.SourceID]
 		if !ok {
 			continue
 		}
+		withVectors++
 		sim := cosineSimilarity(qvec, vec)
 		// Only treat a doc as a semantic match above a small floor, so
 		// unrelated documents that merely have a stored vector don't get
@@ -377,5 +426,5 @@ func (s *service) semanticRanks(ctx context.Context, query string, docs []Docume
 	for i, sc := range scoredList {
 		out[i] = ranked{key: sc.id, rank: i + 1}
 	}
-	return out, nil
+	return out, withVectors, nil
 }

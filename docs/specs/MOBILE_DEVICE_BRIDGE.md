@@ -270,7 +270,7 @@ Request body (`proto.SearchHistoryParams`):
 | `offset` | int | 0 | Reserved; ignored. |
 
 Response body (`proto.SearchHistoryResult`): hits are per session (its best-scoring message wins), ranked by fused `score`.
-This is the same search, ranking, and limits as `crush search` (both call `historysearch.SearchAcross`; the CLI's per-message mode without `--all-workspaces` uses the same `historysearch.Search` underneath).
+This is the same search, ranking, and limits as `crush search` (the route, the TUI palette, and `crush search --all-workspaces` all call `historysearch.SearchAcross` with `historysearch.ResolveLimits`; plain `crush search` lists per-message hits from the same `historysearch.Search` underneath, and its `--json` carries the same `mode` and `fallback_reason`).
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -282,7 +282,7 @@ This is the same search, ranking, and limits as `crush search` (both call `histo
 | `hits[].snippet` | string | Text around the match. |
 | `hits[].message_id`, `role`, `created_at` | string | The best-matching message, its role (`user`, `assistant`, ...), and its time. |
 | `total` | int | Distinct sessions found in the candidate window (before `limit`). |
-| `mode` | string | `hybrid`: the vector signal ranked at least one candidate alongside the substring signal. `text`: substring only. Additive; absent from older nodes. |
+| `mode` | string | `hybrid`: the vector signal ran and at least one candidate message has a stored vector, fused with the substring signal. `text`: substring only. Additive; absent from older nodes. |
 | `fallback_reason` | string | Why `mode` is `text` (absent when `hybrid`): `no_embedder` (none configured), `disabled_by_request` (`semantic: false`), `disabled_by_config` (`semantic` absent and `hybrid_search` off), `no_embeddings` (embedder ran, but no candidate message has a vector yet, e.g. before backfill), `embed_error` (embedding the query failed). With `all_workspaces` the reason is the first one met in workspace order. Additive; unknown values mean "text only, for some other reason". |
 | `semantic_used` | bool | Kept for compatibility: whether the vector signal was attempted and did not error (true with `no_embeddings`). Prefer `mode`. |
 

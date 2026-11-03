@@ -7714,7 +7714,7 @@ const docTemplate = `{
                 "viewer",
                 "operator",
                 "admin",
-                "operator"
+                "admin"
             ],
             "x-enum-varnames": [
                 "RoleViewer",
@@ -8553,13 +8553,33 @@ const docTemplate = `{
         "proto.SearchHistoryResult": {
             "type": "object",
             "properties": {
+                "fallback_reason": {
+                    "description": "FallbackReason says why Mode is \"text\": no_embedder,\ndisabled_by_request, disabled_by_config, no_embeddings, or\nembed_error.",
+                    "type": "string",
+                    "enum": [
+                        "no_embedder",
+                        "disabled_by_request",
+                        "disabled_by_config",
+                        "no_embeddings",
+                        "embed_error"
+                    ]
+                },
                 "hits": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/proto.SessionHit"
                     }
                 },
+                "mode": {
+                    "description": "Mode is the search mode actually used: \"hybrid\" (substring and\nvector signals fused) or \"text\" (substring only).",
+                    "type": "string",
+                    "enum": [
+                        "hybrid",
+                        "text"
+                    ]
+                },
                 "semantic_used": {
+                    "description": "SemanticUsed reports whether the vector signal ran without error.\nKept for older clients; prefer Mode.",
                     "type": "boolean"
                 },
                 "total": {
