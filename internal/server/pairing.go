@@ -84,6 +84,7 @@ type pairingService struct {
 	// gate binds the client listener only while an offer is open or an
 	// active device exists. It lives while the mesh is attached.
 	gate   atomic.Pointer[listenerGate]
+	bridge atomic.Pointer[deviceBridge]
 	client *httpListener
 	ws     *tlsProxyListener
 
@@ -103,7 +104,15 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 		Self: p.self, OnApprove: p.onApprove, Extras: p.extras, Revoked: p.revoked,
 		OnChange: p.kickGate,
 	})
-	reg.Watch(func(pairing.Device) {
+	reg.Watch(func(d pairing.Device) {
+		if d.Revoked() {
+			// Tell the device first, while it is still connected, then
+			// end its streams; the reload below closes the connection.
+			if b := p.bridge.Load(); b != nil {
+				b.control(d.DeviceID, "revoked")
+				b.closeDevice(d.DeviceID)
+			}
+		}
 		p.markNATSDirty()
 		// A revocation (local or replicated) may leave nothing to serve.
 		p.kickGate()
@@ -415,6 +424,20 @@ func (p *pairingService) startMesh(mesh *cluster.Mesh) error {
 	p.meshRef.Store(mesh)
 	ctx, cancel := context.WithCancel(context.Background())
 	p.stop = cancel
+	if mesh.ClientsConn() != nil {
+		b := newDeviceBridge(p, mesh)
+		if err := b.start(); err != nil {
+			for _, s := range p.subs {
+				_ = s.Unsubscribe()
+			}
+			p.subs = nil
+			p.meshRef.Store(nil)
+			cancel()
+			p.stop = nil
+			return err
+		}
+		p.bridge.Store(b)
+	}
 	p.markNATSDirty()
 	p.wg.Go(func() { p.applyLoop(ctx, mesh) })
 	p.wg.Go(func() { p.syncLoop(ctx, mesh) })
@@ -481,7 +504,11 @@ func (p *pairingService) stopMesh() {
 	}
 	p.meshRef.Store(nil)
 	p.gate.Store(nil)
+	b := p.bridge.Swap(nil)
 	p.mu.Unlock()
+	if b != nil {
+		b.stop()
+	}
 	// The gate goroutine stops the client listener on cancel.
 	p.wg.Wait()
 }
