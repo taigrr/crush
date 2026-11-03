@@ -144,8 +144,14 @@ func TestDeviceBridgeMobileRoutes(t *testing.T) {
 		}))
 		t.Cleanup(fake.Close)
 		srv.backend.SetVoiceMinter(&voice.Minter{BaseURL: fake.URL + "/v1", Client: fake.Client()})
-		env := map[string]string{}
-		srv.backend.SetVoiceEnv(func(k string) string { return env[k] })
+		var xaiKey atomic.Value
+		xaiKey.Store("")
+		srv.backend.SetVoiceEnv(func(k string) string {
+			if k == "XAI_API_KEY" {
+				return xaiKey.Load().(string)
+			}
+			return ""
+		})
 
 		resp := dev.post("/v1/voice/client-secret", proto.VoiceClientSecretRequest{SessionID: alpha.ID})
 		require.Equal(t, http.StatusFailedDependency, resp.Status, "%s", resp.JSON)
@@ -153,7 +159,7 @@ func TestDeviceBridgeMobileRoutes(t *testing.T) {
 
 		require.Equal(t, http.StatusBadRequest, dev.post("/v1/voice/client-secret", proto.VoiceClientSecretRequest{}).Status)
 
-		env["XAI_API_KEY"] = "fake-xai-key"
+		xaiKey.Store("fake-xai-key")
 		resp = dev.post("/v1/voice/client-secret", proto.VoiceClientSecretRequest{SessionID: alpha.ID})
 		ok(t, resp)
 		var sec proto.VoiceClientSecret
@@ -162,7 +168,7 @@ func TestDeviceBridgeMobileRoutes(t *testing.T) {
 		require.EqualValues(t, 1893456000, sec.ExpiresAt)
 		require.False(t, strings.Contains(string(resp.JSON), "fake-xai-key"))
 
-		env["XAI_API_KEY"] = "wrong-key"
+		xaiKey.Store("wrong-key")
 		require.Equal(t, http.StatusBadGateway, dev.post("/v1/voice/client-secret", proto.VoiceClientSecretRequest{SessionID: alpha.ID}).Status)
 	})
 }
