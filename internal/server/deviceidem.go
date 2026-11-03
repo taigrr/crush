@@ -37,12 +37,12 @@ func newIdemCache() *idemCache {
 	return &idemCache{now: time.Now, entries: map[string]map[string]*idemEntry{}}
 }
 
-func idemFingerprint(method, path string, body []byte) [sha256.Size]byte {
+func idemFingerprint(method, path, query string, body []byte) [sha256.Size]byte {
 	h := sha256.New()
-	h.Write([]byte(method))
-	h.Write([]byte{0})
-	h.Write([]byte(path))
-	h.Write([]byte{0})
+	for _, part := range []string{method, path, query} {
+		h.Write([]byte(part))
+		h.Write([]byte{0})
+	}
 	h.Write(body)
 	var out [sha256.Size]byte
 	copy(out[:], h.Sum(nil))

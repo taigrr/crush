@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/pairing"
+	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/server/devicescope"
 	"github.com/taigrr/crush/internal/swagger"
 )
@@ -145,6 +146,20 @@ func TestApplyBodyRules(t *testing.T) {
 		_, e = applyBodyRules(routePostAgent, admin, []byte(loose))
 		require.Nil(t, e, loose)
 	}
+	// Field names match case-insensitively, as the handler decodes them.
+	for _, sneaky := range []string{`{"Permission_Policy":"allow"}`, `{"PERMISSION_POLICY":"allow"}`, `{"permission_policy":"prompt","Permission_policy":"allow"}`} {
+		_, e = applyBodyRules(routePostAgent, op, []byte(sneaky))
+		require.NotNil(t, e, sneaky)
+		require.Equal(t, codeDeviceScopeDenied, e.Code, sneaky)
+	}
+	out, e = applyBodyRules(routePostAgent, op, []byte(`{"Client_ID":"victim","CLIENT_ID":"victim2"}`))
+	require.Nil(t, e)
+	var decoded proto.AgentMessage
+	require.NoError(t, json.Unmarshal(out, &decoded))
+	require.Equal(t, "device:dev1", decoded.ClientID)
+	_, e = applyBodyRules(routePermissionGrant, op, []byte(`{"ACTION":"allow_always"}`))
+	require.Equal(t, codeDeviceScopeDenied, e.Code)
+
 	for _, bad := range []string{``, `[]`, `"x"`, `{"permission_policy":1}`, `null`} {
 		_, e = applyBodyRules(routePostAgent, op, []byte(bad))
 		require.Equal(t, codeBadRequest, e.Code, bad)

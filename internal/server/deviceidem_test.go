@@ -12,7 +12,7 @@ func TestIdemCache(t *testing.T) {
 	c := newIdemCache()
 	now := time.Now()
 	c.now = func() time.Time { return now }
-	fp := idemFingerprint("POST", "/v1/x", []byte("a"))
+	fp := idemFingerprint("POST", "/v1/x", "", []byte("a"))
 
 	e, leader, conflict := c.begin("dev1", "k", fp)
 	require.True(t, leader)
@@ -22,13 +22,15 @@ func TestIdemCache(t *testing.T) {
 	require.Same(t, e, again)
 
 	// Same key, different request: conflict.
-	_, _, conflict = c.begin("dev1", "k", idemFingerprint("POST", "/v1/x", []byte("b")))
+	_, _, conflict = c.begin("dev1", "k", idemFingerprint("POST", "/v1/x", "", []byte("b")))
 	require.True(t, conflict)
-	_, _, conflict = c.begin("dev1", "k", idemFingerprint("POST", "/v1/y", []byte("a")))
+	_, _, conflict = c.begin("dev1", "k", idemFingerprint("POST", "/v1/y", "", []byte("a")))
 	require.True(t, conflict)
+	_, _, conflict = c.begin("dev1", "k", idemFingerprint("POST", "/v1/x", "a=1", []byte("a")))
+	require.True(t, conflict, "the query is part of the request")
 
 	// Keys are per device: another device's identical key is independent.
-	_, leader, conflict = c.begin("dev2", "k", idemFingerprint("POST", "/v1/z", nil))
+	_, leader, conflict = c.begin("dev2", "k", idemFingerprint("POST", "/v1/z", "", nil))
 	require.True(t, leader)
 	require.False(t, conflict)
 
@@ -45,7 +47,7 @@ func TestIdemCache(t *testing.T) {
 func TestIdemCacheForgetsFailuresAndBounds(t *testing.T) {
 	t.Parallel()
 	c := newIdemCache()
-	fp := idemFingerprint("POST", "/v1/x", nil)
+	fp := idemFingerprint("POST", "/v1/x", "", nil)
 	e, _, _ := c.begin("dev", "k", fp)
 	c.finish("dev", "k", e, bridgeResponse{}, false)
 	_, leader, _ := c.begin("dev", "k", fp)

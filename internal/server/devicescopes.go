@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -99,36 +100,32 @@ func scopeDenied(scope string) *bridgeError {
 // its own client identity, and it cannot loosen a turn's permission
 // policy or make persistent grants without permissions:always.
 func applyBodyRules(pattern string, d pairing.Device, body []byte) ([]byte, *bridgeError) {
+	// Bodies are decoded exactly as the /v1 handler will decode them
+	// (encoding/json into the same struct, case-insensitive keys, last
+	// duplicate wins), so a rule cannot be dodged by spelling a field
+	// differently, and the forwarded body is re-encoded from the struct.
 	switch pattern {
 	case routePostAgent:
-		var msg map[string]json.RawMessage
-		if json.Unmarshal(body, &msg) != nil || msg == nil {
+		var msg proto.AgentMessage
+		if !isJSONObject(body) || json.Unmarshal(body, &msg) != nil {
 			return nil, newBridgeError(codeBadRequest, "body must be a JSON object")
 		}
-		var policy string
-		if raw, ok := msg["permission_policy"]; ok && string(raw) != "null" {
-			if json.Unmarshal(raw, &policy) != nil {
-				return nil, newBridgeError(codeBadRequest, "permission_policy must be a string")
-			}
-		}
-		if policy != "" && policy != string(proto.PermissionPolicyPrompt) && !slices.Contains(d.Scopes, devicescope.PermissionsAlways) {
+		policy := msg.PermissionPolicy
+		if policy != "" && policy != proto.PermissionPolicyPrompt && !slices.Contains(d.Scopes, devicescope.PermissionsAlways) {
 			return nil, scopeDenied(devicescope.PermissionsAlways)
 		}
-		id, _ := json.Marshal(deviceClientPrefix + d.DeviceID)
-		msg["client_id"] = id
+		msg.ClientID = deviceClientPrefix + d.DeviceID
 		out, err := json.Marshal(msg)
 		if err != nil {
 			return nil, newBridgeError(codeBadRequest, "invalid body")
 		}
 		return out, nil
 	case routePermissionGrant:
-		var grant struct {
-			Action string `json:"action"`
-		}
-		if json.Unmarshal(body, &grant) != nil {
+		var grant proto.PermissionGrant
+		if !isJSONObject(body) || json.Unmarshal(body, &grant) != nil {
 			return nil, newBridgeError(codeBadRequest, "body must be a JSON object")
 		}
-		switch proto.PermissionAction(grant.Action) {
+		switch grant.Action {
 		case proto.PermissionAllow, proto.PermissionAllowForSession, proto.PermissionDeny:
 		default:
 			// Anything beyond a one-off or per-session answer persists.
@@ -136,6 +133,16 @@ func applyBodyRules(pattern string, d pairing.Device, body []byte) ([]byte, *bri
 				return nil, scopeDenied(devicescope.PermissionsAlways)
 			}
 		}
+		out, err := json.Marshal(grant)
+		if err != nil {
+			return nil, newBridgeError(codeBadRequest, "invalid body")
+		}
+		return out, nil
 	}
 	return body, nil
+}
+
+func isJSONObject(body []byte) bool {
+	body = bytes.TrimSpace(body)
+	return len(body) > 0 && body[0] == '{'
 }

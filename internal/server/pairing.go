@@ -90,8 +90,10 @@ type pairingService struct {
 	revokedSeen map[string]bool
 	// perms is each known device's role and scopes, to notice changes.
 	perms map[string]string
-	// keyVersion is the cluster key version devices were last told of.
+	// keyVersion is the cluster key version devices were last told of
+	// (valid once keySeen).
 	keyVersion int
+	keySeen    bool
 
 	// gate binds the client listener only while an offer is open or an
 	// active device exists. It lives while the mesh is attached.
@@ -117,6 +119,9 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 		OnChange: p.kickGate,
 	})
 	reg.Watch(func(d pairing.Device) {
+		if d.Revoked() {
+			p.forgetPermissions(d.DeviceID)
+		}
 		if d.Revoked() && p.firstRevocation(d.DeviceID) {
 			// Tell the device first, while it is still connected, and end
 			// its streams and requests at once (the bridge already refuses
@@ -254,17 +259,26 @@ func (p *pairingService) permissionsChanged(d pairing.Device) bool {
 	return seen && old != sig
 }
 
+func (p *pairingService) forgetPermissions(deviceID string) {
+	p.revokedMu.Lock()
+	defer p.revokedMu.Unlock()
+	delete(p.perms, deviceID)
+}
+
 // keyRotated reports whether the cluster key version moved past the one
 // devices were last told of.
 func (p *pairingService) keyRotated(version int) bool {
 	p.revokedMu.Lock()
 	defer p.revokedMu.Unlock()
+	if !p.keySeen {
+		p.keySeen, p.keyVersion = true, version
+		return false
+	}
 	if version <= p.keyVersion {
 		return false
 	}
-	first := p.keyVersion == 0
 	p.keyVersion = version
-	return !first
+	return true
 }
 
 // firstRevocation reports whether this node has not yet acted on the

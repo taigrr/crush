@@ -642,9 +642,12 @@ func (b *deviceBridge) onFwd(m *nats.Msg) {
 		if !b.spawn(func() {
 			defer b.release(d.DeviceID)
 			resp, done := b.execute(ctx, d, req)
-			if ctx.Err() == nil {
-				respond(resp, req.ID)
+			if ctx.Err() != nil {
+				// Revoked mid-request: tell the entry node rather than
+				// leaving it to time out (it never relays this).
+				resp = errorResponse(req.ID, b.nodeID, newBridgeError(codeDeviceRevoked, "device is revoked or unknown"))
 			}
+			respond(resp, req.ID)
 			<-done
 		}) {
 			b.release(d.DeviceID)
@@ -660,7 +663,18 @@ func (b *deviceBridge) onFwd(m *nats.Msg) {
 			respond(streamFailure(req.ID, b.nodeID, newBridgeError(codeDeviceRevoked, "device is revoked or unknown")), req.ID)
 			return
 		}
-		respond(b.openStream(d, req), req.ID)
+		// Never replay a resume buffer on the mesh dispatch goroutine.
+		if !b.acquire(d.DeviceID) {
+			respond(streamFailure(req.ID, b.nodeID, rateLimited()), req.ID)
+			return
+		}
+		if !b.spawn(func() {
+			defer b.release(d.DeviceID)
+			respond(b.openStream(d, req), req.ID)
+		}) {
+			b.release(d.DeviceID)
+			respond(streamFailure(req.ID, b.nodeID, unavailable("node is shutting down")), req.ID)
+		}
 	}
 }
 
@@ -683,7 +697,7 @@ func (b *deviceBridge) execute(ctx context.Context, d pairing.Device, req bridge
 	key := ""
 	if req.Method == http.MethodPost && req.IdempotencyKey != "" {
 		key = req.IdempotencyKey
-		e, leader, conflict := b.idem.begin(d.DeviceID, key, idemFingerprint(req.Method, req.Path, raw))
+		e, leader, conflict := b.idem.begin(d.DeviceID, key, idemFingerprint(req.Method, req.Path, query.Encode(), raw))
 		if conflict {
 			return fail(newBridgeError(codeIdempotencyConflict, "idempotency_key was used for a different request"))
 		}

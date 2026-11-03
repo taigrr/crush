@@ -616,15 +616,32 @@ func TestDeviceStreamResumeBuffer(t *testing.T) {
 func TestDeviceStreamSessionOf(t *testing.T) {
 	t.Parallel()
 	s := &deviceStream{sessions: map[string]string{}}
-	msg := `{"type":"message","payload":{"type":"created","payload":{"id":"m1","session_id":"s1"}}}`
-	require.Equal(t, "s1", s.sessionOf(msg))
-	require.Equal(t, "s1", s.sessionOf(`{"type":"message_delta","payload":{"id":"m1","appends":[]}}`), "deltas map through their message")
-	require.Equal(t, "", s.sessionOf(`{"type":"message_delta","payload":{"id":"m2"}}`))
-	require.Equal(t, "s2", s.sessionOf(`{"type":"session","payload":{"type":"updated","payload":{"id":"s2"}}}`))
-	require.Equal(t, "s3", s.sessionOf(`{"type":"agent_event","payload":{"type":"x","payload":{"message":{"session_id":"s3"}}}}`))
-	require.Equal(t, "s4", s.sessionOf(`{"type":"attention_event","payload":{"type":"x","payload":{"session_id":"s4"}}}`))
-	require.Equal(t, "", s.sessionOf(`{"type":"lsp_event","payload":{"type":"x","payload":{"name":"gopls"}}}`))
-	require.Equal(t, "", s.sessionOf(`garbage`))
+	check := func(data, want string, scoped bool) {
+		t.Helper()
+		got, isScoped := s.sessionOf(data)
+		require.Equal(t, want, got, data)
+		require.Equal(t, scoped, isScoped, data)
+	}
+	check(`{"type":"message","payload":{"type":"created","payload":{"id":"m1","session_id":"s1"}}}`, "s1", true)
+	check(`{"type":"message_delta","payload":{"id":"m1","appends":[]}}`, "s1", true)
+	check(`{"type":"message_delta","payload":{"id":"m2"}}`, "", true)
+	check(`{"type":"session","payload":{"type":"updated","payload":{"id":"s2"}}}`, "s2", true)
+	check(`{"type":"agent_event","payload":{"type":"x","payload":{"message":{"session_id":"s3"}}}}`, "s3", true)
+	check(`{"type":"attention_event","payload":{"type":"x","payload":{"session_id":"s4"}}}`, "s4", true)
+	check(`{"type":"lsp_event","payload":{"type":"x","payload":{"name":"gopls"}}}`, "", false)
+	check(`garbage`, "", false)
+}
+
+func TestDeviceStreamRingBounds(t *testing.T) {
+	t.Parallel()
+	s := &deviceStream{tune: streamTuning{ring: 512}}
+	big := make([]byte, 1<<20)
+	for i := range int64(10) {
+		s.remember(ringFrame{seq: i, data: big})
+	}
+	require.LessOrEqual(t, s.ringBytes, maxRingBytes)
+	require.Equal(t, int64(9), s.ring[len(s.ring)-1].seq)
+	require.Equal(t, maxRingBytes/len(big), len(s.ring))
 }
 
 func TestDeviceBridgeAttentionFiltering(t *testing.T) {

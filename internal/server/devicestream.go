@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"maps"
 	"net/http"
@@ -30,7 +31,10 @@ const (
 	// attribute (and filter) message deltas.
 	maxStreamSessions = 4096
 	streamOpenTimeout = 10 * time.Second
-	querySessionID    = "session_id"
+	// maxRingBytes bounds a stream's resume buffer in bytes as well as
+	// frames, since one frame can be megabytes.
+	maxRingBytes   = 4 << 20
+	querySessionID = "session_id"
 )
 
 // streamTuning holds the stream timings (shortened by tests).
@@ -83,7 +87,7 @@ type deviceStream struct {
 	credit       int64
 	sent         int64
 	ring         []ringFrame
-	ringStart    int
+	ringBytes    int
 	lastFrame    time.Time
 	lastInterest time.Time
 	reason       string
@@ -123,13 +127,21 @@ func (b *deviceBridge) onSub(m *nats.Msg) {
 		b.reply(m, streamFailure("", b.nodeID, newBridgeError(codeBadRequest, "malformed envelope")), "")
 		return
 	}
+	// Opening a stream may resolve a swarm address and wait on another
+	// node, so it takes a request slot like any bridged call.
+	if !b.acquire(d.DeviceID) {
+		b.reply(m, streamFailure(req.ID, b.nodeID, rateLimited()), req.ID)
+		return
+	}
 	ctx := b.work(d.DeviceID)
 	if !b.spawn(func() {
+		defer b.release(d.DeviceID)
 		opened := b.routeStream(ctx, d, req)
 		if ctx.Err() == nil && b.active(d.DeviceID) {
 			b.reply(m, opened, req.ID)
 		}
 	}) {
+		b.release(d.DeviceID)
 		b.reply(m, streamFailure(req.ID, b.nodeID, unavailable("node is shutting down")), req.ID)
 	}
 }
@@ -375,18 +387,37 @@ func (s *deviceStream) end(reason string) {
 	s.cancel()
 }
 
-// publishLocked sends one frame. Callers hold s.mu, which keeps frames
-// (live, replayed, heartbeats) in order.
-func (s *deviceStream) publishLocked(f streamFrame) []byte {
+// errFrameTooLarge reports an event that cannot fit in one NATS message.
+var errFrameTooLarge = errors.New("stream frame exceeds the payload limit")
+
+// encodeFrame stamps and encodes a frame, refusing one that could not be
+// published (it would leave a gap no resume could fill).
+func (s *deviceStream) encodeFrame(f streamFrame) ([]byte, error) {
 	f.V, f.Stream, f.At = wireVersion, s.id, wireNow()
 	data, err := json.Marshal(f)
 	if err != nil {
-		return nil
+		return nil, err
 	}
+	if int64(len(data)) > s.b.nc.MaxPayload() {
+		return nil, errFrameTooLarge
+	}
+	return data, nil
+}
+
+// publishLocked sends one encoded frame. Callers hold s.mu, which keeps
+// frames (live, replayed, heartbeats) in order; publishing only buffers.
+func (s *deviceStream) publishLocked(data []byte) {
 	if s.b.nc.Publish(s.subject, data) == nil {
 		s.lastFrame = time.Now()
 	}
-	return data
+}
+
+// controlFrameLocked sends a heartbeat or end frame (they repeat the last
+// event seq and consume no credit).
+func (s *deviceStream) controlFrameLocked(kind, reason string) {
+	if data, err := s.encodeFrame(streamFrame{Seq: s.sent - 1, Type: kind, Reason: reason}); err == nil {
+		s.publishLocked(data)
+	}
 }
 
 // resume replays the frames after afterSeq and treats them as unacked.
@@ -400,12 +431,9 @@ func (s *deviceStream) resume(afterSeq, credit int64) bool {
 	if afterSeq+1 < oldest {
 		return false
 	}
-	for i := range len(s.ring) {
-		f := s.ring[(s.ringStart+i)%len(s.ring)]
+	for _, f := range s.ring {
 		if f.seq > afterSeq {
-			if s.b.nc.Publish(s.subject, f.data) == nil {
-				s.lastFrame = time.Now()
-			}
+			s.publishLocked(f.data)
 		}
 	}
 	s.acked = max(s.acked, afterSeq+1)
@@ -415,16 +443,23 @@ func (s *deviceStream) resume(afterSeq, credit int64) bool {
 	return true
 }
 
+// remember keeps f for resume, dropping the oldest frames beyond
+// tune.ring frames or maxRingBytes.
 func (s *deviceStream) remember(f ringFrame) {
 	if s.tune.ring <= 0 {
 		return
 	}
-	if len(s.ring) < s.tune.ring {
-		s.ring = append(s.ring, f)
-		return
+	s.ring = append(s.ring, f)
+	s.ringBytes += len(f.data)
+	drop := 0
+	for len(s.ring)-drop > s.tune.ring || (s.ringBytes > maxRingBytes && len(s.ring)-drop > 1) {
+		s.ringBytes -= len(s.ring[drop].data)
+		s.ring[drop] = ringFrame{}
+		drop++
 	}
-	s.ring[s.ringStart] = f
-	s.ringStart = (s.ringStart + 1) % len(s.ring)
+	if drop > 0 {
+		s.ring = slices.Clone(s.ring[drop:])
+	}
 }
 
 // runStream runs the SSE handler in-process and publishes each event as a
@@ -445,7 +480,10 @@ func (b *deviceBridge) runStream(ctx context.Context, s *deviceStream, p string,
 	}) {
 		return
 	}
-	b.spawn(func() { s.watch(ctx) })
+	if !b.spawn(func() { s.watch(ctx) }) {
+		s.end(endNodeShutdown)
+		return
+	}
 	// Unblock the scanner when the stream is cancelled, and the handler
 	// (blocked writing to the pipe) whenever this loop returns.
 	context.AfterFunc(ctx, func() { _ = pr.CloseWithError(context.Canceled) })
@@ -459,9 +497,11 @@ func (b *deviceBridge) runStream(ctx context.Context, s *deviceStream, p string,
 			continue
 		}
 		s.mu.Lock()
-		sid := s.sessionOf(data)
+		sid, scoped := s.sessionOf(data)
 		s.mu.Unlock()
-		if s.session != "" && sid != "" && sid != s.session {
+		// A filtered stream drops other sessions' events, and session
+		// events it cannot attribute (a delta whose message it never saw).
+		if s.session != "" && sid != s.session && (sid != "" || scoped) {
 			continue
 		}
 		if !s.waitCredit(ctx) {
@@ -472,10 +512,15 @@ func (b *deviceBridge) runStream(ctx context.Context, s *deviceStream, p string,
 			s.mu.Unlock()
 			return
 		}
-		seq := s.sent
+		frame, err := s.encodeFrame(streamFrame{Seq: s.sent, Type: frameEvent, SessionID: sid, Data: data})
+		if err != nil {
+			s.mu.Unlock()
+			s.end(endError)
+			return
+		}
+		s.remember(ringFrame{seq: s.sent, data: frame})
 		s.sent++
-		frame := s.publishLocked(streamFrame{Seq: seq, Type: frameEvent, SessionID: sid, Data: data})
-		s.remember(ringFrame{seq: seq, data: frame})
+		s.publishLocked(frame)
 		s.mu.Unlock()
 	}
 }
@@ -483,7 +528,6 @@ func (b *deviceBridge) runStream(ctx context.Context, s *deviceStream, p string,
 // finish sends the stream's end frame.
 func (s *deviceStream) finish(w *streamWriter) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	reason := s.reason
 	switch {
 	case reason != "":
@@ -498,7 +542,10 @@ func (s *deviceStream) finish(w *streamWriter) {
 		s.reason = reason
 	}
 	s.cond.Broadcast()
-	s.publishLocked(streamFrame{Seq: s.sent - 1, Type: frameEnd, Reason: reason})
+	s.controlFrameLocked(frameEnd, reason)
+	s.mu.Unlock()
+	// Flush outside the lock: it waits on the server, and acks for every
+	// stream share one dispatch goroutine.
 	_ = s.b.nc.Flush()
 }
 
@@ -553,7 +600,7 @@ func (s *deviceStream) watch(ctx context.Context) {
 		}
 		idle := now.Sub(s.lastInterest) > s.tune.idle
 		if !idle && now.Sub(s.lastFrame) >= s.tune.heartbeat {
-			s.publishLocked(streamFrame{Seq: s.sent - 1, Type: frameHeartbeat})
+			s.controlFrameLocked(frameHeartbeat, "")
 		}
 		s.mu.Unlock()
 		if idle {
@@ -563,29 +610,31 @@ func (s *deviceStream) watch(ctx context.Context) {
 	}
 }
 
-// sessionOf returns the session an SSE payload concerns, or "". Message
-// deltas carry only a message ID, so the stream remembers which session
-// each message it has seen belongs to. Callers hold s.mu.
-func (s *deviceStream) sessionOf(data string) string {
+// sessionOf returns the session an SSE payload concerns, or "", and
+// whether the payload is about a session at all (a message delta always
+// is, even when its message is unknown). Message deltas carry only a
+// message ID, so the stream remembers which session each message it has
+// seen belongs to. Callers hold s.mu.
+func (s *deviceStream) sessionOf(data string) (string, bool) {
 	var env struct {
 		Type    pubsub.PayloadType `json:"type"`
 		Payload json.RawMessage    `json:"payload"`
 	}
 	if json.Unmarshal([]byte(data), &env) != nil {
-		return ""
+		return "", false
 	}
 	if env.Type == pubsub.PayloadTypeMessageDelta {
 		var delta struct {
 			ID string `json:"id"`
 		}
 		_ = json.Unmarshal(env.Payload, &delta)
-		return s.sessions[delta.ID]
+		return s.sessions[delta.ID], true
 	}
 	var inner struct {
 		Payload json.RawMessage `json:"payload"`
 	}
 	if json.Unmarshal(env.Payload, &inner) != nil {
-		return ""
+		return "", false
 	}
 	var p struct {
 		ID        string `json:"id"`
@@ -597,16 +646,17 @@ func (s *deviceStream) sessionOf(data string) string {
 	_ = json.Unmarshal(inner.Payload, &p)
 	switch env.Type {
 	case pubsub.PayloadTypeSession:
-		return p.ID
+		return p.ID, true
 	case pubsub.PayloadTypeMessage:
 		if p.ID != "" && p.SessionID != "" {
 			s.rememberSession(p.ID, p.SessionID)
 		}
+		return p.SessionID, true
 	}
 	if p.SessionID != "" {
-		return p.SessionID
+		return p.SessionID, true
 	}
-	return p.Message.SessionID
+	return p.Message.SessionID, p.Message.SessionID != ""
 }
 
 func (s *deviceStream) rememberSession(messageID, sessionID string) {
