@@ -9288,8 +9288,15 @@
                     "description": "OwnerNode is the cluster node that owns (may write) the session; \"\"\nmeans the node that produced this overview. OwnerName is its\ndisplay name. ReadOnly marks a replica shown because its owner is\nunreachable.",
                     "type": "string"
                 },
+                "owner_unreachable_since": {
+                    "type": "integer"
+                },
                 "read_only": {
                     "type": "boolean"
+                },
+                "replica_reason": {
+                    "description": "ReplicaReason explains a ReadOnly replica, e.g. \"owner unreachable:\ncontext deadline exceeded\". OwnerUnreachableSince is when this node\nstarted failing to reach the owner (unix ms; 0 if unknown).",
+                    "type": "string"
                 },
                 "title": {
                     "type": "string"
@@ -9583,6 +9590,9 @@
                 "error": {
                     "type": "string"
                 },
+                "last_error": {
+                    "type": "string"
+                },
                 "node_id": {
                     "description": "NodeID and NodeName identify the cluster node that owns the\nworkspace. Empty means the server answering the request.",
                     "type": "string"
@@ -9598,6 +9608,13 @@
                     "items": {
                         "$ref": "#/definitions/proto.SessionOverview"
                     }
+                },
+                "stale": {
+                    "description": "Stale marks a remote node's last good overview served because the\nlatest refresh failed; StaleSince is when it was fetched (unix ms)\nand LastError why the refresh failed. On a node-level Unavailable\nmarker StaleSince is the last successful fetch, if any.",
+                    "type": "boolean"
+                },
+                "stale_since": {
+                    "type": "integer"
                 },
                 "unavailable": {
                     "description": "Unavailable marks a workspace (or, with an empty Root, a whole\ncluster node) whose sessions could not be read in time; Error says\nwhy. Sessions is then empty or a stale subset.",

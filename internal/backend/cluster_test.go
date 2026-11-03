@@ -38,8 +38,11 @@ func (f *fakeBridge) SwarmSend(_ context.Context, t SwarmLookupResult, p proto.S
 	return SwarmSendResult{SessionID: t.SessionID, Delivery: "sent"}, nil
 }
 
-func (f *fakeBridge) RemoteOverviews(context.Context) []proto.WorkspaceOverview {
-	return []proto.WorkspaceOverview{{Root: "/remote", NodeID: "mini", NodeName: "mini"}}
+func (f *fakeBridge) RemoteOverviews(context.Context) RemoteOverviews {
+	return RemoteOverviews{
+		Overviews: []proto.WorkspaceOverview{{Root: "/remote", NodeID: "mini", NodeName: "mini"}},
+		Reachable: map[string]bool{"mini": true},
+	}
 }
 
 func TestClusterBridgeRoutesSwarmAndAttention(t *testing.T) {

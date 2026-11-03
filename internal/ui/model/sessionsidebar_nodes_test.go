@@ -67,5 +67,5 @@ func TestSidebar_OfflineReplicaIsLabelled(t *testing.T) {
 		Sessions: []proto.SessionOverview{{ID: "r1", Title: "Long build", OwnerName: "mini1", ReadOnly: true}},
 	}})
 	out := ansi.Strip(s.Render(70, 20, true))
-	require.Contains(t, out, "@mini1 offline")
+	require.Contains(t, out, "@mini1 cached")
 }

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
+	"time"
 
 	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/permission"
@@ -29,8 +31,28 @@ type ClusterBridge interface {
 	// carries the trusted sender identity stamped by this node.
 	SwarmSend(ctx context.Context, target SwarmLookupResult, part proto.SwarmMessage, policy proto.PermissionPolicy) (SwarmSendResult, error)
 	// RemoteOverviews returns every other node's workspace overviews,
-	// tagged with the owning node.
-	RemoteOverviews(ctx context.Context) []proto.WorkspaceOverview
+	// tagged with the owning node, and which nodes they cover.
+	RemoteOverviews(ctx context.Context) RemoteOverviews
+}
+
+// RemoteOverviews is the cluster's view of other nodes' sessions.
+type RemoteOverviews struct {
+	// Overviews are the nodes' workspaces (possibly stale, see
+	// [proto.WorkspaceOverview.Stale]) plus node-level Unavailable
+	// markers.
+	Overviews []proto.WorkspaceOverview
+	// Reachable holds the nodes whose overviews are being served, even
+	// with no workspaces. Their replicas stay hidden.
+	Reachable map[string]bool
+	// Down describes members with no usable overview.
+	Down map[string]NodeDown
+}
+
+// NodeDown says why and since when a member's overviews are missing.
+type NodeDown struct {
+	// Since is when fetching started failing (zero if unknown).
+	Since time.Time
+	Error string
 }
 
 // SetClusterBridge attaches (or, with nil, detaches) the cluster bridge.
@@ -86,24 +108,36 @@ func (b *Backend) ListClusterOverviews(ctx context.Context) ([]proto.WorkspaceOv
 	if cb == nil {
 		return local, nil
 	}
-	remote := cb.RemoteOverviews(ctx)
-	reachable := map[string]bool{}
-	for _, ov := range remote {
-		if !ov.Unavailable || ov.Root != "" {
-			reachable[ov.NodeID] = true
-		}
-	}
-	// Sessions whose owner did not answer still show, from the local
-	// replica, read-only.
-	for owner, ovs := range replicas {
-		if reachable[owner] {
+	return mergeReplicas(local, replicas, cb.RemoteOverviews(ctx), b.nodeName), nil
+}
+
+// mergeReplicas appends remote overviews to local ones and, for owners
+// with no usable remote overview, shows their local replicas read-only.
+func mergeReplicas(local []proto.WorkspaceOverview, replicas map[string][]proto.WorkspaceOverview, remote RemoteOverviews, nodeName func(string) string) []proto.WorkspaceOverview {
+	owners := slices.Sorted(maps.Keys(replicas))
+	for _, owner := range owners {
+		if remote.Reachable[owner] {
 			continue
 		}
-		name := b.nodeName(owner)
-		for _, ov := range ovs {
+		name := nodeName(owner)
+		reason := "owner unreachable"
+		var since int64
+		if down, ok := remote.Down[owner]; ok {
+			if down.Error != "" {
+				reason += ": " + down.Error
+			}
+			if !down.Since.IsZero() {
+				since = down.Since.UnixMilli()
+			}
+		} else {
+			reason = "owner not in cluster"
+		}
+		for _, ov := range replicas[owner] {
 			for i := range ov.Sessions {
 				ov.Sessions[i].OwnerName = name
 				ov.Sessions[i].ReadOnly = true
+				ov.Sessions[i].ReplicaReason = reason
+				ov.Sessions[i].OwnerUnreachableSince = since
 			}
 			if i := slices.IndexFunc(local, func(l proto.WorkspaceOverview) bool { return l.Root == ov.Root }); i >= 0 {
 				local[i].Sessions = append(local[i].Sessions, ov.Sessions...)
@@ -112,7 +146,7 @@ func (b *Backend) ListClusterOverviews(ctx context.Context) ([]proto.WorkspaceOv
 			local = append(local, ov)
 		}
 	}
-	return append(local, remote...), nil
+	return append(local, remote.Overviews...)
 }
 
 // remoteSwarmLookup consults other nodes when no local session matches.

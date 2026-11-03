@@ -31,7 +31,10 @@ const (
 
 const (
 	swarmLookupWindow = 1500 * time.Millisecond
-	overviewTimeout   = 3 * time.Second
+	// overviewTimeout bounds a background overview refresh. Requests
+	// never wait on it (except the first load, see firstLoadWait), so it
+	// can be generous enough for a large list over a slow link.
+	overviewTimeout = 15 * time.Second
 )
 
 // meshBridge implements [backend.ClusterBridge] over the NATS mesh (for
@@ -151,7 +154,7 @@ func (m *meshBridge) SwarmSend(ctx context.Context, target backend.SwarmLookupRe
 	return rep.Result, nil
 }
 
-func (m *meshBridge) RemoteOverviews(ctx context.Context) []proto.WorkspaceOverview {
+func (m *meshBridge) RemoteOverviews(ctx context.Context) backend.RemoteOverviews {
 	return m.view.get(ctx, m)
 }
 
@@ -159,18 +162,29 @@ func (m *meshBridge) RemoteOverviews(ctx context.Context) []proto.WorkspaceOverv
 // background refresh; attention events from a node refresh it at once.
 const remoteViewTTL = 5 * time.Second
 
+// staleGrace is how long a node's last good overviews keep being served
+// after refreshes start failing. Slow links (large lists over a WAN)
+// time out now and then; flipping the whole node to read-only replicas
+// on every miss is worse than briefly showing slightly old data.
+const staleGrace = 2 * time.Minute
+
 // firstLoadWait bounds how long the very first overview request waits for
 // nodes this server has never heard from. After that, requests never wait
 // on the network.
 const firstLoadWait = time.Second
 
 type nodeView struct {
-	ovs     []proto.WorkspaceOverview
-	at      time.Time
-	ok      bool
-	tried   bool
-	stale   bool
-	loading bool
+	// ovs is the last successful fetch, taken at at.
+	ovs []proto.WorkspaceOverview
+	at  time.Time
+	ok  bool
+	// failedSince is the first failure after the last success.
+	failedSince time.Time
+	// failedAt is the latest failure.
+	failedAt time.Time
+	tried    bool
+	stale    bool
+	loading  bool
 	// err is the last fetch failure, cleared on success.
 	err string
 }
@@ -181,22 +195,34 @@ type nodeView struct {
 type remoteView struct {
 	mu    sync.Mutex
 	nodes map[string]*nodeView
+	// now is overridable in tests.
+	now func() time.Time
 }
 
-func (v *remoteView) get(ctx context.Context, m *meshBridge) []proto.WorkspaceOverview {
+func (v *remoteView) clock() time.Time {
+	if v.now != nil {
+		return v.now()
+	}
+	return time.Now()
+}
+
+func (v *remoteView) get(ctx context.Context, m *meshBridge) backend.RemoteOverviews {
 	members := m.node.Members()
 	var firstLoad []chan struct{}
 	v.mu.Lock()
 	if v.nodes == nil {
 		v.nodes = map[string]*nodeView{}
 	}
+	now := v.clock()
 	for _, mem := range members {
 		nv := v.nodes[mem.NodeID]
 		if nv == nil {
 			nv = &nodeView{}
 			v.nodes[mem.NodeID] = nv
 		}
-		if nv.loading || (nv.tried && !nv.stale && time.Since(nv.at) < remoteViewTTL) {
+		// One refresh per node at a time; a failed one is retried after
+		// the TTL like a successful one.
+		if nv.loading || (nv.tried && !nv.stale && now.Sub(nv.lastTry()) < remoteViewTTL) {
 			continue
 		}
 		nv.loading = true
@@ -223,18 +249,34 @@ func (v *remoteView) get(ctx context.Context, m *meshBridge) []proto.WorkspaceOv
 	return v.collect(members)
 }
 
-// collect assembles members' cached overviews, with an unavailable marker
-// for each node that failed or has not answered.
-func (v *remoteView) collect(members []cluster.Member) []proto.WorkspaceOverview {
+// lastTry is when the node was last fetched, successfully or not.
+func (nv *nodeView) lastTry() time.Time {
+	if nv.err != "" && nv.failedAt.After(nv.at) {
+		return nv.failedAt
+	}
+	return nv.at
+}
+
+// collect assembles members' cached overviews. A node whose refresh
+// failed keeps its last good overviews, marked stale, for staleGrace;
+// after that (or if it never answered) it gets an unavailable marker.
+func (v *remoteView) collect(members []cluster.Member) backend.RemoteOverviews {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	var out []proto.WorkspaceOverview
+	now := v.clock()
+	out := backend.RemoteOverviews{Reachable: map[string]bool{}, Down: map[string]backend.NodeDown{}}
 	for _, mem := range members {
 		nv := v.nodes[mem.NodeID]
 		switch {
 		case nv == nil:
-		case nv.ok:
-			out = append(out, nv.ovs...)
+		case nv.ok && (nv.err == "" || now.Sub(nv.at) < staleGrace):
+			out.Reachable[mem.NodeID] = true
+			for _, ov := range nv.ovs {
+				if nv.err != "" {
+					ov.Stale, ov.StaleSince, ov.LastError = true, nv.at.UnixMilli(), nv.err
+				}
+				out.Overviews = append(out.Overviews, ov)
+			}
 		case nv.tried || nv.loading:
 			// A node that failed (or has not answered yet) is reported
 			// rather than silently dropped, so clients can show it.
@@ -242,12 +284,17 @@ func (v *remoteView) collect(members []cluster.Member) []proto.WorkspaceOverview
 			if reason == "" {
 				reason = "node did not answer in time"
 			}
-			out = append(out, proto.WorkspaceOverview{
+			marker := proto.WorkspaceOverview{
 				NodeID:      mem.NodeID,
 				NodeName:    mem.Name,
 				Unavailable: true,
 				Error:       reason,
-			})
+			}
+			if !nv.at.IsZero() {
+				marker.StaleSince = nv.at.UnixMilli()
+			}
+			out.Overviews = append(out.Overviews, marker)
+			out.Down[mem.NodeID] = backend.NodeDown{Since: nv.failedSince, Error: reason}
 		}
 	}
 	return out
@@ -258,27 +305,49 @@ func (v *remoteView) refresh(m *meshBridge, mem cluster.Member, done chan struct
 	ctx, cancel := context.WithTimeout(context.Background(), overviewTimeout)
 	defer cancel()
 	var ovs []proto.WorkspaceOverview
+	started := time.Now()
 	err := m.node.CallAPI(ctx, mem, http.MethodGet, "/v1/workspace-overviews?local=1", &ovs)
 	for j := range ovs {
 		ovs[j].NodeID, ovs[j].NodeName = mem.NodeID, mem.Name
 	}
-	v.mu.Lock()
-	nv := v.nodes[mem.NodeID]
-	nv.loading, nv.tried, nv.stale = false, true, false
-	changed := false
-	if err != nil {
-		slog.Debug("Failed to fetch remote overviews", "node", mem.Name, "error", err)
-		changed = nv.ok
-		nv.ok, nv.err = false, err.Error()
-	} else {
-		nv.err = ""
-		changed = !nv.ok || !reflect.DeepEqual(nv.ovs, ovs)
-		nv.ovs, nv.ok, nv.at = ovs, true, time.Now()
-	}
-	v.mu.Unlock()
-	if changed {
+	if v.apply(mem.NodeID, ovs, err) {
 		m.backend.PublishOverviewsChanged()
 	}
+	if err != nil {
+		slog.Debug("Failed to fetch remote overviews", "node", mem.Name, "elapsed", time.Since(started), "error", err)
+	}
+}
+
+// apply records a fetch result and reports whether what collect serves
+// changed.
+func (v *remoteView) apply(nodeID string, ovs []proto.WorkspaceOverview, err error) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	now := v.clock()
+	nv := v.nodes[nodeID]
+	if nv == nil {
+		nv = &nodeView{}
+		v.nodes[nodeID] = nv
+	}
+	wasFailing := nv.err != ""
+	nv.loading, nv.tried, nv.stale = false, true, false
+	if err != nil {
+		if !wasFailing {
+			nv.failedSince = now
+		}
+		nv.err, nv.failedAt = err.Error(), now
+		if nv.ok && now.Sub(nv.at) >= staleGrace {
+			// Past the grace: drop the data so replicas take over.
+			nv.ok, nv.ovs = false, nil
+			return true
+		}
+		// Otherwise the data is now flagged stale.
+		return !wasFailing
+	}
+	changed := !nv.ok || wasFailing || !reflect.DeepEqual(nv.ovs, ovs)
+	nv.ovs, nv.ok, nv.at = ovs, true, now
+	nv.err, nv.failedSince = "", time.Time{}
+	return changed
 }
 
 // markStale makes the next read refresh nodeID's overviews.
