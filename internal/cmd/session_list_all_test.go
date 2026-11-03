@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/projects"
+	"github.com/taigrr/crush/internal/registry"
 	"github.com/taigrr/crush/internal/session"
 )
 
@@ -72,4 +73,28 @@ func TestSessionListAllEmptyRegistry(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, list)
 	require.Empty(t, errOut.String())
+}
+
+// TestSessionListAllReadsWorkspaceRegistry covers the server-mode path:
+// workspaces are only recorded in the global workspace registry, never in
+// projects.json, and --all must still find them.
+func TestSessionListAllReadsWorkspaceRegistry(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	project := filepath.Join(t.TempDir(), "served")
+	dataDir := filepath.Join(project, ".crush")
+	conn, err := db.Connect(t.Context(), dataDir)
+	require.NoError(t, err)
+	_, err = session.NewService(db.New(conn), conn).Create(t.Context(), "served session")
+	require.NoError(t, err)
+	require.NoError(t, db.Release(dataDir))
+	require.NoError(t, registry.New().Add(registry.Entry{Root: project, DataDir: dataDir, LastUsed: 1}))
+
+	var errOut bytes.Buffer
+	list, err := collectAllSessions(t.Context(), &errOut)
+	require.NoError(t, err)
+	require.Empty(t, errOut.String())
+	require.Len(t, list, 1)
+	require.Equal(t, "served session", list[0].Title)
+	require.Equal(t, project, list[0].Project)
 }

@@ -133,6 +133,18 @@ func (n *Node) memberOnly(next func(http.ResponseWriter, *http.Request, Member))
 	}
 }
 
+// gossipVersion picks the version to keep for a member announced in
+// gossip. Versions are learned first-hand from each peer's request
+// headers ([Node.touch]); a gossiped row can be arbitrarily old (a node's
+// own stored row keeps the version it joined with), so it only fills in
+// a version we have never observed.
+func gossipVersion(known, gossiped string) string {
+	if known != "" {
+		return known
+	}
+	return gossiped
+}
+
 // touch updates a member's last-seen time and version.
 func (n *Node) touch(nodeID, version string) {
 	n.MarkSeen(nodeID, time.Now().UTC())
@@ -289,6 +301,7 @@ func (n *Node) handleMembers(w http.ResponseWriter, r *http.Request, from Member
 			}
 			existing, _ := st.Member(m.NodeID)
 			m.Device = mergeDevice(m.NodeID, from.NodeID, existing.Device, m.Device)
+			m.Version = gossipVersion(existing.Version, m.Version)
 			m.LastSeen = time.Time{}
 			st.upsertMember(m)
 			st.Pending = slices.DeleteFunc(st.Pending, func(p JoinRequest) bool { return p.NodeID == m.NodeID })

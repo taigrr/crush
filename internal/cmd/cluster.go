@@ -437,18 +437,11 @@ func waitForUpgrade(ctx context.Context, cmd *cobra.Command, tag string, timeout
 		if c, err := localServerClient(cmd); err == nil {
 			if res, err := c.ClusterPing(ctx); err == nil {
 				last = res
-				pending := 0
-				for _, r := range res {
-					if r.Error == "" && r.Version == tag {
-						if !done[r.NodeID] {
-							done[r.NodeID] = true
-							fmt.Fprintf(out, "  %s is on %s\n", r.Name, tag)
-						}
-						continue
-					}
-					pending++
+				arrived, behind := upgradeProgress(res, tag, done)
+				for _, name := range arrived {
+					fmt.Fprintf(out, "  %s is on %s\n", name, tag)
 				}
-				if pending == 0 {
+				if len(behind) == 0 {
 					fmt.Fprintf(out, "Every member is on %s.\n", tag)
 					return nil
 				}
@@ -456,16 +449,34 @@ func waitForUpgrade(ctx context.Context, cmd *cobra.Command, tag string, timeout
 		}
 		select {
 		case <-ctx.Done():
-			var behind []string
-			for _, r := range last {
-				if !done[r.NodeID] {
-					behind = append(behind, fmt.Sprintf("%s (%s)", r.Name, cmp.Or(r.Error, r.Version, "unknown")))
-				}
+			if last == nil {
+				return fmt.Errorf("timed out waiting for %s: the local crush server never answered a cluster ping", tag)
 			}
+			_, behind := upgradeProgress(last, tag, done)
 			return fmt.Errorf("timed out waiting for %s on: %s. If a node restarts on its old version, its service points at a different binary than `go install` updates; run `crush cluster install-service` there", tag, strings.Join(behind, ", "))
 		case <-time.After(3 * time.Second):
 		}
 	}
+}
+
+// upgradeProgress records members of res now on tag in done, returning
+// the names that just arrived and a description of every member still
+// behind. A member counts once it has reported tag, even if a later ping
+// fails (it is restarting or briefly unreachable), so "behind" never
+// disagrees with what was already announced.
+func upgradeProgress(res []proto.ClusterPingResult, tag string, done map[string]bool) (arrived, behind []string) {
+	for _, r := range res {
+		if done[r.NodeID] {
+			continue
+		}
+		if r.Error == "" && r.Version == tag {
+			done[r.NodeID] = true
+			arrived = append(arrived, r.Name)
+			continue
+		}
+		behind = append(behind, fmt.Sprintf("%s (%s)", cmp.Or(r.Name, r.NodeID), cmp.Or(r.Error, r.Version, "unknown")))
+	}
+	return arrived, behind
 }
 
 var clusterInstallServiceCmd = &cobra.Command{

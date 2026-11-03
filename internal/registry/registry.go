@@ -198,3 +198,8 @@ func sortByLastUsedDesc(entries []Entry) {
 		}
 	}
 }
+
+// Path returns the registry file's location.
+func (s *Store) Path() string {
+	return s.path
+}

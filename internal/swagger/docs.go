@@ -9587,6 +9587,9 @@ const docTemplate = `{
                 "data_dir": {
                     "type": "string"
                 },
+                "error": {
+                    "type": "string"
+                },
                 "node_id": {
                     "description": "NodeID and NodeName identify the cluster node that owns the\nworkspace. Empty means the server answering the request.",
                     "type": "string"
@@ -9602,6 +9605,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/proto.SessionOverview"
                     }
+                },
+                "unavailable": {
+                    "description": "Unavailable marks a workspace (or, with an empty Root, a whole\ncluster node) whose sessions could not be read in time; Error says\nwhy. Sessions is then empty or a stale subset.",
+                    "type": "boolean"
                 },
                 "workspace_id": {
                     "type": "string"

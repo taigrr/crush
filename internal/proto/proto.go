@@ -275,6 +275,11 @@ type WorkspaceOverview struct {
 	WorkspaceID string            `json:"workspace_id,omitempty"`
 	Attached    bool              `json:"attached"`
 	Sessions    []SessionOverview `json:"sessions"`
+	// Unavailable marks a workspace (or, with an empty Root, a whole
+	// cluster node) whose sessions could not be read in time; Error says
+	// why. Sessions is then empty or a stale subset.
+	Unavailable bool   `json:"unavailable,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 // GoalStatus reports the active autonomous goal for a session.

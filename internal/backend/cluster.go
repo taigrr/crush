@@ -89,7 +89,9 @@ func (b *Backend) ListClusterOverviews(ctx context.Context) ([]proto.WorkspaceOv
 	remote := cb.RemoteOverviews(ctx)
 	reachable := map[string]bool{}
 	for _, ov := range remote {
-		reachable[ov.NodeID] = true
+		if !ov.Unavailable || ov.Root != "" {
+			reachable[ov.NodeID] = true
+		}
 	}
 	// Sessions whose owner did not answer still show, from the local
 	// replica, read-only.

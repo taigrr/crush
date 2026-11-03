@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/taigrr/crush/internal/config"
+	"github.com/taigrr/crush/internal/registry"
 )
 
 const projectsFileName = "projects.json"
@@ -117,10 +118,41 @@ func Register(workingDir, dataDir string) error {
 }
 
 // List returns all tracked projects sorted by last accessed.
+//
+// Workspaces are recorded by the server in the global workspace registry
+// ([registry.Store]); projects.json is only written by older clients. Both
+// are merged, by path, so commands that enumerate projects see every
+// workspace the server has opened.
 func List() ([]Project, error) {
 	list, err := Load()
 	if err != nil {
 		return nil, err
 	}
-	return list.Projects, nil
+	entries, err := registry.New().List()
+	if err != nil {
+		return nil, err
+	}
+	out := slices.Clone(list.Projects)
+	index := make(map[string]int, len(out))
+	for i, p := range out {
+		index[p.Path] = i
+	}
+	for _, e := range entries {
+		used := time.Unix(e.LastUsed, 0).UTC()
+		if i, ok := index[e.Root]; ok {
+			if used.After(out[i].LastAccessed) {
+				out[i].LastAccessed = used
+				if e.DataDir != "" {
+					out[i].DataDir = e.DataDir
+				}
+			}
+			continue
+		}
+		index[e.Root] = len(out)
+		out = append(out, Project{Path: e.Root, DataDir: e.DataDir, LastAccessed: used})
+	}
+	slices.SortStableFunc(out, func(a, b Project) int {
+		return b.LastAccessed.Compare(a.LastAccessed)
+	})
+	return out, nil
 }

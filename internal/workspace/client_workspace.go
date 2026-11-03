@@ -2,9 +2,12 @@ package workspace
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1323,6 +1326,19 @@ func (w *ClientWorkspace) subscribeLoop(send func(tea.Msg)) {
 
 		wsID := w.workspaceID()
 		evc, err := w.subscribeEventsFn(ctx, wsID)
+		if err != nil && errors.Is(err, client.ErrNotFound) {
+			// The server no longer has this workspace (it restarted, or
+			// tore it down while we were away). Retrying the same ID
+			// would 404 forever; open it again and reconnect to that.
+			rerr := w.reattach(ctx)
+			if rerr == nil {
+				cancel()
+				slog.Info("Re-created workspace missing on server", "path", w.cached().Path, "old_id", wsID, "new_id", w.workspaceID())
+				backoff = w.initialBackoff()
+				continue
+			}
+			err = fmt.Errorf("workspace %s is gone from the server and re-creating it failed: %w", wsID, rerr)
+		}
 		if err != nil {
 			cancel()
 			slog.Error("Failed to subscribe to events", "error", err)
@@ -1568,6 +1584,37 @@ func (w *ClientWorkspace) SwitchWorkspace(ctx context.Context, path string) erro
 	return nil
 }
 
+// reattach re-creates the cached workspace on the server, keeping the
+// active session, and adopts the new workspace ID.
+func (w *ClientWorkspace) reattach(ctx context.Context) error {
+	cur := w.cached()
+	if cur.Path == "" {
+		return errors.New("no workspace path to re-create")
+	}
+	created, err := w.c().CreateWorkspace(ctx, proto.Workspace{
+		Path:     cur.Path,
+		DataDir:  cur.DataDir,
+		YOLO:     cur.YOLO,
+		Debug:    cur.Debug,
+		Isolated: cur.Isolated,
+		Version:  cur.Version,
+		Env:      os.Environ(),
+	})
+	if err != nil {
+		return err
+	}
+	if created.Config != nil {
+		created.Config.SetupAgents()
+	}
+	w.mu.Lock()
+	w.ws = *created
+	w.worktrees = nil
+	w.worktreesEnabledAt = time.Time{}
+	w.mu.Unlock()
+	w.state.cache.invalidate()
+	return nil
+}
+
 // requestSwitch tells the subscribe loop that the current stream is
 // closing because of a deliberate workspace switch (not a drop), and
 // nudges it to reconnect immediately. It marks switchRequested,
@@ -1596,6 +1643,11 @@ func (w *ClientWorkspace) ListWorkspaceOverviews(ctx context.Context) ([]proto.W
 	if err != nil {
 		return nil, err
 	}
+	// Node-level failure markers carry no workspace; the picker lists
+	// workspaces, so drop them here.
+	ovs = slices.DeleteFunc(ovs, func(ov proto.WorkspaceOverview) bool {
+		return ov.Unavailable && ov.Root == ""
+	})
 	return w.qualifyOverviews(ovs), nil
 }
 

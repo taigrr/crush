@@ -59,17 +59,21 @@ func dataDirRel(root, dataDir string) (string, bool) {
 
 // withSourceDB runs fn against src's database: the live connection when
 // attached, otherwise a read-only handle. ok is false when there is no
-// database yet.
-func withSourceDB(src replicaSource, fn func(*sql.DB) error) (bool, error) {
+// database yet. Detached reads run under [Backend.replicaGuard] so a
+// database whose open never returns fails this call instead of piling up
+// replication RPCs behind it.
+func (b *Backend) withSourceDB(ctx context.Context, src replicaSource, fn func(context.Context, *sql.DB) error) (bool, error) {
 	if src.ws != nil {
-		return true, fn(src.ws.DB())
+		return true, fn(ctx, src.ws.DB())
 	}
-	conn, err := db.OpenReadOnly(src.dataDir)
-	if err != nil || conn == nil {
-		return false, err
-	}
-	defer conn.Close()
-	return true, fn(conn)
+	return guarded(ctx, &b.replicaGuard, filepath.Clean(src.dataDir), func(ctx context.Context) (bool, error) {
+		conn, err := db.OpenReadOnly(src.dataDir)
+		if err != nil || conn == nil {
+			return false, err
+		}
+		defer conn.Close()
+		return true, fn(ctx, conn)
+	})
 }
 
 // ReplicationProjects lists the workspaces this node can serve, with
@@ -82,10 +86,13 @@ func (b *Backend) ReplicationProjects(ctx context.Context) []replica.Project {
 			continue
 		}
 		var seq, emb int64
-		found, err := withSourceDB(src, func(conn *sql.DB) error {
+		found, err := b.withSourceDB(ctx, src, func(ctx context.Context, conn *sql.DB) error {
 			seq, emb = replica.MaxSeq(ctx, conn), replica.MaxEmbed(ctx, conn)
 			return nil
 		})
+		if err != nil {
+			slog.Debug("Skipping unreadable replication source", "root", src.root, "error", err)
+		}
 		if err != nil || !found {
 			continue
 		}
@@ -111,7 +118,7 @@ func (b *Backend) ReplicationChanges(ctx context.Context, root string, since, em
 		return replica.Batch{}, errors.New("data directory outside project root")
 	}
 	var batch replica.Batch
-	found, err := withSourceDB(src, func(conn *sql.DB) error {
+	found, err := b.withSourceDB(ctx, src, func(ctx context.Context, conn *sql.DB) error {
 		var err error
 		batch, err = replica.Serve(ctx, conn, self, since, embedSince, full)
 		return err

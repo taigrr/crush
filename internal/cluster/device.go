@@ -153,6 +153,9 @@ func (n *Node) AdvertiseDevice(ctx context.Context, rec DeviceEndpoints) (stored
 		rec.V = DeviceEndpointsVersion
 		rec.Seq = n.deviceSeq.next(floor)
 		st.Members[i].Device = rec.Clone()
+		// The stored self row keeps the version from when this node
+		// joined; advertise the one actually running.
+		st.Members[i].Version = n.version
 		self = st.Members[i]
 		self.Endpoints = slices.Clone(self.Endpoints)
 		self.PublicKey = slices.Clone(self.PublicKey)

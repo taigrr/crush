@@ -3,10 +3,13 @@ package backend
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"slices"
 	"sort"
+	"sync"
 
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/registry"
 	"github.com/taigrr/crush/internal/session"
 )
 
@@ -45,6 +48,10 @@ func (b *Backend) listAllOverviews(ctx context.Context) ([]proto.WorkspaceOvervi
 
 	var out []proto.WorkspaceOverview
 	seen := make(map[string]struct{})
+	// Two roots can share one database (a symlinked or unresolved path
+	// registered alongside the resolved one, or worktrees of one project).
+	// Listing each would show every session twice.
+	seenDataDirs := make(map[string]struct{})
 
 	// Attached workspaces first, in a stable order (by root).
 	attachedRoots := make([]string, 0, len(attached))
@@ -61,6 +68,7 @@ func (b *Backend) listAllOverviews(ctx context.Context) ([]proto.WorkspaceOvervi
 		}
 		if ws.Cfg != nil {
 			ov.DataDir = ws.Cfg.Config().Options.DataDirectory
+			seenDataDirs[filepath.Clean(ov.DataDir)] = struct{}{}
 		}
 		ov.Sessions = b.attachedSessionOverviews(ctx, ws)
 		sortSessionOverviews(ov.Sessions)
@@ -68,26 +76,51 @@ func (b *Backend) listAllOverviews(ctx context.Context) ([]proto.WorkspaceOvervi
 		seen[root] = struct{}{}
 	}
 
-	// Registry workspaces not currently attached, read-only.
+	// Registry workspaces not currently attached, read-only. Each is
+	// peeked concurrently under its own deadline, so one unreadable
+	// database marks that workspace unavailable instead of stalling the
+	// whole list.
 	if b.registry != nil {
 		entries, err := b.registry.List()
 		if err != nil {
 			slog.Warn("Failed to list workspace registry", "error", err)
 		}
+		hideTemp := b.hideTempWorkspaces()
+		var pending []registry.Entry
 		for _, e := range entries {
 			if _, ok := seen[e.Root]; ok {
 				continue
 			}
 			seen[e.Root] = struct{}{}
+			if hideTemp && isTempWorkspace(e.Root, e.DataDir) {
+				continue
+			}
+			dd := filepath.Clean(e.DataDir)
+			if _, ok := seenDataDirs[dd]; ok {
+				continue
+			}
+			seenDataDirs[dd] = struct{}{}
+			pending = append(pending, e)
+		}
+		out = append(out, b.peekOverviews(ctx, pending)...)
+	}
+
+	return out, nil
+}
+
+// peekOverviews reads detached workspaces' sessions concurrently,
+// preserving entries' order. Workspaces whose database could not be read
+// are kept and flagged so callers can tell "empty" from "unreadable".
+func (b *Backend) peekOverviews(ctx context.Context, entries []registry.Entry) []proto.WorkspaceOverview {
+	out := make([]proto.WorkspaceOverview, len(entries))
+	var wg sync.WaitGroup
+	for i, e := range entries {
+		wg.Go(func() {
+			ov := proto.WorkspaceOverview{Root: e.Root, DataDir: e.DataDir}
 			peeked, err := b.peekCache.get(ctx, e.DataDir)
 			if err != nil {
 				slog.Debug("Failed to peek workspace sessions", "root", e.Root, "error", err)
-				continue
-			}
-			ov := proto.WorkspaceOverview{
-				Root:     e.Root,
-				DataDir:  e.DataDir,
-				Attached: false,
+				ov.Unavailable, ov.Error = true, err.Error()
 			}
 			for _, p := range peeked {
 				ov.Sessions = append(ov.Sessions, proto.SessionOverview{
@@ -104,11 +137,11 @@ func (b *Backend) listAllOverviews(ctx context.Context) ([]proto.WorkspaceOvervi
 				})
 			}
 			sortSessionOverviews(ov.Sessions)
-			out = append(out, ov)
-		}
+			out[i] = ov
+		})
 	}
-
-	return out, nil
+	wg.Wait()
+	return out
 }
 
 // attachedSessionOverviews lists a live workspace's top-level sessions with

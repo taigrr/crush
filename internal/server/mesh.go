@@ -171,6 +171,8 @@ type nodeView struct {
 	tried   bool
 	stale   bool
 	loading bool
+	// err is the last fetch failure, cleared on success.
+	err string
 }
 
 // remoteView caches every other node's workspace overviews so listing
@@ -218,12 +220,34 @@ func (v *remoteView) get(ctx context.Context, m *meshBridge) []proto.WorkspaceOv
 		timer.Stop()
 	}
 
+	return v.collect(members)
+}
+
+// collect assembles members' cached overviews, with an unavailable marker
+// for each node that failed or has not answered.
+func (v *remoteView) collect(members []cluster.Member) []proto.WorkspaceOverview {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	var out []proto.WorkspaceOverview
 	for _, mem := range members {
-		if nv := v.nodes[mem.NodeID]; nv != nil && nv.ok {
+		nv := v.nodes[mem.NodeID]
+		switch {
+		case nv == nil:
+		case nv.ok:
 			out = append(out, nv.ovs...)
+		case nv.tried || nv.loading:
+			// A node that failed (or has not answered yet) is reported
+			// rather than silently dropped, so clients can show it.
+			reason := nv.err
+			if reason == "" {
+				reason = "node did not answer in time"
+			}
+			out = append(out, proto.WorkspaceOverview{
+				NodeID:      mem.NodeID,
+				NodeName:    mem.Name,
+				Unavailable: true,
+				Error:       reason,
+			})
 		}
 	}
 	return out
@@ -245,8 +269,9 @@ func (v *remoteView) refresh(m *meshBridge, mem cluster.Member, done chan struct
 	if err != nil {
 		slog.Debug("Failed to fetch remote overviews", "node", mem.Name, "error", err)
 		changed = nv.ok
-		nv.ok = false
+		nv.ok, nv.err = false, err.Error()
 	} else {
+		nv.err = ""
 		changed = !nv.ok || !reflect.DeepEqual(nv.ovs, ovs)
 		nv.ovs, nv.ok, nv.at = ovs, true, time.Now()
 	}
