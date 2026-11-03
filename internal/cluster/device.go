@@ -171,3 +171,29 @@ func (n *Node) AdvertiseDevice(ctx context.Context, rec DeviceEndpoints) (stored
 	}
 	return rec, pushErrs, nil
 }
+
+// HostAdvertisedAddrs is AdvertisedAddrs for a listener on this host,
+// with the host's addresses taken from ifs (see [SystemInterfaces]): a
+// wildcard bind is also advertised on every usable address of the host's
+// current interfaces, since a phone on the LAN may not reach the recorded
+// cluster endpoints (often WireGuard or tailnet addresses). The result is
+// deduplicated and ranked best first for a phone on this host's LAN (see
+// [OrderAdvertisedAddrs]); loopback and link-local addresses are never
+// included.
+func HostAdvertisedAddrs(ifs []NetInterface, bound string, eps []Endpoint) []string {
+	out := AdvertisedAddrs(bound, eps)
+	host, port, err := net.SplitHostPort(bound)
+	if err != nil || port == "" || port == "0" {
+		return out
+	}
+	if ip := net.ParseIP(host); host != "" && (ip == nil || !ip.IsUnspecified()) {
+		return out
+	}
+	for _, c := range candidateAddrs(ifs) {
+		addr := net.JoinHostPort(c.ip.String(), port)
+		if !slices.Contains(out, addr) {
+			out = append(out, addr)
+		}
+	}
+	return orderAddrs(ifs, out)
+}

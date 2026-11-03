@@ -17,6 +17,11 @@ type NetInterface struct {
 	Addrs []netip.Addr
 }
 
+// SystemInterfaces lists this host's network interfaces and addresses.
+func SystemInterfaces() ([]NetInterface, error) {
+	return systemInterfaces()
+}
+
 // systemInterfaces lists this host's interfaces (replaced in tests).
 var systemInterfaces = func() ([]NetInterface, error) {
 	ifs, err := net.Interfaces()
@@ -176,6 +181,11 @@ func OrderAdvertisedAddrs(addrs []string) []string {
 	if err != nil {
 		return addrs
 	}
+	return orderAddrs(ifs, addrs)
+}
+
+// OrderAddrsOn is OrderAdvertisedAddrs over the interfaces ifs.
+func OrderAddrsOn(ifs []NetInterface, addrs []string) []string {
 	return orderAddrs(ifs, addrs)
 }
 

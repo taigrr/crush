@@ -87,6 +87,25 @@ func (p *pairingService) selfEndpoints() []cluster.Endpoint {
 	return m.Endpoints
 }
 
+// deviceInterfaces lists the host interfaces whose addresses wildcard
+// device listeners are advertised on (replaced in tests, before any run).
+var deviceInterfaces = cluster.SystemInterfaces
+
+// hostInterfaces is this node's current interfaces, or nil when they
+// cannot be listed.
+func (p *pairingService) hostInterfaces() []cluster.NetInterface {
+	list := deviceInterfaces
+	if p.interfaces != nil {
+		list = p.interfaces
+	}
+	ifs, err := list()
+	if err != nil {
+		slog.Debug("Failed to list network interfaces", "error", err)
+		return nil
+	}
+	return ifs
+}
+
 // deviceRecord is this node's device listener record, from the bound
 // listener addresses (never the configured ones).
 func (p *pairingService) deviceRecord() cluster.DeviceEndpoints {
@@ -95,21 +114,24 @@ func (p *pairingService) deviceRecord() cluster.DeviceEndpoints {
 
 // deviceRecordFor is deviceRecord with wildcard binds expanded on eps.
 func (p *pairingService) deviceRecordFor(eps []cluster.Endpoint) cluster.DeviceEndpoints {
+	ifs := p.hostInterfaces()
 	return cluster.DeviceEndpoints{
 		V:      cluster.DeviceEndpointsVersion,
-		Client: listenerRecord(p.clientAddr != "", p.client.Addr(), p.client.LastAddr(), eps),
-		WS:     listenerRecord(p.wsAddr != "", p.ws.Addr(), p.ws.LastAddr(), eps),
+		Client: listenerRecord(ifs, p.clientAddr != "", p.client.Addr(), p.client.LastAddr(), eps),
+		WS:     listenerRecord(ifs, p.wsAddr != "", p.ws.Addr(), p.ws.LastAddr(), eps),
 	}
 }
 
-func listenerRecord(enabled bool, bound, last string, eps []cluster.Endpoint) cluster.DeviceListener {
+// listenerRecord is one listener's record; a wildcard bind is advertised
+// on the host's current interface addresses (ifs) and on eps.
+func listenerRecord(ifs []cluster.NetInterface, enabled bool, bound, last string, eps []cluster.Endpoint) cluster.DeviceListener {
 	switch {
 	case !enabled:
 		return cluster.DeviceListener{State: cluster.DeviceListenerOff}
 	case bound != "":
-		return cluster.DeviceListener{State: cluster.DeviceListenerOn, Addrs: cluster.AdvertisedAddrs(bound, eps)}
+		return cluster.DeviceListener{State: cluster.DeviceListenerOn, Addrs: cluster.HostAdvertisedAddrs(ifs, bound, eps)}
 	default:
-		return cluster.DeviceListener{State: cluster.DeviceListenerIdle, Addrs: cluster.AdvertisedAddrs(last, eps)}
+		return cluster.DeviceListener{State: cluster.DeviceListenerIdle, Addrs: cluster.HostAdvertisedAddrs(ifs, last, eps)}
 	}
 }
 
@@ -117,23 +139,24 @@ func listenerRecord(enabled bool, bound, last string, eps []cluster.Endpoint) cl
 // its own listeners: bound, else last bound, else (an offer is created
 // just before the gate binds) the configured address unless its port is
 // ephemeral.
-func selfListenerAddrs(l cluster.DeviceListener, configured string, eps []cluster.Endpoint) []string {
+func selfListenerAddrs(ifs []cluster.NetInterface, l cluster.DeviceListener, configured string, eps []cluster.Endpoint) []string {
 	if l.State == cluster.DeviceListenerOff {
 		return nil
 	}
 	if len(l.Addrs) > 0 {
 		return l.Addrs
 	}
-	return cluster.AdvertisedAddrs(configured, eps)
+	return cluster.HostAdvertisedAddrs(ifs, configured, eps)
 }
 
 // selfDevice is this node's own client endpoints and websocket URLs,
 // best first for a phone on this host's LAN (recorded endpoints may
 // predate the current interfaces, so they are re-ranked on every call).
 func (p *pairingService) selfDevice(eps []cluster.Endpoint) ([]pairing.Endpoint, []string) {
+	ifs := p.hostInterfaces()
 	rec := p.deviceRecordFor(eps)
-	clients := addrEndpoints(cluster.OrderAdvertisedAddrs(selfListenerAddrs(rec.Client, p.clientAddr, eps)))
-	return clients, wssURLs(addrEndpoints(cluster.OrderAdvertisedAddrs(selfListenerAddrs(rec.WS, p.wsAddr, eps))))
+	clients := addrEndpoints(cluster.OrderAddrsOn(ifs, selfListenerAddrs(ifs, rec.Client, p.clientAddr, eps)))
+	return clients, wssURLs(addrEndpoints(cluster.OrderAddrsOn(ifs, selfListenerAddrs(ifs, rec.WS, p.wsAddr, eps))))
 }
 
 // memberDevice is what phones are told about another member's device

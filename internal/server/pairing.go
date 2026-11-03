@@ -75,6 +75,8 @@ type pairingService struct {
 
 	clientAddr string
 	wsAddr     string
+	// interfaces overrides deviceInterfaces (tests).
+	interfaces func() ([]cluster.NetInterface, error)
 
 	// meshRef is the running mesh, set and cleared by startMesh/stopMesh.
 	// It is read without srv.meshMu so NATS callbacks and registry
