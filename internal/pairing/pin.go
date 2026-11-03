@@ -24,8 +24,9 @@ func SPKIFingerprint(cert *x509.Certificate) []byte {
 // VerifyPinnedChain checks a node's presented chain the way rush must:
 // some presented certificate is a currently valid CA whose SPKI hashes to
 // caFP; the leaf (first certificate) is not a CA, is signed by it, is
-// currently valid, allows server authentication, and its common name is
-// nodeID. Host names are not checked; the pin replaces them.
+// currently valid, allows server authentication, carries the DNS name
+// NodeServerName, and its common name is nodeID. The address the device
+// dialed is not checked; the pin replaces it.
 func VerifyPinnedChain(rawCerts [][]byte, caFP []byte, nodeID string, now time.Time) error {
 	if len(rawCerts) < 2 || len(caFP) != FingerprintSize || nodeID == "" {
 		return ErrPin
@@ -60,6 +61,9 @@ func VerifyPinnedChain(rawCerts [][]byte, caFP []byte, nodeID string, now time.T
 	}
 	if now.Before(leaf.NotBefore) || now.After(leaf.NotAfter) {
 		return fmt.Errorf("%w: leaf certificate expired or not yet valid", ErrPin)
+	}
+	if !slices.Contains(leaf.DNSNames, NodeServerName) {
+		return fmt.Errorf("%w: leaf does not carry the %s name", ErrPin, NodeServerName)
 	}
 	if leaf.Subject.CommonName != nodeID {
 		return fmt.Errorf("%w: leaf is for another node", ErrPin)

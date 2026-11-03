@@ -13,6 +13,11 @@ import (
 
 func testChain(t *testing.T, cn string) (leaf, ca []byte, caFP []byte) {
 	t.Helper()
+	return testChainNames(t, cn, []string{NodeServerName})
+}
+
+func testChainNames(t *testing.T, cn string, dnsNames []string) (leaf, ca []byte, caFP []byte) {
+	t.Helper()
 	caPub, caKey, _ := ed25519.GenerateKey(nil)
 	name := pkix.Name{CommonName: "crush-cluster test"}
 	caTmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: name, Issuer: name, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
@@ -20,7 +25,7 @@ func testChain(t *testing.T, cn string) (leaf, ca []byte, caFP []byte) {
 	require.NoError(t, err)
 	caCert, _ := x509.ParseCertificate(ca)
 	leafPub, _, _ := ed25519.GenerateKey(nil)
-	leafTmpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: cn}, Issuer: name, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	leafTmpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: cn}, Issuer: name, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSNames: dnsNames}
 	leaf, err = x509.CreateCertificate(nil, leafTmpl, caTmpl, leafPub, caKey)
 	require.NoError(t, err)
 	return leaf, ca, SPKIFingerprint(caCert)
@@ -42,6 +47,14 @@ func TestVerifyPinnedChain(t *testing.T) {
 	// A leaf from another CA, even next to the pinned CA, is refused.
 	otherLeaf, _, _ := testChain(t, "node-1")
 	require.ErrorIs(t, VerifyPinnedChain([][]byte{otherLeaf, ca}, fp, "node-1", now), ErrPin)
+
+	// The leaf must carry the crush-node DNS name, not just the node CN.
+	for _, names := range [][]string{nil, {"node-1"}, {"crush-node.evil"}, {"CRUSH-NODE.example"}} {
+		bad, badCA, badFP := testChainNames(t, "node-1", names)
+		require.ErrorIs(t, VerifyPinnedChain([][]byte{bad, badCA}, badFP, "node-1", now), ErrPin, names)
+	}
+	extra, extraCA, extraFP := testChainNames(t, "node-1", []string{"other.example", NodeServerName})
+	require.NoError(t, VerifyPinnedChain([][]byte{extra, extraCA}, extraFP, "node-1", now))
 }
 
 func TestTrustedTLSConfig(t *testing.T) {
