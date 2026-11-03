@@ -92,8 +92,8 @@ type Backend struct {
 	transfers transferTracker
 	// incoming tracks preflights and imports this node is serving, so a
 	// stuck one can be inspected from the sending side.
-	incoming       transferTracker
-	peekCache      peekCache
+	incoming  transferTracker
+	peekCache peekCache
 	// replicaGuard bounds replication reads of detached databases.
 	replicaGuard   stallGuard
 	createGrace    time.Duration
