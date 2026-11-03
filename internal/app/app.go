@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -40,6 +41,7 @@ import (
 	"github.com/taigrr/crush/internal/update"
 	"github.com/taigrr/crush/internal/version"
 	"github.com/taigrr/crush/internal/worktree"
+	"github.com/taigrr/fantasy"
 )
 
 // UpdateAvailableMsg is sent when a new version is available.
@@ -50,6 +52,10 @@ type UpdateAvailableMsg struct {
 }
 
 type App struct {
+	// historyEmbedder replaces the configured embedder for history search
+	// (tests only, see SetHistoryEmbedderForTest).
+	historyEmbedder atomic.Pointer[embedding.Service]
+
 	Sessions    session.Service
 	Messages    message.Service
 	History     history.Service
@@ -342,107 +348,76 @@ func (app *App) EmbeddingStatus(ctx context.Context) (proto.EmbeddingStatus, err
 	}, nil
 }
 
-// searchSessionCandidateFactor over-fetches message-level hits relative
-// to the number of sessions requested so the per-session collapse can
-// pick each session's globally best hit rather than just its best within
-// a small page. searchMinCandidates is the floor so short session limits
-// still draw from a healthy candidate pool.
-const (
-	searchSessionCandidateFactor = 10
-	searchMinCandidates          = 200
-	searchDefaultSessionLimit    = 50
-	// searchMaxSessionLimit caps the client-supplied Limit so a hostile
-	// or buggy caller can't force an unbounded candidate fetch over the
-	// whole message corpus. SearchHistory is a public-ish RPC; Limit
-	// comes off the wire.
-	searchMaxSessionLimit = 200
-)
-
-// ResolveSearchLimits turns a client-supplied session limit into the
-// effective (sessionLimit, candidateLimit) pair: it applies the default
-// when non-positive, clamps to searchMaxSessionLimit so a hostile Limit
-// can't force an unbounded candidate fetch, then derives the over-fetch
-// candidate window. Exported so the cross-workspace fan-out (backend) can
-// size its per-workspace candidate fetch identically.
-func ResolveSearchLimits(limit int) (sessionLimit, candidateLimit int) {
-	sessionLimit = limit
-	if sessionLimit <= 0 {
-		sessionLimit = searchDefaultSessionLimit
+// HistorySource is this workspace as a history search source, tagged
+// with root.
+func (app *App) HistorySource(root string) historysearch.Source {
+	return historysearch.Source{
+		Root:     root,
+		Messages: app.Messages,
+		Sessions: app.Sessions,
+		Emb:      app.historyEmbedding(),
 	}
-	if sessionLimit > searchMaxSessionLimit {
-		sessionLimit = searchMaxSessionLimit
-	}
-	candidateLimit = max(sessionLimit*searchSessionCandidateFactor, searchMinCandidates)
-	return sessionLimit, candidateLimit
 }
 
-// SearchHistory runs hybrid (substring + semantic) search over this
-// workspace's conversation history and collapses the per-message hits to
-// one representative hit per session (best-hit-wins). It over-fetches
-// message-level candidates and collapses before applying the session
-// limit, so each session's representative is its best matching message
-// across the candidate window rather than merely within a fixed page.
-// The returned hits carry no workspace tag; the backend stamps
-// WorkspaceID/WorkspaceRoot so cross-workspace callers can group and
-// route results.
-func (app *App) SearchHistory(ctx context.Context, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error) {
-	sessionLimit, candidateLimit := ResolveSearchLimits(params.Limit)
+func (app *App) historyEmbedding() embedding.Service {
+	if e := app.historyEmbedder.Load(); e != nil {
+		return *e
+	}
+	return embedding.Build(db.New(app.dbConn), app.config.EmbeddingParams())
+}
 
-	res, err := app.SearchHistoryHits(ctx, params.Query, historysearch.Scope(params.Scope), params.Semantic, candidateLimit)
+// SetHistoryEmbedderForTest makes history search use an embedder built
+// from params over this workspace's database, with model as its
+// embedding model, and returns it (so a test can store vectors).
+func (app *App) SetHistoryEmbedderForTest(params embedding.Params, model fantasy.EmbeddingModel) embedding.Service {
+	e := embedding.Build(db.New(app.dbConn), params)
+	embedding.SetModelForTest(e, model)
+	app.historyEmbedder.Store(&e)
+	return e
+}
+
+// SearchHistory runs the hybrid (substring + semantic) history search
+// over this workspace through [historysearch.SearchAcross], the same
+// search, ranking, and limits as the cross-workspace search and `crush
+// search`. Hits carry no workspace tag; the backend stamps it.
+func (app *App) SearchHistory(ctx context.Context, params proto.SearchHistoryParams) (proto.SearchHistoryResult, error) {
+	sessionLimit, candidateLimit := historysearch.ResolveLimits(params.Limit)
+	res, err := historysearch.SearchAcross(ctx, []historysearch.Source{app.HistorySource("")}, params.Query,
+		historysearch.Scope(params.Scope), params.Semantic, candidateLimit, sessionLimit)
 	if err != nil {
 		return proto.SearchHistoryResult{}, err
 	}
-	return collapseToSessions(res, sessionLimit), nil
+	return HistoryResultToProto(res, nil), nil
 }
 
-// SearchHistoryHits runs the hybrid search over this workspace and returns
-// the RAW, ranked message-level hits without the per-session collapse. The
-// cross-workspace fan-out uses this so it can merge message-level hits from
-// several workspaces and re-rank globally before collapsing once. Offset is
-// intentionally not forwarded (see SearchHistory).
-func (app *App) SearchHistoryHits(ctx context.Context, query string, scope historysearch.Scope, semantic *bool, candidateLimit int) (embedding.SearchResult, error) {
-	emb := embedding.Build(db.New(app.dbConn), app.config.EmbeddingParams())
-	return historysearch.Search(ctx, app.Messages, app.Sessions, emb, query, historysearch.Options{
-		Scope:    scope,
-		Semantic: semantic,
-		Limit:    candidateLimit,
-		Offset:   0,
-	})
-}
-
-// collapseToSessions dedups per-message hits by session, keeping the
-// top-scoring hit as each session's representative, then caps the result
-// to sessionLimit rows. Input hits are already ranked by fused score, so
-// the first hit seen for a session is its best within the candidate
-// window. Total reflects the number of distinct sessions found in that
-// window (an approximation when the corpus exceeds the candidate limit).
-func collapseToSessions(res embedding.SearchResult, sessionLimit int) proto.SearchHistoryResult {
-	seen := make(map[string]struct{}, len(res.Hits))
+// HistoryResultToProto converts a history search result to its wire
+// form. workspaceID maps a hit's root to a workspace ID (nil or "" leaves
+// it empty).
+func HistoryResultToProto(res historysearch.CrossResult, workspaceID func(root string) string) proto.SearchHistoryResult {
 	hits := make([]proto.SessionHit, 0, len(res.Hits))
 	for _, h := range res.Hits {
-		if _, ok := seen[h.SessionID]; ok {
-			continue
+		hit := proto.SessionHit{
+			SessionID:     h.SessionID,
+			SessionTitle:  h.SessionTitle,
+			WorkspaceRoot: h.Root,
+			Score:         h.Score,
+			Match:         string(h.Match),
+			Snippet:       h.Snippet,
+			MessageID:     h.MessageID,
+			Role:          h.Role,
+			CreatedAt:     h.CreatedAt,
 		}
-		seen[h.SessionID] = struct{}{}
-		hits = append(hits, proto.SessionHit{
-			SessionID:    h.SessionID,
-			SessionTitle: h.SessionTitle,
-			Score:        h.Score,
-			Match:        string(h.Match),
-			Snippet:      h.Snippet,
-			MessageID:    h.SourceID,
-			Role:         h.Role,
-			CreatedAt:    h.CreatedAt,
-		})
-	}
-	total := len(hits)
-	if sessionLimit > 0 && len(hits) > sessionLimit {
-		hits = hits[:sessionLimit]
+		if workspaceID != nil {
+			hit.WorkspaceID = workspaceID(h.Root)
+		}
+		hits = append(hits, hit)
 	}
 	return proto.SearchHistoryResult{
-		Hits:         hits,
-		Total:        total,
-		SemanticUsed: res.SemanticUsed,
+		Hits:           hits,
+		Total:          res.Total,
+		SemanticUsed:   res.SemanticUsed,
+		Mode:           string(res.Mode),
+		FallbackReason: string(res.FallbackReason),
 	}
 }
 

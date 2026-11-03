@@ -62,8 +62,7 @@ crush pair revoke dev_abc...
 			return err
 		}
 		ttl, _ := cmd.Flags().GetDuration(flagTTL)
-		role, _ := cmd.Flags().GetString(flagRole)
-		offer, err := c.PairCreateOffer(cmd.Context(), pairing.CreateOfferRequest{TTLSeconds: int(ttl.Seconds()), Role: role})
+		offer, err := c.PairCreateOffer(cmd.Context(), pairing.CreateOfferRequest{TTLSeconds: int(ttl.Seconds())})
 		if err != nil {
 			return err
 		}
@@ -89,8 +88,7 @@ phone can connect, and confirm the short authentication string.`,
 		if err != nil {
 			return err
 		}
-		role, _ := cmd.Flags().GetString(flagRole)
-		offer, err := c.PairAccept(cmd.Context(), pairing.AcceptRequest{Code: args[0], Role: role})
+		offer, err := c.PairAccept(cmd.Context(), pairing.AcceptRequest{Code: args[0]})
 		if err != nil {
 			return err
 		}
@@ -122,6 +120,10 @@ var pairListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// Every paired device has full access, whatever its stored role.
+		for i := range devices {
+			devices[i].Role, devices[i].Scopes = pairing.DefaultRole, devices[i].EffectiveScopes()
+		}
 		out := cmd.OutOrStdout()
 		if asJSON, _ := cmd.Flags().GetBool(flagJSON); asJSON {
 			enc := json.NewEncoder(out)
@@ -133,13 +135,13 @@ var pairListCmd = &cobra.Command{
 			return nil
 		}
 		tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "NAME\tDEVICE ID\tROLE\tPLATFORM\tPAIRED\tSTATUS")
+		fmt.Fprintln(tw, "NAME\tDEVICE ID\tPLATFORM\tPAIRED\tSTATUS")
 		for _, d := range devices {
 			status := "active"
 			if d.Revoked() {
 				status = "revoked " + d.RevokedAt.Local().Format(time.DateOnly)
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", d.Name, d.DeviceID, d.Role, d.Platform, d.PairedAt.Local().Format(time.DateOnly), status)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", d.Name, d.DeviceID, d.Platform, d.PairedAt.Local().Format(time.DateOnly), status)
 		}
 		return tw.Flush()
 	},
@@ -210,7 +212,10 @@ crush pair qr --png code.png 'rushpair1:...'
 
 func init() {
 	for _, c := range []*cobra.Command{pairCmd, pairAcceptCmd} {
-		c.Flags().String(flagRole, string(pairing.DefaultRole), "Device role: viewer, operator, or admin")
+		// Kept so existing scripts keep working; every device has full
+		// access now.
+		c.Flags().String(flagRole, "", "Ignored: every paired device has full access")
+		_ = c.Flags().MarkDeprecated(flagRole, "device roles were removed; every paired device has full access")
 		c.Flags().Bool(flagInvert, false, "Draw the QR code for dark-on-light terminals")
 		c.Flags().Bool(flagNoQR, false, "Do not draw the QR code")
 		c.Flags().Bool(flagYes, false, "Approve without prompting (the code is still shown)")
@@ -311,7 +316,7 @@ func printPaired(out io.Writer, view pairing.OfferView) {
 	if view.Device != nil {
 		name, id = view.Device.Name, view.Device.DeviceID
 	}
-	fmt.Fprintf(out, "Paired %s (%s) as %s. It is trusted on every node.\n", name, id, view.Role)
+	fmt.Fprintf(out, "Paired %s (%s) with full access. It is trusted on every node.\n", name, id)
 }
 
 func confirmSAS(cmd *cobra.Command, view pairing.OfferView) (bool, error) {

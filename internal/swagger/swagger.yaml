@@ -87,6 +87,43 @@ definitions:
       top_p:
         type: number
     type: object
+  cluster.DeviceEndpoints:
+    properties:
+      client:
+        $ref: '#/definitions/cluster.DeviceListener'
+      seq:
+        description: |-
+          Seq increases with every advertisement from the member; an older or
+          equal Seq never replaces a stored record.
+        type: integer
+      v:
+        type: integer
+      ws:
+        $ref: '#/definitions/cluster.DeviceListener'
+    type: object
+  cluster.DeviceListener:
+    properties:
+      addrs:
+        description: |-
+          Addrs are host:port pairs built from the bound listener address: a
+          specific bind is its own host only, a wildcard bind every direct
+          endpoint host of the member.
+        items:
+          type: string
+        type: array
+      state:
+        $ref: '#/definitions/cluster.DeviceListenerState'
+    type: object
+  cluster.DeviceListenerState:
+    enum:
+    - "on"
+    - idle
+    - "off"
+    type: string
+    x-enum-varnames:
+    - DeviceListenerOn
+    - DeviceListenerIdle
+    - DeviceListenerOff
   cluster.Endpoint:
     properties:
       addr:
@@ -104,6 +141,12 @@ definitions:
     - EndpointDirect
   cluster.Member:
     properties:
+      device:
+        allOf:
+        - $ref: '#/definitions/cluster.DeviceEndpoints'
+        description: |-
+          Device is the member's own advertisement of its device listeners
+          (nil: the member predates advertising).
       endpoints:
         items:
           $ref: '#/definitions/cluster.Endpoint'
@@ -1009,12 +1052,29 @@ definitions:
     - KindNodeInfo
   pairing.MemberInfo:
     properties:
+      device_ports:
+        description: |-
+          DevicePorts says where Endpoints and NATSURLs come from:
+          "advertised" (the member's own record), "legacy" (the member
+          predates advertising; the pairing node's ports on its hosts), or
+          "unknown" (a record version this node does not know; both empty).
+          Absent from older pairing nodes.
+        enum:
+        - advertised
+        - legacy
+        - unknown
+        type: string
       endpoints:
         items:
           $ref: '#/definitions/pairing.InfoEndpoint'
         type: array
       name:
         type: string
+      nats_urls:
+        description: NATSURLs are the member's device websocket URLs (wss://host:port).
+        items:
+          type: string
+        type: array
       node_id:
         type: string
       node_pub:
@@ -1111,7 +1171,7 @@ definitions:
     - viewer
     - operator
     - admin
-    - operator
+    - admin
     type: string
     x-enum-varnames:
     - RoleViewer
@@ -1682,6 +1742,65 @@ definitions:
       result:
         $ref: '#/definitions/proto.SkillReadResult'
     type: object
+  proto.SearchHistoryParams:
+    properties:
+      all_workspaces:
+        description: |-
+          AllWorkspaces opts into cross-workspace fan-out: when true the
+          backend also searches every other known workspace (attached and
+          registry-detached) and merges the results. When false (the
+          default) only the requested workspace is searched — the fast path.
+        type: boolean
+      limit:
+        type: integer
+      offset:
+        description: |-
+          Offset is reserved: session-level pagination is not yet supported
+          (results collapse per session after a message-level candidate
+          fetch, so a message offset would not align to session boundaries).
+          It is currently ignored by the backend.
+        type: integer
+      query:
+        type: string
+      scope:
+        type: string
+      semantic:
+        type: boolean
+    type: object
+  proto.SearchHistoryResult:
+    properties:
+      fallback_reason:
+        description: |-
+          FallbackReason says why Mode is "text": no_embedder,
+          disabled_by_request, disabled_by_config, no_embeddings, or
+          embed_error.
+        enum:
+        - no_embedder
+        - disabled_by_request
+        - disabled_by_config
+        - no_embeddings
+        - embed_error
+        type: string
+      hits:
+        items:
+          $ref: '#/definitions/proto.SessionHit'
+        type: array
+      mode:
+        description: |-
+          Mode is the search mode actually used: "hybrid" (substring and
+          vector signals fused) or "text" (substring only).
+        enum:
+        - hybrid
+        - text
+        type: string
+      semantic_used:
+        description: |-
+          SemanticUsed reports whether the vector signal ran without error.
+          Kept for older clients; prefer Mode.
+        type: boolean
+      total:
+        type: integer
+    type: object
   proto.ServerConfig:
     properties:
       configured:
@@ -1799,6 +1918,29 @@ definitions:
       session_id:
         type: string
       workspace_id:
+        type: string
+    type: object
+  proto.SessionHit:
+    properties:
+      created_at:
+        type: string
+      match:
+        type: string
+      message_id:
+        type: string
+      role:
+        type: string
+      score:
+        type: number
+      session_id:
+        type: string
+      session_title:
+        type: string
+      snippet:
+        type: string
+      workspace_id:
+        type: string
+      workspace_root:
         type: string
     type: object
   proto.SessionOverview:
@@ -2280,6 +2422,24 @@ paths:
       tags:
       - client
       x-crush-scope: never
+  /cluster:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Cluster status
+      tags:
+      - cluster
+      x-crush-scope: never
+  /cluster/approve:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Approve a node join request
+      tags:
+      - cluster
+      x-crush-scope: never
   /cluster/dashboard:
     get:
       produces:
@@ -2299,6 +2459,15 @@ paths:
       tags:
       - cluster
       x-crush-scope: sessions:read
+  /cluster/deny:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Deny a node join request
+      tags:
+      - cluster
+      x-crush-scope: never
   /cluster/devices:
     get:
       produces:
@@ -2340,6 +2509,42 @@ paths:
       summary: Revoke a paired device
       tags:
       - devices
+      x-crush-scope: never
+  /cluster/init:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Create a cluster
+      tags:
+      - cluster
+      x-crush-scope: never
+  /cluster/join:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Join a cluster
+      tags:
+      - cluster
+      x-crush-scope: never
+  /cluster/leave:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Leave the cluster
+      tags:
+      - cluster
+      x-crush-scope: never
+  /cluster/name:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Rename this node
+      tags:
+      - cluster
       x-crush-scope: never
   /cluster/pairing/accept:
     post:
@@ -2533,6 +2738,42 @@ paths:
       tags:
       - pairing
       x-crush-scope: never
+  /cluster/ping:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Ping every member
+      tags:
+      - cluster
+      x-crush-scope: never
+  /cluster/rotate:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Rotate the cluster key
+      tags:
+      - cluster
+      x-crush-scope: never
+  /cluster/token:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Get a join token
+      tags:
+      - cluster
+      x-crush-scope: never
+  /cluster/upgrade:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Upgrade every member
+      tags:
+      - cluster
+      x-crush-scope: never
   /config:
     get:
       produces:
@@ -2568,6 +2809,24 @@ paths:
       tags:
       - system
       x-crush-scope: never
+  /debug/goroutines:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Dump goroutines
+      tags:
+      - debug
+      x-crush-scope: never
+  /debug/logs:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Tail server logs
+      tags:
+      - debug
+      x-crush-scope: never
   /events:
     get:
       produces:
@@ -2587,6 +2846,24 @@ paths:
       summary: Health check
       tags:
       - system
+      x-crush-scope: never
+  /migrate/execute:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Execute a migration
+      tags:
+      - transfer
+      x-crush-scope: never
+  /migrate/plan:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Plan a migration
+      tags:
+      - transfer
       x-crush-scope: never
   /peek-messages:
     post:
@@ -2658,6 +2935,24 @@ paths:
       tags:
       - sessions
       x-crush-scope: never
+  /replication/changes:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Stream replication changes
+      tags:
+      - replication
+      x-crush-scope: never
+  /replication/projects:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: List replicated projects
+      tags:
+      - replication
+      x-crush-scope: never
   /session-bundle:
     post:
       consumes:
@@ -2685,6 +2980,24 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Get a session bundle
+      tags:
+      - sessions
+      x-crush-scope: never
+  /session-import/candidates:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Discover importable sessions
+      tags:
+      - sessions
+      x-crush-scope: never
+  /session-import/sources:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: List session import sources
       tags:
       - sessions
       x-crush-scope: never
@@ -2777,6 +3090,42 @@ paths:
       tags:
       - swarm
       x-crush-scope: sessions:read
+  /transfer/import:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Import a transfer bundle
+      tags:
+      - transfer
+      x-crush-scope: never
+  /transfer/preflight:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Check a transfer bundle
+      tags:
+      - transfer
+      x-crush-scope: never
+  /transfers:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: List outgoing transfers
+      tags:
+      - transfer
+      x-crush-scope: never
+  /transfers/incoming:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: List incoming transfers
+      tags:
+      - transfer
+      x-crush-scope: never
   /version:
     get:
       produces:
@@ -3879,6 +4228,33 @@ paths:
       tags:
       - workspaces
       x-crush-scope: never
+  /workspaces/{id}/embeddings/backfill:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Embed past messages
+      tags:
+      - embeddings
+      x-crush-scope: never
+  /workspaces/{id}/embeddings/pending:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Count messages awaiting embeddings
+      tags:
+      - embeddings
+      x-crush-scope: never
+  /workspaces/{id}/embeddings/status:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Embedding index status
+      tags:
+      - embeddings
+      x-crush-scope: never
   /workspaces/{id}/events:
     get:
       parameters:
@@ -4043,6 +4419,47 @@ paths:
       tags:
       - git
       x-crush-scope: never
+  /workspaces/{id}/history/search:
+    post:
+      consumes:
+      - application/json
+      description: Hybrid substring and semantic search over a workspace's messages,
+        collapsed to one hit per session.
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Search query and options
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.SearchHistoryParams'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.SearchHistoryResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Search session history
+      tags:
+      - sessions
+      x-crush-scope: sessions:read
   /workspaces/{id}/lsps:
     get:
       parameters:
@@ -4162,6 +4579,24 @@ paths:
       tags:
       - lsp
       x-crush-scope: never
+  /workspaces/{id}/mcp/auth-url:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Get an MCP OAuth URL
+      tags:
+      - mcp
+      x-crush-scope: never
+  /workspaces/{id}/mcp/authenticate:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Start MCP OAuth authentication
+      tags:
+      - mcp
+      x-crush-scope: never
   /workspaces/{id}/mcp/docker/disable:
     post:
       parameters:
@@ -4244,6 +4679,15 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: Get MCP prompt
+      tags:
+      - mcp
+      x-crush-scope: never
+  /workspaces/{id}/mcp/pending-auth:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: List MCP servers awaiting OAuth
       tags:
       - mcp
       x-crush-scope: never
@@ -4781,6 +5225,15 @@ paths:
       tags:
       - questions
       x-crush-scope: permissions:answer
+  /workspaces/{id}/session-import:
+    post:
+      produces:
+      - application/json
+      responses: {}
+      summary: Import a session from another agent
+      tags:
+      - sessions
+      x-crush-scope: never
   /workspaces/{id}/sessions:
     get:
       parameters:

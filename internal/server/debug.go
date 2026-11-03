@@ -24,11 +24,18 @@ const (
 // installDebugRoutes exposes introspection for diagnosing a stuck server.
 // It is reachable over the local socket and, through the node proxy, from
 // paired cluster members only.
-func (s *Server) installDebugRoutes(mux *http.ServeMux) {
+func (s *Server) installDebugRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /v1/debug/goroutines", handleDebugGoroutines)
 	mux.HandleFunc("GET /v1/debug/logs", handleDebugLogs)
 }
 
+// handleDebugGoroutines handles "dump goroutines".
+//
+//	@Summary		Dump goroutines
+//	@Tags			debug
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/debug/goroutines [get]
 func handleDebugGoroutines(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_ = pprof.Lookup("goroutine").WriteTo(w, 2)
@@ -36,6 +43,12 @@ func handleDebugGoroutines(w http.ResponseWriter, _ *http.Request) {
 
 // handleDebugLogs returns the last lines of the server log, optionally
 // filtered by minimum level and a case-insensitive substring.
+//
+//	@Summary		Tail server logs
+//	@Tags			debug
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/debug/logs [get]
 func handleDebugLogs(w http.ResponseWriter, r *http.Request) {
 	path := crushlog.File()
 	if path == "" {

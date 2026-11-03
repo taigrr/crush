@@ -178,6 +178,14 @@ type MemberInfo struct {
 	Name      string         `json:"name"`
 	NodePub   Bytes          `json:"node_pub" swaggertype:"string"`
 	Endpoints []InfoEndpoint `json:"endpoints"`
+	// DevicePorts says where Endpoints and NATSURLs come from:
+	// "advertised" (the member's own record), "legacy" (the member
+	// predates advertising; the pairing node's ports on its hosts), or
+	// "unknown" (a record version this node does not know; both empty).
+	// Absent from older pairing nodes.
+	DevicePorts string `json:"device_ports,omitempty" enums:"advertised,legacy,unknown"`
+	// NATSURLs are the member's device websocket URLs (wss://host:port).
+	NATSURLs []string `json:"nats_urls,omitempty"`
 } //@name pairing.MemberInfo
 
 // PollResponse is the poll reply.

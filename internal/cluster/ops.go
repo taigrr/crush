@@ -145,6 +145,8 @@ func (n *Node) completeJoin(clusterID string, rsp joinResponse, addr, inviterID 
 			if m.NodeID == inviterID && !slices.ContainsFunc(m.Endpoints, func(e Endpoint) bool { return e.Addr == addr }) {
 				m.Endpoints = append([]Endpoint{{Kind: EndpointDirect, Addr: addr}}, m.Endpoints...)
 			}
+			existing, _ := st.Member(m.NodeID)
+			m.Device = mergeDevice(m.NodeID, inviterID, existing.Device, m.Device)
 			st.upsertMember(m)
 		}
 		return nil

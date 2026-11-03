@@ -120,20 +120,26 @@ func earliest(a, b time.Time) time.Time {
 
 // httpListener is a gated TLS HTTP listener.
 type httpListener struct {
-	name    string
-	addr    string
-	server  func() *http.Server
-	onDown  func()
-	maxConn int
-	grace   time.Duration
+	name   string
+	addr   string
+	server func() *http.Server
+	onDown func()
+	// onChange is called (never with the listener locked) whenever the
+	// listener binds or unbinds, so the node can re-advertise its device
+	// ports. It must not block.
+	onChange func()
+	maxConn  int
+	grace    time.Duration
 	// backoff delays a restart after the server stopped unexpectedly
 	// (bound fine, then serving failed), so it cannot flap.
 	backoff time.Duration
 
-	mu       sync.Mutex
-	hs       *http.Server
-	ln       net.Listener
-	bound    string
+	mu    sync.Mutex
+	hs    *http.Server
+	ln    net.Listener
+	bound string
+	// last is the most recent bound address, kept after unbinding.
+	last     string
 	failedAt time.Time
 }
 
@@ -152,21 +158,38 @@ func (l *httpListener) Addr() string {
 	return l.bound
 }
 
+// LastAddr returns the most recent bound address, even after unbinding
+// ("" if it never bound).
+func (l *httpListener) LastAddr() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.last
+}
+
 func (l *httpListener) Start() error {
+	started, err := l.start()
+	if started && l.onChange != nil {
+		l.onChange()
+	}
+	return err
+}
+
+func (l *httpListener) start() (bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.hs != nil {
-		return nil
+		return false, nil
 	}
 	if !l.failedAt.IsZero() && time.Since(l.failedAt) < l.backoff {
-		return errBackoff
+		return false, errBackoff
 	}
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", l.addr)
+	ln, err := listenStable(l.addr, l.last)
 	if err != nil {
-		return fmt.Errorf("%s %s: %w", l.name, l.addr, err)
+		return false, fmt.Errorf("%s %s: %w", l.name, l.addr, err)
 	}
 	hs := l.server()
 	l.hs, l.ln, l.bound = hs, ln, ln.Addr().String()
+	l.last = l.bound
 	go func() {
 		err := hs.ServeTLS(netutil.LimitListener(ln, l.maxConn), "", "")
 		l.mu.Lock()
@@ -184,9 +207,29 @@ func (l *httpListener) Start() error {
 		if l.onDown != nil {
 			l.onDown()
 		}
+		if l.onChange != nil {
+			l.onChange()
+		}
 	}()
 	slog.Info("Listener started", "listener", l.name, "addr", l.bound)
-	return nil
+	return true, nil
+}
+
+// listenStable binds addr. When addr asks for an ephemeral port and the
+// listener was bound before, it first tries the previous port, so the
+// addresses already handed to phones and members stay valid across
+// gate cycles.
+func listenStable(addr, last string) (net.Listener, error) {
+	lc := &net.ListenConfig{}
+	host, port, err := net.SplitHostPort(addr)
+	if err == nil && port == "0" && last != "" {
+		if _, lastPort, err := net.SplitHostPort(last); err == nil && lastPort != "0" {
+			if ln, err := lc.Listen(context.Background(), "tcp", net.JoinHostPort(host, lastPort)); err == nil {
+				return ln, nil
+			}
+		}
+	}
+	return lc.Listen(context.Background(), "tcp", addr)
 }
 
 func (l *httpListener) Stop() {
@@ -196,6 +239,9 @@ func (l *httpListener) Stop() {
 	l.mu.Unlock()
 	if hs == nil {
 		return
+	}
+	if l.onChange != nil {
+		defer l.onChange()
 	}
 	// Free the port now so a new offer can rebind immediately; drain
 	// in-flight requests (a poll learning its final state) in the

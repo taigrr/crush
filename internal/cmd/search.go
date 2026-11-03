@@ -48,7 +48,7 @@ func init() {
 	searchCmd.Flags().BoolVar(&searchJSON, "json", false, "Output as JSON")
 	searchCmd.Flags().StringVar(&searchSession, "session", "", "Limit to a single session id")
 	searchCmd.Flags().StringVar(&searchScope, "scope", "user", "Roles to search: 'user' or 'all'")
-	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Max results per page")
+	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Max results per page (with --all-workspaces: sessions, default 50 when 0, max 200)")
 	searchCmd.Flags().IntVar(&searchOffset, "offset", 0, "Results to skip (pagination)")
 	searchCmd.Flags().BoolVar(&searchNoVector, "no-vector", false, "Disable semantic search (substring only)")
 	searchCmd.Flags().BoolVar(&searchAllWS, "all-workspaces", false, "Search across every known workspace (attached and detached)")
@@ -117,11 +117,14 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 // searchJSONResult is the JSON envelope for `crush search --json`.
 type searchJSONResult struct {
-	Query        string          `json:"query"`
-	Total        int             `json:"total"`
-	Offset       int             `json:"offset"`
-	SemanticUsed bool            `json:"semantic_used"`
-	Hits         []embedding.Hit `json:"hits"`
+	Query        string `json:"query"`
+	Total        int    `json:"total"`
+	Offset       int    `json:"offset"`
+	SemanticUsed bool   `json:"semantic_used"`
+	// Mode and FallbackReason match the /v1 history search response.
+	Mode           embedding.SearchMode     `json:"mode"`
+	FallbackReason embedding.FallbackReason `json:"fallback_reason,omitempty"`
+	Hits           []embedding.Hit          `json:"hits"`
 }
 
 func searchJSONOutput(query string, res embedding.SearchResult) searchJSONResult {
@@ -130,11 +133,13 @@ func searchJSONOutput(query string, res embedding.SearchResult) searchJSONResult
 		hits = []embedding.Hit{}
 	}
 	return searchJSONResult{
-		Query:        query,
-		Total:        res.Total,
-		Offset:       res.Offset,
-		SemanticUsed: res.SemanticUsed,
-		Hits:         hits,
+		Query:          query,
+		Total:          res.Total,
+		Offset:         res.Offset,
+		SemanticUsed:   res.SemanticUsed,
+		Mode:           res.Mode,
+		FallbackReason: res.FallbackReason,
+		Hits:           hits,
 	}
 }
 
@@ -148,10 +153,7 @@ func renderSearchTable(cmd *cobra.Command, query string, res embedding.SearchRes
 		return nil
 	}
 
-	mode := "substring"
-	if res.SemanticUsed {
-		mode = "hybrid"
-	}
+	mode := searchModeLabel(res.Mode, res.FallbackReason)
 
 	headers := []string{"#", "SCORE", "MATCH", "SESSION", "TITLE", "MESSAGE", "ROLE", "WHEN", "SNIPPET"}
 	rows := make([][]string, 0, len(res.Hits))
@@ -281,8 +283,9 @@ func runSearchAcrossWorkspaces(
 		})
 	}
 
+	sessionLimit, candidateLimit := historysearch.ResolveLimits(searchLimit)
 	res, err := historysearch.SearchAcross(ctx, sources, query,
-		historysearch.Scope(searchScope), semantic, searchLimit*4, searchLimit)
+		historysearch.Scope(searchScope), semantic, candidateLimit, sessionLimit)
 	if err != nil {
 		return fmt.Errorf("search failed: %w", err)
 	}
@@ -302,10 +305,7 @@ func renderWorkspaceSearchTable(cmd *cobra.Command, query string, res historysea
 		cmd.Printf("No matches for %q across workspaces\n", query)
 		return nil
 	}
-	mode := "substring"
-	if res.SemanticUsed {
-		mode = "hybrid"
-	}
+	mode := searchModeLabel(res.Mode, res.FallbackReason)
 	headers := []string{"#", "MATCH", "WORKSPACE", "SESSION", "TITLE", "MESSAGE", "ROLE", "WHEN", "SNIPPET"}
 	rows := make([][]string, 0, len(res.Hits))
 	for i, h := range res.Hits {
@@ -361,4 +361,16 @@ func renderWorkspaceSearchTable(cmd *cobra.Command, query string, res historysea
 		cmd.Println(strings.Join(clean, "\t"))
 	}
 	return nil
+}
+
+// searchModeLabel describes the mode a search actually used, with the
+// reason for a text-only fallback.
+func searchModeLabel(mode embedding.SearchMode, reason embedding.FallbackReason) string {
+	if mode == "" {
+		mode = embedding.SearchModeText
+	}
+	if reason == "" {
+		return string(mode)
+	}
+	return string(mode) + ", " + strings.ReplaceAll(string(reason), "_", " ")
 }

@@ -62,8 +62,8 @@ Reply:
   "node_id": "n_7f3a9c",
   "node_name": "studio",
   "device_id": "d_q2w3e4r5t6y7u8i9",
-  "role": "operator",
-  "scopes": ["sessions:read", "sessions:prompt", "permissions:answer", "config:model"],
+  "role": "admin",
+  "scopes": ["sessions:read", "sessions:prompt", "permissions:answer", "permissions:always", "config:model", "sessions:move", "devices:approve", "shell", "cluster:approve"],
   "features": ["json_body", "stream_resume", "stream_session_filter", "heartbeat", "swarm_target", "device_attention"],
   "limits": {
     "max_request_bytes": 4194304,
@@ -160,8 +160,8 @@ Rush SHOULD set a key on every `POST` (prompts and permission answers especially
 | --- | --- | --- | --- |
 | `bad_request` | 400 | Malformed envelope, non-canonical path, both `json` and `body`, body on `GET`, bad `target`. | Fix the request. |
 | `device_revoked` | 401 | The device is revoked or unknown. Usually not delivered (the node stays silent); appears only on races where a reply is already in flight. | Wipe credentials, show "unpaired". |
-| `device_scope_denied` | 403 | The route exists and is device-reachable, but the device lacks the scope (`scope` names it). | Hide or disable the action. |
-| `route_not_allowed` | 403 | The route is not device-reachable for any role (no `x-crush-scope`, or `never`), or is a stream route called via `api`. | Bug in client; do not retry. |
+| `device_scope_denied` | 403 | The route exists and is device-reachable, but the device lacks the scope (`scope` names it). Not produced now that devices have full access (kept for compatibility with older nodes). | Hide or disable the action. |
+| `route_not_allowed` | 403 | The route is not device-reachable (no `x-crush-scope`, or `never`), or is a stream route called via `api`. | Bug in client; do not retry. |
 | `not_found` | 404 | Unknown route, workspace, session, or stream (from `/v1` or the bridge). | |
 | `node_not_found` | 404 | `<node>`, `target.node`, or `target.swarm` does not name a known member or session. | Refresh members / sessions. |
 | `method_not_allowed` | 405 | Method other than `GET`/`POST`. | |
@@ -181,9 +181,11 @@ Unknown codes MUST be handled by `status` class. Codes are stable public API and
 
 Every operation in `internal/swagger/swagger.yaml` carries `x-crush-scope`, whose value is a scope from [Permissions](MOBILE_PAIRING.md#permissions) or `never`.
 Deny by default: an operation without the annotation is unreachable, and `TestSwaggerRoutesHaveDeviceScope` fails the build.
+Every route registered on the `/v1` server mux must also be documented and annotated (`TestServerRoutesHaveDeviceScope`), so a handler cannot be added without deciding its device scope; the only exceptions are method-less prefix routes (`/v1/nodes/{node}/{rest...}`, `/v1/docs/`), which the device router never matches.
 The bridge's allow-list (`internal/server/devicescopes.go`) is generated from or checked against these annotations.
 
-Scopes are checked on the **entry node** and again on the **owning node** against its own copy of the device registry; either may refuse.
+Every paired device holds every scope ([Permissions](MOBILE_PAIRING.md#permissions): there are no roles), so the table is in effect the **route allow-list**: a route tagged with any scope is reachable by every paired device, and `never` or untagged routes by none.
+The allow-list and the device (not revoked) are checked on the **entry node** and again on the **owning node** against its own route table and registry copy; either may refuse.
 
 Initial v1 set (everything else is `never` until annotated otherwise):
 
@@ -207,6 +209,7 @@ Initial v1 set (everything else is `never` until annotated otherwise):
 | `GET /v1/workspaces/{id}/agent/sessions/{sid}/prompts/queued` | `sessions:read` | api |
 | `GET /v1/cluster/dashboard` | `sessions:read` | api |
 | `GET /v1/swarm/resolve` | `sessions:read` | api |
+| `POST /v1/workspaces/{id}/history/search` | `sessions:read` | api |
 | `GET /v1/workspaces/{id}/events` | `sessions:read` | **sub only** |
 | `GET /v1/events` | `sessions:read` | **sub only** |
 | `POST /v1/workspaces/{id}/agent` | `sessions:prompt` | api |
@@ -235,7 +238,86 @@ Body rules enforced by the bridge on top of the route scope:
 
 - `POST .../agent`: `client_id` is overwritten with `device:<dev>`; `permission_policy` other than empty or `prompt` needs `permissions:always`.
 - `POST .../permissions/grant`: `action: "allow_session"` needs `permissions:answer`; persistent grants need `permissions:always`.
-- `never` (all roles): provider keys and OAuth, `config/set`, `config/remove`, cluster key ops, `debug`, replication, transfer, member API, `/v1/nodes/...` proxy paths.
+- `never` (every device): provider keys and OAuth, `config/set`, `config/remove`, cluster key ops, `debug`, replication, transfer, member API, `/v1/nodes/...` proxy paths.
+
+### Roles
+
+Device roles are gone: `info.role` is always `"admin"` and `info.scopes` lists every scope, whatever the stored record says (records written as `viewer` or `operator` are kept and parse unchanged).
+`POST /v1/sessions/move` (`sessions:move`) is therefore reachable by every paired device; migrate and autobalance (`/v1/migrate/*`) stay `never`.
+`scopes_changed` is no longer sent when a record's role is edited.
+
+### Favorite is the pin
+
+Rush's "pin" is the session favorite flag: `POST /v1/workspaces/{id}/sessions/{sid}/favorite` (`sessions:prompt`) with query `favorite=true` pins and `favorite=false` unpins (absent means `true`), and sessions carry it as `favorite` (omitted when false).
+Favorites sort to the top of the inbox in the TUI too, so a pin on the phone and on the desktop is the same state.
+There is no separate pin route or field.
+
+## History search
+
+`POST /v1/workspaces/{id}/history/search` (`sessions:read`, api) **is** Crush's semantic (embedding) search: the same hybrid search the TUI palette and the `search_history` tool use (`internal/historysearch` over `internal/embedding`), fusing a substring signal and, when an embedder is configured, a vector signal by Reciprocal Rank Fusion.
+It is the only search route; `/v1/workspaces/{id}/embeddings/*` (status, pending, backfill) stay `never`, and the bridge adds no search logic of its own.
+It runs on the node that executes the request: over `api.any` without a target that is the entry node; send it to `api.<node>` to search another member's workspaces.
+
+Request body (`proto.SearchHistoryParams`):
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `query` | string | required | Search text; the substring signal matches it case-insensitively. |
+| `scope` | `"user"` or `"all"` | `"user"` | `user`: user and shell messages; `all`: also assistant replies and reasoning. |
+| `semantic` | bool or absent | absent | Absent or `null`: follow the node's `hybrid_search` config. `true`: use the vector signal for this call (if an embedder is available). `false`: substring only. |
+| `limit` | int | 50 (capped at 200) | Maximum sessions returned. |
+| `all_workspaces` | bool | `false` | Also search every other workspace known to that node (attached and registry-detached) and merge the results. |
+| `offset` | int | 0 | Reserved; ignored. |
+
+Response body (`proto.SearchHistoryResult`): hits are per session (its best-scoring message wins), ranked by fused `score`.
+This is the same search, ranking, and limits as `crush search` (the route, the TUI palette, and `crush search --all-workspaces` all call `historysearch.SearchAcross` with `historysearch.ResolveLimits`; plain `crush search` lists per-message hits from the same `historysearch.Search` underneath, and its `--json` carries the same `mode` and `fallback_reason`).
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `hits[].session_id`, `session_title` | string | The session. |
+| `hits[].workspace_id` | string | The node's workspace ID; empty for a detached workspace found with `all_workspaces`. |
+| `hits[].workspace_root` | string | Project root of the hit's workspace. |
+| `hits[].score` | number | Fused Reciprocal Rank Fusion score (higher is better; only comparable within one response). |
+| `hits[].match` | string | `exact` (substring signal only), `semantic` (vector signal only), or `both`. |
+| `hits[].snippet` | string | Text around the match. |
+| `hits[].message_id`, `role`, `created_at` | string | The best-matching message, its role (`user`, `assistant`, ...), and its time. |
+| `total` | int | Distinct sessions found in the candidate window (before `limit`). |
+| `mode` | string | `hybrid`: the vector signal ran and at least one candidate message has a stored vector, fused with the substring signal. `text`: substring only. Additive; absent from older nodes. |
+| `fallback_reason` | string | Why `mode` is `text` (absent when `hybrid`): `no_embedder` (none configured), `disabled_by_request` (`semantic: false`), `disabled_by_config` (`semantic` absent and `hybrid_search` off), `no_embeddings` (embedder ran, but no candidate message has a vector yet, e.g. before backfill), `embed_error` (embedding the query failed). With `all_workspaces` the reason is the first one met in workspace order; it is absent if no workspace could be searched. A workspace that fails is skipped; the request fails only if every workspace fails. Additive; unknown values mean "text only, for some other reason". |
+| `semantic_used` | bool | Kept for compatibility: whether the vector signal was attempted and did not error (true with `no_embeddings`). Prefer `mode`. |
+
+When no embedder is configured, the search is still served (substring only): `mode: "text"`, `fallback_reason: "no_embedder"`, `semantic_used: false`, every `match` is `exact`. It is not an error.
+`all_workspaces` only reaches workspaces on that node, all of which a paired device can already list and read (`GET /v1/workspace-overviews`, session routes), so it widens nothing.
+
+```json
+{ "v": 1, "id": "r7", "method": "POST", "path": "/v1/workspaces/ws_1/history/search", "json": { "query": "login bug", "scope": "all", "limit": 10 } }
+```
+
+```json
+{
+  "v": 1, "id": "r7", "status": 200, "node_id": "n_7f3a9c", "headers": { "content-type": "application/json" },
+  "json": {
+    "hits": [
+      {
+        "session_id": "ses_1", "session_title": "Fix login", "workspace_id": "ws_1", "workspace_root": "/Users/tai/code/app",
+        "score": 0.0325, "match": "both", "snippet": "...the login bug only shows up when...",
+        "message_id": "msg_9", "role": "user", "created_at": "2026-11-02T20:16:44Z"
+      }
+    ],
+    "total": 1,
+    "mode": "hybrid",
+    "semantic_used": true
+  }
+}
+```
+
+Text-only fallback (no embedder configured on that node):
+
+```json
+{ "hits": [ { "session_id": "ses_1", "session_title": "Fix login", "workspace_id": "ws_1", "workspace_root": "/Users/tai/code/app", "score": 0.0164, "match": "exact", "snippet": "...the login bug...", "message_id": "msg_9", "role": "user", "created_at": "2026-11-02T20:16:44Z" } ], "total": 1, "mode": "text", "fallback_reason": "no_embedder", "semantic_used": false }
+```
+
+Errors: `400 bad_request` for a malformed body, `404 not_found` for an unknown workspace, and `500 internal` for an empty `query` (the existing handler's behavior).
 
 ## Event streams
 
@@ -333,7 +415,7 @@ Published on `crush.client.v1.<dev>.control`:
 | `type` | Extra fields | Meaning |
 | --- | --- | --- |
 | `revoked` | `reason`, `by_node`, `at` | Device revoked cluster-wide. Every node publishes it once; repeats are idempotent. Streams end with `reason: "revoked"`, in-flight requests get no reply, and the NATS user is removed 500 ms later. |
-| `scopes_changed` | `role`, `scopes`, `at` | New effective permissions; rush updates UI. Streams that lost their scope end with `reason: "error"`. |
+| `scopes_changed` | `role`, `scopes`, `at` | New effective permissions; rush updates UI. Not sent for role edits now that every device has full access. Streams that lost their scope end with `reason: "error"`. |
 | `reauth` | `reason`, `at` | Reconnect (for example after trust rotation). |
 
 ```json
@@ -379,7 +461,7 @@ These clarify behavior the node implements; none changes a field, subject, or co
   A retry whose first attempt never completed (device revoked, node stopping) gets `503 unavailable`.
 - **Timeouts** outside 1000 to 30000 ms are clamped. A timed-out handler keeps running for up to 30 s more and keeps its in-flight slot; its eventual result is what an idempotent retry receives.
 - **Unsupported `v`**: the error response also carries `"versions": [1]`.
-- **Unknown versus refused routes**: an undocumented `/v1` path gives `404 not_found`; a documented route annotated `never`, or a stream route on `api`, gives `403 route_not_allowed`.
+- **Unknown versus refused routes**: a path no documented route matches (including `/v1/nodes/...` proxy paths) gives `404 not_found`; a documented route annotated `never`, or a stream route on `api`, gives `403 route_not_allowed`.
 - **Body rules** decode the body exactly as the `/v1` handler does (case-insensitive field names, last duplicate wins), and the bridge forwards the re-encoded body for `POST .../agent` and `POST .../permissions/grant` (unknown fields are dropped there).
 - **Stream opens** (`sub`) count against `max_inflight_requests` while they are routed.
 - **Heartbeat and end frames** carry the last event `seq`, or `-1` before the first event.
@@ -388,13 +470,65 @@ These clarify behavior the node implements; none changes a field, subject, or co
 - **Session filter** also drops session events it cannot attribute (a `message_delta` whose message the stream never saw, or an event type the node does not know to be workspace-wide). It applies to `/v1/events` too.
 - **Unknown filtered session**: opening a workspace stream whose `session_id` names a session that workspace does not have (on the node that runs the stream) fails with `404 not_found`, as does an unknown workspace; a lookup failure gives `500 internal`. Global streams are not checked (they carry other nodes' sessions).
 - **Pinning**: `VerifyPinnedChain` also requires the leaf to carry the DNS name `crush-node`, matching what `TrustedTLSConfig` checks through the server name.
-- **Deferred, member device ports**: pairing still assumes every member uses this node's client and websocket ports for its `members[].endpoints`. Advertising per-member ports needs an explicit "disabled" marker, bound (not configured) ports, per-host advertising for specific binds, and re-advertising on restart, so it is left for a later change.
+- **Member device ports**: each member advertises its own bound device listeners; pairing uses them for `members[]`. See [Member device ports](#member-device-ports).
 - **Resume replay** sends every buffered frame after `after_seq` at once, outside the credit window (the buffer bounds it); credit applies again to live frames.
 - **`swarm_parts`** in a device's `POST .../agent` body is dropped: structured swarm sender metadata is set only by the backend. `run_id` is passed through.
 - **Remote streams**: the owning node publishes frames to the device subject itself (the device account spans the cluster); there is no extra relay hop, which is not observable on the wire.
 - **`unsub` replies** come from the stream's node only (any node answers for a stream ID no member owns).
 - **Legacy `broadcast.attention`** carries the same notice, plus the `proto.AttentionEvent` fields at the top level for phase 2a readers, with `actionable: false`. Every device can read it; per-device subjects are the scope-filtered path.
 - **`reauth`** is sent to every active device when the cluster key version changes, with `reason: "key_rotation"`.
+
+## Member device ports
+
+Each member advertises where its device listeners (the `/client/v1` client listener and the device NATS websocket) are actually bound, so pairing on one node hands the phone correct addresses for every other member.
+
+### Advertisement (member to member)
+
+The record rides in the member's cluster record (`cluster.Member.device`, cluster RPC `members` push):
+
+```json
+{
+  "node_id": "n_b", "name": "mini", "public_key": "...", "endpoints": [ { "kind": "direct", "addr": "10.0.0.2:7731" } ],
+  "device": {
+    "v": 1,
+    "seq": 1793760000123456789,
+    "client": { "state": "on", "addrs": ["10.0.0.2:7733", "mini.tailnet.ts.net:7733"] },
+    "ws": { "state": "off" }
+  }
+}
+```
+
+- `v` is the record version (1). A reader that does not know `v` gives phones no addresses for that member rather than guessing.
+- `seq` increases with every advertisement (wall-clock nanoseconds, kept strictly increasing); a member ignores a record whose `seq` is not newer than the one it holds, so reordered pushes cannot roll the state back.
+- `client` and `ws` each have `state`:
+  - `on`: bound now; `addrs` are the bound addresses.
+  - `idle`: enabled but not bound right now (the listener is gated on an open offer or an active device); `addrs` are the addresses of the last bind, or empty if it never bound.
+  - `off`: disabled on that member (`--client-addr ""` / `--client-ws-addr ""`); no `addrs`.
+- `addrs` always carry the port from the bound `net.Listener` address, never a configured value, so `:0` binds advertise the real port.
+  A listener bound to a specific host is advertised for that host only; a wildcard bind (`:7733`, `0.0.0.0`, `[::]`) is advertised on every host of the member's `direct` endpoints.
+- A member re-advertises on startup, when it joins or creates a cluster, and whenever either listener binds, unbinds, or rebinds (including the gate opening and closing).
+  A failed push to a member is retried until it succeeds or a newer advertisement supersedes it.
+- Only the member itself may set or change its `device` record: a record relayed by any other member (a `members` push or a join response) is ignored, so a member learned through a relay has no record until its own advertisement arrives (pushes it could not deliver yet, for example to a member that has not learned of it, are retried).
+- A listener configured with port `0` rebinds its previous port when it can, so advertised `idle` addresses stay valid across gate cycles; if that port is taken it binds a new one and re-advertises.
+- Absence of `device` means the member predates advertising (legacy).
+
+### What phones see
+
+`members[]` in the poll response gains two additive fields:
+
+| Field | Meaning |
+| --- | --- |
+| `device_ports` | `"advertised"`: `endpoints` and `nats_urls` come from the member's own record; a listener that member reports `off` contributes nothing. `"legacy"`: the member predates advertising; `endpoints` and `nats_urls` use the pairing node's ports on the member's hosts (the v1 rule). `"unknown"`: the member's record has a version this node does not understand; both lists are empty. |
+| `nats_urls` | The member's device websocket URLs (`wss://host:port`), possibly empty. |
+
+Rules for rush:
+
+- `device_ports` absent (older pairing node): use the v1 rule, the member's endpoint hosts with the pairing node's websocket port.
+- `device_ports: "legacy"`: use `nats_urls` as given (they apply the same fallback).
+- `device_ports: "advertised"` or `"unknown"`: use exactly `endpoints` and `nats_urls`; an empty list means that member has no address of that kind (for example its websocket is `off`), and rush MUST NOT synthesize one.
+- Unknown `device_ports` values: treat as `"advertised"`.
+- The pairing node's own entry, `nats.urls`, and the `endpoints` it puts in offers and `/client/v1/info` come from its own listeners: the bound address when bound, else the last bound address, else (an offer is created just before the gate binds) the configured port when it is not `0`.
+- Members whose listeners are `idle` are listed with their last bound addresses: the listener binds once the new device is active.
 
 ## Worked examples
 
@@ -423,10 +557,10 @@ Request `crush.client.v1.d_q2w3.api.any`, reply to `_INBOX.d_q2w3.k8J2...`:
 The prompt is accepted asynchronously (`202`, no body; corrected from an earlier draft of this example that showed `200` with a `run_id`).
 To correlate the run, set `run_id` in the `json` body yourself; it is echoed on the run's `agent_event` and `run_complete` stream events.
 
-A viewer device gets:
+A route tagged `never` gives (for every device):
 
 ```json
-{ "v": 1, "id": "r2", "status": 403, "node_id": "n_7f3a9c", "error": { "code": "device_scope_denied", "message": "route requires scope sessions:prompt", "scope": "sessions:prompt" } }
+{ "v": 1, "id": "r2", "status": 403, "node_id": "n_7f3a9c", "error": { "code": "route_not_allowed", "message": "route is not available to devices" } }
 ```
 
 ### Subscribe to a session's message deltas

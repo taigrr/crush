@@ -31,7 +31,14 @@ func newClusterTestServerWith(t *testing.T, clientAddr string) (*Server, *client
 	// URLs use the node's endpoint hosts.
 	_, wsPort, err := net.SplitHostPort(freeTCPAddr(t))
 	require.NoError(t, err)
-	srv := &Server{clientAddr: clientAddr, clientWSAddr: ":" + wsPort}
+	return newClusterTestServerListeners(t, clientAddr, ":"+wsPort)
+}
+
+// newClusterTestServerListeners is newClusterTestServer with explicit
+// device client and websocket listener addresses ("" disables one).
+func newClusterTestServerListeners(t *testing.T, clientAddr, wsAddr string) (*Server, *client.Client) {
+	t.Helper()
+	srv := &Server{clientAddr: clientAddr, clientWSAddr: wsAddr}
 	srv.backend = backend.New(t.Context(), nil, func() {})
 	// Never touch the real user registry or credentials.
 	srv.backend.SetRegistryPathForTest(filepath.Join(t.TempDir(), "workspaces.jsonl"))

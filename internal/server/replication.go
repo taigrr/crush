@@ -27,15 +27,29 @@ const (
 	replFullEvery = 10 * time.Minute
 )
 
-func (s *Server) installReplicationRoutes(mux *http.ServeMux) {
+func (s *Server) installReplicationRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /v1/replication/projects", s.handleReplicationProjects)
 	mux.HandleFunc("GET /v1/replication/changes", s.handleReplicationChanges)
 }
 
+// handleReplicationProjects handles "list replicated projects".
+//
+//	@Summary		List replicated projects
+//	@Tags			replication
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/replication/projects [get]
 func (s *Server) handleReplicationProjects(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, s.backend.ReplicationProjects(r.Context()))
 }
 
+// handleReplicationChanges handles "stream replication changes".
+//
+//	@Summary		Stream replication changes
+//	@Tags			replication
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/replication/changes [get]
 func (s *Server) handleReplicationChanges(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	since, _ := strconv.ParseInt(q.Get("since"), 10, 64)

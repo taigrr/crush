@@ -28,11 +28,17 @@ type tlsProxyListener struct {
 	maxConn   int
 	perSource int
 	onDown    func()
-	backoff   time.Duration
+	// onChange is called (never with the listener locked) whenever the
+	// listener binds or unbinds, so the node can re-advertise its device
+	// ports. It must not block.
+	onChange func()
+	backoff  time.Duration
 
-	mu       sync.Mutex
-	ln       net.Listener
-	bound    string
+	mu    sync.Mutex
+	ln    net.Listener
+	bound string
+	// last is the most recent bound address, kept after unbinding.
+	last     string
 	conns    map[net.Conn]struct{}
 	sources  map[string]int
 	failedAt time.Time
@@ -58,27 +64,44 @@ func (l *tlsProxyListener) Addr() string {
 	return l.bound
 }
 
+// LastAddr returns the most recent bound address, even after unbinding
+// ("" if it never bound).
+func (l *tlsProxyListener) LastAddr() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.last
+}
+
 func (l *tlsProxyListener) Start() error {
+	started, err := l.start()
+	if started && l.onChange != nil {
+		l.onChange()
+	}
+	return err
+}
+
+func (l *tlsProxyListener) start() (bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.ln != nil {
-		return nil
+		return false, nil
 	}
 	if !l.failedAt.IsZero() && time.Since(l.failedAt) < l.backoff {
-		return errBackoff
+		return false, errBackoff
 	}
 	if l.target() == "" {
-		return errors.New("no websocket target")
+		return false, errors.New("no websocket target")
 	}
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", l.addr)
+	ln, err := listenStable(l.addr, l.last)
 	if err != nil {
-		return fmt.Errorf("%s %s: %w", l.name, l.addr, err)
+		return false, fmt.Errorf("%s %s: %w", l.name, l.addr, err)
 	}
 	l.ln, l.bound = ln, ln.Addr().String()
+	l.last = l.bound
 	l.conns, l.sources = map[net.Conn]struct{}{}, map[string]int{}
 	go l.serve(ln)
 	slog.Info("Listener started", "listener", l.name, "addr", l.bound)
-	return nil
+	return true, nil
 }
 
 func (l *tlsProxyListener) serve(ln net.Listener) {
@@ -104,6 +127,9 @@ func (l *tlsProxyListener) serve(ln net.Listener) {
 				slog.Error("Listener stopped unexpectedly", "listener", l.name, "error", err)
 				if l.onDown != nil {
 					l.onDown()
+				}
+				if l.onChange != nil {
+					l.onChange()
 				}
 			}
 			return
@@ -189,5 +215,8 @@ func (l *tlsProxyListener) Stop() {
 	_ = ln.Close()
 	for c := range conns {
 		_ = c.Close()
+	}
+	if l.onChange != nil {
+		l.onChange()
 	}
 }

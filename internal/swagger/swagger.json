@@ -272,6 +272,32 @@
                 "x-crush-scope": "never"
             }
         },
+        "/cluster": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Cluster status",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/cluster/approve": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Approve a node join request",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
         "/cluster/dashboard": {
             "get": {
                 "produces": [
@@ -299,6 +325,19 @@
                     }
                 },
                 "x-crush-scope": "sessions:read"
+            }
+        },
+        "/cluster/deny": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Deny a node join request",
+                "responses": {},
+                "x-crush-scope": "never"
             }
         },
         "/cluster/devices": {
@@ -362,6 +401,58 @@
                         }
                     }
                 },
+                "x-crush-scope": "never"
+            }
+        },
+        "/cluster/init": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Create a cluster",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/cluster/join": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Join a cluster",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/cluster/leave": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Leave the cluster",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/cluster/name": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Rename this node",
+                "responses": {},
                 "x-crush-scope": "never"
             }
         },
@@ -658,6 +749,58 @@
                 "x-crush-scope": "never"
             }
         },
+        "/cluster/ping": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Ping every member",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/cluster/rotate": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Rotate the cluster key",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/cluster/token": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Get a join token",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/cluster/upgrade": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Upgrade every member",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
         "/config": {
             "get": {
                 "produces": [
@@ -712,6 +855,32 @@
                 "x-crush-scope": "never"
             }
         },
+        "/debug/goroutines": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "debug"
+                ],
+                "summary": "Dump goroutines",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/debug/logs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "debug"
+                ],
+                "summary": "Tail server logs",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
         "/events": {
             "get": {
                 "produces": [
@@ -740,6 +909,32 @@
                         "description": "OK"
                     }
                 },
+                "x-crush-scope": "never"
+            }
+        },
+        "/migrate/execute": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transfer"
+                ],
+                "summary": "Execute a migration",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/migrate/plan": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transfer"
+                ],
+                "summary": "Plan a migration",
+                "responses": {},
                 "x-crush-scope": "never"
             }
         },
@@ -850,6 +1045,32 @@
                 "x-crush-scope": "never"
             }
         },
+        "/replication/changes": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "replication"
+                ],
+                "summary": "Stream replication changes",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/replication/projects": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "replication"
+                ],
+                "summary": "List replicated projects",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
         "/session-bundle": {
             "post": {
                 "consumes": [
@@ -893,6 +1114,32 @@
                         }
                     }
                 },
+                "x-crush-scope": "never"
+            }
+        },
+        "/session-import/candidates": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Discover importable sessions",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/session-import/sources": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List session import sources",
+                "responses": {},
                 "x-crush-scope": "never"
             }
         },
@@ -1028,6 +1275,58 @@
                     }
                 },
                 "x-crush-scope": "sessions:read"
+            }
+        },
+        "/transfer/import": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transfer"
+                ],
+                "summary": "Import a transfer bundle",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/transfer/preflight": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transfer"
+                ],
+                "summary": "Check a transfer bundle",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/transfers": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transfer"
+                ],
+                "summary": "List outgoing transfers",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/transfers/incoming": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transfer"
+                ],
+                "summary": "List incoming transfers",
+                "responses": {},
+                "x-crush-scope": "never"
             }
         },
         "/version": {
@@ -2684,6 +2983,45 @@
                 "x-crush-scope": "never"
             }
         },
+        "/workspaces/{id}/embeddings/backfill": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "embeddings"
+                ],
+                "summary": "Embed past messages",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/workspaces/{id}/embeddings/pending": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "embeddings"
+                ],
+                "summary": "Count messages awaiting embeddings",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/workspaces/{id}/embeddings/status": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "embeddings"
+                ],
+                "summary": "Embedding index status",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
         "/workspaces/{id}/events": {
             "get": {
                 "produces": [
@@ -2932,6 +3270,66 @@
                 "x-crush-scope": "never"
             }
         },
+        "/workspaces/{id}/history/search": {
+            "post": {
+                "description": "Hybrid substring and semantic search over a workspace's messages, collapsed to one hit per session.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Search session history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Search query and options",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.SearchHistoryParams"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.SearchHistoryResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
+            }
+        },
         "/workspaces/{id}/lsps": {
             "get": {
                 "produces": [
@@ -3112,6 +3510,32 @@
                 "x-crush-scope": "never"
             }
         },
+        "/workspaces/{id}/mcp/auth-url": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mcp"
+                ],
+                "summary": "Get an MCP OAuth URL",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/workspaces/{id}/mcp/authenticate": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mcp"
+                ],
+                "summary": "Start MCP OAuth authentication",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
         "/workspaces/{id}/mcp/docker/disable": {
             "post": {
                 "tags": [
@@ -3238,6 +3662,19 @@
                         }
                     }
                 },
+                "x-crush-scope": "never"
+            }
+        },
+        "/workspaces/{id}/mcp/pending-auth": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "mcp"
+                ],
+                "summary": "List MCP servers awaiting OAuth",
+                "responses": {},
                 "x-crush-scope": "never"
             }
         },
@@ -4047,6 +4484,19 @@
                     }
                 },
                 "x-crush-scope": "permissions:answer"
+            }
+        },
+        "/workspaces/{id}/session-import": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Import a session from another agent",
+                "responses": {},
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions": {
@@ -5859,6 +6309,52 @@
                 }
             }
         },
+        "cluster.DeviceEndpoints": {
+            "type": "object",
+            "properties": {
+                "client": {
+                    "$ref": "#/definitions/cluster.DeviceListener"
+                },
+                "seq": {
+                    "description": "Seq increases with every advertisement from the member; an older or\nequal Seq never replaces a stored record.",
+                    "type": "integer"
+                },
+                "v": {
+                    "type": "integer"
+                },
+                "ws": {
+                    "$ref": "#/definitions/cluster.DeviceListener"
+                }
+            }
+        },
+        "cluster.DeviceListener": {
+            "type": "object",
+            "properties": {
+                "addrs": {
+                    "description": "Addrs are host:port pairs built from the bound listener address: a\nspecific bind is its own host only, a wildcard bind every direct\nendpoint host of the member.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "state": {
+                    "$ref": "#/definitions/cluster.DeviceListenerState"
+                }
+            }
+        },
+        "cluster.DeviceListenerState": {
+            "type": "string",
+            "enum": [
+                "on",
+                "idle",
+                "off"
+            ],
+            "x-enum-varnames": [
+                "DeviceListenerOn",
+                "DeviceListenerIdle",
+                "DeviceListenerOff"
+            ]
+        },
         "cluster.Endpoint": {
             "type": "object",
             "properties": {
@@ -5884,6 +6380,14 @@
         "cluster.Member": {
             "type": "object",
             "properties": {
+                "device": {
+                    "description": "Device is the member's own advertisement of its device listeners\n(nil: the member predates advertising).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/cluster.DeviceEndpoints"
+                        }
+                    ]
+                },
                 "endpoints": {
                     "type": "array",
                     "items": {
@@ -7106,6 +7610,15 @@
         "pairing.MemberInfo": {
             "type": "object",
             "properties": {
+                "device_ports": {
+                    "description": "DevicePorts says where Endpoints and NATSURLs come from:\n\"advertised\" (the member's own record), \"legacy\" (the member\npredates advertising; the pairing node's ports on its hosts), or\n\"unknown\" (a record version this node does not know; both empty).\nAbsent from older pairing nodes.",
+                    "type": "string",
+                    "enum": [
+                        "advertised",
+                        "legacy",
+                        "unknown"
+                    ]
+                },
                 "endpoints": {
                     "type": "array",
                     "items": {
@@ -7114,6 +7627,13 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "nats_urls": {
+                    "description": "NATSURLs are the member's device websocket URLs (wss://host:port).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "node_id": {
                     "type": "string"
@@ -7257,7 +7777,7 @@
                 "viewer",
                 "operator",
                 "admin",
-                "operator"
+                "admin"
             ],
             "x-enum-varnames": [
                 "RoleViewer",
@@ -8068,6 +8588,68 @@
                 }
             }
         },
+        "proto.SearchHistoryParams": {
+            "type": "object",
+            "properties": {
+                "all_workspaces": {
+                    "description": "AllWorkspaces opts into cross-workspace fan-out: when true the\nbackend also searches every other known workspace (attached and\nregistry-detached) and merges the results. When false (the\ndefault) only the requested workspace is searched — the fast path.",
+                    "type": "boolean"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "description": "Offset is reserved: session-level pagination is not yet supported\n(results collapse per session after a message-level candidate\nfetch, so a message offset would not align to session boundaries).\nIt is currently ignored by the backend.",
+                    "type": "integer"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "semantic": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "proto.SearchHistoryResult": {
+            "type": "object",
+            "properties": {
+                "fallback_reason": {
+                    "description": "FallbackReason says why Mode is \"text\": no_embedder,\ndisabled_by_request, disabled_by_config, no_embeddings, or\nembed_error.",
+                    "type": "string",
+                    "enum": [
+                        "no_embedder",
+                        "disabled_by_request",
+                        "disabled_by_config",
+                        "no_embeddings",
+                        "embed_error"
+                    ]
+                },
+                "hits": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.SessionHit"
+                    }
+                },
+                "mode": {
+                    "description": "Mode is the search mode actually used: \"hybrid\" (substring and\nvector signals fused) or \"text\" (substring only).",
+                    "type": "string",
+                    "enum": [
+                        "hybrid",
+                        "text"
+                    ]
+                },
+                "semantic_used": {
+                    "description": "SemanticUsed reports whether the vector signal ran without error.\nKept for older clients; prefer Mode.",
+                    "type": "boolean"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
         "proto.ServerConfig": {
             "type": "object",
             "properties": {
@@ -8231,6 +8813,41 @@
                     "type": "string"
                 },
                 "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.SessionHit": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "match": {
+                    "type": "string"
+                },
+                "message_id": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "number"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "session_title": {
+                    "type": "string"
+                },
+                "snippet": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                },
+                "workspace_root": {
                     "type": "string"
                 }
             }

@@ -21,7 +21,6 @@ import (
 	"github.com/taigrr/crush/internal/permission"
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/pubsub"
-	"github.com/taigrr/crush/internal/server/devicescope"
 	"github.com/taigrr/crush/internal/swarm"
 )
 
@@ -223,8 +222,8 @@ func TestDeviceBridgeEndToEnd(t *testing.T) {
 		require.Equal(t, wireVersion, info.V)
 		require.Equal(t, ph.nodeID, info.NodeID)
 		require.Equal(t, ph.id, info.DeviceID)
-		require.Equal(t, string(pairing.RoleOperator), info.Role)
-		require.ElementsMatch(t, pairing.RoleOperator.Scopes(), info.Scopes)
+		require.Equal(t, string(pairing.RoleAdmin), info.Role, "every device reports full access")
+		require.ElementsMatch(t, pairing.AllScopes(), info.Scopes)
 		require.Subset(t, info.Features, bridgeFeatures)
 		require.Equal(t, maxBridgeBody, info.Limits.MaxRequestBytes)
 		require.Equal(t, 512, info.Limits.ResumeBufferFrames)
@@ -256,10 +255,12 @@ func TestDeviceBridgeEndToEnd(t *testing.T) {
 		resp := dev.post(base+"/config/provider-key", map[string]string{"key": "x"})
 		require.Equal(t, http.StatusForbidden, resp.Status)
 		require.Equal(t, codeRouteNotAllowed, resp.Error.Code, "never routes are unreachable")
-		resp = dev.post(base+"/permissions/skip", map[string]bool{"skip": true})
-		require.Equal(t, codeDeviceScopeDenied, resp.Error.Code)
-		require.Equal(t, devicescope.PermissionsAlways, resp.Error.Scope)
-		require.Equal(t, codeNotFound, dev.get("/v1/cluster/token").Error.Code)
+		resp = dev.post("/v1/sessions/batch", map[string]any{"op": "archive"})
+		require.Equal(t, codeRouteNotAllowed, resp.Error.Code, "never routes stay blocked for full-access devices")
+		require.Equal(t, codeRouteNotAllowed, dev.post(base+"/config/remove", map[string]string{"key": "x"}).Error.Code)
+		require.Equal(t, codeRouteNotAllowed, dev.get(base+"/embeddings/status").Error.Code)
+		require.Equal(t, codeRouteNotAllowed, dev.get("/v1/cluster/token").Error.Code)
+		require.Equal(t, codeNotFound, dev.get("/v1/nodes/"+ph.nodeID+"/v1/workspaces").Error.Code)
 		require.Equal(t, codeRouteNotAllowed, dev.get(base+"/events").Error.Code, "streams only through sub")
 		require.Equal(t, codeMethodNotAllowed, dev.call(anyNode, bridgeRequest{Method: "DELETE", Path: base}).Error.Code)
 		require.Equal(t, codeBadRequest, dev.get("/v1/workspaces/"+ws.ID+"/../../cluster/token").Error.Code)
@@ -302,9 +303,11 @@ func TestDeviceBridgeEndToEnd(t *testing.T) {
 		}
 		req.JSON = mustJSON(t, proto.AgentMessage{SessionID: alpha.ID, Prompt: "something else"})
 		require.Equal(t, codeIdempotencyConflict, dev.call(anyNode, req).Error.Code)
-		// Loosening the permission policy needs permissions:always.
+		// Every device has full access, so it may set a turn's policy.
 		resp = dev.post(base+"/agent", proto.AgentMessage{SessionID: alpha.ID, Prompt: "x", PermissionPolicy: proto.PermissionPolicyAllow})
-		require.Equal(t, codeDeviceScopeDenied, resp.Error.Code)
+		if resp.Error != nil {
+			require.NotEqual(t, codeDeviceScopeDenied, resp.Error.Code)
+		}
 	})
 
 	t.Run("message deltas and resume", func(t *testing.T) {
@@ -441,15 +444,19 @@ func TestDeviceBridgeEndToEnd(t *testing.T) {
 		}
 	})
 
-	t.Run("scopes changed", func(t *testing.T) {
+	t.Run("role edits change nothing", func(t *testing.T) {
 		setDeviceRole(t, srv, ph.id, pairing.RoleViewer)
-		n := dev.waitControl(controlScopesChanged)
-		require.Equal(t, string(pairing.RoleViewer), n.Role)
-		require.Equal(t, pairing.RoleViewer.Scopes(), n.Scopes)
-		resp := dev.post(base+"/agent", proto.AgentMessage{SessionID: alpha.ID, Prompt: "x"})
-		require.Equal(t, codeDeviceScopeDenied, resp.Error.Code)
-		require.Equal(t, devicescope.SessionsPrompt, resp.Error.Scope)
-		require.Equal(t, http.StatusOK, dev.get(base+"/sessions").Status, "viewers still read")
+		select {
+		case n := <-dev.control:
+			require.NotEqual(t, controlScopesChanged, n.Type, "no scopes_changed for a role edit")
+		case <-time.After(300 * time.Millisecond):
+		}
+		var info infoReply
+		dev.request(subjClientRoot+ph.id+"."+verbInfo, map[string]any{"v": 1}, &info)
+		require.Equal(t, string(pairing.RoleAdmin), info.Role)
+		require.ElementsMatch(t, pairing.AllScopes(), info.Scopes, "a stored viewer record still has full access")
+		resp := dev.post(base+"/sessions", proto.Session{Title: "from a viewer record"})
+		require.Less(t, resp.Status, 300, resp.Error)
 	})
 
 	t.Run("revoked notice then disconnect", func(t *testing.T) {
@@ -481,7 +488,7 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 
 // TestDeviceBridgeCrossNode: a device attached to node A reaches a
 // session on node B by node ID and by swarm address, and B re-checks the
-// device's scopes itself.
+// device and the route allow-list itself.
 func TestDeviceBridgeCrossNode(t *testing.T) {
 	isolateHome(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
@@ -547,30 +554,38 @@ func TestDeviceBridgeCrossNode(t *testing.T) {
 	require.Equal(t, http.StatusOK, closed.Status)
 	require.Equal(t, bID, closed.NodeID, "only the stream's node answers")
 
-	// B's view wins on B: with B holding the device as a viewer, B refuses
-	// a prompt that A (still operator) let through. Sent straight to B's
-	// forward subject, as A would, so the result cannot depend on whether
-	// A has synced the change yet.
+	// B re-checks the route allow-list itself: a never route and an
+	// untagged path sent straight to B's forward subject (skipping A's
+	// check) are refused by B. A stored viewer role on B changes nothing.
 	setDeviceRole(t, bn, id, pairing.RoleViewer)
-	fwdReq, _ := json.Marshal(bridgeRequest{V: 1, ID: "f1", Method: "POST", Path: "/v1/workspaces/" + ws.ID + "/agent", JSON: mustJSON(t, proto.AgentMessage{SessionID: sess.ID, Prompt: "x"})})
-	env, _ := json.Marshal(fwdEnvelope{V: 1, Kind: fwdAPI, DeviceID: id, EntryNode: a.cluster.Identity().ID, Request: fwdReq})
-	msg, err := a.mesh.Request(ctx, subjClientFwd+bID, env)
-	require.NoError(t, err)
-	var denied bridgeResponse
-	require.NoError(t, json.Unmarshal(msg.Data, &denied))
+	forwardToB := func(method, p string, body json.RawMessage) bridgeResponse {
+		t.Helper()
+		req, _ := json.Marshal(bridgeRequest{V: 1, ID: uuid.NewString(), Method: method, Path: p, JSON: body})
+		env, _ := json.Marshal(fwdEnvelope{V: 1, Kind: fwdAPI, DeviceID: id, EntryNode: a.cluster.Identity().ID, Request: req})
+		msg, err := a.mesh.Request(ctx, subjClientFwd+bID, env)
+		require.NoError(t, err)
+		var out bridgeResponse
+		require.NoError(t, json.Unmarshal(msg.Data, &out))
+		return out
+	}
+	denied := forwardToB(http.MethodPost, "/v1/workspaces/"+ws.ID+"/config/remove", json.RawMessage(`{"key":"x"}`))
 	require.Equal(t, http.StatusForbidden, denied.Status)
-	require.Equal(t, codeDeviceScopeDenied, denied.Error.Code)
+	require.Equal(t, codeRouteNotAllowed, denied.Error.Code)
 	require.Equal(t, bID, denied.NodeID)
-	// End to end the device is refused too, by whichever node knows first.
-	resp = dev.call(bID, bridgeRequest{Method: http.MethodPost, Path: "/v1/workspaces/" + ws.ID + "/agent", JSON: mustJSON(t, proto.AgentMessage{SessionID: sess.ID, Prompt: "x"})})
-	require.Equal(t, codeDeviceScopeDenied, resp.Error.Code)
+	denied = forwardToB(http.MethodGet, "/v1/nodes/"+a.cluster.Identity().ID+"/v1/workspaces", nil)
+	require.Equal(t, codeNotFound, denied.Error.Code)
+	require.Equal(t, bID, denied.NodeID)
+	allowed := forwardToB(http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, allowed.Status, "a viewer record on B still has full access")
+	fwdReq, _ := json.Marshal(bridgeRequest{V: 1, ID: "f1", Method: "GET", Path: path})
+	var denied2 bridgeResponse
 
 	// A forward for an unknown device is refused by the owner.
-	env, _ = json.Marshal(fwdEnvelope{V: 1, Kind: fwdAPI, DeviceID: "nobody", Request: fwdReq})
-	msg, err = a.mesh.Request(ctx, subjClientFwd+bID, env)
+	env, _ := json.Marshal(fwdEnvelope{V: 1, Kind: fwdAPI, DeviceID: "nobody", Request: fwdReq})
+	msg, err := a.mesh.Request(ctx, subjClientFwd+bID, env)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(msg.Data, &denied))
-	require.Equal(t, codeDeviceRevoked, denied.Error.Code)
+	require.NoError(t, json.Unmarshal(msg.Data, &denied2))
+	require.Equal(t, codeDeviceRevoked, denied2.Error.Code)
 
 	// A member that does not answer gives node_unreachable.
 	ab := a.pairing.bridge.Load()
@@ -702,7 +717,7 @@ func TestDeviceBridgeAttentionFiltering(t *testing.T) {
 	for _, tc := range []struct {
 		dev        *fakeDevice
 		actionable bool
-	}{{opDev, true}, {viewDev, false}} {
+	}{{opDev, true}, {viewDev, true}} {
 		select {
 		case a := <-tc.dev.attention:
 			require.Equal(t, "s1", a["session_id"], "joins and relayed events are skipped")

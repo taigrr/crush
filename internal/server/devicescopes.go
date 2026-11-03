@@ -112,7 +112,7 @@ func applyBodyRules(pattern string, d pairing.Device, body []byte) ([]byte, *bri
 			return nil, newBridgeError(codeBadRequest, "body must be a JSON object")
 		}
 		policy := msg.PermissionPolicy
-		if policy != "" && policy != proto.PermissionPolicyPrompt && !slices.Contains(d.Scopes, devicescope.PermissionsAlways) {
+		if policy != "" && policy != proto.PermissionPolicyPrompt && !slices.Contains(d.EffectiveScopes(), devicescope.PermissionsAlways) {
 			return nil, scopeDenied(devicescope.PermissionsAlways)
 		}
 		msg.ClientID = deviceClientPrefix + d.DeviceID
@@ -133,7 +133,7 @@ func applyBodyRules(pattern string, d pairing.Device, body []byte) ([]byte, *bri
 		case proto.PermissionAllow, proto.PermissionAllowForSession, proto.PermissionDeny:
 		default:
 			// Anything beyond a one-off or per-session answer persists.
-			if !slices.Contains(d.Scopes, devicescope.PermissionsAlways) {
+			if !slices.Contains(d.EffectiveScopes(), devicescope.PermissionsAlways) {
 				return nil, scopeDenied(devicescope.PermissionsAlways)
 			}
 		}
