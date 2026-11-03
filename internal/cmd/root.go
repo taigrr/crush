@@ -42,6 +42,7 @@ import (
 	ui "github.com/taigrr/crush/internal/ui/model"
 	"github.com/taigrr/crush/internal/version"
 	"github.com/taigrr/crush/internal/workspace"
+	"golang.org/x/mod/semver"
 )
 
 var clientHost string
@@ -619,6 +620,16 @@ func restartIfStale(cmd *cobra.Command, hostURL *url.URL) (restarted bool, err e
 	if vi.Version == version.Version && vi.BuildID == version.BuildID {
 		return false, nil
 	}
+	if !clientIsNewer(version.Version, vi.Version) {
+		// The server is a newer release than this client, typically
+		// because this very process just installed it (`crush cluster
+		// upgrade` polls the server after upgrading). Restarting would
+		// bring back the same newer binary, so every call would bounce a
+		// healthy server; talk to it as is.
+		slog.Warn("Server is newer than this client; not restarting it",
+			"server_version", vi.Version, "client_version", version.Version)
+		return false, nil
+	}
 	if vi.Persistent && cluster.ServiceInstalled() {
 		return false, restartPersistentDaemon(cmd, c, vi)
 	}
@@ -644,6 +655,29 @@ func restartIfStale(cmd *cobra.Command, hostURL *url.URL) (restarted bool, err e
 	// Force-remove if the socket is still lingering.
 	_ = os.Remove(hostURL.Host)
 	return true, nil
+}
+
+// clientIsNewer reports whether restarting a server running version
+// server for a client built as client could pick up the client's build.
+// Different builds of one version (local development) and unparsable
+// versions count as newer; a release client never replaces a server
+// running a newer release.
+func clientIsNewer(client, server string) bool {
+	cv, sv := canonicalSemver(client), canonicalSemver(server)
+	if cv == "" || sv == "" {
+		return true
+	}
+	return semver.Compare(cv, sv) >= 0
+}
+
+func canonicalSemver(v string) string {
+	if !strings.HasPrefix(v, "v") {
+		v = "v" + v
+	}
+	if !semver.IsValid(v) {
+		return ""
+	}
+	return v
 }
 
 // errDaemonVersion is returned when a persistent daemon managed by
