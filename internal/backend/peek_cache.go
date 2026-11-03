@@ -77,3 +77,10 @@ func (c *peekCache) load(ctx context.Context, dataDir string) ([]db.PeekedSessio
 	c.mu.Unlock()
 	return sessions, nil
 }
+
+// reset drops every memoized listing.
+func (c *peekCache) reset() {
+	c.mu.Lock()
+	c.entries = nil
+	c.mu.Unlock()
+}

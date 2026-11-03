@@ -154,7 +154,7 @@ func TestSessionOverviewPaging(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Release(c))
 	db.ResetPool()
-	b.peekCache = peekCache{}
+	b.peekCache.reset()
 	second, err := b.ListSessionOverviewPage(ctx, true, 2, *first.NextCursor)
 	require.NoError(t, err)
 	require.Equal(t, []string{"c2", "a1"}, overviewIDs(second.Sessions))
