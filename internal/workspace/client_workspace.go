@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1596,6 +1597,11 @@ func (w *ClientWorkspace) ListWorkspaceOverviews(ctx context.Context) ([]proto.W
 	if err != nil {
 		return nil, err
 	}
+	// Node-level failure markers carry no workspace; the picker lists
+	// workspaces, so drop them here.
+	ovs = slices.DeleteFunc(ovs, func(ov proto.WorkspaceOverview) bool {
+		return ov.Unavailable && ov.Root == ""
+	})
 	return w.qualifyOverviews(ovs), nil
 }
 

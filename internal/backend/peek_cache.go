@@ -15,9 +15,16 @@ import (
 // keyed by the database files' size and modification time. Listing every
 // known project used to reopen each database on every sidebar refresh,
 // which costs hundreds of milliseconds once a user has many projects.
+//
+// Every read runs under a [stallGuard], so a database whose open never
+// returns marks that one workspace unavailable instead of wedging the
+// whole overview.
 type peekCache struct {
 	mu      sync.Mutex
 	entries map[string]peekEntry
+	guard   stallGuard
+	// peek lists a data directory's sessions; nil means [db.PeekSessions].
+	peek func(ctx context.Context, dataDir string) ([]db.PeekedSession, error)
 }
 
 type peekEntry struct {
@@ -41,6 +48,12 @@ func dbStamp(dataDir string) string {
 }
 
 func (c *peekCache) get(ctx context.Context, dataDir string) ([]db.PeekedSession, error) {
+	return guarded(ctx, &c.guard, filepath.Clean(dataDir), func(ctx context.Context) ([]db.PeekedSession, error) {
+		return c.load(ctx, dataDir)
+	})
+}
+
+func (c *peekCache) load(ctx context.Context, dataDir string) ([]db.PeekedSession, error) {
 	stamp := dbStamp(dataDir)
 	c.mu.Lock()
 	if e, ok := c.entries[dataDir]; ok && e.stamp == stamp {
@@ -48,7 +61,11 @@ func (c *peekCache) get(ctx context.Context, dataDir string) ([]db.PeekedSession
 		return e.sessions, nil
 	}
 	c.mu.Unlock()
-	sessions, err := db.PeekSessions(ctx, dataDir)
+	peek := c.peek
+	if peek == nil {
+		peek = db.PeekSessions
+	}
+	sessions, err := peek(ctx, dataDir)
 	if err != nil {
 		return nil, err
 	}

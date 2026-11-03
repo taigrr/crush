@@ -94,6 +94,8 @@ type Backend struct {
 	// stuck one can be inspected from the sending side.
 	incoming       transferTracker
 	peekCache      peekCache
+	// replicaGuard bounds replication reads of detached databases.
+	replicaGuard   stallGuard
 	createGrace    time.Duration
 	reconnectGrace time.Duration
 
@@ -327,6 +329,7 @@ func New(ctx context.Context, cfg *config.ConfigStore, shutdownFn ShutdownFunc) 
 		createGrace:    DefaultCreateGrace,
 		reconnectGrace: DefaultReconnectGrace,
 		registry:       registry.New(),
+		replicaGuard:   stallGuard{timeout: defaultReplicaReadTimeout},
 		attention:      pubsub.NewBroker[proto.AttentionEvent](),
 		yoloByRoot:     make(map[string]bool),
 	}
@@ -456,7 +459,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	// instance (or the server on startup) can enumerate and jump to it
 	// without it being attached. Best-effort; a registry write failure
 	// must not fail workspace creation.
-	if !args.Isolated && b.registry != nil {
+	if !args.Isolated && b.registry != nil && !(b.hideTempWorkspaces() && isTempWorkspace(key, cfg.Config().Options.DataDirectory)) {
 		if err := b.registry.Add(registry.Entry{
 			Root:     key,
 			DataDir:  cfg.Config().Options.DataDirectory,
