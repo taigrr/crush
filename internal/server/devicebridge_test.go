@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/client"
+	"github.com/taigrr/crush/internal/db"
 	"github.com/taigrr/crush/internal/message"
 	"github.com/taigrr/crush/internal/pairing"
 	"github.com/taigrr/crush/internal/permission"
@@ -179,7 +180,12 @@ func newBridgeWorkspace(t *testing.T, srv *Server, c *client.Client) (*proto.Wor
 	ctx := t.Context()
 	ws, err := c.CreateWorkspace(ctx, proto.Workspace{Path: t.TempDir(), ClientID: "c1"})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = c.DeleteWorkspace(context.Background(), ws.ID) })
+	// Close the workspace databases before the temp dirs go (Windows
+	// cannot delete open files).
+	t.Cleanup(func() {
+		srv.backend.ShutdownWorkspaces()
+		db.ResetPool()
+	})
 	a, err := c.CreateSession(ctx, ws.ID, "alpha")
 	require.NoError(t, err)
 	b, err := c.CreateSession(ctx, ws.ID, "beta")
