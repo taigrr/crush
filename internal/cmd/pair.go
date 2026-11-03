@@ -45,8 +45,8 @@ on every node of the cluster. See docs/specs/MOBILE_PAIRING.md.`,
 # Show a pairing QR code (light-on-dark terminal)
 crush pair
 
-# On a light terminal, as a read-only viewer, valid for 5 minutes
-crush pair --invert --role viewer --ttl 5m
+# On a light terminal, valid for 5 minutes
+crush pair --invert --ttl 5m
 
 # Accept a code shown on the phone instead
 crush pair accept 04106-1050R-3GG28-A1C60-T3GF6
@@ -57,6 +57,9 @@ crush pair revoke dev_abc...
   `,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		if err := checkRoleFlag(cmd); err != nil {
+			return err
+		}
 		c, err := localServerClient(cmd)
 		if err != nil {
 			return err
@@ -84,6 +87,9 @@ XXXXX-XXXXX-XXXXX-XXXXX-XXXXX code), then show this node's locator QR so the
 phone can connect, and confirm the short authentication string.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := checkRoleFlag(cmd); err != nil {
+			return err
+		}
 		c, err := localServerClient(cmd)
 		if err != nil {
 			return err
@@ -244,6 +250,17 @@ func printPairQR(cmd *cobra.Command, text string) error {
 
 // runPairing follows an offer through claim, SAS confirmation, and
 // approval. Interrupting it rejects the offer.
+// checkRoleFlag refuses a restricted --role: roles were removed and every
+// device gets full access, so silently accepting "viewer" would pair a
+// device with far more access than the caller asked for.
+func checkRoleFlag(cmd *cobra.Command) error {
+	role, _ := cmd.Flags().GetString(flagRole)
+	if role == "" || pairing.Role(role) == pairing.RoleAdmin {
+		return nil
+	}
+	return fmt.Errorf("--role %s is no longer supported: every paired device has full access", role)
+}
+
 func runPairing(cmd *cobra.Command, c *client.Client, offer pairing.OfferView) error {
 	ctx := cmd.Context()
 	out := cmd.OutOrStdout()
