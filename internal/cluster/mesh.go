@@ -39,6 +39,7 @@ type Mesh struct {
 	srv    *natsserver.Server
 	opts   *natsserver.Options
 	nc     *nats.Conn
+	bc     *nats.Conn
 	routes []string
 	wsAddr string
 }
@@ -64,6 +65,8 @@ func (n *Node) StartMesh(routeAddr string) (*Mesh, error) {
 
 	m := &Mesh{node: n}
 	clientToken := rand.Text()
+	bridgeToken := rand.Text()
+	clients := natsserver.NewAccount(ClientsAccount)
 	opts := &natsserver.Options{
 		ServerName: n.id.ID,
 		// Routing only starts once the client listener is up, so bind it to
@@ -79,10 +82,18 @@ func (n *Node) StartMesh(routeAddr string) (*Mesh, error) {
 		Users: []*natsserver.User{{
 			Username: meshUser, Password: clientToken,
 			AllowedConnectionTypes: connTypes(jwt.ConnectionTypeInProcess),
+		}, {
+			// The device bridge serves device subjects from inside the
+			// CLIENTS account, in-process only.
+			Username: bridgeUser, Password: bridgeToken, Account: clients,
+			AllowedConnectionTypes: connTypes(jwt.ConnectionTypeInProcess),
+			Permissions:            bridgePermissions(),
 		}},
-		Accounts: []*natsserver.Account{natsserver.NewAccount(ClientsAccount)},
-		NoSigs:   true,
-		NoLog:    true,
+		Accounts: []*natsserver.Account{clients},
+		// Bridged API replies can be large (message lists).
+		MaxPayload: maxMeshPayload,
+		NoSigs:     true,
+		NoLog:      true,
 		// Device websocket: plain (no TLS) on loopback only. The public,
 		// gated, TLS-terminating listener in front of it is the server's
 		// job (websocket settings cannot be changed by config reload, so
@@ -123,6 +134,13 @@ func (n *Node) StartMesh(routeAddr string) (*Mesh, error) {
 	// The server writes the chosen websocket port back into opts (it
 	// keeps our pointer); record it so later reloads compare equal.
 	m.wsAddr = net.JoinHostPort(opts.Websocket.Host, strconv.Itoa(opts.Websocket.Port))
+	bc, err := nats.Connect("", nats.InProcessServer(srv), nats.UserInfo(bridgeUser, bridgeToken), nats.Name("crush-bridge-"+n.id.Name), nats.MaxReconnects(-1))
+	if err != nil {
+		nc.Close()
+		srv.Shutdown()
+		return nil, fmt.Errorf("connect device bridge: %w", err)
+	}
+	m.bc = bc
 	m.srv, m.opts, m.nc = srv, opts, nc
 	m.routes = urlStrings(opts.Routes)
 	n.store.Watch(func(State) { m.Reconcile() })
@@ -178,6 +196,9 @@ func (m *Mesh) Close() {
 	defer m.mu.Unlock()
 	if m.nc != nil {
 		m.nc.Close()
+	}
+	if m.bc != nil {
+		m.bc.Close()
 	}
 	if m.srv != nil {
 		m.srv.Shutdown()

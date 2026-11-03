@@ -8,6 +8,7 @@ import (
 
 	"github.com/nats-io/jwt/v2"
 	natsserver "github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 )
 
 // ClientsAccount is the NATS account paired devices live in. Mesh
@@ -42,6 +43,47 @@ func connTypes(types ...string) map[string]struct{} {
 		out[t] = struct{}{}
 	}
 	return out
+}
+
+const (
+	bridgeUser     = "crush-device-bridge"
+	maxMeshPayload = 8 << 20
+)
+
+// bridgePermissions lets the bridge receive device requests and answer
+// them, and nothing about other accounts (it lives in CLIENTS).
+func bridgePermissions() *natsserver.Permissions {
+	return &natsserver.Permissions{
+		Publish: &natsserver.SubjectPermission{Allow: []string{"crush.client.v1.>", "_INBOX.>"}},
+		Subscribe: &natsserver.SubjectPermission{Allow: []string{
+			"crush.client.v1.*.api.*", "crush.client.v1.*.sub", "crush.client.v1.*.unsub",
+			"crush.client.v1.*.ack.*",
+		}},
+	}
+}
+
+// ClientsConn is the in-process connection into the CLIENTS account used
+// to serve device subjects.
+func (m *Mesh) ClientsConn() *nats.Conn {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.bc
+}
+
+// ClientsInterest reports whether any connection in the CLIENTS account
+// subscribes to subject (a device still reading a stream).
+func (m *Mesh) ClientsInterest(subject string) bool {
+	m.mu.Lock()
+	srv := m.srv
+	m.mu.Unlock()
+	if srv == nil {
+		return false
+	}
+	acc, err := srv.LookupAccount(ClientsAccount)
+	if err != nil {
+		return false
+	}
+	return acc.SubscriptionInterest(subject)
 }
 
 // WebsocketAddr is the loopback address of the embedded server's device
