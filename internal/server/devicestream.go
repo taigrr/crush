@@ -282,8 +282,13 @@ func (b *deviceBridge) openStream(d pairing.Device, req streamRequest) streamOpe
 		e.Message = "too many open streams"
 		return fail(e)
 	}
+	devCtx := b.workLocked(d.DeviceID)
+	if devCtx.Err() != nil {
+		b.mu.Unlock()
+		return fail(newBridgeError(codeDeviceRevoked, "device is revoked"))
+	}
 	id := newStreamID(b.nodeID)
-	ctx, cancel := context.WithCancel(b.ctx)
+	ctx, cancel := context.WithCancel(devCtx)
 	now := time.Now()
 	s := &deviceStream{
 		b: b, id: id, deviceID: d.DeviceID, key: key, tune: b.tune, cancel: cancel, credit: credit,
