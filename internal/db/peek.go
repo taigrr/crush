@@ -11,10 +11,14 @@ import (
 )
 
 // OpenReadOnly opens a workspace's database at dataDir READ-ONLY (no
-// migrations, no data-dir lock, no writes) for cross-workspace fan-out
-// reads. It returns (nil, nil) when the database file does not exist, so
-// callers can skip an empty/uninitialized workspace without treating it as
-// an error. The caller owns the returned handle and must Close it.
+// data-dir lock, no writes) for cross-workspace fan-out reads. A database
+// last opened by an older build is migrated first (briefly, under the
+// data-dir lock) so current queries do not hit missing columns; if
+// another process holds it, that process keeps it migrated and the
+// read-only handle is used as is. It returns (nil, nil) when the
+// database file does not exist, so callers can skip an empty or
+// uninitialized workspace without treating it as an error. The caller
+// owns the returned handle and must Close it.
 func OpenReadOnly(dataDir string) (*sql.DB, error) {
 	dbPath := filepath.Join(dataDir, "crush.db")
 	if _, err := os.Stat(dbPath); err != nil {
@@ -23,7 +27,28 @@ func OpenReadOnly(dataDir string) (*sql.DB, error) {
 		}
 		return nil, err
 	}
+	conn, err := openReadOnlyDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	if !schemaBehind(conn) {
+		return conn, nil
+	}
+	conn.Close()
+	if mc, err := Connect(context.Background(), dataDir, WithDataDirLock(true)); err == nil && mc != nil {
+		_ = Release(dataDir)
+	}
 	return openReadOnlyDB(dbPath)
+}
+
+// schemaBehind reports whether conn's database predates this build's
+// newest migration.
+func schemaBehind(conn *sql.DB) bool {
+	var v sql.NullInt64
+	if err := conn.QueryRow(`SELECT MAX(version_id) FROM goose_db_version WHERE is_applied = 1`).Scan(&v); err != nil {
+		return false
+	}
+	return v.Valid && v.Int64 < LatestSchemaVersion()
 }
 
 // ErrDataDirBusy is returned by [OpenWritable] when the workspace database
