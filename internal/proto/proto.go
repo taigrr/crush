@@ -32,6 +32,9 @@ type Workspace struct {
 // Error represents an error response.
 type Error struct {
 	Message string `json:"message"`
+	// Code is a machine-readable error code, when the route defines one
+	// (for example [ErrCodeSessionNotOnNode]).
+	Code string `json:"code,omitempty"`
 } //@name proto.Error
 
 // RunComplete is the authoritative end-of-run signal for a session,

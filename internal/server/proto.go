@@ -1851,7 +1851,7 @@ func (c *controllerV1) handleGetWorkspacePermissionsSysadmin(w http.ResponseWrit
 // errors, so context.Canceled gets no special case and would fall through
 // to the default 500 like any other unexpected error.
 func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err error) {
-	status := http.StatusInternalServerError
+	status, code := http.StatusInternalServerError, ""
 	switch {
 	case errors.Is(err, backend.ErrWorkspaceNotFound):
 		status = http.StatusNotFound
@@ -1897,9 +1897,15 @@ func (c *controllerV1) handleError(w http.ResponseWriter, r *http.Request, err e
 		status = http.StatusConflict
 	case errors.Is(err, backend.ErrPreviewWorkspaceNotFound):
 		status = http.StatusNotFound
+	case errors.Is(err, backend.ErrSessionNotOnNode):
+		status, code = http.StatusNotFound, proto.ErrCodeSessionNotOnNode
+	case errors.Is(err, backend.ErrUnknownRoot):
+		status, code = http.StatusNotFound, proto.ErrCodeUnknownRoot
+	case errors.Is(err, backend.ErrInvalidCursor):
+		status, code = http.StatusBadRequest, proto.ErrCodeInvalidCursor
 	}
 	c.server.logError(r, err.Error())
-	jsonError(w, status, err.Error())
+	jsonErrorCode(w, status, code, err.Error())
 }
 
 // decodeJSON decodes the request body into a T, writing a 400 response and
@@ -1929,9 +1935,13 @@ func jsonEncode(w http.ResponseWriter, v any) {
 }
 
 func jsonError(w http.ResponseWriter, status int, message string) {
+	jsonErrorCode(w, status, "", message)
+}
+
+func jsonErrorCode(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(proto.Error{Message: message})
+	_ = json.NewEncoder(w).Encode(proto.Error{Message: message, Code: code})
 }
 
 // handlePostSessionBundle returns a session with everything needed to

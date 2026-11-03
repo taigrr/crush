@@ -1427,6 +1427,132 @@ definitions:
       session_id:
         type: string
     type: object
+  proto.DeviceCreateSessionParams:
+    properties:
+      client_id:
+        description: |-
+          ClientID is stamped by the device bridge; any device-supplied value
+          is replaced.
+        type: string
+      model:
+        type: string
+      prompt:
+        type: string
+      root:
+        type: string
+    type: object
+  proto.DeviceCreatedSession:
+    properties:
+      node_id:
+        type: string
+      root:
+        type: string
+      session_id:
+        type: string
+      workspace_id:
+        type: string
+    type: object
+  proto.DeviceSession:
+    properties:
+      attached:
+        type: boolean
+      data_dir:
+        type: string
+      id:
+        type: string
+      is_busy:
+        type: boolean
+      message_count:
+        type: integer
+      node_id:
+        type: string
+      root:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: integer
+      workspace_id:
+        type: string
+    type: object
+  proto.DeviceSessionMessages:
+    properties:
+      messages:
+        items:
+          $ref: '#/definitions/github_com_taigrr_crush_internal_proto.Message'
+        type: array
+      next_before:
+        description: |-
+          NextBefore is the `before` value for the next (older) page; null
+          when this page reaches the first message.
+        type: string
+      workspace_id:
+        type: string
+    type: object
+  proto.DeviceSessionOpen:
+    properties:
+      root:
+        type: string
+      session_id:
+        type: string
+      workspace_id:
+        type: string
+    type: object
+  proto.DeviceSessionOpenParams:
+    properties:
+      root:
+        type: string
+    type: object
+  proto.DeviceSessionOverview:
+    properties:
+      animal:
+        type: string
+      attached:
+        type: boolean
+      color:
+        type: string
+      data_dir:
+        type: string
+      favorite:
+        type: boolean
+      id:
+        type: string
+      is_busy:
+        type: boolean
+      node_id:
+        type: string
+      node_name:
+        type: string
+      root:
+        type: string
+      title:
+        type: string
+      unread:
+        type: boolean
+      updated_at:
+        type: integer
+      workspace_id:
+        description: |-
+          WorkspaceID is set only while the workspace is attached; it is a
+          runtime handle, not a stable identifier.
+        type: string
+    type: object
+  proto.DeviceSessionOverviewPage:
+    properties:
+      next_cursor:
+        description: NextCursor fetches the next page; null on the last page.
+        type: string
+      sessions:
+        items:
+          $ref: '#/definitions/proto.DeviceSessionOverview'
+        type: array
+      total:
+        type: integer
+      unavailable:
+        items:
+          $ref: '#/definitions/proto.NodeUnavailable'
+        type: array
+    type: object
   proto.DropQueuedRunResponse:
     properties:
       dropped:
@@ -1434,6 +1560,11 @@ definitions:
     type: object
   proto.Error:
     properties:
+      code:
+        description: |-
+          Code is a machine-readable error code, when the route defines one
+          (for example [ErrCodeSessionNotOnNode]).
+        type: string
       message:
         type: string
     type: object
@@ -1602,6 +1733,71 @@ definitions:
       target_node:
         type: string
       target_node_name:
+        type: string
+    type: object
+  proto.NodeSearchHistoryParams:
+    properties:
+      limit:
+        type: integer
+      query:
+        type: string
+      scope:
+        type: string
+    type: object
+  proto.NodeSearchHistoryResult:
+    properties:
+      fallback_reason:
+        type: string
+      hits:
+        items:
+          $ref: '#/definitions/proto.NodeSessionHit'
+        type: array
+      mode:
+        enum:
+        - hybrid
+        - text
+        type: string
+      semantic_used:
+        type: boolean
+      total:
+        type: integer
+    type: object
+  proto.NodeSessionHit:
+    properties:
+      created_at:
+        type: string
+      match:
+        type: string
+      message_id:
+        type: string
+      node_id:
+        type: string
+      role:
+        type: string
+      root:
+        type: string
+      score:
+        type: number
+      session_id:
+        type: string
+      session_title:
+        type: string
+      snippet:
+        type: string
+      workspace_id:
+        type: string
+      workspace_root:
+        type: string
+    type: object
+  proto.NodeUnavailable:
+    properties:
+      error:
+        type: string
+      node_id:
+        type: string
+      node_name:
+        type: string
+      root:
         type: string
     type: object
   proto.PeekMessagesParams:
@@ -2321,6 +2517,28 @@ definitions:
       workspace_id:
         type: string
     type: object
+  proto.WorkspaceRoot:
+    properties:
+      attached:
+        type: boolean
+      data_dir:
+        type: string
+      last_used_at:
+        type: integer
+      root:
+        type: string
+      session_count:
+        type: integer
+      workspace_id:
+        type: string
+    type: object
+  proto.WorkspaceRoots:
+    properties:
+      roots:
+        items:
+          $ref: '#/definitions/proto.WorkspaceRoot'
+        type: array
+    type: object
   server.CreateWorktreeRequest:
     properties:
       from_snapshot_id:
@@ -2991,6 +3209,36 @@ paths:
       tags:
       - system
       x-crush-scope: never
+  /history/search:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Query, limit, scope
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.NodeSearchHistoryParams'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.NodeSearchHistoryResult'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Search history across this node
+      tags:
+      - sessions
+      x-crush-scope: sessions:read
   /migrate/execute:
     post:
       produces:
@@ -3145,6 +3393,189 @@ paths:
       tags:
       - sessions
       x-crush-scope: never
+  /session-overviews:
+    get:
+      description: Flat, cluster-wide session list sorted by updated_at desc then
+        id, paged by an opaque keyset cursor.
+      parameters:
+      - description: Page size (1..200, default 50)
+        in: query
+        name: limit
+        type: integer
+      - description: Opaque cursor from next_cursor
+        in: query
+        name: cursor
+        type: string
+      - description: Only this node's sessions
+        in: query
+        name: local
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.DeviceSessionOverviewPage'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: List session overviews
+      tags:
+      - sessions
+      x-crush-scope: sessions:read
+  /sessions:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Workspace root, first prompt, optional model
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.DeviceCreateSessionParams'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.DeviceCreatedSession'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Create a session and prompt it
+      tags:
+      - sessions
+      x-crush-scope: sessions:prompt
+  /sessions/{sid}:
+    get:
+      parameters:
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Workspace root
+        in: query
+        name: root
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.DeviceSession'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Get session by id
+      tags:
+      - sessions
+      x-crush-scope: sessions:read
+  /sessions/{sid}/messages:
+    get:
+      parameters:
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Workspace root
+        in: query
+        name: root
+        type: string
+      - description: Page size (1..500, default 200)
+        in: query
+        name: limit
+        type: integer
+      - description: Return messages older than this message id
+        in: query
+        name: before
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.DeviceSessionMessages'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Get session messages by session id
+      tags:
+      - sessions
+      x-crush-scope: sessions:read
+  /sessions/{sid}/open:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      - description: Workspace root
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.DeviceSessionOpenParams'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.DeviceSessionOpen'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Open a session's workspace
+      tags:
+      - sessions
+      x-crush-scope: sessions:prompt
   /sessions/batch:
     post:
       consumes:
@@ -3335,6 +3766,23 @@ paths:
           schema:
             $ref: '#/definitions/proto.Error'
       summary: List workspace/session overviews
+      tags:
+      - workspaces
+      x-crush-scope: sessions:read
+  /workspace-roots:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.WorkspaceRoots'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: List workspace roots
       tags:
       - workspaces
       x-crush-scope: sessions:read

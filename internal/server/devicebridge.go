@@ -841,7 +841,11 @@ func (b *deviceBridge) build(req bridgeRequest, rec *cappedRecorder) bridgeRespo
 	if resp.Status >= http.StatusBadRequest {
 		var perr proto.Error
 		_ = json.Unmarshal(body, &perr)
-		resp.Error = &bridgeError{Code: codeForStatus(resp.Status), Message: perr.Message}
+		code := codeForStatus(resp.Status)
+		if hc, ok := handlerCodes[perr.Code]; ok && codeStatus[hc] == resp.Status {
+			code = hc
+		}
+		resp.Error = &bridgeError{Code: code, Message: perr.Message}
 	}
 	return resp
 }

@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/taigrr/crush/internal/proto"
 )
 
 // Device bridge wire format v1 (docs/specs/MOBILE_DEVICE_BRIDGE.md).
@@ -20,6 +22,9 @@ const (
 	codeRouteNotAllowed     bridgeCode = "route_not_allowed"
 	codeNotFound            bridgeCode = "not_found"
 	codeNodeNotFound        bridgeCode = "node_not_found"
+	codeSessionNotOnNode    bridgeCode = proto.ErrCodeSessionNotOnNode
+	codeUnknownRoot         bridgeCode = proto.ErrCodeUnknownRoot
+	codeInvalidCursor       bridgeCode = proto.ErrCodeInvalidCursor
 	codeMethodNotAllowed    bridgeCode = "method_not_allowed"
 	codeConflict            bridgeCode = "conflict"
 	codeIdempotencyConflict bridgeCode = "idempotency_conflict"
@@ -40,6 +45,9 @@ var codeStatus = map[bridgeCode]int{
 	codeRouteNotAllowed:     http.StatusForbidden,
 	codeNotFound:            http.StatusNotFound,
 	codeNodeNotFound:        http.StatusNotFound,
+	codeSessionNotOnNode:    http.StatusNotFound,
+	codeUnknownRoot:         http.StatusNotFound,
+	codeInvalidCursor:       http.StatusBadRequest,
 	codeMethodNotAllowed:    http.StatusMethodNotAllowed,
 	codeConflict:            http.StatusConflict,
 	codeIdempotencyConflict: http.StatusConflict,
@@ -69,6 +77,14 @@ func (e *bridgeError) status() int {
 		return s
 	}
 	return http.StatusInternalServerError
+}
+
+// handlerCodes are the /v1 error codes the bridge passes through to
+// devices in place of the status-derived code.
+var handlerCodes = map[string]bridgeCode{
+	proto.ErrCodeSessionNotOnNode: codeSessionNotOnNode,
+	proto.ErrCodeUnknownRoot:      codeUnknownRoot,
+	proto.ErrCodeInvalidCursor:    codeInvalidCursor,
 }
 
 // codeForStatus derives an error code from a /v1 handler's status.
