@@ -2161,6 +2161,8 @@ definitions:
         type: boolean
       data_dir:
         type: string
+      error:
+        type: string
       node_id:
         description: |-
           NodeID and NodeName identify the cluster node that owns the
@@ -2174,6 +2176,12 @@ definitions:
         items:
           $ref: '#/definitions/proto.SessionOverview'
         type: array
+      unavailable:
+        description: |-
+          Unavailable marks a workspace (or, with an empty Root, a whole
+          cluster node) whose sessions could not be read in time; Error says
+          why. Sessions is then empty or a stale subset.
+        type: boolean
       workspace_id:
         type: string
     type: object
