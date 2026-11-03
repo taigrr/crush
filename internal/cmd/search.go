@@ -48,7 +48,7 @@ func init() {
 	searchCmd.Flags().BoolVar(&searchJSON, "json", false, "Output as JSON")
 	searchCmd.Flags().StringVar(&searchSession, "session", "", "Limit to a single session id")
 	searchCmd.Flags().StringVar(&searchScope, "scope", "user", "Roles to search: 'user' or 'all'")
-	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Max results per page")
+	searchCmd.Flags().IntVar(&searchLimit, "limit", 20, "Max results per page (with --all-workspaces: sessions, default 50 when 0, max 200)")
 	searchCmd.Flags().IntVar(&searchOffset, "offset", 0, "Results to skip (pagination)")
 	searchCmd.Flags().BoolVar(&searchNoVector, "no-vector", false, "Disable semantic search (substring only)")
 	searchCmd.Flags().BoolVar(&searchAllWS, "all-workspaces", false, "Search across every known workspace (attached and detached)")

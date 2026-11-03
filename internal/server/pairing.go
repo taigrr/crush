@@ -156,6 +156,8 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	// A rotated cluster key changes what devices must trust: ask them to
 	// reconnect and pick up the new trust material.
 	n.Store().Watch(func(st cluster.State) {
+		// Own endpoints may have changed, which moves wildcard binds.
+		p.markAdvertise()
 		if p.keyRotated(st.KeyVersion) {
 			if b := p.bridge.Load(); b != nil {
 				b.reauth(reauthKeyRotation)

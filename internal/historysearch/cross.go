@@ -52,14 +52,12 @@ type CrossResult struct {
 // SearchAcross runs the hybrid search over every source, tags each hit
 // with its workspace root, merges all hits by fused score, collapses to
 // one representative hit per (root, session), and caps to sessionLimit.
-// A source whose search errors is skipped (its error is returned only if
-// every source errored and nothing matched). candidateLimit bounds the
+// A source whose search errors is skipped; the first error is returned
+// only if every source errored. candidateLimit bounds the
 // per-source candidate window; sessionLimit caps the collapsed result.
 //
-// This mirrors the backend's own attached+detached fan-out
-// (internal/backend/search.go) but works against a caller-provided set
-// of already-opened services, so the `crush search` CLI can fan out over
-// the registry without a running backend.
+// It is the one search behind the /v1 history search (single and
+// cross-workspace), the TUI, and `crush search --all-workspaces`.
 func SearchAcross(
 	ctx context.Context,
 	sources []Source,
@@ -76,6 +74,7 @@ func SearchAcross(
 	mode := embedding.SearchModeText
 	var reason embedding.FallbackReason
 	var firstErr error
+	failed := 0
 
 	for _, src := range sources {
 		res, err := Search(ctx, src.Messages, src.Sessions, src.Emb, query, Options{
@@ -88,6 +87,7 @@ func SearchAcross(
 			if firstErr == nil {
 				firstErr = err
 			}
+			failed++
 			continue
 		}
 		if res.SemanticUsed {
@@ -113,7 +113,7 @@ func SearchAcross(
 		}
 	}
 
-	if len(merged) == 0 && firstErr != nil {
+	if len(sources) > 0 && failed == len(sources) {
 		return CrossResult{}, firstErr
 	}
 

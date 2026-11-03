@@ -34,15 +34,15 @@ func TestMergeDevice(t *testing.T) {
 	newer := &DeviceEndpoints{V: 1, Seq: 11, Client: DeviceListener{State: DeviceListenerOff}}
 	stale := &DeviceEndpoints{V: 1, Seq: 9, Client: DeviceListener{State: DeviceListenerOff}}
 
-	require.Equal(t, newer, mergeDevice("b", "b", old, newer, true), "the member itself moves its record forward")
-	require.Equal(t, old, mergeDevice("b", "b", old, stale, true), "a reordered older push never rolls back")
-	require.Equal(t, old, mergeDevice("b", "b", old, old, true))
-	require.Equal(t, old, mergeDevice("b", "c", old, newer, true), "another member cannot change b's record")
-	require.Equal(t, old, mergeDevice("b", "b", old, nil, true), "a push without a record keeps the stored one")
-	require.Nil(t, mergeDevice("b", "c", nil, newer, true), "nor create it")
-	require.Equal(t, newer, mergeDevice("b", "c", nil, newer, false), "a member learned for the first time takes its record")
+	require.Equal(t, newer, mergeDevice("b", "b", old, newer), "the member itself moves its record forward")
+	require.Equal(t, old, mergeDevice("b", "b", old, stale), "a reordered older push never rolls back")
+	require.Equal(t, old, mergeDevice("b", "b", old, old))
+	require.Equal(t, old, mergeDevice("b", "c", old, newer), "another member cannot change b's record")
+	require.Equal(t, old, mergeDevice("b", "b", old, nil), "a push without a record keeps the stored one")
+	require.Nil(t, mergeDevice("b", "c", nil, newer), "nor create it")
+	require.Equal(t, newer, mergeDevice("b", "b", nil, newer), "a member sets its own first record")
 
-	got := mergeDevice("b", "b", old, newer, true)
+	got := mergeDevice("b", "b", old, newer)
 	got.Client.Addrs = append(got.Client.Addrs, "x")
 	require.Empty(t, newer.Client.Addrs, "records are copied")
 }
@@ -71,17 +71,19 @@ func TestDeviceAdvertisementPropagates(t *testing.T) {
 		return m.Device
 	}
 
-	first, errs := b.AdvertiseDevice(ctx, DeviceEndpoints{
+	first, errs, err := b.AdvertiseDevice(ctx, DeviceEndpoints{
 		Client: DeviceListener{State: DeviceListenerOn, Addrs: []string{"10.0.0.2:41000"}},
 		WS:     DeviceListener{State: DeviceListenerOff},
 	})
+	require.NoError(t, err)
 	require.Empty(t, errs)
 	require.Equal(t, DeviceEndpointsVersion, first.V)
 	for _, n := range []*Node{a, b, c} {
 		require.Equal(t, &first, deviceOf(n), n.Identity().ID)
 	}
 
-	second, errs := b.AdvertiseDevice(ctx, DeviceEndpoints{Client: DeviceListener{State: DeviceListenerIdle, Addrs: []string{"10.0.0.2:41000"}}, WS: DeviceListener{State: DeviceListenerOff}})
+	second, errs, err := b.AdvertiseDevice(ctx, DeviceEndpoints{Client: DeviceListener{State: DeviceListenerIdle, Addrs: []string{"10.0.0.2:41000"}}, WS: DeviceListener{State: DeviceListenerOff}})
+	require.NoError(t, err)
 	require.Empty(t, errs)
 	require.Greater(t, second.Seq, first.Seq)
 	require.Equal(t, &second, deviceOf(a))
@@ -92,6 +94,16 @@ func TestDeviceAdvertisementPropagates(t *testing.T) {
 	am, _ := mustSnapshot(t, c).Member(a.Identity().ID)
 	require.NoError(t, c.callMember(ctx, am, http.MethodPost, "/cluster/v1/members", membersBody{Members: []Member{bm}}, nil))
 	require.Equal(t, &second, deviceOf(a), "only B may change B's record")
+
+	// A relayed record for a member the receiver does not hold a record
+	// for is ignored as well: only the member itself sets it.
+	cm2, _ := mustSnapshot(t, a).Member(c.Identity().ID)
+	require.Nil(t, cm2.Device)
+	fake := cm2
+	fake.Device = &DeviceEndpoints{V: 1, Seq: 1 << 62, WS: DeviceListener{State: DeviceListenerOn, Addrs: []string{"6.6.6.6:1"}}}
+	require.NoError(t, b.callMember(ctx, am, http.MethodPost, "/cluster/v1/members", membersBody{Members: []Member{fake}}, nil))
+	cm2, _ = mustSnapshot(t, a).Member(c.Identity().ID)
+	require.Nil(t, cm2.Device, "B cannot plant a record for C")
 
 	// B replaying its own older record is ignored too.
 	bm.Device = first.Clone()

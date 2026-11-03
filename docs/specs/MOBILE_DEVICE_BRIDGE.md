@@ -283,7 +283,7 @@ This is the same search, ranking, and limits as `crush search` (the route, the T
 | `hits[].message_id`, `role`, `created_at` | string | The best-matching message, its role (`user`, `assistant`, ...), and its time. |
 | `total` | int | Distinct sessions found in the candidate window (before `limit`). |
 | `mode` | string | `hybrid`: the vector signal ran and at least one candidate message has a stored vector, fused with the substring signal. `text`: substring only. Additive; absent from older nodes. |
-| `fallback_reason` | string | Why `mode` is `text` (absent when `hybrid`): `no_embedder` (none configured), `disabled_by_request` (`semantic: false`), `disabled_by_config` (`semantic` absent and `hybrid_search` off), `no_embeddings` (embedder ran, but no candidate message has a vector yet, e.g. before backfill), `embed_error` (embedding the query failed). With `all_workspaces` the reason is the first one met in workspace order. Additive; unknown values mean "text only, for some other reason". |
+| `fallback_reason` | string | Why `mode` is `text` (absent when `hybrid`): `no_embedder` (none configured), `disabled_by_request` (`semantic: false`), `disabled_by_config` (`semantic` absent and `hybrid_search` off), `no_embeddings` (embedder ran, but no candidate message has a vector yet, e.g. before backfill), `embed_error` (embedding the query failed). With `all_workspaces` the reason is the first one met in workspace order; it is absent if no workspace could be searched. A workspace that fails is skipped; the request fails only if every workspace fails. Additive; unknown values mean "text only, for some other reason". |
 | `semantic_used` | bool | Kept for compatibility: whether the vector signal was attempted and did not error (true with `no_embeddings`). Prefer `mode`. |
 
 When no embedder is configured, the search is still served (substring only): `mode: "text"`, `fallback_reason: "no_embedder"`, `semantic_used: false`, every `match` is `exact`. It is not an error.
@@ -508,7 +508,8 @@ The record rides in the member's cluster record (`cluster.Member.device`, cluste
   A listener bound to a specific host is advertised for that host only; a wildcard bind (`:7733`, `0.0.0.0`, `[::]`) is advertised on every host of the member's `direct` endpoints.
 - A member re-advertises on startup, when it joins or creates a cluster, and whenever either listener binds, unbinds, or rebinds (including the gate opening and closing).
   A failed push to a member is retried until it succeeds or a newer advertisement supersedes it.
-- Only the member itself may change its `device` record: a `members` push from another member keeps the receiver's stored record for every existing member (a new member's record is taken from the approving node, which got it from the joiner).
+- Only the member itself may set or change its `device` record: a record relayed by any other member (a `members` push or a join response) is ignored, so a member learned through a relay has no record until its own advertisement arrives (pushes it could not deliver yet, for example to a member that has not learned of it, are retried).
+- A listener configured with port `0` rebinds its previous port when it can, so advertised `idle` addresses stay valid across gate cycles; if that port is taken it binds a new one and re-advertises.
 - Absence of `device` means the member predates advertising (legacy).
 
 ### What phones see

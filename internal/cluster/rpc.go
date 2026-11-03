@@ -287,8 +287,8 @@ func (n *Node) handleMembers(w http.ResponseWriter, r *http.Request, from Member
 			if m.NodeID == n.id.ID {
 				continue
 			}
-			existing, known := st.Member(m.NodeID)
-			m.Device = mergeDevice(m.NodeID, from.NodeID, existing.Device, m.Device, known)
+			existing, _ := st.Member(m.NodeID)
+			m.Device = mergeDevice(m.NodeID, from.NodeID, existing.Device, m.Device)
 			m.LastSeen = time.Time{}
 			st.upsertMember(m)
 			st.Pending = slices.DeleteFunc(st.Pending, func(p JoinRequest) bool { return p.NodeID == m.NodeID })

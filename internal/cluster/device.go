@@ -80,18 +80,15 @@ func newerDevice(incoming, stored *DeviceEndpoints) bool {
 }
 
 // mergeDevice picks the device record to keep for a member when a
-// record for it arrives from sender. Only the member itself may change
-// its record, and only forward in Seq; a member learned for the first
-// time takes the record it arrived with.
-func mergeDevice(memberID, senderID string, stored, incoming *DeviceEndpoints, known bool) *DeviceEndpoints {
-	switch {
-	case !known:
+// record for it arrives from sender. Only the member itself may set or
+// change its record, and only forward in Seq; records relayed by other
+// members are ignored (a member learned through a relay starts without
+// one until it advertises itself).
+func mergeDevice(memberID, senderID string, stored, incoming *DeviceEndpoints) *DeviceEndpoints {
+	if memberID == senderID && newerDevice(incoming, stored) {
 		return incoming.Clone()
-	case memberID == senderID && newerDevice(incoming, stored):
-		return incoming.Clone()
-	default:
-		return stored.Clone()
 	}
+	return stored.Clone()
 }
 
 // AdvertisedAddrs expands a bound listener address into the addresses a
@@ -139,11 +136,12 @@ func (s *deviceSeq) next(floor int64) int64 {
 }
 
 // AdvertiseDevice stores rec (stamped with version and a new Seq) as this
-// node's own device record and pushes it to every other member. It
-// returns the per-member push errors; the record is stored either way.
-func (n *Node) AdvertiseDevice(ctx context.Context, rec DeviceEndpoints) (DeviceEndpoints, []error) {
+// node's own device record and pushes it to every other member. err is
+// set when the record could not be stored (ErrNotInCluster outside a
+// cluster); pushErrs lists the members that did not take it.
+func (n *Node) AdvertiseDevice(ctx context.Context, rec DeviceEndpoints) (stored DeviceEndpoints, pushErrs []error, err error) {
 	var self Member
-	err := n.store.Update(func(st *State) error {
+	err = n.store.Update(func(st *State) error {
 		i := slices.IndexFunc(st.Members, func(m Member) bool { return m.NodeID == n.id.ID })
 		if i < 0 {
 			return ErrNotInCluster
@@ -161,12 +159,12 @@ func (n *Node) AdvertiseDevice(ctx context.Context, rec DeviceEndpoints) (Device
 		return nil
 	})
 	if err != nil {
-		return rec, []error{err}
+		return rec, nil, err
 	}
 	self.LastSeen = time.Time{}
-	errs := n.broadcast(ctx, "/cluster/v1/members", membersBody{Members: []Member{self}}, "")
-	if len(errs) > 0 {
-		slog.Debug("Device endpoint advertisement incomplete", "failed", len(errs))
+	pushErrs = n.broadcast(ctx, "/cluster/v1/members", membersBody{Members: []Member{self}}, "")
+	if len(pushErrs) > 0 {
+		slog.Debug("Device endpoint advertisement incomplete", "failed", len(pushErrs))
 	}
-	return rec, errs
+	return rec, pushErrs, nil
 }

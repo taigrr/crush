@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -51,14 +52,24 @@ func (p *pairingService) advertiseLoop(ctx context.Context) {
 		if !failed && last.SameListeners(&rec) {
 			continue
 		}
-		stored, errs := p.node.AdvertiseDevice(ctx, rec)
+		stored, pushErrs, err := p.node.AdvertiseDevice(ctx, rec)
 		if ctx.Err() != nil {
 			return
 		}
-		last, failed = &stored, len(errs) > 0
-		if failed {
-			slog.Debug("Device port advertisement will be retried", "failed", len(errs))
+		switch {
+		case errors.Is(err, cluster.ErrNotInCluster):
+			// Nothing to advertise to; startMesh re-advertises on join.
+			last, failed = nil, false
+		case err != nil:
+			slog.Warn("Failed to store device port advertisement", "error", err)
+			last, failed = nil, true
 			retry.Reset(deviceAdvertiseRetry)
+		default:
+			last, failed = &stored, len(pushErrs) > 0
+			if failed {
+				slog.Debug("Device port advertisement will be retried", "failed", len(pushErrs))
+				retry.Reset(deviceAdvertiseRetry)
+			}
 		}
 	}
 }

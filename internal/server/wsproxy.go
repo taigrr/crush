@@ -28,9 +28,9 @@ type tlsProxyListener struct {
 	maxConn   int
 	perSource int
 	onDown    func()
-	// onChange is called whenever the listener binds or unbinds, so the
-	// node can re-advertise its device ports. It may run with the
-	// listener locked: it must only signal, never block or call back.
+	// onChange is called (never with the listener locked) whenever the
+	// listener binds or unbinds, so the node can re-advertise its device
+	// ports. It must not block.
 	onChange func()
 	backoff  time.Duration
 
@@ -73,30 +73,35 @@ func (l *tlsProxyListener) LastAddr() string {
 }
 
 func (l *tlsProxyListener) Start() error {
+	started, err := l.start()
+	if started && l.onChange != nil {
+		l.onChange()
+	}
+	return err
+}
+
+func (l *tlsProxyListener) start() (bool, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.ln != nil {
-		return nil
+		return false, nil
 	}
 	if !l.failedAt.IsZero() && time.Since(l.failedAt) < l.backoff {
-		return errBackoff
+		return false, errBackoff
 	}
 	if l.target() == "" {
-		return errors.New("no websocket target")
+		return false, errors.New("no websocket target")
 	}
-	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", l.addr)
+	ln, err := listenStable(l.addr, l.last)
 	if err != nil {
-		return fmt.Errorf("%s %s: %w", l.name, l.addr, err)
+		return false, fmt.Errorf("%s %s: %w", l.name, l.addr, err)
 	}
 	l.ln, l.bound = ln, ln.Addr().String()
 	l.last = l.bound
 	l.conns, l.sources = map[net.Conn]struct{}{}, map[string]int{}
 	go l.serve(ln)
 	slog.Info("Listener started", "listener", l.name, "addr", l.bound)
-	if l.onChange != nil {
-		defer l.onChange()
-	}
-	return nil
+	return true, nil
 }
 
 func (l *tlsProxyListener) serve(ln net.Listener) {
