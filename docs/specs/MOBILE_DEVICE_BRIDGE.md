@@ -385,7 +385,9 @@ These clarify behavior the node implements; none changes a field, subject, or co
 - **Heartbeat and end frames** carry the last event `seq`, or `-1` before the first event.
 - **Idle streams** stay open (and resumable) for `resume_window_ms` after the last sign of interest (subscription or ack), then end with `idle`; this is at least the 30 s stated above.
 - **Resume buffer** is bounded by `resume_buffer_frames` and by 4 MiB of encoded frames per stream, whichever is smaller. An event too large for one NATS message ends the stream with `reason: "error"` instead of leaving a gap.
-- **Session filter** also drops session events it cannot attribute (a `message_delta` whose message the stream never saw).
+- **Session filter** also drops session events it cannot attribute (a `message_delta` whose message the stream never saw, or an event type the node does not know to be workspace-wide). It applies to `/v1/events` too.
+- **Resume replay** sends every buffered frame after `after_seq` at once, outside the credit window (the buffer bounds it); credit applies again to live frames.
+- **`swarm_parts`** in a device's `POST .../agent` body is dropped: structured swarm sender metadata is set only by the backend. `run_id` is passed through.
 - **Remote streams**: the owning node publishes frames to the device subject itself (the device account spans the cluster); there is no extra relay hop, which is not observable on the wire.
 - **`unsub` replies** come from the stream's node only (any node answers for a stream ID no member owns).
 - **Legacy `broadcast.attention`** carries the same notice, plus the `proto.AttentionEvent` fields at the top level for phase 2a readers, with `actionable: false`. Every device can read it; per-device subjects are the scope-filtered path.
