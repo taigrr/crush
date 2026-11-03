@@ -417,7 +417,7 @@ Published on `crush.client.v1.<dev>.control`:
 | `type` | Extra fields | Meaning |
 | --- | --- | --- |
 | `revoked` | `reason`, `by_node`, `at` | Device revoked cluster-wide. Every node publishes it once; repeats are idempotent. Streams end with `reason: "revoked"`, in-flight requests get no reply, and the NATS user is removed 500 ms later. |
-| `scopes_changed` | `role`, `scopes`, `at` | New effective permissions; rush updates UI. Streams that lost their scope end with `reason: "error"`. |
+| `scopes_changed` | `role`, `scopes`, `at` | New effective permissions; rush updates UI. Not sent for role edits now that every device has full access. Streams that lost their scope end with `reason: "error"`. |
 | `reauth` | `reason`, `at` | Reconnect (for example after trust rotation). |
 
 ```json
