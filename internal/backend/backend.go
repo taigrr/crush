@@ -459,7 +459,8 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	// instance (or the server on startup) can enumerate and jump to it
 	// without it being attached. Best-effort; a registry write failure
 	// must not fail workspace creation.
-	if !args.Isolated && b.registry != nil && !(b.hideTempWorkspaces() && isTempWorkspace(key, cfg.Config().Options.DataDirectory)) {
+	skipTemp := b.hideTempWorkspaces() && isTempWorkspace(key, cfg.Config().Options.DataDirectory)
+	if !args.Isolated && b.registry != nil && !skipTemp {
 		if err := b.registry.Add(registry.Entry{
 			Root:     key,
 			DataDir:  cfg.Config().Options.DataDirectory,
