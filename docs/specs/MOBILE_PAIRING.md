@@ -151,7 +151,7 @@ A typical node offer (two endpoints) is about 280 bytes of `B`, about 385 charac
 | 2 | `node_id` | text | Pairing node. |
 | 3 | `node_name` | text | Display only. |
 | 4 | `node_pub` | 32 bytes | Pairing node's ed25519 identity public key. |
-| 5 | `ca_fp` | 32 bytes | `SHA-256(DER SubjectPublicKeyInfo of the cluster CA)`. |
+| 5 | `ca_fp` | 32 bytes | `SHA-256(DER SubjectPublicKeyInfo of the client CA)` (see [Client listener](#client-listener)). |
 | 6 | `endpoint` | `kind:u8 \|\| "host:port"` | Client listener address; kind `1` lan, `2` wg, `3` ts, `4` direct. Repeatable. |
 | 7 | `offer_id` | 16 bytes | Random. |
 | 8 | `secret` | 32 bytes | Single-use pairing secret `S`. |
@@ -592,11 +592,15 @@ Two device ports, both behind the same gate:
   loopback port. Sharing `:7733` (a `/nats` path) was rejected because
   long-lived websockets would fight the HTTP server's request timeouts.
 
-Certificates: both ports present the chain `[node leaf, cluster CA]`. The CA
-certificate is self-signed by the CA key derived from the cluster key and is
-deterministic, so every node sends the same bytes; `ca_fp` is the SHA-256 of
-its SubjectPublicKeyInfo. Rush verifies by CA pin + node ID, never by host
-name.
+Certificates: both ports present the chain `[node leaf, client CA]`, both
+ECDSA P-256 (phone TLS stacks do not reliably support the ed25519 member
+PKI). The client CA key is derived from the cluster key
+(`HKDF-SHA256(cluster key, info "crush-client-ca-v1")`, 48 bytes reduced to
+a P-256 scalar), so every node has the same CA public key; each node issues
+itself a fresh P-256 leaf (CN = node ID, DNS `crush-node`, serverAuth, 30
+days, reissued at half life and on rotation). `ca_fp` is the SHA-256 of the
+client CA's SubjectPublicKeyInfo. Rush verifies by CA pin + node ID, never
+by host name.
 
 ### NATS isolation
 
@@ -604,8 +608,9 @@ Devices connect to the embedded server in a separate **`CLIENTS` account**.
 The mesh account (where `crush.creds`, `crush.repl.*`, `crush.swarm.*` live)
 is a different account, so its subjects do not exist for a device, whatever
 the permissions say.
-Bridging selected device subjects to node handlers (the NATS-to-HTTP bridge
-below) is deferred to phase 2b.
+An in-process **bridge** connection inside `CLIENTS` (in-process only)
+serves device subjects (the NATS-to-HTTP bridge and event streams below);
+it is the only thing that can answer a device.
 
 Authentication is plain **nkey users** (implemented; auth callout and JWTs
 were not needed because every node already holds the replicated registry):
@@ -658,50 +663,44 @@ forwarding, carries the authenticated device ID stamped by the entry node).
 
 ### NATS-to-HTTP bridge
 
-A request on `...api.<node>` is a CBOR (or JSON, by header) envelope:
+A device sends a NATS request on `crush.client.v1.<dev>.api.<node>` (`<node>` is the session owner's node ID, or `any` for the entry node) with a JSON envelope:
 
 ```json
 {
-  "id": "01J...",
+  "id": "<client request id, at most 128 bytes>",
   "method": "POST",
   "path": "/v1/workspaces/{id}/permissions/grant",
-  "query": "",
+  "query": "a=1&b=2",
   "headers": { "content-type": "application/json" },
-  "body": "<bytes>"
+  "body": "<base64url, no padding>"
 }
 ```
 
-1. The entry node checks the route against the device's scopes (fast reject).
-2. If `<node>` is itself, or the target session/workspace is local, it
-   dispatches the request to the in-process `/v1` handler with a request
-   context carrying `device_id` and scopes.
-   Otherwise it forwards on `crush.client.fwd.<node>` with the stamped device
-   ID; the owning node **re-checks** the registry and scopes before
-   dispatching.
-   Untrusted device-supplied identity headers are stripped, like swarm sender
-   identity today.
-3. The response (status, headers, body) returns on the reply inbox.
-   Bodies over 512 KiB are chunked on `...ev.<stream>` with a stream ID instead.
+and receives on its inbox:
 
-The bridge reuses the same handler the `/v1/nodes/<node-id>/...` proxy
-reaches (`/node/v1/api/*`), so there is one API surface and one swagger.
+```json
+{ "id": "<same id>", "status": 200, "headers": { "content-type": "application/json" }, "body": "<base64url>" }
+```
+
+1. The bridge (a queue group across the cluster; the local member is preferred) takes the device ID from the subject, which the device's permissions make unforgeable, and rejects revoked or unknown devices silently.
+2. It answers only if the reply subject starts with `_INBOX.<dev>.`, so a device cannot aim an answer at another device.
+3. The path must be canonical (`/v1/...`, no dot segments, doubled or encoded slashes) and match the route allow-list for one of the device's scopes (`internal/server/devicescopes.go`); otherwise `403`. Unknown nodes give `404`.
+4. Only `content-type` is taken from the device's headers.
+5. The request runs in-process against the `/v1` handler, or for another node through the existing member proxy (`/v1/nodes/<node>/...`). Timeout 30 s; at most 8 concurrent requests per device (`429`); bodies over 4 MiB give `413`.
+
+Deferred: re-checking scopes on the owning node and stamping `device_id` on device-originated actions.
 
 ### Event streams
 
-`...sub` requests take the same parameters as the SSE endpoints
-(`/v1/events`, `/v1/workspaces/{id}/events`) and always use `wire=2` with
-`frame_ms` (default 100 ms on mobile).
-The owning node runs the SSE producer internally and publishes each frame on
-`...ev.<stream>` with a per-stream `seq`.
+1. Open: NATS request on `crush.client.v1.<dev>.sub` with `{"node": "<id>|any", "path": "/v1/workspaces/{id}/events" | "/v1/events", "query": {"wire": 2, "frame_ms": 100}, "credit": 256}`. The reply is `{"stream": "<id>"}`, or `{"error", "status"}` (`403` for a path outside the stream routes or scopes, `404`, `429` over 16 streams per device).
+2. Frames: `crush.client.v1.<dev>.ev.<stream>` carries `{"seq": n, "data": "<one SSE data payload>"}` with `seq` from 0. `data` is exactly what the SSE endpoint would send in one `data:` line (wire 2 envelopes for workspace streams, attention events for `/v1/events`).
+3. Credit: the node stops reading the stream while `sent - acked >= credit`. The device publishes `{"seq": n, "credit": c}` on `crush.client.v1.<dev>.ack.<stream>` (rush acks every 16th frame). A stream stuck at zero credit for 60 s is closed. Credit is capped at 1024.
+4. Close: `{"stream": "<id>"}` on `crush.client.v1.<dev>.unsub`. A stream also ends when the device is revoked, or when nothing in `CLIENTS` has subscribed to its frame subject for 30 s (the phone went away).
+5. Frames are never dropped or reordered, so there are no gaps and no `resync` frames; a phone that sees a gap (after its own reconnect) resubscribes.
 
-- The device acks every N frames; the node pauses a stream with more than 256
-  unacked frames and sends a full `resync` frame when credit returns, which
-  wire 2 clients already handle (they drop deltas whose prior length does not
-  match and wait for the next full message).
-- Streams are leased: no ack for 60 s closes them.
-- Gap detection by `seq`; on a gap the device resubscribes and receives
-  current state first.
-- Payloads above 1 KiB are gzipped per frame (`enc: gzip`).
+Attention: every node publishes its own attention events (not ones relayed from other members, and never `cluster_join`) on `crush.client.v1.broadcast.attention` as the `proto.AttentionEvent` JSON, tagged with `node_id` and `node_name`.
+
+Control: before revoking a device's NATS user, each node publishes `{"type": "revoked"}` on `crush.client.v1.<dev>.control`.
 
 ### HTTPS fallback
 
@@ -791,7 +790,7 @@ No token, password, or JWT is used.
 
 | Action | Allowed | Example |
 | --- | --- | --- |
-| Publish | `crush.client.v1.<dev>.>` | `crush.client.v1.dev_k3x9....api.any` (a bridged request, phase 2b) |
+| Publish | `crush.client.v1.<dev>.>` | `crush.client.v1.dev_k3x9....api.any` (a bridged request) |
 | Subscribe | `crush.client.v1.<dev>.>` | `crush.client.v1.dev_k3x9....ev.<stream>` |
 | Subscribe | `crush.client.v1.broadcast.>` | `crush.client.v1.broadcast.attention` |
 | Subscribe | `_INBOX.<dev>.>` | replies to the device's own requests |
@@ -805,7 +804,7 @@ Mesh subjects (`crush.creds`, `crush.devices`, `crush.repl.*`, `$SYS`, `$JS.API`
 - On disconnect, retry the `urls`, then the endpoints of other `members`, with backoff.
 - The device ports are bound only while the device is paired (or an offer is open), so after revocation the port may be closed: a connection refused after a revocation is expected.
 - A revoked device's connections are closed by every node within one registry update, and new connections fail with `Authorization Violation`.
-- `Authorization Violation` alone is **not** proof of revocation: a member that has not yet received the device record (replication lag, a partition) refuses the same way. The pairing node installs the user before the poll reports `approved`, so connect to it first. Treat the device as removed only when the pairing node (or every reachable member) has refused for at least 60 seconds across at least 3 attempts; until then, back off and try other members. An explicit revocation notice on `crush.client.v1.<dev>.control` is phase 2b.
+- `Authorization Violation` alone is **not** proof of revocation: a member that has not yet received the device record (replication lag, a partition) refuses the same way. The pairing node installs the user before the poll reports `approved`, so connect to it first. Treat the device as removed only when the pairing node (or every reachable member) has refused for at least 60 seconds across at least 3 attempts; until then, back off and try other members. A `{"type":"revoked"}` message on `crush.client.v1.<dev>.control` is definitive.
 - After a confirmed removal: stop reconnecting, delete the seed and pins, and show "This device was removed; pair again".
 - Re-pairing a revoked phone requires a new seed (a new device ID).
 
@@ -822,7 +821,7 @@ Mesh subjects (`crush.creds`, `crush.devices`, `crush.repl.*`, `$SYS`, `$JS.API`
 ### Server-side notes
 
 - The embedded NATS server's websocket listener is plain and bound to a random **loopback** port; only the gated `:7734` front is reachable from the network. Local processes can reach the loopback port, but it accepts only paired device keys, like the public port. NATS sees proxied connections as coming from `127.0.0.1`, so per-address limits live in the front.
-- NATS does not check a message's reply subject against permissions. Any node service answering device requests (phase 2b) **must** reply only to `_INBOX.<same device_id>.>`, or a device could direct a node's answer into another device's subjects.
+- NATS does not check a message's reply subject against permissions, so the bridge replies only to `_INBOX.<same device_id>.>`; otherwise a device could direct a node's answer into another device's subjects.
 
 ## Permissions
 
@@ -1009,10 +1008,11 @@ Per the project rule, the `crush-config` builtin skill is updated alongside.
    Implemented (phase 2a): gated TLS websocket on `:7734`, nkey auth,
    websocket-only scoped users in `CLIENTS`, `urls` in the poll response,
    CA certificate in the client chain, revocation closes connections.
-   Deferred (phase 2b): NATS-to-HTTP bridge, event streams with flow
-   control, attention and node fan-out, per-device message-rate and
-   payload limits (need account JWTs), so rush can connect but no node
-   service answers on device subjects yet.
+   Implemented (phase 2b): NATS-to-HTTP bridge with the route allow-list,
+   event streams with credit, attention fan-out, revocation notices, P-256
+   client PKI.
+   Deferred: node fan-out (`broadcast.nodes`), per-device message-rate and
+   payload limits (need account JWTs), owner-side scope re-checks.
 3. **Rotation and membership updates.**
    `crush.client.trust` / `members`, CA fingerprint sets, re-pair UX.
 4. **Device admin from devices.**
