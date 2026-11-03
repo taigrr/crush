@@ -45,7 +45,7 @@ func OpenReadOnly(dataDir string) (*sql.DB, error) {
 // newest migration.
 func schemaBehind(conn *sql.DB) bool {
 	var v sql.NullInt64
-	if err := conn.QueryRow(`SELECT MAX(version_id) FROM goose_db_version WHERE is_applied = 1`).Scan(&v); err != nil {
+	if err := conn.QueryRowContext(context.Background(), `SELECT MAX(version_id) FROM goose_db_version WHERE is_applied = 1`).Scan(&v); err != nil {
 		return false
 	}
 	return v.Valid && v.Int64 < LatestSchemaVersion()
