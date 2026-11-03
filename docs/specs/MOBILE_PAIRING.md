@@ -380,7 +380,7 @@ Returns as soon as the state differs from `claimed`, or after `wait_ms` with the
   },
   "ca_fps": ["<b64url>"],
   "ca_certs": ["<b64url DER, current first>"],
-  "members": [{"node_id": "...", "name": "...", "node_pub": "...", "endpoints": []}]
+  "members": [{"node_id": "...", "name": "...", "node_pub": "...", "endpoints": [], "device_ports": "advertised", "nats_urls": ["wss://mini.tailnet.ts.net:7734"]}]
 }
 ```
 
@@ -750,7 +750,9 @@ This is the contract rush implements to talk NATS to a node after pairing.
 | CA certificates | Poll response `ca_certs` | DER, base64url. Keep only those whose `SHA-256(SubjectPublicKeyInfo)` equals a pin (in flow a, the pin from the QR). |
 | Members | Poll response `members` | Node IDs, names, and keys for every node; their client endpoints. |
 
-The websocket port is the node's `--client-ws-addr` port (default `7734`); for another member, combine its endpoint hosts with that port.
+The websocket port is the node's `--client-ws-addr` port (default `7734`).
+For another member, use its `members[].nats_urls` when `device_ports` is present; only when it is absent (an older pairing node), combine the member's endpoint hosts with that port.
+See [Member device ports](MOBILE_DEVICE_BRIDGE.md#member-device-ports).
 
 ### TLS pinning
 
@@ -838,7 +840,7 @@ The role is chosen at approval and editable later from any node.
 | `permissions:answer` | Grant or deny tool permissions once or for the session; answer questions. | | yes | yes |
 | `permissions:always` | Persistent "always allow" grants and `yolo` / auto-approve policy changes. | | | yes |
 | `config:model` | Switch model/provider for a session. | | yes | yes |
-| `sessions:move` | Move sessions, migrate, autobalance. | | | yes |
+| `sessions:move` | Move sessions (`POST /v1/sessions/move`); migrate and autobalance stay `never`. | | yes | yes |
 | `shell` | `.../shell` (run arbitrary commands). | | | opt-in |
 | `devices:approve` | Approve/deny/revoke other devices, change their roles (never above its own). | | | yes |
 | `cluster:approve` | Approve or deny **node** join requests. | | | opt-in |

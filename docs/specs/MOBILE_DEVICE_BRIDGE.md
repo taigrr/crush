@@ -181,6 +181,7 @@ Unknown codes MUST be handled by `status` class. Codes are stable public API and
 
 Every operation in `internal/swagger/swagger.yaml` carries `x-crush-scope`, whose value is a scope from [Permissions](MOBILE_PAIRING.md#permissions) or `never`.
 Deny by default: an operation without the annotation is unreachable, and `TestSwaggerRoutesHaveDeviceScope` fails the build.
+Every route registered on the `/v1` server mux must also be documented and annotated (`TestServerRoutesHaveDeviceScope`), so a handler cannot be added without deciding its device scope; the only exceptions are method-less prefix routes (`/v1/nodes/{node}/{rest...}`, `/v1/docs/`), which the device router never matches.
 The bridge's allow-list (`internal/server/devicescopes.go`) is generated from or checked against these annotations.
 
 Scopes are checked on the **entry node** and again on the **owning node** against its own copy of the device registry; either may refuse.
@@ -207,6 +208,7 @@ Initial v1 set (everything else is `never` until annotated otherwise):
 | `GET /v1/workspaces/{id}/agent/sessions/{sid}/prompts/queued` | `sessions:read` | api |
 | `GET /v1/cluster/dashboard` | `sessions:read` | api |
 | `GET /v1/swarm/resolve` | `sessions:read` | api |
+| `POST /v1/workspaces/{id}/history/search` | `sessions:read` | api |
 | `GET /v1/workspaces/{id}/events` | `sessions:read` | **sub only** |
 | `GET /v1/events` | `sessions:read` | **sub only** |
 | `POST /v1/workspaces/{id}/agent` | `sessions:prompt` | api |
@@ -236,6 +238,62 @@ Body rules enforced by the bridge on top of the route scope:
 - `POST .../agent`: `client_id` is overwritten with `device:<dev>`; `permission_policy` other than empty or `prompt` needs `permissions:always`.
 - `POST .../permissions/grant`: `action: "allow_session"` needs `permissions:answer`; persistent grants need `permissions:always`.
 - `never` (all roles): provider keys and OAuth, `config/set`, `config/remove`, cluster key ops, `debug`, replication, transfer, member API, `/v1/nodes/...` proxy paths.
+
+`sessions:move` is granted to the `operator` role (and `admin`) from this revision on; see [Operator move](#operator-move).
+
+### Operator move
+
+`POST /v1/sessions/move` needs `sessions:move`, which `operator` now carries alongside `admin`; `viewer` never has it.
+The role's scopes are copied into the device record when it is approved, so devices paired as `operator` before this change keep their old scopes (no silent privilege change) until re-paired or their role is set again.
+Migrate and autobalance (`/v1/migrate/*`) stay `never`.
+
+### Favorite is the pin
+
+Rush's "pin" is the session favorite flag: `POST /v1/workspaces/{id}/sessions/{sid}/favorite` (`sessions:prompt`) with query `favorite=true` pins and `favorite=false` unpins (absent means `true`), and sessions carry it as `favorite` (omitted when false).
+Favorites sort to the top of the inbox in the TUI too, so a pin on the phone and on the desktop is the same state.
+There is no separate pin route or field.
+
+## History search
+
+`POST /v1/workspaces/{id}/history/search` (`sessions:read`, api) runs the same hybrid (substring plus, when an embedder is configured, semantic) search as the TUI and the `search_history` tool, on the node that executes the request.
+Over `api.any` without a target that is the entry node; send it to `api.<node>` to search another member's workspaces.
+
+Request body (`proto.SearchHistoryParams`):
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `query` | string | required | Case-insensitive search text. |
+| `scope` | `"user"` or `"all"` | `"user"` | `user`: user and shell messages; `all`: also assistant replies and reasoning. |
+| `semantic` | bool | config `hybrid_search` | Force the vector signal on or off. |
+| `limit` | int | 20 (max 50) | Maximum sessions returned. |
+| `all_workspaces` | bool | `false` | Also search every other workspace known to that node (attached and detached). |
+| `offset` | int | 0 | Reserved; ignored. |
+
+Response body (`proto.SearchHistoryResult`): hits are per session (best message wins), ranked by `score`.
+`match` is `exact`, `semantic`, or `both`.
+
+```json
+{ "v": 1, "id": "r7", "method": "POST", "path": "/v1/workspaces/ws_1/history/search", "json": { "query": "login bug", "scope": "all", "limit": 10 } }
+```
+
+```json
+{
+  "v": 1, "id": "r7", "status": 200, "node_id": "n_7f3a9c", "headers": { "content-type": "application/json" },
+  "json": {
+    "hits": [
+      {
+        "session_id": "ses_1", "session_title": "Fix login", "workspace_id": "ws_1", "workspace_root": "/Users/tai/code/app",
+        "score": 0.0325, "match": "both", "snippet": "...the login bug only shows up when...",
+        "message_id": "msg_9", "role": "user", "created_at": "2026-11-02T20:16:44Z"
+      }
+    ],
+    "total": 1,
+    "semantic_used": true
+  }
+}
+```
+
+Errors: `400 bad_request` for a malformed body, `404 not_found` for an unknown workspace, and `403 device_scope_denied` (`scope: "sessions:read"`) without the scope.
 
 ## Event streams
 
@@ -388,13 +446,64 @@ These clarify behavior the node implements; none changes a field, subject, or co
 - **Session filter** also drops session events it cannot attribute (a `message_delta` whose message the stream never saw, or an event type the node does not know to be workspace-wide). It applies to `/v1/events` too.
 - **Unknown filtered session**: opening a workspace stream whose `session_id` names a session that workspace does not have (on the node that runs the stream) fails with `404 not_found`, as does an unknown workspace; a lookup failure gives `500 internal`. Global streams are not checked (they carry other nodes' sessions).
 - **Pinning**: `VerifyPinnedChain` also requires the leaf to carry the DNS name `crush-node`, matching what `TrustedTLSConfig` checks through the server name.
-- **Deferred, member device ports**: pairing still assumes every member uses this node's client and websocket ports for its `members[].endpoints`. Advertising per-member ports needs an explicit "disabled" marker, bound (not configured) ports, per-host advertising for specific binds, and re-advertising on restart, so it is left for a later change.
+- **Member device ports**: each member advertises its own bound device listeners; pairing uses them for `members[]`. See [Member device ports](#member-device-ports).
 - **Resume replay** sends every buffered frame after `after_seq` at once, outside the credit window (the buffer bounds it); credit applies again to live frames.
 - **`swarm_parts`** in a device's `POST .../agent` body is dropped: structured swarm sender metadata is set only by the backend. `run_id` is passed through.
 - **Remote streams**: the owning node publishes frames to the device subject itself (the device account spans the cluster); there is no extra relay hop, which is not observable on the wire.
 - **`unsub` replies** come from the stream's node only (any node answers for a stream ID no member owns).
 - **Legacy `broadcast.attention`** carries the same notice, plus the `proto.AttentionEvent` fields at the top level for phase 2a readers, with `actionable: false`. Every device can read it; per-device subjects are the scope-filtered path.
 - **`reauth`** is sent to every active device when the cluster key version changes, with `reason: "key_rotation"`.
+
+## Member device ports
+
+Each member advertises where its device listeners (the `/client/v1` client listener and the device NATS websocket) are actually bound, so pairing on one node hands the phone correct addresses for every other member.
+
+### Advertisement (member to member)
+
+The record rides in the member's cluster record (`cluster.Member.device`, cluster RPC `members` push):
+
+```json
+{
+  "node_id": "n_b", "name": "mini", "public_key": "...", "endpoints": [ { "kind": "direct", "addr": "10.0.0.2:7731" } ],
+  "device": {
+    "v": 1,
+    "seq": 1793760000123456789,
+    "client": { "state": "on", "addrs": ["10.0.0.2:7733", "mini.tailnet.ts.net:7733"] },
+    "ws": { "state": "off" }
+  }
+}
+```
+
+- `v` is the record version (1). A reader that does not know `v` gives phones no addresses for that member rather than guessing.
+- `seq` increases with every advertisement (wall-clock nanoseconds, kept strictly increasing); a member ignores a record whose `seq` is not newer than the one it holds, so reordered pushes cannot roll the state back.
+- `client` and `ws` each have `state`:
+  - `on`: bound now; `addrs` are the bound addresses.
+  - `idle`: enabled but not bound right now (the listener is gated on an open offer or an active device); `addrs` are the addresses of the last bind, or empty if it never bound.
+  - `off`: disabled on that member (`--client-addr ""` / `--client-ws-addr ""`); no `addrs`.
+- `addrs` always carry the port from the bound `net.Listener` address, never a configured value, so `:0` binds advertise the real port.
+  A listener bound to a specific host is advertised for that host only; a wildcard bind (`:7733`, `0.0.0.0`, `[::]`) is advertised on every host of the member's `direct` endpoints.
+- A member re-advertises on startup, when it joins or creates a cluster, and whenever either listener binds, unbinds, or rebinds (including the gate opening and closing).
+  A failed push to a member is retried until it succeeds or a newer advertisement supersedes it.
+- Only the member itself may change its `device` record: a `members` push from another member keeps the receiver's stored record for every existing member (a new member's record is taken from the approving node, which got it from the joiner).
+- Absence of `device` means the member predates advertising (legacy).
+
+### What phones see
+
+`members[]` in the poll response gains two additive fields:
+
+| Field | Meaning |
+| --- | --- |
+| `device_ports` | `"advertised"`: `endpoints` and `nats_urls` come from the member's own record; a listener that member reports `off` contributes nothing. `"legacy"`: the member predates advertising; `endpoints` and `nats_urls` use the pairing node's ports on the member's hosts (the v1 rule). `"unknown"`: the member's record has a version this node does not understand; both lists are empty. |
+| `nats_urls` | The member's device websocket URLs (`wss://host:port`), possibly empty. |
+
+Rules for rush:
+
+- `device_ports` absent (older pairing node): use the v1 rule, the member's endpoint hosts with the pairing node's websocket port.
+- `device_ports: "legacy"`: use `nats_urls` as given (they apply the same fallback).
+- `device_ports: "advertised"` or `"unknown"`: use exactly `endpoints` and `nats_urls`; an empty list means that member has no address of that kind (for example its websocket is `off`), and rush MUST NOT synthesize one.
+- Unknown `device_ports` values: treat as `"advertised"`.
+- The pairing node's own entry, `nats.urls`, and the `endpoints` it puts in offers and `/client/v1/info` come from its own listeners: the bound address when bound, else the last bound address, else (an offer is created just before the gate binds) the configured port when it is not `0`.
+- Members whose listeners are `idle` are listed with their last bound addresses: the listener binds once the new device is active.
 
 ## Worked examples
 
