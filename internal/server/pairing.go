@@ -10,7 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -86,6 +88,12 @@ type pairingService struct {
 
 	revokedMu   sync.Mutex
 	revokedSeen map[string]bool
+	// perms is each known device's role and scopes, to notice changes.
+	perms map[string]string
+	// keyVersion is the cluster key version devices were last told of
+	// (valid once keySeen).
+	keyVersion int
+	keySeen    bool
 
 	// gate binds the client listener only while an offer is open or an
 	// active device exists. It lives while the mesh is attached.
@@ -105,12 +113,15 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, wsAddr: s.clientWSAddr, natsDirty: make(chan struct{}, 1), revokedSeen: map[string]bool{}}
+	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, wsAddr: s.clientWSAddr, natsDirty: make(chan struct{}, 1), revokedSeen: map[string]bool{}, perms: map[string]string{}}
 	p.mgr = pairing.NewManager(pairing.Config{
 		Self: p.self, OnApprove: p.onApprove, Extras: p.extras, Revoked: p.revoked,
 		OnChange: p.kickGate,
 	})
 	reg.Watch(func(d pairing.Device) {
+		if d.Revoked() {
+			p.forgetPermissions(d.DeviceID)
+		}
 		if d.Revoked() && p.firstRevocation(d.DeviceID) {
 			// Tell the device first, while it is still connected, and end
 			// its streams and requests at once (the bridge already refuses
@@ -118,8 +129,7 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 			// notice is delivered rather than lost with the socket. Each
 			// node notices once; devices treat repeats as idempotent.
 			if b := p.bridge.Load(); b != nil {
-				b.control(d.DeviceID, "revoked")
-				b.closeDevice(d.DeviceID)
+				b.revoked(d)
 				time.AfterFunc(revokeNoticeGrace, func() {
 					p.markNATSDirty()
 					p.kickGate()
@@ -127,9 +137,29 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 				return
 			}
 		}
+		if !d.Revoked() && p.permissionsChanged(d) {
+			if b := p.bridge.Load(); b != nil {
+				b.scopesChanged(d)
+			}
+		}
 		p.markNATSDirty()
 		// A revocation (local or replicated) may leave nothing to serve.
 		p.kickGate()
+	})
+	for _, d := range reg.List() {
+		p.permissionsChanged(d)
+	}
+	if st, err := n.Store().Snapshot(); err == nil {
+		p.keyRotated(st.KeyVersion)
+	}
+	// A rotated cluster key changes what devices must trust: ask them to
+	// reconnect and pick up the new trust material.
+	n.Store().Watch(func(st cluster.State) {
+		if p.keyRotated(st.KeyVersion) {
+			if b := p.bridge.Load(); b != nil {
+				b.reauth(reauthKeyRotation)
+			}
+		}
 	})
 	p.client = &httpListener{
 		name: "client", addr: p.clientAddr, maxConn: maxClientConns, grace: clientStopGrace, backoff: listenerRetry,
@@ -214,6 +244,41 @@ func clientEndpoints(eps []cluster.Endpoint, port int) []pairing.Endpoint {
 		out = append(out, pairing.Endpoint{Kind: kind, Addr: net.JoinHostPort(host, strconv.Itoa(port))})
 	}
 	return out
+}
+
+// permissionsChanged records d's role and scopes and reports whether they
+// differ from what this node knew (a first sighting is not a change).
+func (p *pairingService) permissionsChanged(d pairing.Device) bool {
+	scopes := slices.Clone(d.Scopes)
+	slices.Sort(scopes)
+	sig := string(d.Role) + "|" + strings.Join(scopes, ",")
+	p.revokedMu.Lock()
+	defer p.revokedMu.Unlock()
+	old, seen := p.perms[d.DeviceID]
+	p.perms[d.DeviceID] = sig
+	return seen && old != sig
+}
+
+func (p *pairingService) forgetPermissions(deviceID string) {
+	p.revokedMu.Lock()
+	defer p.revokedMu.Unlock()
+	delete(p.perms, deviceID)
+}
+
+// keyRotated reports whether the cluster key version moved past the one
+// devices were last told of.
+func (p *pairingService) keyRotated(version int) bool {
+	p.revokedMu.Lock()
+	defer p.revokedMu.Unlock()
+	if !p.keySeen {
+		p.keySeen, p.keyVersion = true, version
+		return false
+	}
+	if version <= p.keyVersion {
+		return false
+	}
+	p.keyVersion = version
+	return true
 }
 
 // firstRevocation reports whether this node has not yet acted on the
@@ -594,6 +659,7 @@ func decodePair[T any](w http.ResponseWriter, r *http.Request) (T, bool) {
 //	@Produce		json
 //	@Success		200	{object}	pairing.Info
 //	@Failure		400	{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/client/v1/info [get]
 func (p *pairingService) handleInfo(w http.ResponseWriter, _ *http.Request) {
 	self, err := p.self()
@@ -619,6 +685,7 @@ func (p *pairingService) handleInfo(w http.ResponseWriter, _ *http.Request) {
 //	@Failure		409		{object}	pairing.Error
 //	@Failure		410		{object}	pairing.Error
 //	@Failure		429		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/client/v1/pair/claim [post]
 func (p *pairingService) handleClaim(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodePair[pairing.ClaimRequest](w, r)
@@ -645,6 +712,7 @@ func (p *pairingService) handleClaim(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	pairing.Error
 //	@Failure		401		{object}	pairing.Error
 //	@Failure		410		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/client/v1/pair/confirm [post]
 func (p *pairingService) handleConfirm(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodePair[pairing.ConfirmRequest](w, r)
@@ -671,6 +739,7 @@ func (p *pairingService) handleConfirm(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	pairing.Error
 //	@Failure		401		{object}	pairing.Error
 //	@Failure		410		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/client/v1/pair/poll [post]
 func (p *pairingService) handlePoll(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodePair[pairing.PollRequest](w, r)
@@ -700,6 +769,7 @@ func (p *pairingService) handlePoll(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	pairing.Error
 //	@Failure		401		{object}	pairing.Error
 //	@Failure		409		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/client/v1/pair/abort [post]
 func (p *pairingService) handleAbort(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodePair[pairing.AbortRequest](w, r)
@@ -760,6 +830,7 @@ func (s *Server) pairOffer(w http.ResponseWriter, r *http.Request) (*pairingServ
 //	@Failure		400		{object}	pairing.Error
 //	@Failure		409		{object}	pairing.Error
 //	@Failure		429		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/offers [post]
 func (s *Server) handleCreatePairOffer(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.requirePairing(w)
@@ -794,6 +865,7 @@ func (s *Server) handleCreatePairOffer(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400		{object}	pairing.Error
 //	@Failure		409		{object}	pairing.Error
 //	@Failure		410		{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/accept [post]
 func (s *Server) handleAcceptPairCode(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.requirePairing(w)
@@ -828,6 +900,7 @@ func (s *Server) handleAcceptPairCode(w http.ResponseWriter, r *http.Request) {
 //	@Success		200			{object}	pairing.OfferView
 //	@Failure		400			{object}	pairing.Error
 //	@Failure		404			{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/offers/{offer_id} [get]
 func (s *Server) handleGetPairOffer(w http.ResponseWriter, r *http.Request) {
 	p, id, ok := s.pairOffer(w, r)
@@ -862,6 +935,7 @@ func (s *Server) handleGetPairOffer(w http.ResponseWriter, r *http.Request) {
 //	@Success		200
 //	@Failure		404	{object}	pairing.Error
 //	@Failure		409	{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/offers/{offer_id}/qr.png [get]
 func (s *Server) handleGetPairOfferQR(w http.ResponseWriter, r *http.Request) {
 	p, id, ok := s.pairOffer(w, r)
@@ -903,6 +977,7 @@ func (s *Server) handleGetPairOfferQR(w http.ResponseWriter, r *http.Request) {
 //	@Failure		400			{object}	pairing.Error
 //	@Failure		404			{object}	pairing.Error
 //	@Failure		410			{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/offers/{offer_id}/approve [post]
 func (s *Server) handleApprovePairOffer(w http.ResponseWriter, r *http.Request) {
 	p, id, ok := s.pairOffer(w, r)
@@ -938,6 +1013,7 @@ func (s *Server) handleApprovePairOffer(w http.ResponseWriter, r *http.Request) 
 //	@Success		200			{object}	pairing.OfferView
 //	@Failure		404			{object}	pairing.Error
 //	@Failure		409			{object}	pairing.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/pairing/offers/{offer_id}/reject [post]
 func (s *Server) handleRejectPairOffer(w http.ResponseWriter, r *http.Request) {
 	p, id, ok := s.pairOffer(w, r)
@@ -959,6 +1035,7 @@ func (s *Server) handleRejectPairOffer(w http.ResponseWriter, r *http.Request) {
 //	@Produce		json
 //	@Success		200	{array}		pairing.Device
 //	@Failure		501	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/devices [get]
 func (s *Server) handleListDevices(w http.ResponseWriter, _ *http.Request) {
 	p, ok := s.requirePairing(w)
@@ -976,6 +1053,7 @@ func (s *Server) handleListDevices(w http.ResponseWriter, _ *http.Request) {
 //	@Param			device_id	path		string	true	"Device ID"
 //	@Success		200			{object}	pairing.Device
 //	@Failure		404			{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/cluster/devices/{device_id}/revoke [post]
 func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {
 	p, ok := s.requirePairing(w)

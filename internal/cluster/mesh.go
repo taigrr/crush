@@ -23,9 +23,6 @@ import (
 // DefaultRoutePort is the default TCP port for the NATS mesh routes.
 const DefaultRoutePort = DefaultPort + 1
 
-// EndpointNATS is a host:port accepting NATS cluster routes.
-const EndpointNATS EndpointKind = "nats"
-
 // Mesh is this node's embedded NATS server, clustered with every member
 // over mutually authenticated TLS routes. There is no central server:
 // every node runs one and routes to all others, so any subset of nodes

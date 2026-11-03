@@ -87,6 +87,122 @@ definitions:
       top_p:
         type: number
     type: object
+  cluster.Endpoint:
+    properties:
+      addr:
+        type: string
+      kind:
+        $ref: '#/definitions/cluster.EndpointKind'
+    type: object
+  cluster.EndpointKind:
+    enum:
+    - nats
+    - direct
+    type: string
+    x-enum-varnames:
+    - EndpointNATS
+    - EndpointDirect
+  cluster.Member:
+    properties:
+      endpoints:
+        items:
+          $ref: '#/definitions/cluster.Endpoint'
+        type: array
+      joined_at:
+        type: string
+      last_seen:
+        type: string
+      name:
+        type: string
+      node_id:
+        type: string
+      public_key:
+        items:
+          type: integer
+        type: array
+      version:
+        type: string
+    type: object
+  cluster.NodeDashboard:
+    properties:
+      last_seen:
+        type: string
+      member:
+        $ref: '#/definitions/cluster.Member'
+      online:
+        type: boolean
+      rtt_ms:
+        description: RTTMillis is the last mesh round-trip time; -1 when unknown.
+        type: integer
+      self:
+        type: boolean
+      stats:
+        $ref: '#/definitions/cluster.NodeStats'
+    type: object
+  cluster.NodeJob:
+    properties:
+      animal:
+        type: string
+      blocked:
+        type: boolean
+      color:
+        type: string
+      session_id:
+        type: string
+      title:
+        type: string
+      workspace_root:
+        type: string
+    type: object
+  cluster.NodeStats:
+    properties:
+      cpu_cores:
+        type: integer
+      cpu_percent:
+        type: number
+      disk_free:
+        type: integer
+      disk_path:
+        type: string
+      disk_percent:
+        type: number
+      disk_total:
+        type: integer
+      hostname:
+        type: string
+      jobs:
+        items:
+          $ref: '#/definitions/cluster.NodeJob'
+        type: array
+      load1:
+        type: number
+      load5:
+        type: number
+      load15:
+        type: number
+      mem_available:
+        type: integer
+      mem_percent:
+        type: number
+      mem_total:
+        type: integer
+      name:
+        type: string
+      node_id:
+        type: string
+      platform:
+        type: string
+      sampled_at:
+        type: string
+      sessions:
+        type: integer
+      uptime_seconds:
+        type: integer
+      version:
+        type: string
+      workspaces:
+        type: integer
+    type: object
   config.Attribution:
     properties:
       co_authored_by:
@@ -635,6 +751,25 @@ definitions:
     - StateStopped
     - StateDisabled
     - StateWarn
+  milestone.Milestone:
+    properties:
+      createdAt:
+        format: int64
+        type: integer
+      fullSummary:
+        description: 2-3 sentence summary.
+        type: string
+      id:
+        type: string
+      sessionID:
+        type: string
+      shortSummary:
+        description: 5-8 word summary.
+        type: string
+      turnNumber:
+        format: int64
+        type: integer
+    type: object
   oauth.OAuthClient:
     properties:
       auth_style:
@@ -1345,6 +1480,43 @@ definitions:
     - User
     - System
     - Tool
+  proto.MoveSessionRequest:
+    properties:
+      gc:
+        description: |-
+          GC garbage-collects the Crush snapshot repository before sending,
+          so unreachable snapshot objects are not shipped.
+        type: boolean
+      on_conflict:
+        $ref: '#/definitions/transfer.ConflictPolicy'
+      resume:
+        description: Resume continues a paused in-flight turn on the destination.
+        type: boolean
+      session_id:
+        type: string
+      target_node:
+        description: TargetNode is the destination cluster node ID.
+        type: string
+      workspace_id:
+        type: string
+    type: object
+  proto.MoveSessionResponse:
+    properties:
+      backup_path:
+        type: string
+      plan:
+        $ref: '#/definitions/transfer.Plan'
+      resumed:
+        type: boolean
+      root:
+        type: string
+      session_id:
+        type: string
+      target_node:
+        type: string
+      target_node_name:
+        type: string
+    type: object
   proto.PeekMessagesParams:
     properties:
       root:
@@ -1898,6 +2070,28 @@ definitions:
     - Second
     - Minute
     - Hour
+  transfer.ConflictPolicy:
+    enum:
+    - ""
+    - backup
+    - keep
+    type: string
+    x-enum-varnames:
+    - ConflictRefuse
+    - ConflictBackup
+    - ConflictKeep
+  transfer.Plan:
+    enum:
+    - fresh
+    - overlay
+    - backup
+    - db-only
+    type: string
+    x-enum-varnames:
+    - PlanFresh
+    - PlanOverlay
+    - PlanBackup
+    - PlanDBOnly
 info:
   contact:
     name: Charm
@@ -1929,6 +2123,7 @@ paths:
       summary: Client node info
       tags:
       - client
+      x-crush-scope: never
   /client/v1/pair/abort:
     post:
       consumes:
@@ -1964,6 +2159,7 @@ paths:
       summary: Abort pairing
       tags:
       - client
+      x-crush-scope: never
   /client/v1/pair/claim:
     post:
       consumes:
@@ -2011,6 +2207,7 @@ paths:
       summary: Claim a pairing offer
       tags:
       - client
+      x-crush-scope: never
   /client/v1/pair/confirm:
     post:
       consumes:
@@ -2046,6 +2243,7 @@ paths:
       summary: Confirm the SAS
       tags:
       - client
+      x-crush-scope: never
   /client/v1/pair/poll:
     post:
       consumes:
@@ -2081,6 +2279,26 @@ paths:
       summary: Poll the pairing outcome
       tags:
       - client
+      x-crush-scope: never
+  /cluster/dashboard:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/cluster.NodeDashboard'
+            type: array
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Cluster dashboard
+      tags:
+      - cluster
+      x-crush-scope: sessions:read
   /cluster/devices:
     get:
       produces:
@@ -2099,6 +2317,7 @@ paths:
       summary: List paired devices
       tags:
       - devices
+      x-crush-scope: never
   /cluster/devices/{device_id}/revoke:
     post:
       parameters:
@@ -2121,6 +2340,7 @@ paths:
       summary: Revoke a paired device
       tags:
       - devices
+      x-crush-scope: never
   /cluster/pairing/accept:
     post:
       consumes:
@@ -2154,6 +2374,7 @@ paths:
       summary: Accept a device pairing code
       tags:
       - pairing
+      x-crush-scope: never
   /cluster/pairing/offers:
     post:
       consumes:
@@ -2186,6 +2407,7 @@ paths:
       summary: Create a pairing offer
       tags:
       - pairing
+      x-crush-scope: never
   /cluster/pairing/offers/{offer_id}:
     get:
       parameters:
@@ -2220,6 +2442,7 @@ paths:
       summary: Get a pairing offer
       tags:
       - pairing
+      x-crush-scope: never
   /cluster/pairing/offers/{offer_id}/approve:
     post:
       consumes:
@@ -2257,6 +2480,7 @@ paths:
       summary: Approve a pairing offer
       tags:
       - pairing
+      x-crush-scope: never
   /cluster/pairing/offers/{offer_id}/qr.png:
     get:
       parameters:
@@ -2281,6 +2505,7 @@ paths:
       summary: Pairing offer QR code
       tags:
       - pairing
+      x-crush-scope: never
   /cluster/pairing/offers/{offer_id}/reject:
     post:
       parameters:
@@ -2307,6 +2532,7 @@ paths:
       summary: Reject a pairing offer
       tags:
       - pairing
+      x-crush-scope: never
   /config:
     get:
       produces:
@@ -2319,6 +2545,7 @@ paths:
       summary: Get server config
       tags:
       - system
+      x-crush-scope: never
   /control:
     post:
       consumes:
@@ -2340,6 +2567,7 @@ paths:
       summary: Send server control command
       tags:
       - system
+      x-crush-scope: never
   /events:
     get:
       produces:
@@ -2350,6 +2578,7 @@ paths:
       summary: Stream global attention events (SSE)
       tags:
       - events
+      x-crush-scope: sessions:read
   /health:
     get:
       responses:
@@ -2358,6 +2587,7 @@ paths:
       summary: Health check
       tags:
       - system
+      x-crush-scope: never
   /peek-messages:
     post:
       consumes:
@@ -2393,6 +2623,7 @@ paths:
       summary: Peek a session's messages in any known workspace
       tags:
       - sessions
+      x-crush-scope: never
   /peek-session-info:
     post:
       consumes:
@@ -2426,6 +2657,7 @@ paths:
       summary: Peek a session's info in any known workspace
       tags:
       - sessions
+      x-crush-scope: never
   /session-bundle:
     post:
       consumes:
@@ -2455,6 +2687,7 @@ paths:
       summary: Get a session bundle
       tags:
       - sessions
+      x-crush-scope: never
   /sessions/batch:
     post:
       consumes:
@@ -2480,6 +2713,33 @@ paths:
       summary: Apply an operation to many sessions
       tags:
       - sessions
+      x-crush-scope: never
+  /sessions/move:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Move request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/proto.MoveSessionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/proto.MoveSessionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: Move a session
+      tags:
+      - transfer
+      x-crush-scope: sessions:move
   /swarm/resolve:
     get:
       description: Finds the workspace and session that own a swarm address (color-animal[-shorthash]
@@ -2516,6 +2776,7 @@ paths:
       summary: Resolve swarm address
       tags:
       - swarm
+      x-crush-scope: sessions:read
   /version:
     get:
       produces:
@@ -2528,6 +2789,7 @@ paths:
       summary: Get server version
       tags:
       - system
+      x-crush-scope: never
   /workspace-overviews:
     get:
       produces:
@@ -2546,6 +2808,7 @@ paths:
       summary: List workspace/session overviews
       tags:
       - workspaces
+      x-crush-scope: sessions:read
   /workspaces:
     get:
       produces:
@@ -2560,6 +2823,7 @@ paths:
       summary: List workspaces
       tags:
       - workspaces
+      x-crush-scope: sessions:read
     post:
       consumes:
       - application/json
@@ -2588,6 +2852,7 @@ paths:
       summary: Create workspace
       tags:
       - workspaces
+      x-crush-scope: never
   /workspaces/{id}:
     delete:
       parameters:
@@ -2606,6 +2871,7 @@ paths:
       summary: Delete workspace
       tags:
       - workspaces
+      x-crush-scope: never
     get:
       parameters:
       - description: Workspace ID
@@ -2631,6 +2897,7 @@ paths:
       summary: Get workspace
       tags:
       - workspaces
+      x-crush-scope: sessions:read
   /workspaces/{id}/agent:
     get:
       parameters:
@@ -2657,6 +2924,7 @@ paths:
       summary: Get agent info
       tags:
       - agent
+      x-crush-scope: sessions:read
     post:
       consumes:
       - application/json
@@ -2694,6 +2962,7 @@ paths:
       summary: Send message to agent
       tags:
       - agent
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/agent/cancel:
     post:
       parameters:
@@ -2716,6 +2985,7 @@ paths:
       summary: Cancel all agent sessions
       tags:
       - agent
+      x-crush-scope: never
   /workspaces/{id}/agent/default-small-model:
     get:
       parameters:
@@ -2746,6 +3016,7 @@ paths:
       summary: Get default small model
       tags:
       - agent
+      x-crush-scope: never
   /workspaces/{id}/agent/init:
     post:
       parameters:
@@ -2768,6 +3039,7 @@ paths:
       summary: Initialize agent
       tags:
       - agent
+      x-crush-scope: never
   /workspaces/{id}/agent/sessions/{sid}:
     get:
       parameters:
@@ -2799,6 +3071,7 @@ paths:
       summary: Get agent session
       tags:
       - agent
+      x-crush-scope: sessions:read
   /workspaces/{id}/agent/sessions/{sid}/cancel:
     post:
       parameters:
@@ -2826,6 +3099,7 @@ paths:
       summary: Cancel agent session
       tags:
       - agent
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/agent/sessions/{sid}/cwd:
     post:
       parameters:
@@ -2859,6 +3133,7 @@ paths:
       summary: Set session working directory
       tags:
       - agent
+      x-crush-scope: never
   /workspaces/{id}/agent/sessions/{sid}/goal:
     get:
       parameters:
@@ -2890,6 +3165,7 @@ paths:
       summary: Get goal status
       tags:
       - agent
+      x-crush-scope: sessions:read
     post:
       consumes:
       - application/json
@@ -2924,6 +3200,7 @@ paths:
       summary: Set goal
       tags:
       - agent
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/agent/sessions/{sid}/goal/clear:
     post:
       parameters:
@@ -2951,6 +3228,7 @@ paths:
       summary: Clear goal
       tags:
       - agent
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/agent/sessions/{sid}/prompts/clear:
     post:
       parameters:
@@ -2978,6 +3256,7 @@ paths:
       summary: Clear prompt queue
       tags:
       - agent
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/agent/sessions/{sid}/prompts/list:
     get:
       parameters:
@@ -3011,6 +3290,7 @@ paths:
       summary: List queued prompts
       tags:
       - agent
+      x-crush-scope: sessions:read
   /workspaces/{id}/agent/sessions/{sid}/prompts/promote-btw:
     post:
       description: Converts the next queued prompt waiting for its own turn into a
@@ -3044,6 +3324,7 @@ paths:
       summary: Promote next queued prompt to /btw
       tags:
       - agent
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/agent/sessions/{sid}/prompts/queued:
     get:
       parameters:
@@ -3075,6 +3356,7 @@ paths:
       summary: Get queued prompt status
       tags:
       - agent
+      x-crush-scope: sessions:read
   /workspaces/{id}/agent/sessions/{sid}/runs/{rid}/drop:
     post:
       description: Removes the queued prompt sent with the given run ID, without cancelling
@@ -3113,6 +3395,7 @@ paths:
       summary: Drop a queued run
       tags:
       - agent
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/agent/sessions/{sid}/shell:
     post:
       consumes:
@@ -3156,6 +3439,7 @@ paths:
       summary: Run shell command
       tags:
       - agent
+      x-crush-scope: shell
   /workspaces/{id}/agent/sessions/{sid}/summarize:
     post:
       parameters:
@@ -3183,6 +3467,7 @@ paths:
       summary: Summarize session
       tags:
       - agent
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/agent/sessions/{sid}/title:
     post:
       parameters:
@@ -3210,6 +3495,7 @@ paths:
       summary: Regenerate session title
       tags:
       - agent
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/agent/sessions/{sid}/tools/cancel:
     post:
       description: Cancels the session's running tool calls without canceling its
@@ -3244,6 +3530,7 @@ paths:
       summary: Cancel in-flight tool calls
       tags:
       - agent
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/agent/update:
     post:
       parameters:
@@ -3266,6 +3553,7 @@ paths:
       summary: Update agent
       tags:
       - agent
+      x-crush-scope: never
   /workspaces/{id}/config:
     get:
       parameters:
@@ -3292,6 +3580,7 @@ paths:
       summary: Get workspace config
       tags:
       - workspaces
+      x-crush-scope: never
   /workspaces/{id}/config/compact:
     post:
       consumes:
@@ -3326,6 +3615,7 @@ paths:
       summary: Set compact mode
       tags:
       - config
+      x-crush-scope: never
   /workspaces/{id}/config/import-copilot:
     post:
       parameters:
@@ -3352,6 +3642,7 @@ paths:
       summary: Import Copilot credentials
       tags:
       - config
+      x-crush-scope: never
   /workspaces/{id}/config/model:
     post:
       consumes:
@@ -3386,6 +3677,7 @@ paths:
       summary: Set the preferred model
       tags:
       - config
+      x-crush-scope: config:model
   /workspaces/{id}/config/provider-key:
     post:
       consumes:
@@ -3420,6 +3712,7 @@ paths:
       summary: Set provider API key
       tags:
       - config
+      x-crush-scope: never
   /workspaces/{id}/config/refresh-oauth:
     post:
       consumes:
@@ -3454,6 +3747,7 @@ paths:
       summary: Refresh OAuth token
       tags:
       - config
+      x-crush-scope: never
   /workspaces/{id}/config/reload:
     post:
       parameters:
@@ -3476,6 +3770,7 @@ paths:
       summary: Reload config from disk
       tags:
       - config
+      x-crush-scope: never
   /workspaces/{id}/config/remove:
     post:
       consumes:
@@ -3510,6 +3805,7 @@ paths:
       summary: Remove a config field
       tags:
       - config
+      x-crush-scope: never
   /workspaces/{id}/config/set:
     post:
       consumes:
@@ -3544,6 +3840,7 @@ paths:
       summary: Set a config field
       tags:
       - config
+      x-crush-scope: never
   /workspaces/{id}/current-session:
     post:
       consumes:
@@ -3581,6 +3878,7 @@ paths:
       summary: Set current session for a client
       tags:
       - workspaces
+      x-crush-scope: never
   /workspaces/{id}/events:
     get:
       parameters:
@@ -3605,6 +3903,7 @@ paths:
       summary: Stream workspace events (SSE)
       tags:
       - workspaces
+      x-crush-scope: sessions:read
   /workspaces/{id}/filetracker/lastread:
     get:
       parameters:
@@ -3640,6 +3939,7 @@ paths:
       summary: Get last read time for file
       tags:
       - filetracker
+      x-crush-scope: never
   /workspaces/{id}/filetracker/read:
     post:
       consumes:
@@ -3674,6 +3974,7 @@ paths:
       summary: Record file read
       tags:
       - filetracker
+      x-crush-scope: never
   /workspaces/{id}/fork:
     post:
       consumes:
@@ -3712,6 +4013,7 @@ paths:
       summary: Fork conversation
       tags:
       - forks
+      x-crush-scope: never
   /workspaces/{id}/git/branches:
     get:
       parameters:
@@ -3740,6 +4042,7 @@ paths:
       summary: List git branches
       tags:
       - git
+      x-crush-scope: never
   /workspaces/{id}/lsps:
     get:
       parameters:
@@ -3768,6 +4071,7 @@ paths:
       summary: List LSP clients
       tags:
       - lsp
+      x-crush-scope: never
   /workspaces/{id}/lsps/{lsp}/diagnostics:
     get:
       parameters:
@@ -3799,6 +4103,7 @@ paths:
       summary: Get LSP diagnostics
       tags:
       - lsp
+      x-crush-scope: never
   /workspaces/{id}/lsps/start:
     post:
       consumes:
@@ -3833,6 +4138,7 @@ paths:
       summary: Start LSP server
       tags:
       - lsp
+      x-crush-scope: never
   /workspaces/{id}/lsps/stop:
     post:
       parameters:
@@ -3855,6 +4161,7 @@ paths:
       summary: Stop all LSP servers
       tags:
       - lsp
+      x-crush-scope: never
   /workspaces/{id}/mcp/docker/disable:
     post:
       parameters:
@@ -3877,6 +4184,7 @@ paths:
       summary: Disable Docker MCP
       tags:
       - mcp
+      x-crush-scope: never
   /workspaces/{id}/mcp/docker/enable:
     post:
       parameters:
@@ -3899,6 +4207,7 @@ paths:
       summary: Enable Docker MCP
       tags:
       - mcp
+      x-crush-scope: never
   /workspaces/{id}/mcp/get-prompt:
     post:
       consumes:
@@ -3937,6 +4246,7 @@ paths:
       summary: Get MCP prompt
       tags:
       - mcp
+      x-crush-scope: never
   /workspaces/{id}/mcp/read-resource:
     post:
       consumes:
@@ -3975,6 +4285,7 @@ paths:
       summary: Read MCP resource
       tags:
       - mcp
+      x-crush-scope: never
   /workspaces/{id}/mcp/refresh-prompts:
     post:
       consumes:
@@ -4009,6 +4320,7 @@ paths:
       summary: Refresh MCP prompts
       tags:
       - mcp
+      x-crush-scope: never
   /workspaces/{id}/mcp/refresh-resources:
     post:
       consumes:
@@ -4043,6 +4355,7 @@ paths:
       summary: Refresh MCP resources
       tags:
       - mcp
+      x-crush-scope: never
   /workspaces/{id}/mcp/refresh-tools:
     post:
       consumes:
@@ -4077,6 +4390,7 @@ paths:
       summary: Refresh MCP tools
       tags:
       - mcp
+      x-crush-scope: never
   /workspaces/{id}/mcp/states:
     get:
       parameters:
@@ -4105,6 +4419,7 @@ paths:
       summary: Get MCP client states
       tags:
       - mcp
+      x-crush-scope: never
   /workspaces/{id}/messages/{msgid}/snapshot:
     get:
       parameters:
@@ -4136,6 +4451,7 @@ paths:
       summary: Get snapshot by message
       tags:
       - snapshots
+      x-crush-scope: never
   /workspaces/{id}/messages/user:
     get:
       parameters:
@@ -4164,6 +4480,7 @@ paths:
       summary: Get all user messages for workspace
       tags:
       - workspaces
+      x-crush-scope: never
   /workspaces/{id}/permissions/grant:
     post:
       consumes:
@@ -4200,6 +4517,7 @@ paths:
       summary: Grant permission
       tags:
       - permissions
+      x-crush-scope: permissions:answer
   /workspaces/{id}/permissions/skip:
     get:
       parameters:
@@ -4226,6 +4544,7 @@ paths:
       summary: Get skip permissions status
       tags:
       - permissions
+      x-crush-scope: never
     post:
       consumes:
       - application/json
@@ -4259,6 +4578,7 @@ paths:
       summary: Set skip permissions
       tags:
       - permissions
+      x-crush-scope: permissions:always
   /workspaces/{id}/permissions/sysadmin:
     get:
       parameters:
@@ -4285,6 +4605,7 @@ paths:
       summary: Get sysadmin mode status
       tags:
       - permissions
+      x-crush-scope: never
     post:
       consumes:
       - application/json
@@ -4318,6 +4639,7 @@ paths:
       summary: Set sysadmin mode
       tags:
       - permissions
+      x-crush-scope: never
   /workspaces/{id}/project/init:
     post:
       parameters:
@@ -4340,6 +4662,7 @@ paths:
       summary: Mark project as initialized
       tags:
       - project
+      x-crush-scope: never
   /workspaces/{id}/project/init-prompt:
     get:
       parameters:
@@ -4366,6 +4689,7 @@ paths:
       summary: Get project initialization prompt
       tags:
       - project
+      x-crush-scope: never
   /workspaces/{id}/project/needs-init:
     get:
       parameters:
@@ -4392,6 +4716,7 @@ paths:
       summary: Check if project needs initialization
       tags:
       - project
+      x-crush-scope: never
   /workspaces/{id}/providers:
     get:
       parameters:
@@ -4418,6 +4743,7 @@ paths:
       summary: Get workspace providers
       tags:
       - workspaces
+      x-crush-scope: never
   /workspaces/{id}/questions/answer:
     post:
       consumes:
@@ -4454,6 +4780,7 @@ paths:
       summary: Answer question
       tags:
       - questions
+      x-crush-scope: permissions:answer
   /workspaces/{id}/sessions:
     get:
       parameters:
@@ -4482,6 +4809,7 @@ paths:
       summary: List sessions
       tags:
       - sessions
+      x-crush-scope: sessions:read
     post:
       consumes:
       - application/json
@@ -4519,6 +4847,7 @@ paths:
       summary: Create session
       tags:
       - sessions
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/sessions/{sid}:
     delete:
       parameters:
@@ -4546,6 +4875,7 @@ paths:
       summary: Delete session
       tags:
       - sessions
+      x-crush-scope: never
     get:
       parameters:
       - description: Workspace ID
@@ -4576,6 +4906,7 @@ paths:
       summary: Get session
       tags:
       - sessions
+      x-crush-scope: sessions:read
     put:
       consumes:
       - application/json
@@ -4618,6 +4949,7 @@ paths:
       summary: Update session
       tags:
       - sessions
+      x-crush-scope: never
   /workspaces/{id}/sessions/{sid}/archive:
     post:
       parameters:
@@ -4650,6 +4982,7 @@ paths:
       summary: Archive a session
       tags:
       - sessions
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/sessions/{sid}/favorite:
     post:
       parameters:
@@ -4686,6 +5019,7 @@ paths:
       summary: Favorite or unfavorite a session
       tags:
       - sessions
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/sessions/{sid}/filetracker/files:
     get:
       parameters:
@@ -4719,6 +5053,7 @@ paths:
       summary: List tracked files for session
       tags:
       - filetracker
+      x-crush-scope: never
   /workspaces/{id}/sessions/{sid}/history:
     get:
       parameters:
@@ -4752,6 +5087,7 @@ paths:
       summary: Get session history
       tags:
       - sessions
+      x-crush-scope: sessions:read
   /workspaces/{id}/sessions/{sid}/messages:
     get:
       parameters:
@@ -4785,6 +5121,7 @@ paths:
       summary: Get session messages
       tags:
       - sessions
+      x-crush-scope: sessions:read
   /workspaces/{id}/sessions/{sid}/messages/user:
     get:
       parameters:
@@ -4818,6 +5155,37 @@ paths:
       summary: Get user messages for session
       tags:
       - sessions
+      x-crush-scope: sessions:read
+  /workspaces/{id}/sessions/{sid}/milestones:
+    get:
+      parameters:
+      - description: Workspace ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Session ID
+        in: path
+        name: sid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/milestone.Milestone'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/proto.Error'
+      summary: List session milestones
+      tags:
+      - sessions
+      x-crush-scope: sessions:read
   /workspaces/{id}/sessions/{sid}/pending:
     get:
       description: Lists the permission requests and questions that the session, or
@@ -4851,6 +5219,7 @@ paths:
       summary: Get pending prompts
       tags:
       - sessions
+      x-crush-scope: sessions:read
   /workspaces/{id}/sessions/{sid}/seen:
     post:
       parameters:
@@ -4883,6 +5252,7 @@ paths:
       summary: Mark a session as read
       tags:
       - sessions
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/sessions/{sid}/snapshots:
     get:
       parameters:
@@ -4916,6 +5286,7 @@ paths:
       summary: List snapshots
       tags:
       - snapshots
+      x-crush-scope: never
   /workspaces/{id}/sessions/{sid}/unarchive:
     post:
       parameters:
@@ -4943,6 +5314,7 @@ paths:
       summary: Unarchive a session
       tags:
       - sessions
+      x-crush-scope: sessions:prompt
   /workspaces/{id}/sessions/{sid}/worktrees:
     get:
       parameters:
@@ -4976,6 +5348,7 @@ paths:
       summary: List worktrees
       tags:
       - worktrees
+      x-crush-scope: never
     post:
       consumes:
       - application/json
@@ -5018,6 +5391,7 @@ paths:
       summary: Create worktree
       tags:
       - worktrees
+      x-crush-scope: never
   /workspaces/{id}/sessions/{sid}/worktrees/{wtid}/switch:
     post:
       parameters:
@@ -5050,6 +5424,7 @@ paths:
       summary: Switch worktree
       tags:
       - worktrees
+      x-crush-scope: never
   /workspaces/{id}/sessions/{sid}/worktrees/active:
     get:
       parameters:
@@ -5081,6 +5456,7 @@ paths:
       summary: Get active worktree
       tags:
       - worktrees
+      x-crush-scope: never
   /workspaces/{id}/sessions/archived:
     get:
       parameters:
@@ -5109,6 +5485,7 @@ paths:
       summary: List archived sessions
       tags:
       - sessions
+      x-crush-scope: sessions:read
   /workspaces/{id}/skills:
     get:
       parameters:
@@ -5137,6 +5514,7 @@ paths:
       summary: List visible skills
       tags:
       - skills
+      x-crush-scope: never
   /workspaces/{id}/skills/read:
     post:
       consumes:
@@ -5175,6 +5553,7 @@ paths:
       summary: Read skill content
       tags:
       - skills
+      x-crush-scope: never
   /workspaces/{id}/skills/states:
     get:
       parameters:
@@ -5203,6 +5582,7 @@ paths:
       summary: Get skill discovery states
       tags:
       - skills
+      x-crush-scope: never
   /workspaces/{id}/snapshots/{snapid}:
     get:
       parameters:
@@ -5234,6 +5614,7 @@ paths:
       summary: Get snapshot
       tags:
       - snapshots
+      x-crush-scope: never
   /workspaces/{id}/snapshots/{snapid}/diff:
     get:
       parameters:
@@ -5265,6 +5646,7 @@ paths:
       summary: Get snapshot diff
       tags:
       - snapshots
+      x-crush-scope: never
   /workspaces/{id}/snapshots/{snapid}/restore:
     post:
       parameters:
@@ -5292,6 +5674,7 @@ paths:
       summary: Restore snapshot
       tags:
       - snapshots
+      x-crush-scope: never
   /workspaces/{id}/snapshots/enabled:
     get:
       parameters:
@@ -5318,6 +5701,7 @@ paths:
       summary: Check if snapshots are enabled
       tags:
       - snapshots
+      x-crush-scope: never
   /workspaces/{id}/snapshots/gc:
     post:
       parameters:
@@ -5344,6 +5728,7 @@ paths:
       summary: Run snapshot garbage collection
       tags:
       - snapshots
+      x-crush-scope: never
   /workspaces/{id}/snapshots/stats:
     get:
       parameters:
@@ -5370,6 +5755,7 @@ paths:
       summary: Get snapshot stats
       tags:
       - snapshots
+      x-crush-scope: never
   /workspaces/{id}/worktrees:
     get:
       parameters:
@@ -5398,6 +5784,7 @@ paths:
       summary: List all worktrees
       tags:
       - worktrees
+      x-crush-scope: never
   /workspaces/{id}/worktrees/{wtid}:
     delete:
       parameters:
@@ -5425,6 +5812,7 @@ paths:
       summary: Delete worktree
       tags:
       - worktrees
+      x-crush-scope: never
     get:
       parameters:
       - description: Workspace ID
@@ -5455,6 +5843,7 @@ paths:
       summary: Get worktree
       tags:
       - worktrees
+      x-crush-scope: never
   /workspaces/{id}/worktrees/{wtid}/merge:
     post:
       consumes:
@@ -5494,6 +5883,7 @@ paths:
       summary: Merge worktree
       tags:
       - worktrees
+      x-crush-scope: never
   /workspaces/{id}/worktrees/enabled:
     get:
       parameters:
@@ -5520,4 +5910,5 @@ paths:
       summary: Check if worktrees are enabled
       tags:
       - worktrees
+      x-crush-scope: never
 swagger: "2.0"

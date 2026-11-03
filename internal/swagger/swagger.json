@@ -38,7 +38,8 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/client/v1/pair/abort": {
@@ -90,7 +91,8 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/client/v1/pair/claim": {
@@ -160,7 +162,8 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/client/v1/pair/confirm": {
@@ -212,7 +215,8 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/client/v1/pair/poll": {
@@ -264,7 +268,37 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
+            }
+        },
+        "/cluster/dashboard": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "cluster"
+                ],
+                "summary": "Cluster dashboard",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/cluster.NodeDashboard"
+                            }
+                        }
+                    },
+                    "501": {
+                        "description": "Not Implemented",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/cluster/devices": {
@@ -292,7 +326,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/devices/{device_id}/revoke": {
@@ -326,7 +361,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/accept": {
@@ -377,7 +413,8 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/offers": {
@@ -427,7 +464,8 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/offers/{offer_id}": {
@@ -479,7 +517,8 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/offers/{offer_id}/approve": {
@@ -536,7 +575,8 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/offers/{offer_id}/qr.png": {
@@ -573,7 +613,8 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/cluster/pairing/offers/{offer_id}/reject": {
@@ -613,7 +654,8 @@
                             "$ref": "#/definitions/pairing.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/config": {
@@ -632,7 +674,8 @@
                             "$ref": "#/definitions/proto.ServerConfig"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/control": {
@@ -665,7 +708,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/events": {
@@ -681,7 +725,8 @@
                     "200": {
                         "description": "OK"
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/health": {
@@ -694,7 +739,8 @@
                     "200": {
                         "description": "OK"
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/peek-messages": {
@@ -748,7 +794,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/peek-session-info": {
@@ -799,7 +846,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/session-bundle": {
@@ -844,7 +892,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/sessions/batch": {
@@ -883,7 +932,48 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
+            }
+        },
+        "/sessions/move": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "transfer"
+                ],
+                "summary": "Move a session",
+                "parameters": [
+                    {
+                        "description": "Move request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.MoveSessionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.MoveSessionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:move"
             }
         },
         "/swarm/resolve": {
@@ -936,7 +1026,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/version": {
@@ -955,7 +1046,8 @@
                             "$ref": "#/definitions/proto.VersionInfo"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspace-overviews": {
@@ -983,7 +1075,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces": {
@@ -1005,7 +1098,8 @@
                             }
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "post": {
                 "consumes": [
@@ -1048,7 +1142,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}": {
@@ -1088,7 +1183,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "delete": {
                 "tags": [
@@ -1114,7 +1210,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/agent": {
@@ -1154,7 +1251,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "post": {
                 "consumes": [
@@ -1210,7 +1308,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/cancel": {
@@ -1244,7 +1343,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/agent/default-small-model": {
@@ -1290,7 +1390,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/agent/init": {
@@ -1324,7 +1425,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}": {
@@ -1371,7 +1473,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/cancel": {
@@ -1412,7 +1515,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/cwd": {
@@ -1462,7 +1566,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/goal": {
@@ -1509,7 +1614,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "post": {
                 "consumes": [
@@ -1560,7 +1666,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/goal/clear": {
@@ -1601,7 +1708,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/prompts/clear": {
@@ -1642,7 +1750,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/prompts/list": {
@@ -1692,7 +1801,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/prompts/promote-btw": {
@@ -1740,7 +1850,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/prompts/queued": {
@@ -1787,7 +1898,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/runs/{rid}/drop": {
@@ -1842,7 +1954,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/shell": {
@@ -1907,7 +2020,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "shell"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/summarize": {
@@ -1948,7 +2062,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/title": {
@@ -1989,7 +2104,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/sessions/{sid}/tools/cancel": {
@@ -2037,7 +2153,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/agent/update": {
@@ -2071,7 +2188,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config": {
@@ -2111,7 +2229,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/compact": {
@@ -2163,7 +2282,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/import-copilot": {
@@ -2203,7 +2323,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/model": {
@@ -2255,7 +2376,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "config:model"
             }
         },
         "/workspaces/{id}/config/provider-key": {
@@ -2307,7 +2429,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/refresh-oauth": {
@@ -2359,7 +2482,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/reload": {
@@ -2393,7 +2517,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/remove": {
@@ -2445,7 +2570,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/config/set": {
@@ -2497,7 +2623,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/current-session": {
@@ -2553,7 +2680,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/events": {
@@ -2590,7 +2718,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/filetracker/lastread": {
@@ -2643,7 +2772,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/filetracker/read": {
@@ -2695,7 +2825,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/fork": {
@@ -2753,7 +2884,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/git/branches": {
@@ -2796,7 +2928,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/lsps": {
@@ -2839,7 +2972,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/lsps/start": {
@@ -2891,7 +3025,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/lsps/stop": {
@@ -2925,7 +3060,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/lsps/{lsp}/diagnostics": {
@@ -2972,7 +3108,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/docker/disable": {
@@ -3006,7 +3143,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/docker/enable": {
@@ -3040,7 +3178,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/get-prompt": {
@@ -3098,7 +3237,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/read-resource": {
@@ -3156,7 +3296,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/refresh-prompts": {
@@ -3208,7 +3349,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/refresh-resources": {
@@ -3260,7 +3402,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/refresh-tools": {
@@ -3312,7 +3455,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/mcp/states": {
@@ -3355,7 +3499,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/messages/user": {
@@ -3398,7 +3543,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/messages/{msgid}/snapshot": {
@@ -3445,7 +3591,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/permissions/grant": {
@@ -3500,7 +3647,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "permissions:answer"
             }
         },
         "/workspaces/{id}/permissions/skip": {
@@ -3540,7 +3688,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             },
             "post": {
                 "consumes": [
@@ -3590,7 +3739,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "permissions:always"
             }
         },
         "/workspaces/{id}/permissions/sysadmin": {
@@ -3630,7 +3780,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             },
             "post": {
                 "consumes": [
@@ -3680,7 +3831,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/project/init": {
@@ -3714,7 +3866,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/project/init-prompt": {
@@ -3754,7 +3907,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/project/needs-init": {
@@ -3794,7 +3948,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/providers": {
@@ -3834,7 +3989,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/questions/answer": {
@@ -3889,7 +4045,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "permissions:answer"
             }
         },
         "/workspaces/{id}/sessions": {
@@ -3932,7 +4089,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "post": {
                 "consumes": [
@@ -3988,7 +4146,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/sessions/archived": {
@@ -4031,7 +4190,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/sessions/{sid}": {
@@ -4078,7 +4238,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             },
             "put": {
                 "consumes": [
@@ -4141,7 +4302,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             },
             "delete": {
                 "tags": [
@@ -4180,7 +4342,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions/{sid}/archive": {
@@ -4227,7 +4390,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/sessions/{sid}/favorite": {
@@ -4280,7 +4444,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/sessions/{sid}/filetracker/files": {
@@ -4330,7 +4495,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions/{sid}/history": {
@@ -4380,7 +4546,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/sessions/{sid}/messages": {
@@ -4430,7 +4597,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/sessions/{sid}/messages/user": {
@@ -4480,7 +4648,53 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
+            }
+        },
+        "/workspaces/{id}/sessions/{sid}/milestones": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List session milestones",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/milestone.Milestone"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/sessions/{sid}/pending": {
@@ -4528,7 +4742,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:read"
             }
         },
         "/workspaces/{id}/sessions/{sid}/seen": {
@@ -4575,7 +4790,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/sessions/{sid}/snapshots": {
@@ -4625,7 +4841,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions/{sid}/unarchive": {
@@ -4666,7 +4883,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/workspaces/{id}/sessions/{sid}/worktrees": {
@@ -4716,7 +4934,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             },
             "post": {
                 "consumes": [
@@ -4779,7 +4998,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions/{sid}/worktrees/active": {
@@ -4826,7 +5046,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/sessions/{sid}/worktrees/{wtid}/switch": {
@@ -4874,7 +5095,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/skills": {
@@ -4917,7 +5139,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/skills/read": {
@@ -4975,7 +5198,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/skills/states": {
@@ -5018,7 +5242,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/enabled": {
@@ -5058,7 +5283,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/gc": {
@@ -5098,7 +5324,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/stats": {
@@ -5138,7 +5365,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/{snapid}": {
@@ -5185,7 +5413,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/{snapid}/diff": {
@@ -5232,7 +5461,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/snapshots/{snapid}/restore": {
@@ -5273,7 +5503,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/worktrees": {
@@ -5316,7 +5547,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/worktrees/enabled": {
@@ -5356,7 +5588,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/worktrees/{wtid}": {
@@ -5403,7 +5636,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             },
             "delete": {
                 "tags": [
@@ -5442,7 +5676,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         },
         "/workspaces/{id}/worktrees/{wtid}/merge": {
@@ -5501,7 +5736,8 @@
                             "$ref": "#/definitions/proto.Error"
                         }
                     }
-                }
+                },
+                "x-crush-scope": "never"
             }
         }
     },
@@ -5620,6 +5856,181 @@
                 },
                 "top_p": {
                     "type": "number"
+                }
+            }
+        },
+        "cluster.Endpoint": {
+            "type": "object",
+            "properties": {
+                "addr": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/cluster.EndpointKind"
+                }
+            }
+        },
+        "cluster.EndpointKind": {
+            "type": "string",
+            "enum": [
+                "nats",
+                "direct"
+            ],
+            "x-enum-varnames": [
+                "EndpointNATS",
+                "EndpointDirect"
+            ]
+        },
+        "cluster.Member": {
+            "type": "object",
+            "properties": {
+                "endpoints": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.Endpoint"
+                    }
+                },
+                "joined_at": {
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "public_key": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.NodeDashboard": {
+            "type": "object",
+            "properties": {
+                "last_seen": {
+                    "type": "string"
+                },
+                "member": {
+                    "$ref": "#/definitions/cluster.Member"
+                },
+                "online": {
+                    "type": "boolean"
+                },
+                "rtt_ms": {
+                    "description": "RTTMillis is the last mesh round-trip time; -1 when unknown.",
+                    "type": "integer"
+                },
+                "self": {
+                    "type": "boolean"
+                },
+                "stats": {
+                    "$ref": "#/definitions/cluster.NodeStats"
+                }
+            }
+        },
+        "cluster.NodeJob": {
+            "type": "object",
+            "properties": {
+                "animal": {
+                    "type": "string"
+                },
+                "blocked": {
+                    "type": "boolean"
+                },
+                "color": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "workspace_root": {
+                    "type": "string"
+                }
+            }
+        },
+        "cluster.NodeStats": {
+            "type": "object",
+            "properties": {
+                "cpu_cores": {
+                    "type": "integer"
+                },
+                "cpu_percent": {
+                    "type": "number"
+                },
+                "disk_free": {
+                    "type": "integer"
+                },
+                "disk_path": {
+                    "type": "string"
+                },
+                "disk_percent": {
+                    "type": "number"
+                },
+                "disk_total": {
+                    "type": "integer"
+                },
+                "hostname": {
+                    "type": "string"
+                },
+                "jobs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.NodeJob"
+                    }
+                },
+                "load1": {
+                    "type": "number"
+                },
+                "load15": {
+                    "type": "number"
+                },
+                "load5": {
+                    "type": "number"
+                },
+                "mem_available": {
+                    "type": "integer"
+                },
+                "mem_percent": {
+                    "type": "number"
+                },
+                "mem_total": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "platform": {
+                    "type": "string"
+                },
+                "sampled_at": {
+                    "type": "string"
+                },
+                "sessions": {
+                    "type": "integer"
+                },
+                "uptime_seconds": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                },
+                "workspaces": {
+                    "type": "integer"
                 }
             }
         },
@@ -6316,6 +6727,33 @@
                 "StateDisabled",
                 "StateWarn"
             ]
+        },
+        "milestone.Milestone": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "fullSummary": {
+                    "description": "2-3 sentence summary.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "sessionID": {
+                    "type": "string"
+                },
+                "shortSummary": {
+                    "description": "5-8 word summary.",
+                    "type": "string"
+                },
+                "turnNumber": {
+                    "type": "integer",
+                    "format": "int64"
+                }
+            }
         },
         "oauth.OAuthClient": {
             "type": "object",
@@ -7330,6 +7768,58 @@
                 "Tool"
             ]
         },
+        "proto.MoveSessionRequest": {
+            "type": "object",
+            "properties": {
+                "gc": {
+                    "description": "GC garbage-collects the Crush snapshot repository before sending,\nso unreachable snapshot objects are not shipped.",
+                    "type": "boolean"
+                },
+                "on_conflict": {
+                    "$ref": "#/definitions/transfer.ConflictPolicy"
+                },
+                "resume": {
+                    "description": "Resume continues a paused in-flight turn on the destination.",
+                    "type": "boolean"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "target_node": {
+                    "description": "TargetNode is the destination cluster node ID.",
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.MoveSessionResponse": {
+            "type": "object",
+            "properties": {
+                "backup_path": {
+                    "type": "string"
+                },
+                "plan": {
+                    "$ref": "#/definitions/transfer.Plan"
+                },
+                "resumed": {
+                    "type": "boolean"
+                },
+                "root": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "target_node": {
+                    "type": "string"
+                },
+                "target_node_name": {
+                    "type": "string"
+                }
+            }
+        },
         "proto.PeekMessagesParams": {
             "type": "object",
             "properties": {
@@ -8109,6 +8599,34 @@
                 "Second",
                 "Minute",
                 "Hour"
+            ]
+        },
+        "transfer.ConflictPolicy": {
+            "type": "string",
+            "enum": [
+                "",
+                "backup",
+                "keep"
+            ],
+            "x-enum-varnames": [
+                "ConflictRefuse",
+                "ConflictBackup",
+                "ConflictKeep"
+            ]
+        },
+        "transfer.Plan": {
+            "type": "string",
+            "enum": [
+                "fresh",
+                "overlay",
+                "backup",
+                "db-only"
+            ],
+            "x-enum-varnames": [
+                "PlanFresh",
+                "PlanOverlay",
+                "PlanBackup",
+                "PlanDBOnly"
             ]
         }
     }

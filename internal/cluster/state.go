@@ -25,8 +25,14 @@ var ErrNotInCluster = errors.New("this node is not part of a cluster (run `crush
 // exist today; the field keeps room for relays later.
 type EndpointKind string
 
-// EndpointDirect is a plain host:port reachable over IP.
-const EndpointDirect EndpointKind = "direct"
+// Endpoint kinds. They share one declaration so generated docs list them
+// in a stable order.
+const (
+	// EndpointNATS is a host:port accepting NATS cluster routes.
+	EndpointNATS EndpointKind = "nats"
+	// EndpointDirect is a plain host:port reachable over IP.
+	EndpointDirect EndpointKind = "direct"
+)
 
 // Endpoint is one way of reaching a node.
 type Endpoint struct {

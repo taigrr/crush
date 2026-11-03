@@ -30,6 +30,7 @@ type controllerV1 struct {
 //	@Summary		Health check
 //	@Tags			system
 //	@Success		200
+//	@x-crush-scope	"never"
 //	@Router			/health [get]
 func (c *controllerV1) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
@@ -41,6 +42,7 @@ func (c *controllerV1) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
 //	@Tags			system
 //	@Produce		json
 //	@Success		200	{object}	proto.VersionInfo
+//	@x-crush-scope	"never"
 //	@Router			/version [get]
 func (c *controllerV1) handleGetVersion(w http.ResponseWriter, _ *http.Request) {
 	jsonEncode(w, c.backend.VersionInfo())
@@ -54,6 +56,7 @@ func (c *controllerV1) handleGetVersion(w http.ResponseWriter, _ *http.Request) 
 //	@Param			request	body	proto.ServerControl	true	"Control command (e.g. shutdown)"
 //	@Success		200
 //	@Failure		400	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/control [post]
 func (c *controllerV1) handlePostControl(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeJSON[proto.ServerControl](c, w, r)
@@ -78,6 +81,7 @@ func (c *controllerV1) handlePostControl(w http.ResponseWriter, r *http.Request)
 //	@Tags			system
 //	@Produce		json
 //	@Success		200	{object}	proto.ServerConfig
+//	@x-crush-scope	"never"
 //	@Router			/config [get]
 func (c *controllerV1) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 	var rsp proto.ServerConfig
@@ -95,6 +99,7 @@ func (c *controllerV1) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 //	@Tags			workspaces
 //	@Produce		json
 //	@Success		200	{array}		proto.Workspace
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces [get]
 func (c *controllerV1) handleGetWorkspaces(w http.ResponseWriter, _ *http.Request) {
 	jsonEncode(w, c.backend.ListWorkspaces())
@@ -109,6 +114,7 @@ func (c *controllerV1) handleGetWorkspaces(w http.ResponseWriter, _ *http.Reques
 //	@Produce		json
 //	@Success		200	{array}		proto.WorkspaceOverview
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspace-overviews [get]
 func (c *controllerV1) handleGetWorkspaceOverviews(w http.ResponseWriter, r *http.Request) {
 	list := c.backend.ListClusterOverviews
@@ -128,6 +134,7 @@ func (c *controllerV1) handleGetWorkspaceOverviews(w http.ResponseWriter, r *htt
 //	@Success		200	{object}	proto.Workspace
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id} [get]
 func (c *controllerV1) handleGetWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -145,6 +152,7 @@ func (c *controllerV1) handleGetWorkspace(w http.ResponseWriter, r *http.Request
 //	@Success		200		{object}	proto.Workspace
 //	@Failure		400		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces [post]
 func (c *controllerV1) handlePostWorkspaces(w http.ResponseWriter, r *http.Request) {
 	args, ok := decodeJSON[proto.Workspace](c, w, r)
@@ -191,6 +199,7 @@ func (c *controllerV1) requireClientID(w http.ResponseWriter, r *http.Request) (
 //	@Success		200
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/current-session [post]
 func (c *controllerV1) handlePostWorkspaceCurrentSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -215,6 +224,7 @@ func (c *controllerV1) handlePostWorkspaceCurrentSession(w http.ResponseWriter, 
 //	@Param			id	path	string	true	"Workspace ID"
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id} [delete]
 func (c *controllerV1) handleDeleteWorkspaces(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -237,6 +247,7 @@ func (c *controllerV1) handleDeleteWorkspaces(w http.ResponseWriter, r *http.Req
 //	@Success		200	{object}	object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/config [get]
 func (c *controllerV1) handleGetWorkspaceConfig(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -253,6 +264,7 @@ func (c *controllerV1) handleGetWorkspaceConfig(w http.ResponseWriter, r *http.R
 //	@Success		200	{object}	object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/providers [get]
 func (c *controllerV1) handleGetWorkspaceProviders(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -269,6 +281,7 @@ func (c *controllerV1) handleGetWorkspaceProviders(w http.ResponseWriter, r *htt
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/events [get]
 func (c *controllerV1) handleGetWorkspaceEvents(w http.ResponseWriter, r *http.Request) {
 	flusher := http.NewResponseController(w)
@@ -422,6 +435,7 @@ func (c *controllerV1) handleGetWorkspaceEvents(w http.ResponseWriter, r *http.R
 //	@Tags			events
 //	@Produce		text/event-stream
 //	@Success		200
+//	@x-crush-scope	"sessions:read"
 //	@Router			/events [get]
 func (c *controllerV1) handleGetGlobalEvents(w http.ResponseWriter, r *http.Request) {
 	flusher := http.NewResponseController(w)
@@ -480,6 +494,7 @@ func (c *controllerV1) handleGetGlobalEvents(w http.ResponseWriter, r *http.Requ
 //	@Success		200	{object}	map[string]proto.LSPClientInfo
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/lsps [get]
 func (c *controllerV1) handleGetWorkspaceLSPs(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -512,6 +527,7 @@ func (c *controllerV1) handleGetWorkspaceLSPs(w http.ResponseWriter, r *http.Req
 //	@Success		200	{object}	object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/lsps/{lsp}/diagnostics [get]
 func (c *controllerV1) handleGetWorkspaceLSPDiagnostics(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -529,6 +545,7 @@ func (c *controllerV1) handleGetWorkspaceLSPDiagnostics(w http.ResponseWriter, r
 //	@Success		200	{array}		proto.Session
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/sessions [get]
 func (c *controllerV1) handleGetWorkspaceSessions(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -578,6 +595,7 @@ func (c *controllerV1) handlePostSessionImport(w http.ResponseWriter, r *http.Re
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/sessions [post]
 func (c *controllerV1) handlePostWorkspaceSessions(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -609,6 +627,7 @@ func (c *controllerV1) handlePostWorkspaceSessions(w http.ResponseWriter, r *htt
 //	@Success		200	{object}	proto.Session
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/sessions/{sid} [get]
 func (c *controllerV1) handleGetWorkspaceSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -635,6 +654,7 @@ func (c *controllerV1) handleGetWorkspaceSession(w http.ResponseWriter, r *http.
 //	@Success		200	{array}		proto.File
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/sessions/{sid}/history [get]
 func (c *controllerV1) handleGetWorkspaceSessionHistory(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -653,6 +673,7 @@ func (c *controllerV1) handleGetWorkspaceSessionHistory(w http.ResponseWriter, r
 //	@Success		200	{array}		proto.Message
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/sessions/{sid}/messages [get]
 func (c *controllerV1) handleGetWorkspaceSessionMessages(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -678,6 +699,7 @@ func (c *controllerV1) handleGetWorkspaceSessionMessages(w http.ResponseWriter, 
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/sessions/{sid} [put]
 func (c *controllerV1) handlePutWorkspaceSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -708,6 +730,7 @@ func (c *controllerV1) handlePutWorkspaceSession(w http.ResponseWriter, r *http.
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/sessions/{sid} [delete]
 func (c *controllerV1) handleDeleteWorkspaceSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -729,6 +752,7 @@ func (c *controllerV1) handleDeleteWorkspaceSession(w http.ResponseWriter, r *ht
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/sessions/{sid}/archive [post]
 func (c *controllerV1) handleArchiveWorkspaceSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -751,6 +775,7 @@ func (c *controllerV1) handleArchiveWorkspaceSession(w http.ResponseWriter, r *h
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/sessions/{sid}/seen [post]
 func (c *controllerV1) handleMarkWorkspaceSessionSeen(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -775,6 +800,7 @@ func (c *controllerV1) handleMarkWorkspaceSessionSeen(w http.ResponseWriter, r *
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/sessions/{sid}/favorite [post]
 func (c *controllerV1) handleSetWorkspaceSessionFavorite(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -804,6 +830,7 @@ func (c *controllerV1) handleSetWorkspaceSessionFavorite(w http.ResponseWriter, 
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/sessions/{sid}/unarchive [post]
 func (c *controllerV1) handleUnarchiveWorkspaceSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -825,6 +852,7 @@ func (c *controllerV1) handleUnarchiveWorkspaceSession(w http.ResponseWriter, r 
 //	@Success		200	{array}		proto.Session
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/sessions/archived [get]
 func (c *controllerV1) handleGetWorkspaceArchivedSessions(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -842,6 +870,7 @@ func (c *controllerV1) handleGetWorkspaceArchivedSessions(w http.ResponseWriter,
 //	@Success		200	{array}		proto.Message
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/sessions/{sid}/messages/user [get]
 func (c *controllerV1) handleGetWorkspaceSessionUserMessages(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -863,6 +892,7 @@ func (c *controllerV1) handleGetWorkspaceSessionUserMessages(w http.ResponseWrit
 //	@Success		200	{array}		proto.Message
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/messages/user [get]
 func (c *controllerV1) handleGetWorkspaceAllUserMessages(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -884,6 +914,7 @@ func (c *controllerV1) handleGetWorkspaceAllUserMessages(w http.ResponseWriter, 
 //	@Success		200	{array}		string
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/sessions/{sid}/filetracker/files [get]
 func (c *controllerV1) handleGetWorkspaceSessionFileTrackerFiles(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -903,6 +934,7 @@ func (c *controllerV1) handleGetWorkspaceSessionFileTrackerFiles(w http.Response
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/filetracker/read [post]
 func (c *controllerV1) handlePostWorkspaceFileTrackerRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -930,6 +962,7 @@ func (c *controllerV1) handlePostWorkspaceFileTrackerRead(w http.ResponseWriter,
 //	@Success		200			{object}	object
 //	@Failure		404			{object}	proto.Error
 //	@Failure		500			{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/filetracker/lastread [get]
 func (c *controllerV1) handleGetWorkspaceFileTrackerLastRead(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -951,6 +984,7 @@ func (c *controllerV1) handleGetWorkspaceFileTrackerLastRead(w http.ResponseWrit
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/lsps/start [post]
 func (c *controllerV1) handlePostWorkspaceLSPStart(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -975,6 +1009,7 @@ func (c *controllerV1) handlePostWorkspaceLSPStart(w http.ResponseWriter, r *htt
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/lsps/stop [post]
 func (c *controllerV1) handlePostWorkspaceLSPStopAll(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -994,6 +1029,7 @@ func (c *controllerV1) handlePostWorkspaceLSPStopAll(w http.ResponseWriter, r *h
 //	@Success		200	{object}	proto.AgentInfo
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/agent [get]
 func (c *controllerV1) handleGetWorkspaceAgent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1013,6 +1049,7 @@ func (c *controllerV1) handleGetWorkspaceAgent(w http.ResponseWriter, r *http.Re
 //	@Failure		404	{object}	proto.Error
 //	@Failure		409	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/agent [post]
 func (c *controllerV1) handlePostWorkspaceAgent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1045,6 +1082,7 @@ func (c *controllerV1) handlePostWorkspaceAgent(w http.ResponseWriter, r *http.R
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/agent/init [post]
 func (c *controllerV1) handlePostWorkspaceAgentInit(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1063,6 +1101,7 @@ func (c *controllerV1) handlePostWorkspaceAgentInit(w http.ResponseWriter, r *ht
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/agent/update [post]
 func (c *controllerV1) handlePostWorkspaceAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1083,6 +1122,7 @@ func (c *controllerV1) handlePostWorkspaceAgentUpdate(w http.ResponseWriter, r *
 //	@Success		200	{object}	proto.AgentSession
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/agent/sessions/{sid} [get]
 func (c *controllerV1) handleGetWorkspaceAgentSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1100,6 +1140,7 @@ func (c *controllerV1) handleGetWorkspaceAgentSession(w http.ResponseWriter, r *
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/cancel [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionCancel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1120,6 +1161,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionCancel(w http.ResponseWrit
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/agent/cancel [post]
 func (c *controllerV1) handlePostWorkspaceAgentCancel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1140,6 +1182,7 @@ func (c *controllerV1) handlePostWorkspaceAgentCancel(w http.ResponseWriter, r *
 //	@Success		200	{object}	object
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/prompts/queued [get]
 func (c *controllerV1) handleGetWorkspaceAgentSessionPromptQueued(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1198,6 +1241,7 @@ func (c *controllerV1) handlePostWorkspaceHistorySearch(w http.ResponseWriter, r
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/peek-messages [post]
 func (c *controllerV1) handlePostPeekMessages(w http.ResponseWriter, r *http.Request) {
 	params, ok := decodeJSON[proto.PeekMessagesParams](c, w, r)
@@ -1232,6 +1276,7 @@ func (c *controllerV1) handlePostPeekMessages(w http.ResponseWriter, r *http.Req
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/peek-session-info [post]
 func (c *controllerV1) handlePostPeekSessionInfo(w http.ResponseWriter, r *http.Request) {
 	params, ok := decodeJSON[proto.PeekMessagesParams](c, w, r)
@@ -1266,6 +1311,7 @@ func (c *controllerV1) handlePostPeekSessionInfo(w http.ResponseWriter, r *http.
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/prompts/clear [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionPromptClear(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1289,6 +1335,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionPromptClear(w http.Respons
 //	@Success		200	{object}	proto.DropQueuedRunResponse
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/runs/{rid}/drop [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionRunDrop(w http.ResponseWriter, r *http.Request) {
 	dropped, err := c.backend.DropQueuedRun(r.PathValue("id"), r.PathValue("sid"), r.PathValue("rid"))
@@ -1311,6 +1358,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionRunDrop(w http.ResponseWri
 //	@Success		200	{object}	proto.PromoteQueuedResponse
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/prompts/promote-btw [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionPromptPromoteBTW(w http.ResponseWriter, r *http.Request) {
 	promoted, err := c.backend.PromoteNextQueuedToBTW(r.PathValue("id"), r.PathValue("sid"))
@@ -1328,6 +1376,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionPromptPromoteBTW(w http.Re
 //	@Success		200	{object}	proto.CancelToolCallsResponse
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/tools/cancel [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionToolsCancel(w http.ResponseWriter, r *http.Request) {
 	canceled, err := c.backend.CancelToolCalls(r.PathValue("id"), r.PathValue("sid"))
@@ -1344,6 +1393,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionToolsCancel(w http.Respons
 //	@Success		200	{object}	proto.GoalStatus
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/goal [get]
 func (c *controllerV1) handleGetWorkspaceAgentSessionGoal(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1364,6 +1414,7 @@ func (c *controllerV1) handleGetWorkspaceAgentSessionGoal(w http.ResponseWriter,
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/goal [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionGoal(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1392,6 +1443,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionGoal(w http.ResponseWriter
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/cwd [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionWorkingDir(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1418,6 +1470,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionWorkingDir(w http.Response
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/goal/clear [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionGoalClear(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1438,6 +1491,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionGoalClear(w http.ResponseW
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/summarize [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionSummarize(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1458,6 +1512,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionSummarize(w http.ResponseW
 //	@Success		200
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:prompt"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/title [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionTitle(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1480,6 +1535,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionTitle(w http.ResponseWrite
 // @Failure		400		{object}	proto.Error
 // @Failure		404		{object}	proto.Error
 // @Failure		500		{object}	proto.Error
+// @x-crush-scope "shell"
 // @Router			/workspaces/{id}/agent/sessions/{sid}/shell [post]
 func (c *controllerV1) handlePostWorkspaceAgentSessionShell(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1505,6 +1561,7 @@ func (c *controllerV1) handlePostWorkspaceAgentSessionShell(w http.ResponseWrite
 //	@Success		200	{array}		string
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/agent/sessions/{sid}/prompts/list [get]
 func (c *controllerV1) handleGetWorkspaceAgentSessionPromptList(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1523,6 +1580,7 @@ func (c *controllerV1) handleGetWorkspaceAgentSessionPromptList(w http.ResponseW
 //	@Success		200			{object}	object
 //	@Failure		404			{object}	proto.Error
 //	@Failure		500			{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/agent/default-small-model [get]
 func (c *controllerV1) handleGetWorkspaceAgentDefaultSmallModel(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1543,6 +1601,7 @@ func (c *controllerV1) handleGetWorkspaceAgentDefaultSmallModel(w http.ResponseW
 //	@Failure		404		{object}	proto.Error
 //	@Failure		409		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/swarm/resolve [get]
 func (c *controllerV1) handleGetSwarmResolve(w http.ResponseWriter, r *http.Request) {
 	address := strings.TrimSpace(r.URL.Query().Get("address"))
@@ -1565,6 +1624,7 @@ func (c *controllerV1) handleGetSwarmResolve(w http.ResponseWriter, r *http.Requ
 //	@Success		200	{object}	proto.PendingPrompts
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
 //	@Router			/workspaces/{id}/sessions/{sid}/pending [get]
 func (c *controllerV1) handleGetWorkspaceSessionPending(w http.ResponseWriter, r *http.Request) {
 	pending, err := c.backend.PendingPrompts(r.Context(), r.PathValue("id"), r.PathValue("sid"))
@@ -1582,6 +1642,7 @@ func (c *controllerV1) handleGetWorkspaceSessionPending(w http.ResponseWriter, r
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"permissions:answer"
 //	@Router			/workspaces/{id}/permissions/grant [post]
 func (c *controllerV1) handlePostWorkspacePermissionsGrant(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1610,6 +1671,7 @@ func (c *controllerV1) handlePostWorkspacePermissionsGrant(w http.ResponseWriter
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"permissions:answer"
 //	@Router			/workspaces/{id}/questions/answer [post]
 func (c *controllerV1) handlePostWorkspaceQuestionsAnswer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1638,6 +1700,7 @@ func (c *controllerV1) handlePostWorkspaceQuestionsAnswer(w http.ResponseWriter,
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"permissions:always"
 //	@Router			/workspaces/{id}/permissions/skip [post]
 func (c *controllerV1) handlePostWorkspacePermissionsSkip(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1662,6 +1725,7 @@ func (c *controllerV1) handlePostWorkspacePermissionsSkip(w http.ResponseWriter,
 //	@Success		200	{object}	proto.PermissionSkipRequest
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/permissions/skip [get]
 func (c *controllerV1) handleGetWorkspacePermissionsSkip(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1684,6 +1748,7 @@ func (c *controllerV1) handleGetWorkspacePermissionsSkip(w http.ResponseWriter, 
 //	@Failure		400	{object}	proto.Error
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/permissions/sysadmin [post]
 func (c *controllerV1) handlePostWorkspacePermissionsSysadmin(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1708,6 +1773,7 @@ func (c *controllerV1) handlePostWorkspacePermissionsSysadmin(w http.ResponseWri
 //	@Success		200	{object}	proto.PermissionSysadminRequest
 //	@Failure		404	{object}	proto.Error
 //	@Failure		500	{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/workspaces/{id}/permissions/sysadmin [get]
 func (c *controllerV1) handleGetWorkspacePermissionsSysadmin(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -1818,6 +1884,7 @@ func jsonError(w http.ResponseWriter, status int, message string) {
 //	@Success		200		{object}	proto.SessionBundle
 //	@Failure		400		{object}	proto.Error
 //	@Failure		404		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/session-bundle [post]
 func (c *controllerV1) handlePostSessionBundle(w http.ResponseWriter, r *http.Request) {
 	params, ok := decodeJSON[proto.SessionBundleParams](c, w, r)
@@ -1859,6 +1926,7 @@ func (c *controllerV1) handlePostSessionBundle(w http.ResponseWriter, r *http.Re
 //	@Param			request	body		proto.SessionBatchRequest	true	"Operation and targets"
 //	@Success		200		{object}	proto.SessionBatchResult
 //	@Failure		400		{object}	proto.Error
+//	@x-crush-scope	"never"
 //	@Router			/sessions/batch [post]
 func (c *controllerV1) handlePostSessionBatch(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeJSON[proto.SessionBatchRequest](c, w, r)

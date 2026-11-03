@@ -66,6 +66,8 @@ type Server struct {
 	network string
 
 	h *http.Server
+	// mux is the /v1 router behind h (tests check routes against it).
+	mux *http.ServeMux
 
 	backend *backend.Backend
 	logger  *slog.Logger
@@ -264,6 +266,7 @@ func (s *Server) installHandler() {
 	s.installDebugRoutes(mux)
 	s.installReplicationRoutes(mux)
 	mux.Handle("/v1/docs/", swaggerui.Handler("/v1/docs/"))
+	s.mux = mux
 	s.h = &http.Server{
 		Protocols: &p,
 		Handler:   s.recoverHandler(s.loggingHandler(mux)),

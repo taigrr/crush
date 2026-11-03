@@ -35,6 +35,17 @@ func transferStatus(err error) int {
 	return http.StatusInternalServerError
 }
 
+// handleMoveSession moves a session to another node.
+//
+//	@Summary		Move a session
+//	@Tags			transfer
+//	@Accept			json
+//	@Produce		json
+//	@Param			request	body		proto.MoveSessionRequest	true	"Move request"
+//	@Success		200		{object}	proto.MoveSessionResponse
+//	@Failure		400		{object}	proto.Error
+//	@x-crush-scope	"sessions:move"
+//	@Router			/sessions/move [post]
 func (s *Server) handleMoveSession(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeBody[proto.MoveSessionRequest](w, r)
 	if !ok {
