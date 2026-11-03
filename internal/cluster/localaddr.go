@@ -49,13 +49,15 @@ const (
 	rankPublic4        // public IPv4 on a physical interface
 	rankIPv6           // routable IPv6 on a physical interface
 	rankForeign        // not one of this host's addresses (hostnames, NAT)
+	rankTunnel         // VPN, WireGuard, or point-to-point address (last resort)
 	rankTailnet        // Tailscale CGNAT address on a tunnel interface
 	rankSkip
 )
 
 // tunnelPrefixes name virtual interfaces whose addresses a phone on the
-// LAN cannot reach: VPN and WireGuard tunnels, VM and container bridges,
-// and Apple's peer-to-peer links.
+// LAN usually cannot reach: VPN and WireGuard tunnels, VM and container
+// bridges, and Apple's peer-to-peer links. They are kept as last-resort
+// candidates (a cluster mesh or a roaming phone may use a VPN).
 var tunnelPrefixes = []string{
 	"utun", "tun", "tap", "wg", "tailscale", "ts", "ipsec", "ppp", "gif", "stf",
 	"bridge", "br-", "docker", "veth", "virbr", "vmnet", "vboxnet", "vnic",
@@ -90,7 +92,7 @@ func rankAddr(ifc NetInterface, ip netip.Addr) int {
 		if ip.Is4() && tailnetPrefix.Contains(ip) {
 			return rankTailnet
 		}
-		return rankSkip
+		return rankTunnel
 	}
 	switch {
 	case ip.Is4() && ip.IsPrivate() && ifc.Flags&net.FlagBroadcast != 0:
@@ -164,8 +166,9 @@ func localEndpointsFrom(ifs []NetInterface, port int) []Endpoint {
 // are from a phone on this host's LAN, using the current interfaces:
 // private IPv4 on physical broadcast interfaces first, then other
 // physical addresses, then addresses that are not this host's own
-// (hostnames, NAT), then Tailscale. This host's addresses on loopback,
-// down, point-to-point, or tunnel interfaces are dropped. The order is
+// (hostnames, NAT), then tunnel and point-to-point addresses (WireGuard,
+// VPNs), then Tailscale. This host's addresses on loopback or down
+// interfaces, and link-local addresses, are dropped. The order is
 // stable otherwise, and the input is returned unchanged when the
 // interfaces cannot be listed.
 func OrderAdvertisedAddrs(addrs []string) []string {

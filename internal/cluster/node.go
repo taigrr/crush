@@ -182,7 +182,8 @@ func (n *Node) Stop(ctx context.Context) error {
 
 // LocalEndpoints returns direct endpoints at port for this host's
 // advertisable addresses, best first (see OrderAdvertisedAddrs): loopback,
-// link-local, down, point-to-point, and tunnel interfaces are skipped.
+// link-local, and down interfaces are skipped; tunnel and point-to-point
+// addresses are kept last.
 func LocalEndpoints(port int) []Endpoint {
 	ifs, err := systemInterfaces()
 	if err != nil {
