@@ -33,6 +33,9 @@ func (n *Node) Status() Status {
 	s.KeyVersion = st.KeyVersion
 	s.Members = st.Members
 	for i := range s.Members {
+		if s.Members[i].NodeID == n.id.ID {
+			s.Members[i].Version = n.version
+		}
 		if t := n.LastSeen(s.Members[i].NodeID); t.After(s.Members[i].LastSeen) {
 			s.Members[i].LastSeen = t
 		}
