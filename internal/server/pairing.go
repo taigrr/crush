@@ -787,7 +787,7 @@ func (p *pairingService) handleAbort(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, resp)
 }
 
-func (s *Server) installPairingRoutes(mux *http.ServeMux) {
+func (s *Server) installPairingRoutes(mux *routeMux) {
 	mux.HandleFunc("POST /v1/cluster/pairing/offers", s.handleCreatePairOffer)
 	mux.HandleFunc("POST /v1/cluster/pairing/accept", s.handleAcceptPairCode)
 	mux.HandleFunc("GET /v1/cluster/pairing/offers/{offer_id}", s.handleGetPairOffer)

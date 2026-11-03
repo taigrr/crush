@@ -396,6 +396,12 @@ func (c *controllerV1) handlePostWorkspaceMCPRefreshTools(w http.ResponseWriter,
 }
 
 // handlePostWorkspaceMCPAuthenticate initiates the OAuth flow for an MCP server.
+//
+//	@Summary		Start MCP OAuth authentication
+//	@Tags			mcp
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/workspaces/{id}/mcp/authenticate [post]
 func (c *controllerV1) handlePostWorkspaceMCPAuthenticate(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -412,6 +418,12 @@ func (c *controllerV1) handlePostWorkspaceMCPAuthenticate(w http.ResponseWriter,
 }
 
 // handleGetWorkspaceMCPPendingAuth lists MCP servers awaiting OAuth.
+//
+//	@Summary		List MCP servers awaiting OAuth
+//	@Tags			mcp
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/workspaces/{id}/mcp/pending-auth [get]
 func (c *controllerV1) handleGetWorkspaceMCPPendingAuth(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	pending := c.backend.MCPPendingAuth(id)
@@ -423,6 +435,12 @@ func (c *controllerV1) handleGetWorkspaceMCPPendingAuth(w http.ResponseWriter, r
 }
 
 // handleGetWorkspaceMCPAuthURL returns the current OAuth authorization URL.
+//
+//	@Summary		Get an MCP OAuth URL
+//	@Tags			mcp
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/workspaces/{id}/mcp/auth-url [get]
 func (c *controllerV1) handleGetWorkspaceMCPAuthURL(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	name := r.URL.Query().Get("name")

@@ -564,16 +564,37 @@ func (c *controllerV1) handleGetWorkspaceSessions(w http.ResponseWriter, r *http
 	jsonEncode(w, result)
 }
 
+// handleGetSessionImportSources handles "list session import sources".
+//
+//	@Summary		List session import sources
+//	@Tags			sessions
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/session-import/sources [get]
 func (c *controllerV1) handleGetSessionImportSources(w http.ResponseWriter, r *http.Request) {
 	sources, err := c.backend.ListSessionImportSources()
 	c.respond(w, r, sources, err)
 }
 
+// handleGetSessionImportCandidates handles "discover importable sessions".
+//
+//	@Summary		Discover importable sessions
+//	@Tags			sessions
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/session-import/candidates [get]
 func (c *controllerV1) handleGetSessionImportCandidates(w http.ResponseWriter, r *http.Request) {
 	candidates, err := c.backend.DiscoverSessionImports(r.Context(), sessionimport.Source(r.URL.Query().Get("source")))
 	c.respond(w, r, candidates, err)
 }
 
+// handlePostSessionImport handles "import a session from another agent".
+//
+//	@Summary		Import a session from another agent
+//	@Tags			sessions
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/workspaces/{id}/session-import [post]
 func (c *controllerV1) handlePostSessionImport(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeJSON[proto.SessionImportRequest](c, w, r)
 	if !ok {
@@ -1193,6 +1214,12 @@ func (c *controllerV1) handleGetWorkspaceAgentSessionPromptQueued(w http.Respons
 
 // handleGetWorkspaceEmbeddingsPending returns how many past messages
 // would be embedded by a backfill.
+//
+//	@Summary		Count messages awaiting embeddings
+//	@Tags			embeddings
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/workspaces/{id}/embeddings/pending [get]
 func (c *controllerV1) handleGetWorkspaceEmbeddingsPending(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	pending, err := c.backend.PendingEmbeddingCount(r.Context(), id)
@@ -1201,6 +1228,12 @@ func (c *controllerV1) handleGetWorkspaceEmbeddingsPending(w http.ResponseWriter
 
 // handlePostWorkspaceEmbeddingsBackfill embeds past messages lacking a
 // vector and returns the count embedded.
+//
+//	@Summary		Embed past messages
+//	@Tags			embeddings
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/workspaces/{id}/embeddings/backfill [post]
 func (c *controllerV1) handlePostWorkspaceEmbeddingsBackfill(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	embedded, err := c.backend.BackfillEmbeddings(r.Context(), id)
@@ -1208,6 +1241,12 @@ func (c *controllerV1) handlePostWorkspaceEmbeddingsBackfill(w http.ResponseWrit
 }
 
 // handleGetWorkspaceEmbeddingsStatus returns the embedding index state.
+//
+//	@Summary		Embedding index status
+//	@Tags			embeddings
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/workspaces/{id}/embeddings/status [get]
 func (c *controllerV1) handleGetWorkspaceEmbeddingsStatus(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	status, err := c.backend.EmbeddingStatus(r.Context(), id)
@@ -1216,6 +1255,20 @@ func (c *controllerV1) handleGetWorkspaceEmbeddingsStatus(w http.ResponseWriter,
 
 // handlePostWorkspaceHistorySearch runs hybrid history search over a
 // workspace and returns per-session hits.
+//
+//	@Summary		Search session history
+//	@Description	Hybrid substring and semantic search over a workspace's messages, collapsed to one hit per session.
+//	@Tags			sessions
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string						true	"Workspace ID"
+//	@Param			request	body		proto.SearchHistoryParams	true	"Search query and options"
+//	@Success		200		{object}	proto.SearchHistoryResult
+//	@Failure		400		{object}	proto.Error
+//	@Failure		404		{object}	proto.Error
+//	@Failure		500		{object}	proto.Error
+//	@x-crush-scope	"sessions:read"
+//	@Router			/workspaces/{id}/history/search [post]
 func (c *controllerV1) handlePostWorkspaceHistorySearch(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	params, ok := decodeJSON[proto.SearchHistoryParams](c, w, r)

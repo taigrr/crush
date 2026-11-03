@@ -52,7 +52,7 @@ func (s *Server) clusterPort() int {
 	return portOf(s.clusterAddr, cluster.DefaultPort)
 }
 
-func (s *Server) installClusterRoutes(mux *http.ServeMux) {
+func (s *Server) installClusterRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /v1/cluster", s.handleClusterStatus)
 	mux.HandleFunc("POST /v1/cluster/init", s.handleClusterInit)
 	mux.HandleFunc("POST /v1/cluster/join", s.handleClusterJoin)
@@ -96,6 +96,13 @@ func errStrings(errs []error) []string {
 	return out
 }
 
+// handleClusterStatus handles "cluster status".
+//
+//	@Summary		Cluster status
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster [get]
 func (s *Server) handleClusterStatus(w http.ResponseWriter, _ *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {
@@ -123,6 +130,13 @@ func portOf(addr string, def int) int {
 	return port
 }
 
+// handleClusterInit handles "create a cluster".
+//
+//	@Summary		Create a cluster
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster/init [post]
 func (s *Server) handleClusterInit(w http.ResponseWriter, r *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {
@@ -148,6 +162,13 @@ func (s *Server) handleClusterInit(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, proto.ClusterTokenResponse{Token: token})
 }
 
+// handleClusterJoin handles "join a cluster".
+//
+//	@Summary		Join a cluster
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster/join [post]
 func (s *Server) handleClusterJoin(w http.ResponseWriter, r *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {
@@ -199,6 +220,13 @@ func (s *Server) handleClusterJoin(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, n.Status())
 }
 
+// handleClusterToken handles "get a join token".
+//
+//	@Summary		Get a join token
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster/token [get]
 func (s *Server) handleClusterToken(w http.ResponseWriter, _ *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {
@@ -212,6 +240,13 @@ func (s *Server) handleClusterToken(w http.ResponseWriter, _ *http.Request) {
 	jsonEncode(w, proto.ClusterTokenResponse{Token: tok})
 }
 
+// handleClusterApprove handles "approve a node join request".
+//
+//	@Summary		Approve a node join request
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster/approve [post]
 func (s *Server) handleClusterApprove(w http.ResponseWriter, r *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {
@@ -230,6 +265,13 @@ func (s *Server) handleClusterApprove(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, m)
 }
 
+// handleClusterDeny handles "deny a node join request".
+//
+//	@Summary		Deny a node join request
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster/deny [post]
 func (s *Server) handleClusterDeny(w http.ResponseWriter, r *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {
@@ -248,6 +290,13 @@ func (s *Server) handleClusterDeny(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, jr)
 }
 
+// handleClusterRotate handles "rotate the cluster key".
+//
+//	@Summary		Rotate the cluster key
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster/rotate [post]
 func (s *Server) handleClusterRotate(w http.ResponseWriter, r *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {
@@ -261,6 +310,13 @@ func (s *Server) handleClusterRotate(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, proto.ClusterTokenResponse{Token: tok, Errors: errStrings(errs)})
 }
 
+// handleClusterLeave handles "leave the cluster".
+//
+//	@Summary		Leave the cluster
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster/leave [post]
 func (s *Server) handleClusterLeave(w http.ResponseWriter, r *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {
@@ -274,6 +330,13 @@ func (s *Server) handleClusterLeave(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, proto.ClusterTokenResponse{Errors: errStrings(n.Leave(r.Context()))})
 }
 
+// handleClusterUpgrade handles "upgrade every member".
+//
+//	@Summary		Upgrade every member
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster/upgrade [post]
 func (s *Server) handleClusterUpgrade(w http.ResponseWriter, r *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {
@@ -286,6 +349,13 @@ func (s *Server) handleClusterUpgrade(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, proto.ClusterTokenResponse{Errors: errStrings(n.UpgradeAll(r.Context(), req.Version))})
 }
 
+// handleClusterName handles "rename this node".
+//
+//	@Summary		Rename this node
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster/name [post]
 func (s *Server) handleClusterName(w http.ResponseWriter, r *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {
@@ -306,6 +376,13 @@ func (s *Server) handleClusterName(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, n.Status())
 }
 
+// handleClusterPing handles "ping every member".
+//
+//	@Summary		Ping every member
+//	@Tags			cluster
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/cluster/ping [get]
 func (s *Server) handleClusterPing(w http.ResponseWriter, r *http.Request) {
 	n, ok := s.requireCluster(w)
 	if !ok {

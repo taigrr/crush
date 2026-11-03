@@ -9,14 +9,36 @@ import (
 	"github.com/taigrr/crush/internal/transfer"
 )
 
-func (s *Server) installTransferRoutes(mux *http.ServeMux) {
+func (s *Server) installTransferRoutes(mux *routeMux) {
 	mux.HandleFunc("POST /v1/sessions/move", s.handleMoveSession)
 	mux.HandleFunc("POST /v1/transfer/preflight", s.handleTransferPreflight)
 	mux.HandleFunc("POST /v1/transfer/import", s.handleTransferImport)
-	mux.HandleFunc("GET /v1/transfers", func(w http.ResponseWriter, _ *http.Request) { jsonEncode(w, s.backend.Transfers()) })
-	mux.HandleFunc("GET /v1/transfers/incoming", func(w http.ResponseWriter, _ *http.Request) { jsonEncode(w, s.backend.IncomingTransfers()) })
+	mux.HandleFunc("GET /v1/transfers", s.handleGetTransfers)
+	mux.HandleFunc("GET /v1/transfers/incoming", s.handleGetIncomingTransfers)
 	mux.HandleFunc("POST /v1/migrate/plan", s.handleMigratePlan)
 	mux.HandleFunc("POST /v1/migrate/execute", s.handleMigrateExecute)
+}
+
+// handleGetTransfers handles "list outgoing transfers".
+//
+//	@Summary		List outgoing transfers
+//	@Tags			transfer
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/transfers [get]
+func (s *Server) handleGetTransfers(w http.ResponseWriter, _ *http.Request) {
+	jsonEncode(w, s.backend.Transfers())
+}
+
+// handleGetIncomingTransfers handles "list incoming transfers".
+//
+//	@Summary		List incoming transfers
+//	@Tags			transfer
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/transfers/incoming [get]
+func (s *Server) handleGetIncomingTransfers(w http.ResponseWriter, _ *http.Request) {
+	jsonEncode(w, s.backend.IncomingTransfers())
 }
 
 // transferStatus maps transfer errors to HTTP statuses.
@@ -59,6 +81,13 @@ func (s *Server) handleMoveSession(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, res)
 }
 
+// handleTransferPreflight handles "check a transfer bundle".
+//
+//	@Summary		Check a transfer bundle
+//	@Tags			transfer
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/transfer/preflight [post]
 func (s *Server) handleTransferPreflight(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeBody[proto.TransferPreflightRequest](w, r)
 	if !ok {
@@ -72,6 +101,13 @@ func (s *Server) handleTransferPreflight(w http.ResponseWriter, r *http.Request)
 	jsonEncode(w, res)
 }
 
+// handleTransferImport handles "import a transfer bundle".
+//
+//	@Summary		Import a transfer bundle
+//	@Tags			transfer
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/transfer/import [post]
 func (s *Server) handleTransferImport(w http.ResponseWriter, r *http.Request) {
 	plan := transfer.Plan(r.URL.Query().Get("plan"))
 	switch plan {
@@ -88,6 +124,13 @@ func (s *Server) handleTransferImport(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, res)
 }
 
+// handleMigratePlan handles "plan a migration".
+//
+//	@Summary		Plan a migration
+//	@Tags			transfer
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/migrate/plan [post]
 func (s *Server) handleMigratePlan(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeBody[proto.MigrateRequest](w, r)
 	if !ok {
@@ -101,6 +144,13 @@ func (s *Server) handleMigratePlan(w http.ResponseWriter, r *http.Request) {
 	jsonEncode(w, plan)
 }
 
+// handleMigrateExecute handles "execute a migration".
+//
+//	@Summary		Execute a migration
+//	@Tags			transfer
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/migrate/execute [post]
 func (s *Server) handleMigrateExecute(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeBody[proto.MigrateExecuteRequest](w, r)
 	if !ok {

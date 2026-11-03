@@ -68,6 +68,8 @@ type Server struct {
 	h *http.Server
 	// mux is the /v1 router behind h (tests check routes against it).
 	mux *http.ServeMux
+	// routes lists every pattern registered on mux.
+	routes []string
 
 	backend *backend.Backend
 	logger  *slog.Logger
@@ -139,7 +141,7 @@ func (s *Server) installHandler() {
 	p.SetHTTP1(true)
 	p.SetUnencryptedHTTP2(true)
 	c := &controllerV1{backend: s.backend, server: s}
-	mux := http.NewServeMux()
+	mux := newRouteMux()
 	mux.HandleFunc("GET /v1/health", c.handleGetHealth)
 	mux.HandleFunc("GET /v1/version", c.handleGetVersion)
 	mux.HandleFunc("GET /v1/config", c.handleGetConfig)
@@ -266,7 +268,8 @@ func (s *Server) installHandler() {
 	s.installDebugRoutes(mux)
 	s.installReplicationRoutes(mux)
 	mux.Handle("/v1/docs/", swaggerui.Handler("/v1/docs/"))
-	s.mux = mux
+	s.mux = mux.ServeMux
+	s.routes = mux.patterns
 	s.h = &http.Server{
 		Protocols: &p,
 		Handler:   s.recoverHandler(s.loggingHandler(mux)),

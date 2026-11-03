@@ -100,12 +100,23 @@ func TestDeviceRouterAllowList(t *testing.T) {
 		require.Equal(t, codeRouteNotAllowed, code("POST", p, everything), p)
 	}
 	require.Equal(t, codeRouteNotAllowed, code("GET", "/v1/workspaces/w/config", everything))
-	// Undocumented routes (cluster keys, debug, replication, the member
-	// proxy) are unknown to the device router.
-	for _, p := range []string{"/v1/cluster/token", "/v1/cluster/rotate", "/v1/debug/logs", "/v1/nodes/x/v1/workspaces", "/v1/transfer/import", "/v1/replication/changes"} {
-		require.Equal(t, codeNotFound, code("GET", p, everything), p)
-		require.Equal(t, codeNotFound, code("POST", p, everything), p)
+	// Cluster keys, debug, replication, and transfer are documented as
+	// "never".
+	for _, route := range []string{
+		"GET /v1/cluster/token", "POST /v1/cluster/rotate", "GET /v1/debug/logs", "POST /v1/transfer/import",
+		"GET /v1/replication/changes", "POST /v1/migrate/execute", "POST /v1/cluster/join", "GET /v1/cluster",
+	} {
+		m, p, _ := cutPattern(route)
+		require.Equal(t, codeRouteNotAllowed, code(m, p, everything), route)
 	}
+	// The member proxy is unknown to the device router.
+	require.Equal(t, codeNotFound, code("GET", "/v1/nodes/x/v1/workspaces", everything))
+	require.Equal(t, codeNotFound, code("POST", "/v1/nodes/x/v1/workspaces", everything))
+	// History search is a read.
+	require.Empty(t, code("POST", "/v1/workspaces/w/history/search", viewer))
+	_, e = r.authorize("POST", "/v1/workspaces/w/history/search", nil)
+	require.Equal(t, devicescope.SessionsRead, e.Scope)
+	require.Equal(t, codeDeviceScopeDenied, e.Code)
 	// Path tricks never reach a different route.
 	for _, p := range []string{
 		"/v1/workspaces/w/../../cluster/token", "/v1/workspaces//w", "/v1/workspaces/w%2Fx", "/v1/workspaces/w/",
@@ -180,4 +191,43 @@ func TestApplyBodyRules(t *testing.T) {
 	out, e = applyBodyRules("POST /v1/workspaces/{id}/sessions", op, []byte(`{"title":"t"}`))
 	require.Nil(t, e)
 	require.JSONEq(t, `{"title":"t"}`, string(out))
+}
+
+// prefixRoutes are method-less catch-all patterns that OpenAPI cannot
+// describe. The device router must never match them.
+var prefixRoutes = map[string]bool{
+	"/v1/nodes/{node}/{rest...}": true,
+	"/v1/docs/":                  true,
+}
+
+// TestServerRoutesHaveDeviceScope fails when any route registered on the
+// server mux is missing from swagger and therefore from the device scope
+// table, so a new handler cannot ship without a scope decision.
+func TestServerRoutesHaveDeviceScope(t *testing.T) {
+	t.Parallel()
+	srv, _ := newClusterTestServer(t)
+	require.NotEmpty(t, srv.routes)
+	r := newDeviceRouter()
+	var missing []string
+	for _, pattern := range srv.routes {
+		_, p, ok := cutPattern(pattern)
+		if !ok {
+			require.True(t, prefixRoutes[pattern], "method-less route %s must be listed in prefixRoutes", pattern)
+			for _, m := range []string{http.MethodGet, http.MethodPost} {
+				for _, sample := range []string{concrete(p), concrete(p) + "x", concrete(p) + "/x"} {
+					_, berr := r.authorize(m, sample, devicescope.Known)
+					require.NotNil(t, berr, "%s %s", m, sample)
+					require.Contains(t, []bridgeCode{codeNotFound, codeBadRequest}, berr.Code, "%s %s", m, sample)
+				}
+			}
+			continue
+		}
+		if _, ok := deviceRoutes[pattern]; !ok {
+			missing = append(missing, pattern)
+		}
+	}
+	require.Empty(t, missing, "routes without swagger docs and x-crush-scope")
+	for pattern := range prefixRoutes {
+		require.Contains(t, srv.routes, pattern, "stale prefixRoutes entry")
+	}
 }
