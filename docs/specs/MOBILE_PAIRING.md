@@ -663,6 +663,8 @@ forwarding, carries the authenticated device ID stamped by the entry node).
 
 ### NATS-to-HTTP bridge
 
+The normative v1 wire format (envelopes, errors, streams, attention, control, cross-node routing) is [MOBILE_DEVICE_BRIDGE.md](MOBILE_DEVICE_BRIDGE.md); it supersedes the sketches below where they differ.
+
 A device sends a NATS request on `crush.client.v1.<dev>.api.<node>` (`<node>` is the session owner's node ID, or `any` for the entry node) with a JSON envelope:
 
 ```json
