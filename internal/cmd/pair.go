@@ -220,7 +220,7 @@ func init() {
 	for _, c := range []*cobra.Command{pairCmd, pairAcceptCmd} {
 		// Kept so existing scripts keep working; every device has full
 		// access now.
-		c.Flags().String(flagRole, "", "Ignored: every paired device has full access")
+		c.Flags().String(flagRole, "", "Only admin is accepted: every paired device has full access")
 		_ = c.Flags().MarkDeprecated(flagRole, "device roles were removed; every paired device has full access")
 		c.Flags().Bool(flagInvert, false, "Draw the QR code for dark-on-light terminals")
 		c.Flags().Bool(flagNoQR, false, "Do not draw the QR code")
@@ -248,19 +248,20 @@ func printPairQR(cmd *cobra.Command, text string) error {
 	return nil
 }
 
-// runPairing follows an offer through claim, SAS confirmation, and
-// approval. Interrupting it rejects the offer.
 // checkRoleFlag refuses a restricted --role: roles were removed and every
 // device gets full access, so silently accepting "viewer" would pair a
 // device with far more access than the caller asked for.
 func checkRoleFlag(cmd *cobra.Command) error {
 	role, _ := cmd.Flags().GetString(flagRole)
+	role = strings.ToLower(strings.TrimSpace(role))
 	if role == "" || pairing.Role(role) == pairing.RoleAdmin {
 		return nil
 	}
 	return fmt.Errorf("--role %s is no longer supported: every paired device has full access", role)
 }
 
+// runPairing follows an offer through claim, SAS confirmation, and
+// approval. Interrupting it rejects the offer.
 func runPairing(cmd *cobra.Command, c *client.Client, offer pairing.OfferView) error {
 	ctx := cmd.Context()
 	out := cmd.OutOrStdout()

@@ -283,6 +283,10 @@ func (b *deviceBridge) openStream(d pairing.Device, req streamRequest) streamOpe
 		return fail(e)
 	}
 	devCtx := b.workLocked(d.DeviceID)
+	if b.ctx.Err() != nil {
+		b.mu.Unlock()
+		return fail(unavailable("node is shutting down"))
+	}
 	if devCtx.Err() != nil {
 		b.mu.Unlock()
 		return fail(newBridgeError(codeDeviceRevoked, "device is revoked"))
