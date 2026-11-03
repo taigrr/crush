@@ -1,14 +1,14 @@
 package cluster
 
 import (
-	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
+	"github.com/nats-io/jwt/v2"
 	natsserver "github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 )
 
 // ClientsAccount is the NATS account paired devices live in. Mesh
@@ -19,59 +19,79 @@ const ClientsAccount = "CLIENTS"
 // meshUser is the in-process mesh connection's user name.
 const meshUser = "crush-mesh"
 
-// CAFingerprint returns SHA-256 of the DER SubjectPublicKeyInfo of the
-// CA derived from clusterKey.
-func CAFingerprint(clusterKey []byte) ([]byte, error) {
-	ca, err := caKey(clusterKey)
-	if err != nil {
-		return nil, err
-	}
-	spki, err := x509.MarshalPKIXPublicKey(ca.Public())
-	if err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256(spki)
-	return sum[:], nil
-}
-
-// CAFingerprints returns the current and (after a rotation) previous CA
-// fingerprints.
-func (n *Node) CAFingerprints() ([][]byte, error) {
-	st, err := n.store.Snapshot()
-	if err != nil {
-		return nil, err
-	}
-	if st.ClusterID == "" {
-		return nil, ErrNotInCluster
-	}
-	var out [][]byte
-	for _, key := range st.trustedKeys() {
-		fp, err := CAFingerprint(key)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, fp)
-	}
-	return out, nil
-}
-
-// ClientTLSConfig serves the node's leaf certificate to devices. Devices
-// are not members, so no client certificate is requested; they
-// authenticate inside the pairing protocol and with their nkey.
-func (n *Node) ClientTLSConfig() *tls.Config {
-	return &tls.Config{
-		MinVersion: tls.VersionTLS13,
-		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-			return n.currentCert()
-		},
-	}
-}
+const (
+	wsHandshakeTimeout = 5 * time.Second
+	// responseTTL bounds how long a device may answer a request it
+	// received (allow_responses); it may answer each one once.
+	responseTTL = time.Minute
+)
 
 // ClientUser is a device NATS user: its nkey and allowed subjects.
+// Everything not listed is denied, for both publish and subscribe.
 type ClientUser struct {
 	Nkey      string
 	Publish   []string
 	Subscribe []string
+	// ConnectionTypes overrides the allowed connection types (tests);
+	// devices connect over the websocket only.
+	ConnectionTypes []string
+}
+
+func connTypes(types ...string) map[string]struct{} {
+	out := make(map[string]struct{}, len(types))
+	for _, t := range types {
+		out[t] = struct{}{}
+	}
+	return out
+}
+
+const (
+	bridgeUser     = "crush-device-bridge"
+	maxMeshPayload = 8 << 20
+)
+
+// bridgePermissions lets the bridge receive device requests and answer
+// them, and nothing about other accounts (it lives in CLIENTS).
+func bridgePermissions() *natsserver.Permissions {
+	return &natsserver.Permissions{
+		Publish: &natsserver.SubjectPermission{Allow: []string{"crush.client.v1.>", "_INBOX.>"}},
+		Subscribe: &natsserver.SubjectPermission{Allow: []string{
+			"crush.client.v1.*.api.*", "crush.client.v1.*.sub", "crush.client.v1.*.unsub",
+			"crush.client.v1.*.ack.*",
+		}},
+	}
+}
+
+// ClientsConn is the in-process connection into the CLIENTS account used
+// to serve device subjects.
+func (m *Mesh) ClientsConn() *nats.Conn {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.bc
+}
+
+// ClientsInterest reports whether any connection in the CLIENTS account
+// subscribes to subject (a device still reading a stream).
+func (m *Mesh) ClientsInterest(subject string) bool {
+	m.mu.Lock()
+	srv := m.srv
+	m.mu.Unlock()
+	if srv == nil {
+		return false
+	}
+	acc, err := srv.LookupAccount(ClientsAccount)
+	if err != nil {
+		return false
+	}
+	return acc.SubscriptionInterest(subject)
+}
+
+// WebsocketAddr is the loopback address of the embedded server's device
+// websocket listener (plain; front it with TLS).
+func (m *Mesh) WebsocketAddr() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.wsAddr
 }
 
 // SetClientUsers replaces the device users in the CLIENTS account.
@@ -89,12 +109,18 @@ func (m *Mesh) SetClientUsers(users []ClientUser) error {
 	}
 	next.Nkeys = make([]*natsserver.NkeyUser, 0, len(users))
 	for _, u := range users {
+		types := u.ConnectionTypes
+		if len(types) == 0 {
+			types = []string{jwt.ConnectionTypeWebsocket}
+		}
 		next.Nkeys = append(next.Nkeys, &natsserver.NkeyUser{
-			Nkey:    u.Nkey,
-			Account: acc,
+			Nkey:                   u.Nkey,
+			Account:                acc,
+			AllowedConnectionTypes: connTypes(types...),
 			Permissions: &natsserver.Permissions{
-				Publish:   &natsserver.SubjectPermission{Allow: u.Publish},
-				Subscribe: &natsserver.SubjectPermission{Allow: u.Subscribe},
+				Publish:   scoped(u.Publish),
+				Subscribe: scoped(u.Subscribe),
+				Response:  &natsserver.ResponsePermission{MaxMsgs: 1, Expires: responseTTL},
 			},
 		})
 	}
@@ -104,6 +130,16 @@ func (m *Mesh) SetClientUsers(users []ClientUser) error {
 	m.opts = next
 	slog.Info("Mesh device users updated", "devices", len(users))
 	return nil
+}
+
+// scoped is a deny-by-default subject permission: only allow is
+// permitted, and an empty allow list (which NATS reads as "allow all")
+// becomes an explicit deny of everything.
+func scoped(allow []string) *natsserver.SubjectPermission {
+	if len(allow) == 0 {
+		return &natsserver.SubjectPermission{Deny: []string{">"}}
+	}
+	return &natsserver.SubjectPermission{Allow: allow}
 }
 
 func clientsAccount(opts *natsserver.Options) *natsserver.Account {

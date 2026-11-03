@@ -947,6 +947,13 @@ definitions:
     type: object
   pairing.PollResponse:
     properties:
+      ca_certs:
+        description: |-
+          CACerts are the cluster CA certificates (DER), current first. A
+          device trusts one only if its SPKI hash is a pinned fingerprint.
+        items:
+          type: string
+        type: array
       ca_fps:
         items:
           type: string

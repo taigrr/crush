@@ -71,7 +71,7 @@ func (s Self) Info() Info {
 // InfoPayload is the secretless kind 3 payload for s.
 func (s Self) InfoPayload() (string, error) {
 	return Payload{
-		Kind: KindNodeInfo, ClusterID: s.ClusterID, NodeID: s.NodeID, NodeName: s.NodeName,
+		Kind: KindNodeInfo, ClusterID: s.ClusterID, NodeID: s.NodeID, NodeName: TruncateText(s.NodeName),
 		NodePub: s.NodePub(), CAFP: s.CAFP, Endpoints: s.Endpoints, Proto: ProtoVersion,
 	}.Encode()
 }
@@ -80,6 +80,7 @@ func (s Self) InfoPayload() (string, error) {
 type Extras struct {
 	NATSURLs []string
 	CAFPs    [][]byte
+	CACerts  [][]byte
 	Members  []MemberInfo
 }
 
@@ -284,7 +285,7 @@ func (m *Manager) CreateNodeOffer(ttl time.Duration, role Role) (OfferView, erro
 	}
 	o.key = MACKey(o.secret, o.id)
 	o.payload, err = Payload{
-		Kind: KindNode, ClusterID: self.ClusterID, NodeID: self.NodeID, NodeName: self.NodeName,
+		Kind: KindNode, ClusterID: self.ClusterID, NodeID: self.NodeID, NodeName: TruncateText(self.NodeName),
 		NodePub: self.NodePub(), CAFP: self.CAFP, Endpoints: self.Endpoints,
 		OfferID: o.id, Secret: o.secret, Expires: o.expires, Proto: ProtoVersion,
 	}.Encode()
@@ -738,6 +739,9 @@ func (m *Manager) pollResponseLocked(o *offer) PollResponse {
 		resp.NATS = &NATSCredential{User: user, Account: ClientsAccount, Permissions: DevicePermissions(d.DeviceID), URLs: ex.NATSURLs}
 		for _, fp := range ex.CAFPs {
 			resp.CAFPs = append(resp.CAFPs, Bytes(fp))
+		}
+		for _, der := range ex.CACerts {
+			resp.CACerts = append(resp.CACerts, Bytes(der))
 		}
 		resp.Members = ex.Members
 	}

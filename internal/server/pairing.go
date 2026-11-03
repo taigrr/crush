@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -17,8 +18,13 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/taigrr/crush/internal/cluster"
 	"github.com/taigrr/crush/internal/pairing"
+	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/qr"
 )
+
+// swag resolves "proto.Error" in the @Failure annotations below through this
+// file's imports.
+var _ proto.Error
 
 // Mesh subjects for the device registry (member-only, global account).
 const (
@@ -30,6 +36,14 @@ const (
 
 	// DefaultClientPort is the default client listener port for devices.
 	DefaultClientPort = 7733
+	// DefaultClientWSPort is the default device NATS websocket port.
+	DefaultClientWSPort = 7734
+	// maxWSConnsPerSource bounds websocket connections from one address.
+	maxWSConnsPerSource = 8
+	natsRetry           = 5 * time.Second
+	// revokeNoticeGrace is how long a revoked device stays connected (with
+	// every request refused) so its "revoked" notice reaches it.
+	revokeNoticeGrace = 500 * time.Millisecond
 
 	maxPairBody   = 16 << 10
 	maxDeviceMsg  = 64 << 10
@@ -59,6 +73,7 @@ type pairingService struct {
 	reg  *pairing.Registry
 
 	clientAddr string
+	wsAddr     string
 
 	// meshRef is the running mesh, set and cleared by startMesh/stopMesh.
 	// It is read without srv.meshMu so NATS callbacks and registry
@@ -66,11 +81,18 @@ type pairingService struct {
 	meshRef atomic.Pointer[cluster.Mesh]
 	// natsDirty coalesces NATS user reloads onto the apply goroutine.
 	natsDirty chan struct{}
+	// natsMu serializes user reloads (the apply loop and approvals).
+	natsMu sync.Mutex
+
+	revokedMu   sync.Mutex
+	revokedSeen map[string]bool
 
 	// gate binds the client listener only while an offer is open or an
 	// active device exists. It lives while the mesh is attached.
 	gate   atomic.Pointer[listenerGate]
+	bridge atomic.Pointer[deviceBridge]
 	client *httpListener
+	ws     *tlsProxyListener
 
 	mu   sync.Mutex
 	subs []*nats.Subscription
@@ -83,12 +105,28 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, natsDirty: make(chan struct{}, 1)}
+	p := &pairingService{srv: s, node: n, reg: reg, clientAddr: s.clientAddr, wsAddr: s.clientWSAddr, natsDirty: make(chan struct{}, 1), revokedSeen: map[string]bool{}}
 	p.mgr = pairing.NewManager(pairing.Config{
 		Self: p.self, OnApprove: p.onApprove, Extras: p.extras, Revoked: p.revoked,
 		OnChange: p.kickGate,
 	})
-	reg.Watch(func(pairing.Device) {
+	reg.Watch(func(d pairing.Device) {
+		if d.Revoked() && p.firstRevocation(d.DeviceID) {
+			// Tell the device first, while it is still connected, and end
+			// its streams and requests at once (the bridge already refuses
+			// it). Dropping the connection waits revokeNoticeGrace so the
+			// notice is delivered rather than lost with the socket. Each
+			// node notices once; devices treat repeats as idempotent.
+			if b := p.bridge.Load(); b != nil {
+				b.control(d.DeviceID, "revoked")
+				b.closeDevice(d.DeviceID)
+				time.AfterFunc(revokeNoticeGrace, func() {
+					p.markNATSDirty()
+					p.kickGate()
+				})
+				return
+			}
+		}
 		p.markNATSDirty()
 		// A revocation (local or replicated) may leave nothing to serve.
 		p.kickGate()
@@ -106,6 +144,16 @@ func newPairingService(s *Server, n *cluster.Node) (*pairingService, error) {
 				IdleTimeout:       serverIdleTimeout,
 				MaxHeaderBytes:    maxPairBody,
 			}
+		},
+	}
+	p.ws = &tlsProxyListener{
+		name: "client-ws", addr: p.wsAddr, maxConn: maxClientConns, perSource: maxWSConnsPerSource,
+		backoff: listenerRetry, onDown: p.kickGate, tls: n.ClientTLSConfig,
+		target: func() string {
+			if m := p.meshRef.Load(); m != nil {
+				return m.WebsocketAddr()
+			}
+			return ""
 		},
 	}
 	return p, nil
@@ -168,6 +216,18 @@ func clientEndpoints(eps []cluster.Endpoint, port int) []pairing.Endpoint {
 	return out
 }
 
+// firstRevocation reports whether this node has not yet acted on the
+// device's revocation.
+func (p *pairingService) firstRevocation(deviceID string) bool {
+	p.revokedMu.Lock()
+	defer p.revokedMu.Unlock()
+	if p.revokedSeen[deviceID] {
+		return false
+	}
+	p.revokedSeen[deviceID] = true
+	return true
+}
+
 func (p *pairingService) kickGate() {
 	if g := p.gate.Load(); g != nil {
 		g.Kick()
@@ -203,6 +263,13 @@ func (p *pairingService) onApprove(d pairing.Device) error {
 	if !changed {
 		return errors.New("device record was superseded; try again")
 	}
+	// Install the NATS user before the poll reports success, so the
+	// device's first connection to this node never races the reload.
+	if mesh := p.meshRef.Load(); mesh != nil {
+		if err := p.applyNATS(mesh); err != nil {
+			return fmt.Errorf("install device NATS user: %w", err)
+		}
+	}
 	p.publish(subjDevices, d)
 	slog.Info("Paired mobile device", "device", d.DeviceID, "name", d.Name, "role", d.Role)
 	return nil
@@ -212,6 +279,9 @@ func (p *pairingService) extras() pairing.Extras {
 	var ex pairing.Extras
 	if fps, err := p.node.CAFingerprints(); err == nil {
 		ex.CAFPs = fps
+	}
+	if certs, err := p.node.CACertificates(); err == nil {
+		ex.CACerts = certs
 	}
 	st, err := p.node.Store().Snapshot()
 	if err != nil {
@@ -225,9 +295,43 @@ func (p *pairingService) extras() pairing.Extras {
 		}
 		ex.Members = append(ex.Members, info)
 	}
-	// The device-facing NATS websocket is rollout phase 2, so no URLs are
-	// advertised yet; the scoped user is already installed.
+	if self, ok := st.Member(p.node.Identity().ID); ok {
+		ex.NATSURLs = p.wsURLs(self.Endpoints)
+	}
 	return ex
+}
+
+// wsURLs lists the device websocket URLs a phone can use: the bound host
+// when --client-ws-addr names one, otherwise every usable endpoint host,
+// always with the real port.
+func (p *pairingService) wsURLs(eps []cluster.Endpoint) []string {
+	if p.wsAddr == "" {
+		return nil
+	}
+	host, port, err := net.SplitHostPort(p.wsAddr)
+	if err != nil {
+		return nil
+	}
+	if port == "0" {
+		// An ephemeral port is only known once bound.
+		if _, bound, err := net.SplitHostPort(p.ws.Addr()); err == nil {
+			port = bound
+		} else {
+			return nil
+		}
+	}
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		return nil
+	}
+	if ip, err := netip.ParseAddr(host); host != "" && (err != nil || !ip.IsUnspecified()) {
+		eps = []cluster.Endpoint{{Kind: cluster.EndpointDirect, Addr: net.JoinHostPort(host, port)}}
+	}
+	var urls []string
+	for _, ep := range clientEndpoints(eps, portNum) {
+		urls = append(urls, "wss://"+ep.Addr)
+	}
+	return urls
 }
 
 func (p *pairingService) markNATSDirty() {
@@ -240,7 +344,9 @@ func (p *pairingService) markNATSDirty() {
 // applyNATS installs every non-revoked device as a scoped NATS user and
 // drops revoked ones (which disconnects them). Only the apply goroutine
 // calls it.
-func (p *pairingService) applyNATS(mesh *cluster.Mesh) {
+func (p *pairingService) applyNATS(mesh *cluster.Mesh) error {
+	p.natsMu.Lock()
+	defer p.natsMu.Unlock()
 	var users []cluster.ClientUser
 	for _, d := range p.reg.List() {
 		if d.Revoked() {
@@ -255,7 +361,9 @@ func (p *pairingService) applyNATS(mesh *cluster.Mesh) {
 	}
 	if err := mesh.SetClientUsers(users); err != nil {
 		slog.Warn("Failed to install device NATS users", "error", err)
+		return err
 	}
+	return nil
 }
 
 func (p *pairingService) publish(subject string, d pairing.Device) {
@@ -342,11 +450,32 @@ func (p *pairingService) startMesh(mesh *cluster.Mesh) error {
 	p.meshRef.Store(mesh)
 	ctx, cancel := context.WithCancel(context.Background())
 	p.stop = cancel
+	if mesh.ClientsConn() != nil {
+		b := newDeviceBridge(p, mesh)
+		if err := b.start(); err != nil {
+			for _, s := range p.subs {
+				_ = s.Unsubscribe()
+			}
+			p.subs = nil
+			p.meshRef.Store(nil)
+			cancel()
+			p.stop = nil
+			return err
+		}
+		p.bridge.Store(b)
+	}
 	p.markNATSDirty()
 	p.wg.Go(func() { p.applyLoop(ctx, mesh) })
 	p.wg.Go(func() { p.syncLoop(ctx, mesh) })
+	var gated []gatedListener
 	if p.clientAddr != "" {
-		gate := newListenerGate(p.listenersWanted, listenerRetry, p.client)
+		gated = append(gated, p.client)
+	}
+	if p.wsAddr != "" {
+		gated = append(gated, p.ws)
+	}
+	if len(gated) > 0 {
+		gate := newListenerGate(p.listenersWanted, listenerRetry, gated...)
 		p.gate.Store(gate)
 		p.wg.Go(func() { gate.run(ctx) })
 	}
@@ -360,7 +489,11 @@ func (p *pairingService) applyLoop(ctx context.Context, mesh *cluster.Mesh) {
 		case <-ctx.Done():
 			return
 		case <-p.natsDirty:
-			p.applyNATS(mesh)
+			if p.applyNATS(mesh) != nil {
+				// A failed reload could leave a revoked device connected;
+				// keep trying.
+				time.AfterFunc(natsRetry, p.markNATSDirty)
+			}
 		}
 	}
 }
@@ -397,7 +530,11 @@ func (p *pairingService) stopMesh() {
 	}
 	p.meshRef.Store(nil)
 	p.gate.Store(nil)
+	b := p.bridge.Swap(nil)
 	p.mu.Unlock()
+	if b != nil {
+		b.stop()
+	}
 	// The gate goroutine stops the client listener on cancel.
 	p.wg.Wait()
 }

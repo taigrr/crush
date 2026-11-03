@@ -2,12 +2,16 @@ package cluster
 
 import (
 	"crypto/ed25519"
+	"crypto/sha256"
+	"crypto/x509"
 	"testing"
 	"time"
 
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 	"github.com/stretchr/testify/require"
+	"github.com/taigrr/crush/internal/pairing"
 )
 
 func TestClientUsersAreScopedAndRevocable(t *testing.T) {
@@ -33,7 +37,7 @@ func TestClientUsersAreScopedAndRevocable(t *testing.T) {
 	require.Equal(t, string(encoded), user)
 
 	own := "crush.client.v1.dev_x.>"
-	require.NoError(t, mesh.SetClientUsers([]ClientUser{{Nkey: user, Publish: []string{own}, Subscribe: []string{own}}}))
+	require.NoError(t, mesh.SetClientUsers([]ClientUser{{Nkey: user, Publish: []string{own}, Subscribe: []string{own}, ConnectionTypes: []string{jwt.ConnectionTypeInProcess}}}))
 
 	// The mesh connection still works after the auth reload.
 	got := make(chan string, 4)
@@ -105,4 +109,41 @@ func TestCAFingerprintOrder(t *testing.T) {
 	fpPrev, err := CAFingerprint(prev)
 	require.NoError(t, err)
 	require.NotEqual(t, fpCur, fpPrev)
+}
+
+func TestClientChainIsP256AndPinned(t *testing.T) {
+	t.Parallel()
+	n := newTestNode(t, "v1")
+	_, err := n.Init(nil)
+	require.NoError(t, err)
+	st, err := n.store.Snapshot()
+	require.NoError(t, err)
+
+	c, err := n.currentClientChain()
+	require.NoError(t, err)
+	again, err := n.currentClientChain()
+	require.NoError(t, err)
+	require.Same(t, c, again, "handshakes reuse the cached chain")
+
+	require.Len(t, c.cert.Certificate, 2)
+	leaf, err := x509.ParseCertificate(c.cert.Certificate[0])
+	require.NoError(t, err)
+	ca, err := x509.ParseCertificate(c.cert.Certificate[1])
+	require.NoError(t, err)
+	require.Equal(t, x509.ECDSA, leaf.PublicKeyAlgorithm, "phones need P-256, not ed25519")
+	require.Equal(t, x509.ECDSA, ca.PublicKeyAlgorithm)
+	require.True(t, ca.IsCA)
+	require.NoError(t, leaf.CheckSignatureFrom(ca))
+	require.Equal(t, n.Identity().ID, leaf.Subject.CommonName)
+	require.Contains(t, leaf.DNSNames, pairing.NodeServerName)
+
+	fp, err := CAFingerprint(st.Key)
+	require.NoError(t, err)
+	sum := sha256.Sum256(ca.RawSubjectPublicKeyInfo)
+	require.Equal(t, fp, sum[:], "ca_fp is the SPKI hash of the presented CA")
+	other, err := CACertificate(st.ClusterID, st.Key)
+	require.NoError(t, err)
+	otherCA, err := x509.ParseCertificate(other)
+	require.NoError(t, err)
+	require.Equal(t, ca.RawSubjectPublicKeyInfo, otherCA.RawSubjectPublicKeyInfo, "every node derives the same CA key")
 }

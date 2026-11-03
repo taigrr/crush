@@ -28,6 +28,7 @@ type Node struct {
 	cert       *tls.Certificate
 	certKeyVer int
 	certCID    string
+	client     *clientChain
 
 	deniedMu sync.Mutex
 	denied   map[string]bool

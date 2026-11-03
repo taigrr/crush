@@ -128,14 +128,28 @@ func pairFlowA(t *testing.T, srv *Server, c *client.Client, key ed25519.PrivateK
 	return poll
 }
 
-func deviceConn(t *testing.T, srv *Server, key ed25519.PrivateKey) (*nats.Conn, error) {
+// deviceConn connects like rush: wss to the node's device websocket,
+// pinned to the cluster CA and node, authenticated by signing the
+// server nonce with the device key, with a private inbox prefix.
+func deviceConn(t *testing.T, srv *Server, key ed25519.PrivateKey, opts ...nats.Option) (*nats.Conn, error) {
 	t.Helper()
+	self, err := srv.pairing.self()
+	require.NoError(t, err)
 	kp, err := nkeys.FromRawSeed(nkeys.PrefixByteUser, key.Seed())
 	require.NoError(t, err)
 	user, err := kp.PublicKey()
 	require.NoError(t, err)
-	return nats.Connect("", nats.InProcessServer(srv.mesh.Server()),
-		nats.Nkey(user, kp.Sign), nats.NoReconnect())
+	id := pairing.DeviceID(key.Public().(ed25519.PublicKey))
+	cas, err := srv.Cluster().CACertificates()
+	require.NoError(t, err)
+	tlsCfg, err := pairing.TrustedTLSConfig(cas, [][]byte{self.CAFP}, self.NodeID)
+	require.NoError(t, err)
+	base := []nats.Option{
+		nats.Secure(tlsCfg),
+		nats.Nkey(user, kp.Sign), nats.NoReconnect(), nats.Timeout(3 * time.Second),
+		nats.CustomInboxPrefix("_INBOX." + id),
+	}
+	return nats.Connect("wss://"+srv.pairing.wsAddr, append(base, opts...)...)
 }
 
 func TestPairingFlowAHappyPathAndRevoke(t *testing.T) {
@@ -373,6 +387,14 @@ func TestPairingPropagatesAcrossCluster(t *testing.T) {
 		nc.Close()
 		return true
 	}, 10*time.Second, 50*time.Millisecond)
+
+	// A bridged request from a device on A runs on B through the member
+	// proxy.
+	nc, err := deviceConn(t, a, key)
+	require.NoError(t, err)
+	resp := bridgeCall(t, nc, id, b.Cluster().Identity().ID, "GET", "/v1/workspace-overviews", nil)
+	require.Equal(t, http.StatusOK, resp.Status)
+	nc.Close()
 
 	// Revoking on B reaches A.
 	_, err = bc.RevokeDevice(ctx, id)

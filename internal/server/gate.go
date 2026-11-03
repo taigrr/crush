@@ -161,7 +161,7 @@ func (l *httpListener) Start() error {
 	if !l.failedAt.IsZero() && time.Since(l.failedAt) < l.backoff {
 		return errBackoff
 	}
-	ln, err := net.Listen("tcp", l.addr)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", l.addr)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", l.name, l.addr, err)
 	}

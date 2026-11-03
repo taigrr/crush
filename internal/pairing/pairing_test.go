@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 )
@@ -719,4 +720,18 @@ func TestActiveIgnoresApprovingDeadline(t *testing.T) {
 	n, next := h.mgr.Active()
 	require.Equal(t, 1, n, "an approving offer is frozen, still active")
 	require.True(t, next.IsZero(), "and sets no past deadline the gate would spin on")
+}
+
+func TestLongNodeNameStillEncodes(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+	h.self.NodeName = strings.Repeat("é", 50) + ".local" // 106 bytes, like a long macOS host name.
+	view, err := h.mgr.CreateNodeOffer(0, RoleOperator)
+	require.NoError(t, err)
+	p, err := DecodePayload(view.Payload)
+	require.NoError(t, err)
+	require.LessOrEqual(t, len(p.NodeName), maxTextBytes)
+	require.True(t, utf8.ValidString(p.NodeName))
+	_, err = h.self.InfoPayload()
+	require.NoError(t, err)
 }
