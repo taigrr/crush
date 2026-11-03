@@ -246,12 +246,14 @@ func clientEndpoints(eps []cluster.Endpoint, port int) []pairing.Endpoint {
 	return out
 }
 
-// permissionsChanged records d's role and scopes and reports whether they
-// differ from what this node knew (a first sighting is not a change).
+// permissionsChanged records d's effective scopes and reports whether
+// they differ from what this node knew (a first sighting is not a
+// change). Every device has full access, so editing a stored role or
+// scope list is never a change.
 func (p *pairingService) permissionsChanged(d pairing.Device) bool {
-	scopes := slices.Clone(d.Scopes)
+	scopes := d.EffectiveScopes()
 	slices.Sort(scopes)
-	sig := string(d.Role) + "|" + strings.Join(scopes, ",")
+	sig := strings.Join(scopes, ",")
 	p.revokedMu.Lock()
 	defer p.revokedMu.Unlock()
 	old, seen := p.perms[d.DeviceID]

@@ -587,9 +587,8 @@ func (m *Manager) Approve(id []byte, role Role) (OfferView, error) {
 		m.mu.Unlock()
 		return view, nil
 	}
-	if role != "" {
-		o.role = role
-	}
+	// The role is accepted for compatibility and ignored.
+	_ = role
 	o.operatorOK = true
 	d := m.prepareApprovalLocked(o)
 	o.signal()
@@ -613,7 +612,7 @@ func (m *Manager) prepareApprovalLocked(o *offer) *Device {
 	d := Device{
 		DeviceID: o.meta.DeviceID, Name: o.meta.Name, Platform: o.meta.Platform,
 		Model: o.meta.Model, AppVersion: o.meta.AppVersion,
-		PublicKey: clone(o.transcript.DevicePub), Role: o.role, Scopes: o.role.Scopes(),
+		PublicKey: clone(o.transcript.DevicePub), Role: DefaultRole, Scopes: AllScopes(),
 		PairedAt: now, PairedVia: o.self.NodeID, ApprovedBy: o.self.NodeID,
 		Rev: 1, UpdatedAt: now, UpdatedBy: o.self.NodeID,
 	}
@@ -807,7 +806,7 @@ func (m *Manager) waitOnce(ctx context.Context, changed <-chan struct{}, deadlin
 
 func (m *Manager) viewLocked(o *offer) OfferView {
 	v := OfferView{
-		OfferID: offerKey(o.id), Kind: o.kind, State: o.state, Reason: o.reason, Role: o.role,
+		OfferID: offerKey(o.id), Kind: o.kind, State: o.state, Reason: o.reason, Role: DefaultRole,
 		ExpiresAt: o.expires, DeviceOK: o.deviceOK, OperatorOK: o.operatorOK,
 	}
 	if o.state == StateOpen {

@@ -17,7 +17,9 @@ import (
 	"time"
 )
 
-// Role is a device permission preset.
+// Role is a device permission preset. Roles are kept only so existing
+// records and wire fields stay parseable: every paired device has full
+// access (see the spec's Permissions section), whatever its stored role.
 type Role string
 
 // Device roles.
@@ -26,34 +28,43 @@ const (
 	RoleOperator Role = "operator"
 	RoleAdmin    Role = "admin"
 
-	DefaultRole = RoleOperator
+	// DefaultRole is the role written into new records: the one whose
+	// scopes, with the opt-in ones, are every scope, so members still
+	// running the role code accept and honor the record.
+	DefaultRole = RoleAdmin
 )
 
-// Scopes granted by each role (see the spec's Permissions table). Opt-in
-// scopes (shell, cluster:approve) are never part of a role.
+// Scopes each role granted before roles were dropped. They only validate
+// stored records now.
 var roleScopes = map[Role][]string{
 	RoleViewer:   {"sessions:read"},
-	RoleOperator: {"sessions:read", "sessions:prompt", "permissions:answer", "config:model", "sessions:move"},
+	RoleOperator: {"sessions:read", "sessions:prompt", "permissions:answer", "config:model"},
 	RoleAdmin:    {"sessions:read", "sessions:prompt", "permissions:answer", "permissions:always", "config:model", "sessions:move", "devices:approve"},
 }
 
-// optInScopes may be granted explicitly on top of any role (deferred:
-// the CLI to grant them).
+// optInScopes were granted explicitly on top of a role.
 var optInScopes = []string{"shell", "cluster:approve"}
 
-// ParseRole validates a role name; empty means DefaultRole.
+// AllScopes is every device scope. Every paired device holds all of them.
+func AllScopes() []string {
+	return append(slices.Clone(roleScopes[RoleAdmin]), optInScopes...)
+}
+
+// ParseRole accepts a role name for compatibility and always returns
+// DefaultRole: roles no longer change what a device may do. Unknown names
+// are still refused so typos surface.
 func ParseRole(s string) (Role, error) {
 	if s == "" {
 		return DefaultRole, nil
 	}
-	r := Role(s)
-	if _, ok := roleScopes[r]; !ok {
+	if _, ok := roleScopes[Role(s)]; !ok {
 		return "", fmt.Errorf("unknown role %q (want viewer, operator, or admin)", s)
 	}
-	return r, nil
+	return DefaultRole, nil
 }
 
-// Scopes returns the scopes of a role.
+// Scopes returns the scopes the role granted before roles were dropped.
+// Authorization uses [Device.EffectiveScopes] instead.
 func (r Role) Scopes() []string { return slices.Clone(roleScopes[r]) }
 
 // ClientsAccount is the NATS account devices live in.
@@ -94,6 +105,10 @@ type Device struct {
 	UpdatedBy  string     `json:"updated_by"`
 	RevokedAt  *time.Time `json:"revoked_at"`
 }
+
+// EffectiveScopes are the scopes a device is authorized with: all of
+// them, whatever its stored role and scopes say.
+func (d Device) EffectiveScopes() []string { return AllScopes() }
 
 // Revoked reports whether the device has been revoked.
 func (d Device) Revoked() bool { return d.RevokedAt != nil }

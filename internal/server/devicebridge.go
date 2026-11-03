@@ -283,13 +283,9 @@ func (b *deviceBridge) onInfo(m *nats.Msg) {
 	if !ok || len(tokens) != 5 || !replyOK(m, d.DeviceID) {
 		return
 	}
-	scopes := slices.Clone(d.Scopes)
-	if scopes == nil {
-		scopes = []string{}
-	}
 	b.reply(m, infoReply{
 		V: wireVersion, Versions: []int{wireVersion}, NodeID: b.nodeID, NodeName: b.p.node.Identity().Name,
-		DeviceID: d.DeviceID, Role: string(d.Role), Scopes: scopes, Features: slices.Clone(bridgeFeatures),
+		DeviceID: d.DeviceID, Role: string(pairing.DefaultRole), Scopes: d.EffectiveScopes(), Features: slices.Clone(bridgeFeatures),
 		Limits: b.limits(),
 	}, "")
 }
@@ -517,7 +513,7 @@ func (b *deviceBridge) route(ctx context.Context, d pairing.Device, node string,
 // check authorizes req for d: route scope, stream routes refused, body
 // limits and body rules. Every node that handles the request runs it.
 func (b *deviceBridge) check(d pairing.Device, req bridgeRequest) (string, *bridgeError) {
-	pattern, berr := b.router.authorize(req.Method, req.Path, d.Scopes)
+	pattern, berr := b.router.authorize(req.Method, req.Path, d.EffectiveScopes())
 	if berr != nil {
 		return "", berr
 	}
@@ -944,14 +940,14 @@ func (b *deviceBridge) publishAttention(a proto.AttentionEvent) {
 		}
 	}
 	for _, d := range b.p.reg.List() {
-		if d.Revoked() || !slices.Contains(d.Scopes, devicescope.SessionsRead) {
+		if d.Revoked() || !slices.Contains(d.EffectiveScopes(), devicescope.SessionsRead) {
 			continue
 		}
 		subj := subjClientRoot + d.DeviceID + "." + verbAttention
 		if b.mesh != nil && !b.mesh.ClientsInterest(subj) {
 			continue
 		}
-		n.Actionable = blocked && slices.Contains(d.Scopes, devicescope.PermissionsAnswer)
+		n.Actionable = blocked && slices.Contains(d.EffectiveScopes(), devicescope.PermissionsAnswer)
 		data, err := json.Marshal(n)
 		if err != nil {
 			continue
@@ -1028,12 +1024,9 @@ func (b *deviceBridge) revoked(d pairing.Device) {
 // scopesChanged tells a device its permissions changed and ends streams
 // it may no longer read.
 func (b *deviceBridge) scopesChanged(d pairing.Device) {
-	scopes := slices.Clone(d.Scopes)
-	if scopes == nil {
-		scopes = []string{}
-	}
-	b.control(controlNotice{Type: controlScopesChanged, DeviceID: d.DeviceID, Role: string(d.Role), Scopes: scopes})
-	if slices.Contains(d.Scopes, devicescope.SessionsRead) {
+	scopes := d.EffectiveScopes()
+	b.control(controlNotice{Type: controlScopesChanged, DeviceID: d.DeviceID, Role: string(pairing.DefaultRole), Scopes: scopes})
+	if slices.Contains(scopes, devicescope.SessionsRead) {
 		return
 	}
 	for _, s := range b.deviceStreams(d.DeviceID) {

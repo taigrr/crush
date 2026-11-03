@@ -735,3 +735,10 @@ func TestLongNodeNameStillEncodes(t *testing.T) {
 	_, err = h.self.InfoPayload()
 	require.NoError(t, err)
 }
+
+func TestRoleMoveScope(t *testing.T) {
+	t.Parallel()
+	require.Contains(t, RoleOperator.Scopes(), "sessions:move")
+	require.Contains(t, RoleAdmin.Scopes(), "sessions:move")
+	require.NotContains(t, RoleViewer.Scopes(), "sessions:move")
+}

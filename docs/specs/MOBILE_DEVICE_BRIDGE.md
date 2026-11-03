@@ -246,6 +246,7 @@ Body rules enforced by the bridge on top of the route scope:
 `POST /v1/sessions/move` needs `sessions:move`, which `operator` now carries alongside `admin`; `viewer` never has it.
 The role's scopes are copied into the device record when it is approved, so devices paired as `operator` before this change keep their old scopes (no silent privilege change) until re-paired or their role is set again.
 Migrate and autobalance (`/v1/migrate/*`) stay `never`.
+Mixed-version clusters: a node from before this change validates device records against its own role table and rejects an `operator` record that carries `sessions:move`, so such a device is unknown on that node until it is upgraded.
 
 ### Favorite is the pin
 

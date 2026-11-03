@@ -204,7 +204,7 @@ func (b *deviceBridge) routeStream(ctx context.Context, d pairing.Device, req st
 
 // streamPattern authorizes a stream path for d.
 func (b *deviceBridge) streamPattern(d pairing.Device, p string) (string, *bridgeError) {
-	pattern, berr := b.router.authorize(http.MethodGet, p, d.Scopes)
+	pattern, berr := b.router.authorize(http.MethodGet, p, d.EffectiveScopes())
 	if berr != nil {
 		return "", berr
 	}
