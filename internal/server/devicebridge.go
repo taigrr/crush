@@ -964,8 +964,13 @@ func (b *deviceBridge) publishAttention(a proto.AttentionEvent) {
 // session. An unknown workspace has no sessions.
 func (b *deviceBridge) hasSession(ctx context.Context, workspaceID, sessionID string) (bool, error) {
 	ws, err := b.p.srv.backend.GetWorkspace(workspaceID)
-	if err != nil || ws.App == nil || ws.Sessions == nil {
-		return false, nil //nolint:nilerr // A missing workspace is a missing session.
+	switch {
+	case errors.Is(err, backend.ErrWorkspaceNotFound):
+		return false, nil
+	case err != nil:
+		return false, err
+	case ws.App == nil || ws.Sessions == nil:
+		return false, errors.New("workspace is not ready")
 	}
 	if _, err := ws.Sessions.Get(ctx, sessionID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
