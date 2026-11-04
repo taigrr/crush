@@ -6,9 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"os/exec"
-	"runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,12 +26,29 @@ import (
 // LSPs, MCP states, per-session model, voice secrets) through a paired
 // device.
 func TestDeviceBridgeMobileRoutes(t *testing.T) {
+	probe := func(label string) {
+		start := time.Now()
+		var wg sync.WaitGroup
+		for i := range 131 {
+			wg.Go(func() { _, _ = exec.LookPath(fmt.Sprintf("no-such-lsp-%d", i)) })
+		}
+		wg.Wait()
+		fmt.Printf("DEBUG probe %s: %s\n", label, time.Since(start))
+	}
+	probe("start")
 	isolateHome(t)
+	probe("isolateHome")
 	t.Setenv("XAI_API_KEY", "")
 	srv, c := initPhoneNode(t)
+	probe("initPhoneNode")
 	ph := pairPhone(t, srv, c)
+	probe("pairPhone")
 	dev := newFakeDevice(t, ph.id, func(o ...nats.Option) (*nats.Conn, error) { return ph.connect(t, o...) })
+	probe("newFakeDevice")
 	ws, bws, alpha, _ := newBridgeWorkspace(t, srv, c)
+	probe("newBridgeWorkspace")
+	time.Sleep(5 * time.Second)
+	probe("after 5s idle")
 	base := "/v1/workspaces/" + ws.ID
 	cfg := bws.Cfg.Config()
 
@@ -90,10 +105,6 @@ func TestDeviceBridgeMobileRoutes(t *testing.T) {
 		for i := range 131 {
 			lpWG.Go(func() { _, _ = exec.LookPath(fmt.Sprintf("no-such-lsp-%d", i)) })
 		}
-		time.Sleep(3 * time.Second)
-		fmt.Println("DEBUG DUMP BEGIN")
-		_ = pprof.Lookup("goroutine").WriteTo(os.Stdout, 2)
-		fmt.Println("DEBUG DUMP END")
 		lpWG.Wait()
 		fmt.Printf("DEBUG inline LookPath x131 before lsps/start: %s\n", time.Since(lpStart))
 		lsStart := time.Now()
