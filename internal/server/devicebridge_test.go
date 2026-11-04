@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"os"
+	"runtime/pprof"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -88,6 +90,9 @@ func (f *fakeDevice) request(subject string, v, out any) {
 	data, err := json.Marshal(v)
 	require.NoError(f.t, err)
 	msg, err := f.nc.Request(subject, data, deviceWait)
+	if err != nil {
+		_ = pprof.Lookup("goroutine").WriteTo(os.Stdout, 2)
+	}
 	require.NoError(f.t, err, subject)
 	require.NoError(f.t, json.Unmarshal(msg.Data, out), string(msg.Data))
 }
