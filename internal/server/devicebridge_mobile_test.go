@@ -2,12 +2,16 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/stretchr/testify/require"
@@ -79,7 +83,16 @@ func TestDeviceBridgeMobileRoutes(t *testing.T) {
 		ok(t, dev.get(base+"/lsps"))
 		ok(t, dev.get(base+"/mcp/states"))
 		ok(t, dev.post(base+"/lsps/stop", map[string]any{}))
+		lpStart := time.Now()
+		var lpWG sync.WaitGroup
+		for i := range 131 {
+			lpWG.Go(func() { _, _ = exec.LookPath(fmt.Sprintf("no-such-lsp-%d", i)) })
+		}
+		lpWG.Wait()
+		fmt.Printf("DEBUG inline LookPath x131 before lsps/start: %s\n", time.Since(lpStart))
+		lsStart := time.Now()
 		ok(t, dev.post(base+"/lsps/start", proto.LSPStartRequest{Path: ws.Path}))
+		t.Errorf("DEBUG lsps/start took %s", time.Since(lsStart))
 		resp := dev.get(base + "/lsps/nope/diagnostics")
 		if resp.Error != nil {
 			require.NotEqual(t, codeRouteNotAllowed, resp.Error.Code)
