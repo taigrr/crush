@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -88,6 +90,10 @@ func TestDeviceBridgeMobileRoutes(t *testing.T) {
 		for i := range 131 {
 			lpWG.Go(func() { _, _ = exec.LookPath(fmt.Sprintf("no-such-lsp-%d", i)) })
 		}
+		time.Sleep(3 * time.Second)
+		fmt.Println("DEBUG DUMP BEGIN")
+		_ = pprof.Lookup("goroutine").WriteTo(os.Stdout, 2)
+		fmt.Println("DEBUG DUMP END")
 		lpWG.Wait()
 		fmt.Printf("DEBUG inline LookPath x131 before lsps/start: %s\n", time.Since(lpStart))
 		lsStart := time.Now()
