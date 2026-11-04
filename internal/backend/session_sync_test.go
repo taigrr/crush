@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -119,21 +121,49 @@ func TestSyncCursorRoundTrip(t *testing.T) {
 	}
 }
 
-func updateSession(t *testing.T, dataDir, sql string, args ...any) {
+// memPeeker serves detached workspaces' sessions from memory, so delta
+// tests need no SQLite databases (slow to create on Windows CI).
+type memPeeker struct {
+	mu   sync.Mutex
+	dirs map[string][]db.PeekedSession
+}
+
+func (p *memPeeker) peek(_ context.Context, dataDir string) ([]db.PeekedSession, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.dirs[dataDir]), nil
+}
+
+// update applies fn to dataDir's sessions and drops the peek cache.
+func (p *memPeeker) update(b *Backend, dataDir string, fn func([]db.PeekedSession) []db.PeekedSession) {
+	p.mu.Lock()
+	p.dirs[dataDir] = fn(p.dirs[dataDir])
+	p.mu.Unlock()
+	b.peekCache.reset()
+}
+
+// newSyncBackend registers one detached workspace per root (data dir
+// "/data<root>") holding the given session IDs, updated_at 1000+i.
+func newSyncBackend(t *testing.T, roots map[string][]string) (*Backend, *memPeeker) {
 	t.Helper()
-	conn, err := db.Connect(t.Context(), dataDir)
-	require.NoError(t, err)
-	_, err = conn.ExecContext(t.Context(), sql, args...)
-	require.NoError(t, err)
-	require.NoError(t, db.Release(dataDir))
-	db.ResetPool()
+	peeker := &memPeeker{dirs: map[string][]db.PeekedSession{}}
+	b, _ := newTestBackend(t)
+	b.registry = registry.NewWithPath(filepath.Join(t.TempDir(), "workspaces.jsonl"))
+	for root, ids := range roots {
+		dataDir := "/data" + root
+		require.NoError(t, b.registry.Add(registry.Entry{Root: root, DataDir: dataDir}))
+		for i, id := range ids {
+			peeker.dirs[dataDir] = append(peeker.dirs[dataDir], db.PeekedSession{ID: id, Title: "title " + id, UpdatedAt: int64(1000 + i)})
+		}
+	}
+	b.peekCache.peek = peeker.peek
+	return b, peeker
 }
 
 func TestSessionOverviewDeltaLocal(t *testing.T) {
-	t.Cleanup(db.ResetPool)
+	t.Parallel()
 	ctx := t.Context()
-	a := newDeviceTestDB(t, []string{"a1", "a2", "a3"}, 0)
-	b := newDeviceTestBackend(t, map[string]string{"/proj/a": a})
+	b, peeker := newSyncBackend(t, map[string][]string{"/proj/a": {"a1", "a2", "a3"}})
 
 	full, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{Local: true, Fields: proto.SessionOverviewFieldsRow})
 	require.NoError(t, err)
@@ -150,9 +180,10 @@ func TestSessionOverviewDeltaLocal(t *testing.T) {
 	require.NotNil(t, empty.Deleted)
 	require.Empty(t, empty.Deleted)
 
-	updateSession(t, a, "UPDATE sessions SET title = 'renamed' WHERE id = 'a1'")
-	updateSession(t, a, "DELETE FROM sessions WHERE id = 'a2'")
-	b.peekCache.reset()
+	peeker.update(b, "/data/proj/a", func(ss []db.PeekedSession) []db.PeekedSession {
+		ss[0].Title = "renamed"
+		return slices.Delete(ss, 1, 2)
+	})
 	delta, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{Local: true, Since: empty.SyncCursor})
 	require.NoError(t, err)
 	require.Equal(t, []string{"a1"}, overviewIDs(delta.Sessions))
@@ -160,8 +191,7 @@ func TestSessionOverviewDeltaLocal(t *testing.T) {
 	require.NotEmpty(t, delta.Sessions[0].DataDir, "full rows keep data_dir")
 	require.Equal(t, []proto.SessionTombstone{{ID: "a2", Root: "/proj/a"}}, delta.Deleted)
 
-	// Positions from the empty delta and a fresh one agree; the old one
-	// still yields the same changes.
+	// An older cursor still yields the same changes.
 	again, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{Local: true, Since: empty.SyncCursor})
 	require.NoError(t, err)
 	require.Equal(t, overviewIDs(delta.Sessions), overviewIDs(again.Sessions))
@@ -176,14 +206,17 @@ func TestSessionOverviewDeltaLocal(t *testing.T) {
 }
 
 func TestSessionOverviewDeltaPaging(t *testing.T) {
-	t.Cleanup(db.ResetPool)
+	t.Parallel()
 	ctx := t.Context()
-	a := newDeviceTestDB(t, []string{"a1", "a2", "a3"}, 0)
-	b := newDeviceTestBackend(t, map[string]string{"/proj/a": a})
+	b, peeker := newSyncBackend(t, map[string][]string{"/proj/a": {"a1", "a2", "a3"}})
 	full, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{Local: true})
 	require.NoError(t, err)
-	updateSession(t, a, "UPDATE sessions SET title = 'x'")
-	b.peekCache.reset()
+	peeker.update(b, "/data/proj/a", func(ss []db.PeekedSession) []db.PeekedSession {
+		for i := range ss {
+			ss[i].Title = "x"
+		}
+		return ss
+	})
 
 	var got []string
 	q := SessionOverviewQuery{Local: true, Limit: 2, Since: full.SyncCursor}
@@ -221,12 +254,9 @@ func (d *deltaBridge) SessionOverviewDeltas(_ context.Context, since map[string]
 }
 
 func TestSessionOverviewDeltaClusterFanOut(t *testing.T) {
-	t.Cleanup(db.ResetPool)
+	t.Parallel()
 	ctx := t.Context()
-	a := newDeviceTestDB(t, []string{"a1"}, 0)
-	b, _ := newTestBackend(t)
-	b.registry = registry.NewWithPath(filepath.Join(t.TempDir(), "workspaces.jsonl"))
-	require.NoError(t, b.registry.Add(registry.Entry{Root: "/proj/a", DataDir: a}))
+	b, _ := newSyncBackend(t, map[string][]string{"/proj/a": {"a1"}})
 	bridge := &deltaBridge{}
 	b.SetClusterBridge(bridge)
 
@@ -280,12 +310,9 @@ func TestSessionOverviewDeltaClusterFanOut(t *testing.T) {
 }
 
 func TestSessionOverviewPassSnapshot(t *testing.T) {
-	t.Cleanup(db.ResetPool)
+	t.Parallel()
 	ctx := t.Context()
-	a := newDeviceTestDB(t, []string{"a1"}, 0)
-	b, _ := newTestBackend(t)
-	b.registry = registry.NewWithPath(filepath.Join(t.TempDir(), "workspaces.jsonl"))
-	require.NoError(t, b.registry.Add(registry.Entry{Root: "/proj/a", DataDir: a}))
+	b, _ := newSyncBackend(t, map[string][]string{"/proj/a": {"a1"}})
 	bridge := &deltaBridge{}
 	b.SetClusterBridge(bridge)
 	full, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{})
