@@ -31,7 +31,8 @@ type DeviceSessionOverview struct {
 	NodeID    string `json:"node_id"`
 	NodeName  string `json:"node_name"`
 	Root      string `json:"root"`
-	DataDir   string `json:"data_dir"`
+	// DataDir is omitted from slim rows (fields=row).
+	DataDir string `json:"data_dir,omitempty"`
 	// WorkspaceID is set only while the workspace is attached; it is a
 	// runtime handle, not a stable identifier.
 	WorkspaceID string `json:"workspace_id,omitempty"`
@@ -47,13 +48,59 @@ type NodeUnavailable struct {
 	Error    string `json:"error"`
 } //@name proto.NodeUnavailable
 
+// Query parameters of GET /v1/session-overviews.
+const (
+	SessionOverviewsParamLimit  = "limit"
+	SessionOverviewsParamCursor = "cursor"
+	SessionOverviewsParamLocal  = "local"
+	SessionOverviewsParamSince  = "since"
+	SessionOverviewsParamFields = "fields"
+)
+
+// SessionOverviewFields selects which overview fields are returned.
+type SessionOverviewFields string
+
+// SessionOverviewFieldsRow returns slim rows: only what a session list
+// row shows (no data_dir).
+const SessionOverviewFieldsRow SessionOverviewFields = "row"
+
+// SessionTombstone names a session that left a node's list (deleted,
+// archived, or moved to another node) since a sync cursor.
+type SessionTombstone struct {
+	ID     string `json:"id"`
+	NodeID string `json:"node_id"`
+	Root   string `json:"root"`
+} //@name proto.SessionTombstone
+
 // DeviceSessionOverviewPage is the GET /v1/session-overviews response.
+//
+// Without since it is one page of the full list; SyncCursor is the
+// position the list was read at (keep the first page's). With since it
+// is a delta: Sessions are the rows created or changed since the cursor,
+// Deleted the rows that left, and SyncCursor the new position.
 type DeviceSessionOverviewPage struct {
 	Sessions []DeviceSessionOverview `json:"sessions"`
 	// NextCursor fetches the next page; null on the last page.
 	NextCursor  *string           `json:"next_cursor"`
 	Total       int               `json:"total"`
 	Unavailable []NodeUnavailable `json:"unavailable"`
+	// SyncCursor is an opaque position for a later since request. Absent
+	// from servers that predate delta sync, and on a reset.
+	SyncCursor string `json:"sync_cursor,omitempty"`
+	// HasMore is set when NextCursor is.
+	HasMore bool `json:"has_more,omitempty"`
+	// Deleted lists tombstones (delta responses only).
+	Deleted []SessionTombstone `json:"deleted,omitzero"`
+	// Reset says the since cursor is unusable as a whole (malformed, from
+	// a restarted node, or older than the retained change window): do a
+	// full fetch. Sessions and Deleted are empty.
+	Reset bool `json:"reset,omitempty"`
+	// ResetNodes are nodes whose full list is included in Sessions: the
+	// client replaces every row of those nodes (after the last page).
+	ResetNodes []string `json:"reset_nodes,omitzero"`
+	// StaleNodes are nodes that could not be asked; their rows and cursor
+	// positions are unchanged.
+	StaleNodes []string `json:"stale_nodes,omitzero"`
 } //@name proto.DeviceSessionOverviewPage
 
 // DeviceSession is the GET /v1/sessions/{sid} response.

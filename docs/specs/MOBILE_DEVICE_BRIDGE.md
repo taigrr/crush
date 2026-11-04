@@ -630,7 +630,7 @@ workspaces open their database read-only and never attach.
 
 | Route | Scope | Notes |
 | --- | --- | --- |
-| `GET /v1/session-overviews?limit=&cursor=&local=1` | `sessions:read` | Cluster-wide (this node only with `local`), flat, sorted `updated_at` desc then `id`. `limit` 1..200, default 50. `cursor` is opaque (keyset on `updated_at`,`id`, stable under concurrent updates). |
+| `GET /v1/session-overviews?limit=&cursor=&local=1&since=&fields=row` | `sessions:read` | Cluster-wide (this node only with `local`), flat, sorted `updated_at` desc then `id`. `limit` 1..200, default 50. `cursor` is opaque (keyset on `updated_at`,`id`, stable under concurrent updates). `since` asks for a delta (see [Session overview delta sync](#session-overview-delta-sync)); `fields=row` drops `data_dir`. |
 | `GET /v1/sessions/{sid}?root=` | `sessions:read` | Session metadata plus `message_count`. |
 | `GET /v1/sessions/{sid}/messages?root=&limit=&before=` | `sessions:read` | Newest page first, returned in chronological order. `limit` 1..500, default 200. Pass `next_before` as `before` for the next older page. Same message shape as `GET /v1/workspaces/{id}/sessions/{sid}/messages`. |
 | `POST /v1/sessions/{sid}/open` `{"root"}` | `sessions:prompt` | Attaches the workspace if needed (idempotent) and returns `{"workspace_id","session_id","root"}` for event streams and prompts. |
@@ -659,6 +659,48 @@ workspaces open their database read-only and never attach.
 `workspace_id` is present only while the workspace is attached. An
 `unavailable` entry with a `root` is one workspace of that node whose
 database could not be read.
+
+### Session overview delta sync
+
+Every page also carries `sync_cursor`, an opaque position (base64url JSON
+of `{"v":1,"n":{"<node_id>":{"e":"<epoch>","r":<rev>}}}`; clients must not
+parse it). Keep the one from the first page of a full pass, then poll with
+`since=<sync_cursor>`:
+
+```json
+{
+  "sessions": [ { "id": "…", "title": "renamed", "node_id": "…", "…": "…" } ],
+  "deleted": [ { "id": "…", "node_id": "…", "root": "/src/app" } ],
+  "sync_cursor": "eyJ2IjoxLCJuIjp7fX0",
+  "reset_nodes": [],
+  "stale_nodes": [],
+  "next_cursor": null,
+  "total": 1,
+  "unavailable": []
+}
+```
+
+- `sessions` are the rows created or changed since the cursor, `deleted`
+  the rows that left the node (deleted, archived, moved away: a move is a
+  tombstone on the old node plus a row on the new one).
+- Each node keeps a revision counter over its own rows (bumped whenever
+  anything the row shows changes) with the last 10,000 changes or 24 hours,
+  and a random epoch per process start.
+- `reset: true` (no rows): the cursor is malformed, or for a single-node
+  answer, from another epoch or older than the window. Do a full fetch.
+- `reset_nodes`: those nodes' rows are their full lists; replace every row
+  of those nodes (after the last page). A node that left the cluster is
+  listed with no rows.
+- `stale_nodes`: nodes that could not be asked; keep their rows. Their
+  cursor positions are carried over unchanged.
+- A large delta pages like the full list: same `since`, plus `cursor`.
+  Every page of a pass (a full list or a delta) is served from the snapshot
+  taken for its first page, so all pages carry the same `sync_cursor`,
+  `deleted`, `reset_nodes`, and `stale_nodes`. A pass is kept for 2 minutes;
+  after that a delta page answers `reset: true` and a full-list page is
+  recomputed from its keyset position.
+- Members that predate delta sync answer with a full list and no
+  `sync_cursor`; the entry node reports them in `reset_nodes`.
 
 ## Worked examples
 
