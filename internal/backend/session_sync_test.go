@@ -70,30 +70,36 @@ func TestSessionChangeLog(t *testing.T) {
 
 func TestSessionChangeLogResets(t *testing.T) {
 	t.Parallel()
-	log := newSessionChangeLog()
-	log.maxChanges = 2
-	start, _, _ := log.observeSince([]proto.DeviceSessionOverview{syncRow("a", "A", 1)}, nil, nil)
-
-	t.Run("epoch mismatch", func(t *testing.T) {
-		_, _, ok := log.observeSince([]proto.DeviceSessionOverview{syncRow("a", "A", 1)}, nil, &NodeSyncPos{Epoch: "other", Rev: 0})
-		require.False(t, ok)
-	})
-	t.Run("future revision", func(t *testing.T) {
-		_, _, ok := log.observeSince([]proto.DeviceSessionOverview{syncRow("a", "A", 1)}, nil, &NodeSyncPos{Epoch: start.Epoch, Rev: 99})
-		require.False(t, ok)
-	})
-	t.Run("window overflow", func(t *testing.T) {
-		for i := range 3 {
-			log.observeSince([]proto.DeviceSessionOverview{syncRow("a", fmt.Sprint(i), 1)}, nil, nil)
-		}
-		_, _, ok := log.observeSince([]proto.DeviceSessionOverview{syncRow("a", "2", 1)}, nil, &start)
-		require.False(t, ok)
-	})
+	rows := []proto.DeviceSessionOverview{syncRow("a", "A", 1)}
+	tests := []struct {
+		name  string
+		since func(start NodeSyncPos) NodeSyncPos
+		churn int
+	}{
+		{name: "epoch mismatch", since: func(NodeSyncPos) NodeSyncPos { return NodeSyncPos{Epoch: "other"} }},
+		{name: "future revision", since: func(start NodeSyncPos) NodeSyncPos { return NodeSyncPos{Epoch: start.Epoch, Rev: 99} }},
+		{name: "window overflow", since: func(start NodeSyncPos) NodeSyncPos { return start }, churn: 3},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			log := newSessionChangeLog()
+			log.maxChanges = 2
+			start, _, _ := log.observeSince(rows, nil, nil)
+			for i := range tc.churn {
+				log.observeSince([]proto.DeviceSessionOverview{syncRow("a", fmt.Sprint(i), 1)}, nil, nil)
+			}
+			since := tc.since(start)
+			_, _, ok := log.observeSince(nil, map[string]bool{"/proj": true}, &since)
+			require.False(t, ok)
+		})
+	}
 	t.Run("age overflow", func(t *testing.T) {
+		t.Parallel()
 		aged := newSessionChangeLog()
 		now := time.Unix(1000, 0)
 		aged.now = func() time.Time { return now }
-		pos, _, _ := aged.observeSince([]proto.DeviceSessionOverview{syncRow("a", "A", 1)}, nil, nil)
+		pos, _, _ := aged.observeSince(rows, nil, nil)
 		aged.observeSince([]proto.DeviceSessionOverview{syncRow("a", "B", 1)}, nil, nil)
 		now = now.Add(sessionChangeLogMaxAge + time.Minute)
 		_, _, ok := aged.observeSince([]proto.DeviceSessionOverview{syncRow("a", "C", 1)}, nil, &pos)
