@@ -10,8 +10,13 @@ import (
 	"time"
 )
 
-// peerDialTimeout bounds one endpoint probe.
-const peerDialTimeout = 2 * time.Second
+const (
+	// peerDialTimeout bounds one endpoint probe.
+	peerDialTimeout = 2 * time.Second
+	// peerPreferGrace is how long a working endpoint waits for better
+	// ranked ones still being probed.
+	peerPreferGrace = 300 * time.Millisecond
+)
 
 // errWrongPeer is returned when a derived endpoint answers as another node.
 var errWrongPeer = errors.New("endpoint answered as another node")
@@ -104,9 +109,12 @@ type probeResult struct {
 }
 
 // probeEndpoints dials every candidate at once and returns the best one
-// that answers: a later candidate wins only once every earlier one has
-// failed, so a reachable LAN address is preferred over a tunnel even when
-// the tunnel answers first.
+// that answers. Once any candidate answers, earlier (better) ones still
+// pending get peerPreferGrace to answer too; a reachable LAN address thus
+// beats a tunnel that answers first, but a LAN address that never answers
+// (away from home, or a host whose refused connects are retried for
+// seconds, like Windows) delays a working endpoint by the grace at most,
+// not by the dial timeout.
 func (n *Node) probeEndpoints(ctx context.Context, m Member, candidates []dialCandidate) (string, error) {
 	if len(candidates) == 0 {
 		return "", fmt.Errorf("member %s has no direct endpoints", m.Name)
@@ -119,17 +127,31 @@ func (n *Node) probeEndpoints(ctx context.Context, m Member, candidates []dialCa
 	}
 	done := make([]bool, len(candidates))
 	errs := make([]error, len(candidates))
-	for range candidates {
-		r := <-results
-		done[r.idx], errs[r.idx] = true, r.err
-		for i := range candidates {
-			if !done[i] {
-				break
+	// best is the index of the best candidate that answered, -1 if none.
+	best := -1
+	var grace <-chan time.Time
+	pick := func(idx int) (string, error) {
+		n.endpoints.set(m.NodeID, candidates[idx].addr)
+		return candidates[idx].addr, nil
+	}
+	for pending := len(candidates); pending > 0; {
+		select {
+		case r := <-results:
+			pending--
+			done[r.idx], errs[r.idx] = true, r.err
+			if r.err == nil && (best < 0 || r.idx < best) {
+				best = r.idx
+				if grace == nil {
+					timer := time.NewTimer(peerPreferGrace)
+					defer timer.Stop()
+					grace = timer.C
+				}
 			}
-			if errs[i] == nil {
-				n.endpoints.set(m.NodeID, candidates[i].addr)
-				return candidates[i].addr, nil
+			if best >= 0 && !slices.Contains(done[:best], false) {
+				return pick(best)
 			}
+		case <-grace:
+			return pick(best)
 		}
 	}
 	return "", fmt.Errorf("member %s unreachable: %w", m.Name, errors.Join(errs...))

@@ -334,9 +334,9 @@ func gzipSize(t testing.TB, raw []byte) int {
 
 // TestSessionOverviewDeltaWireSize reports what a client downloads for
 // a cluster-sized list: full rows, slim rows, an empty delta, and a
-// one-change delta.
+// one-change delta. It is not parallel: marshaling and compressing the
+// full lists would steal CPU from the timing-sensitive parallel tests.
 func TestSessionOverviewDeltaWireSize(t *testing.T) {
-	t.Parallel()
 	const sessions = 1600
 	rows := make([]proto.DeviceSessionOverview, sessions)
 	for i := range rows {

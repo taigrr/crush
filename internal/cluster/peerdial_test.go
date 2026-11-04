@@ -88,6 +88,26 @@ func TestResolveEndpointPrefersVerifiedLAN(t *testing.T) {
 	got, err = a.probeEndpoints(ctx, cm, memberDialCandidates(cm))
 	require.NoError(t, err)
 	require.Equal(t, net.JoinHostPort("localhost", bPort), got)
+
+	// A preferred address that never answers (here: accepts TCP, never
+	// speaks TLS) delays a working one by the grace, not the dial timeout.
+	hang, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = hang.Close() })
+	go func() {
+		for {
+			conn, err := hang.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+	start := time.Now()
+	got, err = a.probeEndpoints(ctx, bm, []dialCandidate{{addr: hang.Addr().String(), verify: true}, {addr: bm.Endpoints[0].Addr}})
+	require.NoError(t, err)
+	require.Equal(t, bm.Endpoints[0].Addr, got)
+	require.Less(t, time.Since(start), peerDialTimeout)
 }
 
 func TestPeerHTTPClientSharedPerTrustGeneration(t *testing.T) {
