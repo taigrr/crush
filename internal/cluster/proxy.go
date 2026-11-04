@@ -7,13 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httputil"
-	"slices"
 	"strings"
 	"sync"
-	"time"
 )
 
 // apiPrefix is where a node serves its local Crush API to members.
@@ -61,7 +58,8 @@ func (c *endpointCache) set(id, addr string) {
 }
 
 // ResolveEndpoint returns a reachable direct endpoint for member,
-// preferring the last one that worked.
+// preferring the last one that worked, then its LAN addresses (see
+// memberDialCandidates).
 func (n *Node) ResolveEndpoint(ctx context.Context, m Member) (string, error) {
 	// A known-good endpoint is used as is: probing it would add a full
 	// round trip to every proxied call. Failures clear it (see
@@ -69,28 +67,7 @@ func (n *Node) ResolveEndpoint(ctx context.Context, m Member) (string, error) {
 	if cached := n.endpoints.get(m.NodeID); cached != "" {
 		return cached, nil
 	}
-	var candidates []string
-	for _, e := range m.Endpoints {
-		if e.Kind == EndpointDirect && !slices.Contains(candidates, e.Addr) {
-			candidates = append(candidates, e.Addr)
-		}
-	}
-	var errs []error
-	d := net.Dialer{Timeout: 2 * time.Second}
-	for _, addr := range candidates {
-		c, err := d.DialContext(ctx, "tcp", addr)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		_ = c.Close()
-		n.endpoints.set(m.NodeID, addr)
-		return addr, nil
-	}
-	if len(errs) == 0 {
-		return "", fmt.Errorf("member %s has no direct endpoints", m.Name)
-	}
-	return "", fmt.Errorf("member %s unreachable: %w", m.Name, errors.Join(errs...))
+	return n.probeEndpoints(ctx, m, memberDialCandidates(m))
 }
 
 // ProxyAPI forwards r to member nodeID's local API. The request path

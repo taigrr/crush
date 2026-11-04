@@ -205,3 +205,28 @@ func TestClassifyAddrsRanking(t *testing.T) {
 		{Addr: "172.17.0.3:1", Kind: KindBridge, Priority: PriorityBridgeForeign},
 	}, got)
 }
+
+// TestClassifyAddrsGrokbox pins this host's real layout: WireGuard on
+// point-to-point utun6 and the LAN on en1 share 192.168/16, so they are
+// told apart by interface, never by address range.
+func TestClassifyAddrsGrokbox(t *testing.T) {
+	t.Parallel()
+	ifs := []NetInterface{
+		{Name: "lo0", Flags: up | net.FlagLoopback, Addrs: ips("127.0.0.1", "::1")},
+		{Name: "en1", Flags: bcast, Addrs: ips("fe80::1c5d:f10d:3a49:a0b0", "192.168.9.238")},
+		{Name: "awdl0", Flags: bcast, Addrs: ips("fe80::4825:e5ff:fe09:990d")},
+		{Name: "utun0", Flags: up | net.FlagPointToPoint, Addrs: ips("fe80::d7a9:762e:1da4:6cbb")},
+		{Name: "utun6", Flags: up | net.FlagPointToPoint, Addrs: ips("192.168.2.241")},
+	}
+	want := []AdvertisedEndpoint{
+		{Addr: "192.168.9.238:7733", Kind: KindLAN, Priority: PriorityLAN},
+		{Addr: "192.168.2.241:7733", Kind: KindWireGuard, Priority: PriorityWireGuard},
+	}
+	require.Equal(t, want, HostAdvertisedEndpoints(ifs, "[::]:7733", []Endpoint{{Kind: EndpointDirect, Addr: "192.168.2.241:7731"}}))
+	require.Equal(t, want, ClassifyAddrs(ifs, []string{"192.168.2.241:7733", "127.0.0.1:7733", "192.168.9.238:7733"}))
+	var cluster []string
+	for _, ep := range localEndpointsFrom(ifs, 7731) {
+		cluster = append(cluster, ep.Addr)
+	}
+	require.Equal(t, []string{"192.168.9.238:7731", "192.168.2.241:7731"}, cluster)
+}
