@@ -49,6 +49,12 @@ func TestDeviceBridgeMobileRoutes(t *testing.T) {
 	})
 	cfg.Models[config.SelectedModelTypeLarge] = config.SelectedModel{Provider: "fakeprov", Model: "m1"}
 	cfg.Models[config.SelectedModelTypeSmall] = config.SelectedModel{Provider: "fakeprov", Model: "m2"}
+	// The LSP routes are exercised for routing and scopes only. Auto-start
+	// would launch whatever language servers the host has installed: on
+	// Windows CI that alone took 5-8 s of the 10 s device wait on feature
+	// and timed out under load.
+	autoLSP := false
+	cfg.Options.AutoLSP = &autoLSP
 
 	ok := func(t *testing.T, resp bridgeResponse) {
 		t.Helper()
