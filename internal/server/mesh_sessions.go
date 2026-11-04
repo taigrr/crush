@@ -31,6 +31,7 @@ var (
 
 	errMemberRecentlyDown = errors.New("member recently unreachable")
 	errTooManyDeltaPages  = errors.New("too many session overview pages")
+	errWrongMember        = errors.New("member answered with another node's sync cursor")
 )
 
 // memberCall fetches path (relative to the API root, with query) from a
@@ -102,6 +103,10 @@ func fetchNodeSessionDelta(ctx context.Context, call memberCall, nodeID string, 
 		if first {
 			first = false
 			res.Position = memberPosition(page.SyncCursor, nodeID)
+			if page.SyncCursor != "" && res.Position == nil {
+				// Another node answered at this member's address.
+				return backend.NodeSessionDelta{Err: errWrongMember}
+			}
 			res.Reset = !query.Has(proto.SessionOverviewsParamSince) || page.SyncCursor == ""
 		}
 		res.Sessions = append(res.Sessions, page.Sessions...)

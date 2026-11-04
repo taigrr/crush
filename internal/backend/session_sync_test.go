@@ -279,6 +279,48 @@ func TestSessionOverviewDeltaClusterFanOut(t *testing.T) {
 	require.Contains(t, overviewIDs(selfReset.Sessions), "a1")
 }
 
+func TestSessionOverviewPassSnapshot(t *testing.T) {
+	t.Cleanup(db.ResetPool)
+	ctx := t.Context()
+	a := newDeviceTestDB(t, []string{"a1"}, 0)
+	b, _ := newTestBackend(t)
+	b.registry = registry.NewWithPath(filepath.Join(t.TempDir(), "workspaces.jsonl"))
+	require.NoError(t, b.registry.Add(registry.Entry{Root: "/proj/a", DataDir: a}))
+	bridge := &deltaBridge{}
+	b.SetClusterBridge(bridge)
+	full, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{})
+	require.NoError(t, err)
+
+	bridge.results = map[string]NodeSessionDelta{"up": {
+		Sessions: []proto.DeviceSessionOverview{{ID: "u3", NodeID: "up", UpdatedAt: 30}, {ID: "u2", NodeID: "up", UpdatedAt: 20}, {ID: "u1", NodeID: "up", UpdatedAt: 10}},
+		Position: &NodeSyncPos{Epoch: "eu", Rev: 9},
+		Reset:    true,
+	}}
+	first, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{Since: full.SyncCursor, Limit: 2})
+	require.NoError(t, err)
+	require.Equal(t, []string{"u3", "u2"}, overviewIDs(first.Sessions))
+	require.Equal(t, []string{"up"}, first.ResetNodes)
+
+	// The member now answers differently; later pages still come from the
+	// first page's snapshot.
+	bridge.results = map[string]NodeSessionDelta{"up": {Err: errors.New("down")}}
+	second, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{Since: full.SyncCursor, Limit: 2, Cursor: *first.NextCursor})
+	require.NoError(t, err)
+	require.Equal(t, []string{"u1"}, overviewIDs(second.Sessions))
+	require.Equal(t, first.SyncCursor, second.SyncCursor)
+	require.Equal(t, []string{"up"}, second.ResetNodes)
+	require.Empty(t, second.StaleNodes)
+
+	// A pass cursor is only valid for the query it was made for, and an
+	// expired delta pass is a reset.
+	_, err = b.ListSessionOverviews(ctx, SessionOverviewQuery{Since: "other", Limit: 2, Cursor: *first.NextCursor})
+	require.NoError(t, err)
+	b.sessionPasses.now = func() time.Time { return time.Now().Add(sessionPassTTL + time.Minute) }
+	expired, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{Since: full.SyncCursor, Limit: 2, Cursor: *first.NextCursor})
+	require.NoError(t, err)
+	require.True(t, expired.Reset)
+}
+
 func gzipSize(t testing.TB, raw []byte) int {
 	t.Helper()
 	var buf bytes.Buffer

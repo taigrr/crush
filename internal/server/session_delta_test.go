@@ -113,6 +113,13 @@ func TestFetchNodeSessionDelta(t *testing.T) {
 		require.True(t, res.Reset)
 		require.Nil(t, res.Position)
 	})
+	t.Run("another node answering", func(t *testing.T) {
+		t.Parallel()
+		other := backend.EncodeSyncCursor(map[string]backend.NodeSyncPos{"x": {Epoch: "e", Rev: 1}})
+		f := &fakeMember{delta: []proto.DeviceSessionOverviewPage{{SyncCursor: other}}}
+		res := fetchNodeSessionDelta(t.Context(), f.call, "m", pos, "")
+		require.ErrorIs(t, res.Err, errWrongMember)
+	})
 	t.Run("unreachable", func(t *testing.T) {
 		t.Parallel()
 		f := &fakeMember{err: errors.New("dial tcp: i/o timeout")}

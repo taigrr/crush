@@ -224,3 +224,75 @@ func slimRows(rows []proto.DeviceSessionOverview) {
 		rows[i].DataDir = ""
 	}
 }
+
+const (
+	// sessionPassTTL is how long a pass snapshot serves later pages.
+	sessionPassTTL = 2 * time.Minute
+	// sessionPassMax bounds the retained pass snapshots.
+	sessionPassMax = 32
+)
+
+// sessionPass is one computed list (full or delta) that later pages are
+// served from.
+type sessionPass struct {
+	id   string
+	rows []proto.DeviceSessionOverview
+	// meta is every page field but the rows and paging.
+	meta proto.DeviceSessionOverviewPage
+	key  string
+	at   time.Time
+}
+
+// sessionPassCache keeps recent passes by ID.
+type sessionPassCache struct {
+	mu     sync.Mutex
+	passes map[string]*sessionPass
+	now    func() time.Time
+}
+
+func (c *sessionPassCache) clock() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+// put stores pass for queries with key and returns its ID.
+func (c *sessionPassCache) put(pass *sessionPass, key string) string {
+	buf := make([]byte, epochBytes)
+	_, _ = rand.Read(buf)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.passes == nil {
+		c.passes = map[string]*sessionPass{}
+	}
+	now := c.clock()
+	for id, old := range c.passes {
+		if now.Sub(old.at) > sessionPassTTL {
+			delete(c.passes, id)
+		}
+	}
+	for len(c.passes) >= sessionPassMax {
+		var oldest string
+		for id, old := range c.passes {
+			if oldest == "" || old.at.Before(c.passes[oldest].at) {
+				oldest = id
+			}
+		}
+		delete(c.passes, oldest)
+	}
+	pass.id, pass.key, pass.at = hex.EncodeToString(buf), key, now
+	c.passes[pass.id] = pass
+	return pass.id
+}
+
+// get returns the live pass id made for key, or nil.
+func (c *sessionPassCache) get(id, key string) *sessionPass {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	pass := c.passes[id]
+	if pass == nil || pass.key != key || c.clock().Sub(pass.at) > sessionPassTTL {
+		return nil
+	}
+	return pass
+}

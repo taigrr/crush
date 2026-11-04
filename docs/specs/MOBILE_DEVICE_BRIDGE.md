@@ -694,7 +694,11 @@ parse it). Keep the one from the first page of a full pass, then poll with
 - `stale_nodes`: nodes that could not be asked; keep their rows. Their
   cursor positions are carried over unchanged.
 - A large delta pages like the full list: same `since`, plus `cursor`.
-  Keep the first page's `sync_cursor`.
+  Every page of a pass (a full list or a delta) is served from the snapshot
+  taken for its first page, so all pages carry the same `sync_cursor`,
+  `deleted`, `reset_nodes`, and `stale_nodes`. A pass is kept for 2 minutes;
+  after that a delta page answers `reset: true` and a full-list page is
+  recomputed from its keyset position.
 - Members that predate delta sync answer with a full list and no
   `sync_cursor`; the entry node reports them in `reset_nodes`.
 

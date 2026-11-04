@@ -484,6 +484,12 @@ type NodeSessionDelta struct {
 
 // ListSessionOverviews is [Backend.ListSessionOverviewPage] with delta
 // sync (since) and slim rows (fields=row).
+//
+// A pass (the pages of one full list or one delta) is computed once and
+// later pages are served from that snapshot, so every page agrees on the
+// sync cursor and on which nodes are reset or stale. Once a snapshot
+// expires, a full list falls back to recomputing from the keyset position
+// and a delta answers reset.
 func (b *Backend) ListSessionOverviews(ctx context.Context, q SessionOverviewQuery) (proto.DeviceSessionOverviewPage, error) {
 	limit := clampLimit(q.Limit, DefaultSessionOverviewLimit, MaxSessionOverviewLimit)
 	var after *sessionCursor
@@ -494,17 +500,56 @@ func (b *Backend) ListSessionOverviews(ctx context.Context, q SessionOverviewQue
 		}
 		after = &c
 	}
-	if q.Since != "" {
-		return b.sessionOverviewDelta(ctx, q, limit, after)
+	key := q.passKey()
+	if after != nil && after.pass != "" {
+		if pass := b.sessionPasses.get(after.pass, key); pass != nil {
+			return pass.page(limit, after, q.Fields), nil
+		}
+		if q.Since != "" {
+			return resetSessionPage(), nil
+		}
 	}
+	var pass *sessionPass
+	if q.Since != "" {
+		var reset bool
+		var err error
+		pass, reset, err = b.sessionOverviewDelta(ctx, q)
+		if err != nil || reset {
+			return resetSessionPage(), err
+		}
+	} else {
+		var err error
+		pass, err = b.sessionOverviewFull(ctx, q)
+		if err != nil {
+			return proto.DeviceSessionOverviewPage{}, err
+		}
+	}
+	page := pass.page(limit, after, q.Fields)
+	if page.NextCursor != nil {
+		pass.id = b.sessionPasses.put(pass, key)
+		page = pass.page(limit, after, q.Fields)
+	}
+	return page, nil
+}
+
+// passKey identifies the queries a pass can serve later pages of.
+func (q SessionOverviewQuery) passKey() string {
+	return fmt.Sprintf("%t|%s", q.Local, q.Since)
+}
+
+// sessionOverviewFull computes a full list pass.
+func (b *Backend) sessionOverviewFull(ctx context.Context, q SessionOverviewQuery) (*sessionPass, error) {
+	b.sessionListMu.Lock()
 	all, err := b.listAllOverviews(ctx)
 	if err != nil {
-		return proto.DeviceSessionOverviewPage{}, err
+		b.sessionListMu.Unlock()
+		return nil, err
 	}
 	owned, replicas := b.splitByOwner(all)
 	localRows, unavailable := b.flattenOverviews(owned)
 	selfID := b.selfNodeID()
 	selfPos, _, _ := b.sessionChanges().observeSince(localRows, unavailableRoots(unavailable), nil)
+	b.sessionListMu.Unlock()
 	positions := map[string]NodeSyncPos{selfID: selfPos}
 	rows := localRows
 	if cb := b.clusterBridge(); cb != nil && !q.Local {
@@ -514,25 +559,20 @@ func (b *Backend) ListSessionOverviews(ctx context.Context, q SessionOverviewQue
 		}
 		rows, unavailable = b.flattenOverviews(mergeReplicas(owned, replicas, remote, b.nodeName))
 	}
-	page := pageSessionRows(rows, limit, after, q.Fields)
-	page.Unavailable = unavailable
-	page.SyncCursor = EncodeSyncCursor(positions)
-	return page, nil
+	return &sessionPass{rows: rows, meta: proto.DeviceSessionOverviewPage{
+		Unavailable: unavailable,
+		SyncCursor:  EncodeSyncCursor(positions),
+	}}, nil
 }
 
-// sessionOverviewDelta answers a since request: this node's changes plus,
-// cluster-wide, every reachable member's.
-func (b *Backend) sessionOverviewDelta(ctx context.Context, q SessionOverviewQuery, limit int, after *sessionCursor) (proto.DeviceSessionOverviewPage, error) {
+// sessionOverviewDelta computes a delta pass: this node's changes plus,
+// cluster-wide, every reachable member's. reset reports a since cursor
+// that is unusable as a whole.
+func (b *Backend) sessionOverviewDelta(ctx context.Context, q SessionOverviewQuery) (pass *sessionPass, reset bool, err error) {
 	since, err := DecodeSyncCursor(q.Since)
 	if err != nil {
-		return resetSessionPage(), nil
+		return nil, true, nil
 	}
-	all, err := b.listAllOverviews(ctx)
-	if err != nil {
-		return proto.DeviceSessionOverviewPage{}, err
-	}
-	owned, _ := b.splitByOwner(all)
-	localRows, unavailable := b.flattenOverviews(owned)
 	selfID := b.selfNodeID()
 	var source SessionDeltaSource
 	if cb := b.clusterBridge(); cb != nil && !q.Local {
@@ -542,9 +582,18 @@ func (b *Backend) sessionOverviewDelta(ctx context.Context, q SessionOverviewQue
 	if pos, ok := since[selfID]; ok {
 		selfSince = &pos
 	}
+	b.sessionListMu.Lock()
+	all, err := b.listAllOverviews(ctx)
+	if err != nil {
+		b.sessionListMu.Unlock()
+		return nil, false, err
+	}
+	owned, _ := b.splitByOwner(all)
+	localRows, unavailable := b.flattenOverviews(owned)
 	selfPos, local, ok := b.sessionChanges().observeSince(localRows, unavailableRoots(unavailable), selfSince)
+	b.sessionListMu.Unlock()
 	if (!ok || selfSince == nil) && source == nil {
-		return resetSessionPage(), nil
+		return nil, true, nil
 	}
 	positions := map[string]NodeSyncPos{selfID: selfPos}
 	var rows []proto.DeviceSessionOverview
@@ -594,12 +643,13 @@ func (b *Backend) sessionOverviewDelta(ctx context.Context, q SessionOverviewQue
 	slices.SortFunc(deleted, func(x, y proto.SessionTombstone) int {
 		return cmp.Or(strings.Compare(x.NodeID, y.NodeID), strings.Compare(x.ID, y.ID))
 	})
-	page := pageSessionRows(rows, limit, after, q.Fields)
-	page.Unavailable = unavailable
-	page.Deleted = deleted
-	page.ResetNodes, page.StaleNodes = resetNodes, staleNodes
-	page.SyncCursor = EncodeSyncCursor(positions)
-	return page, nil
+	return &sessionPass{rows: rows, meta: proto.DeviceSessionOverviewPage{
+		Unavailable: unavailable,
+		Deleted:     deleted,
+		ResetNodes:  resetNodes,
+		StaleNodes:  staleNodes,
+		SyncCursor:  EncodeSyncCursor(positions),
+	}}, false, nil
 }
 
 // resetSessionPage tells the client its since cursor is unusable.
@@ -612,28 +662,28 @@ func resetSessionPage() proto.DeviceSessionOverviewPage {
 	}
 }
 
-// pageSessionRows returns the page of sorted rows after the keyset
-// position.
-func pageSessionRows(rows []proto.DeviceSessionOverview, limit int, after *sessionCursor, fields proto.SessionOverviewFields) proto.DeviceSessionOverviewPage {
-	page := proto.DeviceSessionOverviewPage{Sessions: []proto.DeviceSessionOverview{}, Total: len(rows)}
+// page returns the page of the pass's rows after the keyset position.
+func (p *sessionPass) page(limit int, after *sessionCursor, fields proto.SessionOverviewFields) proto.DeviceSessionOverviewPage {
+	page := p.meta
+	page.Sessions, page.Total = []proto.DeviceSessionOverview{}, len(p.rows)
 	start := 0
 	if after != nil {
-		start = len(rows)
-		for i, s := range rows {
+		start = len(p.rows)
+		for i, s := range p.rows {
 			if s.UpdatedAt < after.updatedAt || (s.UpdatedAt == after.updatedAt && s.ID > after.id) {
 				start = i
 				break
 			}
 		}
 	}
-	end := min(len(rows), start+limit)
-	page.Sessions = append(page.Sessions, rows[start:end]...)
+	end := min(len(p.rows), start+limit)
+	page.Sessions = append(page.Sessions, p.rows[start:end]...)
 	if fields == proto.SessionOverviewFieldsRow {
 		slimRows(page.Sessions)
 	}
-	if end < len(rows) {
-		last := rows[end-1]
-		next := sessionCursor{updatedAt: last.UpdatedAt, id: last.ID}.encode()
+	if end < len(p.rows) {
+		last := p.rows[end-1]
+		next := sessionCursor{updatedAt: last.UpdatedAt, id: last.ID, pass: p.id}.encode()
 		page.NextCursor, page.HasMore = &next, true
 	}
 	return page
@@ -687,20 +737,38 @@ func (b *Backend) flattenOverviews(overviews []proto.WorkspaceOverview) ([]proto
 	return out, unavailable
 }
 
-// sessionCursor is a keyset position in the session overview order.
+// sessionCursor is a keyset position in the session overview order,
+// optionally within a pass snapshot.
 type sessionCursor struct {
 	updatedAt int64
 	id        string
+	pass      string
 }
 
+// passCursorPrefix starts the encoding of a cursor within a pass; keyset
+// only cursors start with a digit or a minus sign.
+const passCursorPrefix = "p"
+
 func (c sessionCursor) encode() string {
-	return base64.RawURLEncoding.EncodeToString([]byte(strconv.FormatInt(c.updatedAt, 10) + ":" + c.id))
+	raw := strconv.FormatInt(c.updatedAt, 10) + ":" + c.id
+	if c.pass != "" {
+		raw = passCursorPrefix + c.pass + "." + raw
+	}
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
 }
 
 func decodeSessionCursor(s string) (sessionCursor, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
 		return sessionCursor{}, ErrInvalidCursor
+	}
+	var pass string
+	if rest, ok := strings.CutPrefix(string(raw), passCursorPrefix); ok {
+		var found bool
+		if pass, rest, found = strings.Cut(rest, "."); !found || pass == "" {
+			return sessionCursor{}, ErrInvalidCursor
+		}
+		raw = []byte(rest)
 	}
 	ts, id, ok := strings.Cut(string(raw), ":")
 	if !ok || id == "" {
@@ -710,5 +778,5 @@ func decodeSessionCursor(s string) (sessionCursor, error) {
 	if err != nil {
 		return sessionCursor{}, ErrInvalidCursor
 	}
-	return sessionCursor{updatedAt: updatedAt, id: id}, nil
+	return sessionCursor{updatedAt: updatedAt, id: id, pass: pass}, nil
 }
