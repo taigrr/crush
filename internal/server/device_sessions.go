@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/taigrr/crush/internal/backend"
 	"github.com/taigrr/crush/internal/proto"
 )
 
@@ -14,7 +15,7 @@ import (
 
 // queryLimit parses the limit query parameter; 0 means the default.
 func queryLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
-	raw := r.URL.Query().Get("limit")
+	raw := r.URL.Query().Get(proto.SessionOverviewsParamLimit)
 	if raw == "" {
 		return 0, true
 	}
@@ -30,12 +31,14 @@ func queryLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 // local, this node), attached or detached, newest first.
 //
 //	@Summary		List session overviews
-//	@Description	Flat, cluster-wide session list sorted by updated_at desc then id, paged by an opaque keyset cursor.
+//	@Description	Flat, cluster-wide session list sorted by updated_at desc then id, paged by an opaque keyset cursor. With since, only the rows changed since that sync cursor plus tombstones (delta sync).
 //	@Tags			sessions
 //	@Produce		json
 //	@Param			limit	query		int		false	"Page size (1..200, default 50)"
 //	@Param			cursor	query		string	false	"Opaque cursor from next_cursor"
 //	@Param			local	query		string	false	"Only this node's sessions"
+//	@Param			since	query		string	false	"Opaque sync_cursor of an earlier response: return only changes since it"
+//	@Param			fields	query		string	false	"row: slim rows (no data_dir)"	Enums(row)
 //	@Success		200		{object}	proto.DeviceSessionOverviewPage
 //	@Failure		400		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
@@ -47,8 +50,25 @@ func (c *controllerV1) handleGetSessionOverviews(w http.ResponseWriter, r *http.
 		return
 	}
 	q := r.URL.Query()
-	page, err := c.backend.ListSessionOverviewPage(r.Context(), q.Get("local") != "", limit, q.Get("cursor"))
-	c.respond(w, r, page, err)
+	fields := proto.SessionOverviewFields(q.Get(proto.SessionOverviewsParamFields))
+	if fields != "" && fields != proto.SessionOverviewFieldsRow {
+		jsonError(w, http.StatusBadRequest, "fields must be row")
+		return
+	}
+	page, err := c.backend.ListSessionOverviews(r.Context(), backend.SessionOverviewQuery{
+		Local:  q.Get(proto.SessionOverviewsParamLocal) != "",
+		Limit:  limit,
+		Cursor: q.Get(proto.SessionOverviewsParamCursor),
+		Since:  q.Get(proto.SessionOverviewsParamSince),
+		Fields: fields,
+	})
+	if err != nil {
+		c.handleError(w, r, err)
+		return
+	}
+	// Node-to-node fan-out and HTTP clients ask for gzip; the device
+	// bridge does not, and gets plain JSON.
+	jsonEncodeGzip(w, r, page)
 }
 
 // handleGetDeviceSession returns a session's metadata by session ID.

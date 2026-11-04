@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -443,43 +444,206 @@ func (b *Backend) SearchNodeHistory(ctx context.Context, params proto.NodeSearch
 // or this node's with local) into one list sorted by updated_at desc then
 // id, and returns the page after cursor.
 func (b *Backend) ListSessionOverviewPage(ctx context.Context, local bool, limit int, cursor string) (proto.DeviceSessionOverviewPage, error) {
-	limit = clampLimit(limit, DefaultSessionOverviewLimit, MaxSessionOverviewLimit)
+	return b.ListSessionOverviews(ctx, SessionOverviewQuery{Local: local, Limit: limit, Cursor: cursor})
+}
+
+// SessionOverviewQuery are the GET /v1/session-overviews parameters.
+type SessionOverviewQuery struct {
+	// Local restricts the list to this node's own sessions.
+	Local bool
+	Limit int
+	// Cursor is the keyset paging cursor (next_cursor).
+	Cursor string
+	// Since, when set, asks for the changes after this sync cursor.
+	Since  string
+	Fields proto.SessionOverviewFields
+}
+
+// SessionDeltaSource is implemented by cluster bridges that can ask
+// other nodes for their session overview changes.
+type SessionDeltaSource interface {
+	// SessionOverviewDeltas asks every other member for its changes
+	// since its position in since (nil or absent: its full list) and
+	// returns one result per current member.
+	SessionOverviewDeltas(ctx context.Context, since map[string]*NodeSyncPos, fields proto.SessionOverviewFields) map[string]NodeSessionDelta
+}
+
+// NodeSessionDelta is one member's answer to a delta request.
+type NodeSessionDelta struct {
+	Sessions    []proto.DeviceSessionOverview
+	Deleted     []proto.SessionTombstone
+	Unavailable []proto.NodeUnavailable
+	// Position is the member's new position; nil for members that
+	// predate delta sync.
+	Position *NodeSyncPos
+	// Reset says Sessions is the member's full list.
+	Reset bool
+	// Err is set when the member could not be asked.
+	Err error
+}
+
+// ListSessionOverviews is [Backend.ListSessionOverviewPage] with delta
+// sync (since) and slim rows (fields=row).
+func (b *Backend) ListSessionOverviews(ctx context.Context, q SessionOverviewQuery) (proto.DeviceSessionOverviewPage, error) {
+	limit := clampLimit(q.Limit, DefaultSessionOverviewLimit, MaxSessionOverviewLimit)
 	var after *sessionCursor
-	if cursor != "" {
-		c, err := decodeSessionCursor(cursor)
+	if q.Cursor != "" {
+		c, err := decodeSessionCursor(q.Cursor)
 		if err != nil {
 			return proto.DeviceSessionOverviewPage{}, err
 		}
 		after = &c
 	}
-	list := b.ListClusterOverviews
-	if local {
-		list = b.ListWorkspaceOverviews
+	if q.Since != "" {
+		return b.sessionOverviewDelta(ctx, q, limit, after)
 	}
-	overviews, err := list(ctx)
+	all, err := b.listAllOverviews(ctx)
 	if err != nil {
 		return proto.DeviceSessionOverviewPage{}, err
 	}
-	all, unavailable := b.flattenOverviews(overviews)
-	page := proto.DeviceSessionOverviewPage{Sessions: []proto.DeviceSessionOverview{}, Total: len(all), Unavailable: unavailable}
+	owned, replicas := b.splitByOwner(all)
+	localRows, unavailable := b.flattenOverviews(owned)
+	selfID := b.selfNodeID()
+	selfPos, _, _ := b.sessionChanges().observeSince(localRows, unavailableRoots(unavailable), nil)
+	positions := map[string]NodeSyncPos{selfID: selfPos}
+	rows := localRows
+	if cb := b.clusterBridge(); cb != nil && !q.Local {
+		remote := cb.RemoteOverviews(ctx)
+		for id, pos := range remote.SyncPositions {
+			positions[id] = pos
+		}
+		rows, unavailable = b.flattenOverviews(mergeReplicas(owned, replicas, remote, b.nodeName))
+	}
+	page := pageSessionRows(rows, limit, after, q.Fields)
+	page.Unavailable = unavailable
+	page.SyncCursor = EncodeSyncCursor(positions)
+	return page, nil
+}
+
+// sessionOverviewDelta answers a since request: this node's changes plus,
+// cluster-wide, every reachable member's.
+func (b *Backend) sessionOverviewDelta(ctx context.Context, q SessionOverviewQuery, limit int, after *sessionCursor) (proto.DeviceSessionOverviewPage, error) {
+	since, err := DecodeSyncCursor(q.Since)
+	if err != nil {
+		return resetSessionPage(), nil
+	}
+	all, err := b.listAllOverviews(ctx)
+	if err != nil {
+		return proto.DeviceSessionOverviewPage{}, err
+	}
+	owned, _ := b.splitByOwner(all)
+	localRows, unavailable := b.flattenOverviews(owned)
+	selfID := b.selfNodeID()
+	var source SessionDeltaSource
+	if cb := b.clusterBridge(); cb != nil && !q.Local {
+		source, _ = cb.(SessionDeltaSource)
+	}
+	var selfSince *NodeSyncPos
+	if pos, ok := since[selfID]; ok {
+		selfSince = &pos
+	}
+	selfPos, local, ok := b.sessionChanges().observeSince(localRows, unavailableRoots(unavailable), selfSince)
+	if (!ok || selfSince == nil) && source == nil {
+		return resetSessionPage(), nil
+	}
+	positions := map[string]NodeSyncPos{selfID: selfPos}
+	var rows []proto.DeviceSessionOverview
+	deleted := []proto.SessionTombstone{}
+	resetNodes, staleNodes := []string{}, []string{}
+	if ok && selfSince != nil {
+		rows, deleted = append(rows, local.sessions...), append(deleted, local.deleted...)
+	} else {
+		rows = append(rows, localRows...)
+		resetNodes = append(resetNodes, selfID)
+	}
+	if source != nil {
+		want := map[string]*NodeSyncPos{}
+		for id, pos := range since {
+			if id != selfID {
+				want[id] = &pos
+			}
+		}
+		results := source.SessionOverviewDeltas(ctx, want, q.Fields)
+		for _, id := range slices.Sorted(maps.Keys(since)) {
+			if _, member := results[id]; !member && id != selfID {
+				// The node left the cluster: clients drop its rows.
+				resetNodes = append(resetNodes, id)
+			}
+		}
+		for _, id := range slices.Sorted(maps.Keys(results)) {
+			res := results[id]
+			if res.Err != nil {
+				staleNodes = append(staleNodes, id)
+				if pos, ok := since[id]; ok {
+					positions[id] = pos
+				}
+				continue
+			}
+			rows = append(rows, res.Sessions...)
+			deleted = append(deleted, res.Deleted...)
+			unavailable = append(unavailable, res.Unavailable...)
+			if res.Reset {
+				resetNodes = append(resetNodes, id)
+			}
+			if res.Position != nil {
+				positions[id] = *res.Position
+			}
+		}
+	}
+	sortSessionRows(rows)
+	slices.SortFunc(deleted, func(x, y proto.SessionTombstone) int {
+		return cmp.Or(strings.Compare(x.NodeID, y.NodeID), strings.Compare(x.ID, y.ID))
+	})
+	page := pageSessionRows(rows, limit, after, q.Fields)
+	page.Unavailable = unavailable
+	page.Deleted = deleted
+	page.ResetNodes, page.StaleNodes = resetNodes, staleNodes
+	page.SyncCursor = EncodeSyncCursor(positions)
+	return page, nil
+}
+
+// resetSessionPage tells the client its since cursor is unusable.
+func resetSessionPage() proto.DeviceSessionOverviewPage {
+	return proto.DeviceSessionOverviewPage{
+		Sessions:    []proto.DeviceSessionOverview{},
+		Deleted:     []proto.SessionTombstone{},
+		Unavailable: []proto.NodeUnavailable{},
+		Reset:       true,
+	}
+}
+
+// pageSessionRows returns the page of sorted rows after the keyset
+// position.
+func pageSessionRows(rows []proto.DeviceSessionOverview, limit int, after *sessionCursor, fields proto.SessionOverviewFields) proto.DeviceSessionOverviewPage {
+	page := proto.DeviceSessionOverviewPage{Sessions: []proto.DeviceSessionOverview{}, Total: len(rows)}
 	start := 0
 	if after != nil {
-		start = len(all)
-		for i, s := range all {
+		start = len(rows)
+		for i, s := range rows {
 			if s.UpdatedAt < after.updatedAt || (s.UpdatedAt == after.updatedAt && s.ID > after.id) {
 				start = i
 				break
 			}
 		}
 	}
-	end := min(len(all), start+limit)
-	page.Sessions = append(page.Sessions, all[start:end]...)
-	if end < len(all) {
-		last := all[end-1]
-		next := sessionCursor{updatedAt: last.UpdatedAt, id: last.ID}.encode()
-		page.NextCursor = &next
+	end := min(len(rows), start+limit)
+	page.Sessions = append(page.Sessions, rows[start:end]...)
+	if fields == proto.SessionOverviewFieldsRow {
+		slimRows(page.Sessions)
 	}
-	return page, nil
+	if end < len(rows) {
+		last := rows[end-1]
+		next := sessionCursor{updatedAt: last.UpdatedAt, id: last.ID}.encode()
+		page.NextCursor, page.HasMore = &next, true
+	}
+	return page
+}
+
+// sortSessionRows orders rows by updated_at desc, then id.
+func sortSessionRows(rows []proto.DeviceSessionOverview) {
+	slices.SortFunc(rows, func(x, y proto.DeviceSessionOverview) int {
+		return cmp.Or(cmp.Compare(y.UpdatedAt, x.UpdatedAt), strings.Compare(x.ID, y.ID))
+	})
 }
 
 func (b *Backend) flattenOverviews(overviews []proto.WorkspaceOverview) ([]proto.DeviceSessionOverview, []proto.NodeUnavailable) {
@@ -519,9 +683,7 @@ func (b *Backend) flattenOverviews(overviews []proto.WorkspaceOverview) ([]proto
 			out = append(out, d)
 		}
 	}
-	slices.SortFunc(out, func(x, y proto.DeviceSessionOverview) int {
-		return cmp.Or(cmp.Compare(y.UpdatedAt, x.UpdatedAt), strings.Compare(x.ID, y.ID))
-	})
+	sortSessionRows(out)
 	return out, unavailable
 }
 
