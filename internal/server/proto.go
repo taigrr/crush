@@ -118,12 +118,50 @@ func (c *controllerV1) handleGetWorkspaces(w http.ResponseWriter, _ *http.Reques
 //	@x-crush-scope	"sessions:read"
 //	@Router			/workspace-overviews [get]
 func (c *controllerV1) handleGetWorkspaceOverviews(w http.ResponseWriter, r *http.Request) {
-	list := c.backend.ListClusterOverviews
 	if r.URL.Query().Get("local") != "" {
-		list = c.backend.ListWorkspaceOverviews
+		// Node-to-node fetch: lists of a few thousand sessions run to
+		// hundreds of KB, which is slow over a WAN; compress them.
+		overviews, err := c.backend.ListWorkspaceOverviews(r.Context())
+		if err != nil {
+			c.handleError(w, r, err)
+			return
+		}
+		jsonEncodeGzip(w, r, overviews)
+		return
 	}
-	overviews, err := list(r.Context())
+	overviews, err := c.backend.ListClusterOverviews(r.Context())
 	c.respond(w, r, overviews, err)
+}
+
+// jsonEncodeGzip is [jsonEncode], gzip-compressed when the client accepts
+// it. Go's transport asks for gzip by itself and decodes transparently.
+func jsonEncodeGzip(w http.ResponseWriter, r *http.Request, v any) {
+	if !acceptsGzip(r) {
+		jsonEncode(w, v)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Encoding", "gzip")
+	w.Header().Add("Vary", "Accept-Encoding")
+	w.Header().Del("Content-Length")
+	zw, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
+	_ = json.NewEncoder(zw).Encode(v)
+	_ = zw.Close()
+}
+
+func acceptsGzip(r *http.Request) bool {
+	for part := range strings.SplitSeq(r.Header.Get("Accept-Encoding"), ",") {
+		name, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if strings.EqualFold(strings.TrimSpace(name), "gzip") {
+			q, hasQ := strings.CutPrefix(strings.ReplaceAll(params, " ", ""), "q=")
+			if !hasQ {
+				return true
+			}
+			weight, err := strconv.ParseFloat(q, 64)
+			return err == nil && weight > 0
+		}
+	}
+	return false
 }
 
 // handleGetWorkspace returns a single workspace by ID.

@@ -259,6 +259,11 @@ type SessionOverview struct {
 	OwnerNode string `json:"owner_node,omitempty"`
 	OwnerName string `json:"owner_name,omitempty"`
 	ReadOnly  bool   `json:"read_only,omitempty"`
+	// ReplicaReason explains a ReadOnly replica, e.g. "owner unreachable:
+	// context deadline exceeded". OwnerUnreachableSince is when this node
+	// started failing to reach the owner (unix ms; 0 if unknown).
+	ReplicaReason         string `json:"replica_reason,omitempty"`
+	OwnerUnreachableSince int64  `json:"owner_unreachable_since,omitempty"`
 }
 
 // WorkspaceOverview groups a workspace's sessions for the picker. Attached
@@ -280,6 +285,13 @@ type WorkspaceOverview struct {
 	// why. Sessions is then empty or a stale subset.
 	Unavailable bool   `json:"unavailable,omitempty"`
 	Error       string `json:"error,omitempty"`
+	// Stale marks a remote node's last good overview served because the
+	// latest refresh failed; StaleSince is when it was fetched (unix ms)
+	// and LastError why the refresh failed. On a node-level Unavailable
+	// marker StaleSince is the last successful fetch, if any.
+	Stale      bool   `json:"stale,omitempty"`
+	StaleSince int64  `json:"stale_since,omitempty"`
+	LastError  string `json:"last_error,omitempty"`
 }
 
 // GoalStatus reports the active autonomous goal for a session.

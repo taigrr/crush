@@ -2096,8 +2096,16 @@ definitions:
           display name. ReadOnly marks a replica shown because its owner is
           unreachable.
         type: string
+      owner_unreachable_since:
+        type: integer
       read_only:
         type: boolean
+      replica_reason:
+        description: |-
+          ReplicaReason explains a ReadOnly replica, e.g. "owner unreachable:
+          context deadline exceeded". OwnerUnreachableSince is when this node
+          started failing to reach the owner (unix ms; 0 if unknown).
+        type: string
       title:
         type: string
       unread:
@@ -2299,6 +2307,8 @@ definitions:
         type: string
       error:
         type: string
+      last_error:
+        type: string
       node_id:
         description: |-
           NodeID and NodeName identify the cluster node that owns the
@@ -2312,6 +2322,15 @@ definitions:
         items:
           $ref: '#/definitions/proto.SessionOverview'
         type: array
+      stale:
+        description: |-
+          Stale marks a remote node's last good overview served because the
+          latest refresh failed; StaleSince is when it was fetched (unix ms)
+          and LastError why the refresh failed. On a node-level Unavailable
+          marker StaleSince is the last successful fetch, if any.
+        type: boolean
+      stale_since:
+        type: integer
       unavailable:
         description: |-
           Unavailable marks a workspace (or, with an empty Root, a whole

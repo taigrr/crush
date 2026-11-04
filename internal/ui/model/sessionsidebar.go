@@ -1367,8 +1367,9 @@ func (s *SessionsSidebar) renderRows(width int, focused bool) []string {
 				}
 			}
 			if sess.ReadOnly {
-				// A replica of a session whose owning machine is offline.
-				tag = strings.TrimSpace("@" + sess.OwnerName + " offline " + tag)
+				// A cached replica of a session whose owning machine
+				// cannot be reached right now.
+				tag = strings.TrimSpace("@" + sess.OwnerName + " cached " + tag)
 			}
 			out = append(out, s.renderSessionRow(t, sess, width, selected, focused, s.selected[sess.ID], tag))
 		case sidebarRowOverflow:
