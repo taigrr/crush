@@ -912,6 +912,52 @@
                 "x-crush-scope": "never"
             }
         },
+        "/history/search": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Search history across this node",
+                "parameters": [
+                    {
+                        "description": "Query, limit, scope",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.NodeSearchHistoryParams"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.NodeSearchHistoryResult"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
+            }
+        },
         "/migrate/execute": {
             "post": {
                 "produces": [
@@ -1143,6 +1189,111 @@
                 "x-crush-scope": "never"
             }
         },
+        "/session-overviews": {
+            "get": {
+                "description": "Flat, cluster-wide session list sorted by updated_at desc then id, paged by an opaque keyset cursor.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "List session overviews",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page size (1..200, default 50)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Opaque cursor from next_cursor",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Only this node's sessions",
+                        "name": "local",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.DeviceSessionOverviewPage"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
+            }
+        },
+        "/sessions": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Create a session and prompt it",
+                "parameters": [
+                    {
+                        "description": "Workspace root, first prompt, optional model",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.DeviceCreateSessionParams"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.DeviceCreatedSession"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:prompt"
+            }
+        },
         "/sessions/batch": {
             "post": {
                 "consumes": [
@@ -1221,6 +1372,177 @@
                     }
                 },
                 "x-crush-scope": "sessions:move"
+            }
+        },
+        "/sessions/{sid}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get session by id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace root",
+                        "name": "root",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.DeviceSession"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
+            }
+        },
+        "/sessions/{sid}/messages": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get session messages by session id",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Workspace root",
+                        "name": "root",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size (1..500, default 200)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Return messages older than this message id",
+                        "name": "before",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.DeviceSessionMessages"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
+            }
+        },
+        "/sessions/{sid}/open": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Open a session's workspace",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "sid",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Workspace root",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proto.DeviceSessionOpenParams"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.DeviceSessionOpen"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:prompt"
             }
         },
         "/swarm/resolve": {
@@ -1419,6 +1741,32 @@
                             "items": {
                                 "$ref": "#/definitions/proto.WorkspaceOverview"
                             }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
+                        }
+                    }
+                },
+                "x-crush-scope": "sessions:read"
+            }
+        },
+        "/workspace-roots": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "workspaces"
+                ],
+                "summary": "List workspace roots",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/proto.WorkspaceRoots"
                         }
                     },
                     "500": {
@@ -6555,6 +6903,41 @@
                 }
             }
         },
+        "cluster.AddrKind": {
+            "type": "string",
+            "enum": [
+                "lan",
+                "wireguard",
+                "tailscale",
+                "vpn",
+                "bridge",
+                "public",
+                "override"
+            ],
+            "x-enum-varnames": [
+                "KindLAN",
+                "KindWireGuard",
+                "KindTailscale",
+                "KindVPN",
+                "KindBridge",
+                "KindPublic",
+                "KindOverride"
+            ]
+        },
+        "cluster.AdvertisedEndpoint": {
+            "type": "object",
+            "properties": {
+                "addr": {
+                    "type": "string"
+                },
+                "kind": {
+                    "$ref": "#/definitions/cluster.AddrKind"
+                },
+                "priority": {
+                    "type": "integer"
+                }
+            }
+        },
         "cluster.DeviceEndpoints": {
             "type": "object",
             "properties": {
@@ -6581,6 +6964,13 @@
                     "type": "array",
                     "items": {
                         "type": "string"
+                    }
+                },
+                "endpoints": {
+                    "description": "Endpoints are Addrs classified by the advertising member, which\nknows its own interfaces (additive: older members omit it).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/cluster.AdvertisedEndpoint"
                     }
                 },
                 "state": {
@@ -7855,7 +8245,21 @@
                     "type": "string"
                 },
                 "kind": {
-                    "type": "string"
+                    "description": "Kind is lan, wireguard, tailscale, vpn, bridge, public, or override.",
+                    "type": "string",
+                    "enum": [
+                        "lan",
+                        "wireguard",
+                        "tailscale",
+                        "vpn",
+                        "bridge",
+                        "public",
+                        "override"
+                    ]
+                },
+                "priority": {
+                    "description": "Priority orders endpoints: lower is preferred (0 is an operator\noverride). Absent (0) from older nodes, which list best first.",
+                    "type": "integer"
                 }
             }
         },
@@ -7904,6 +8308,13 @@
                 "name": {
                     "type": "string"
                 },
+                "nats_endpoints": {
+                    "description": "NATSEndpoints are NATSURLs classified, in the same order.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/pairing.NATSEndpoint"
+                    }
+                },
                 "nats_urls": {
                     "description": "NATSURLs are the member's device websocket URLs (wss://host:port).",
                     "type": "array",
@@ -7935,6 +8346,29 @@
                     }
                 },
                 "user": {
+                    "type": "string"
+                }
+            }
+        },
+        "pairing.NATSEndpoint": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "lan",
+                        "wireguard",
+                        "tailscale",
+                        "vpn",
+                        "bridge",
+                        "public",
+                        "override"
+                    ]
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "url": {
                     "type": "string"
                 }
             }
@@ -8356,6 +8790,188 @@
                 }
             }
         },
+        "proto.DeviceCreateSessionParams": {
+            "type": "object",
+            "properties": {
+                "client_id": {
+                    "description": "ClientID is stamped by the device bridge; any device-supplied value\nis replaced.",
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "root": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.DeviceCreatedSession": {
+            "type": "object",
+            "properties": {
+                "node_id": {
+                    "type": "string"
+                },
+                "root": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.DeviceSession": {
+            "type": "object",
+            "properties": {
+                "attached": {
+                    "type": "boolean"
+                },
+                "data_dir": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_busy": {
+                    "type": "boolean"
+                },
+                "message_count": {
+                    "type": "integer"
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "root": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "integer"
+                },
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.DeviceSessionMessages": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_taigrr_crush_internal_proto.Message"
+                    }
+                },
+                "next_before": {
+                    "description": "NextBefore is the `before` value for the next (older) page; null\nwhen this page reaches the first message.",
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.DeviceSessionOpen": {
+            "type": "object",
+            "properties": {
+                "root": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.DeviceSessionOpenParams": {
+            "type": "object",
+            "properties": {
+                "root": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.DeviceSessionOverview": {
+            "type": "object",
+            "properties": {
+                "animal": {
+                    "type": "string"
+                },
+                "attached": {
+                    "type": "boolean"
+                },
+                "color": {
+                    "type": "string"
+                },
+                "data_dir": {
+                    "type": "string"
+                },
+                "favorite": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_busy": {
+                    "type": "boolean"
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "node_name": {
+                    "type": "string"
+                },
+                "root": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "unread": {
+                    "type": "boolean"
+                },
+                "updated_at": {
+                    "type": "integer"
+                },
+                "workspace_id": {
+                    "description": "WorkspaceID is set only while the workspace is attached; it is a\nruntime handle, not a stable identifier.",
+                    "type": "string"
+                }
+            }
+        },
+        "proto.DeviceSessionOverviewPage": {
+            "type": "object",
+            "properties": {
+                "next_cursor": {
+                    "description": "NextCursor fetches the next page; null on the last page.",
+                    "type": "string"
+                },
+                "sessions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.DeviceSessionOverview"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "unavailable": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.NodeUnavailable"
+                    }
+                }
+            }
+        },
         "proto.DropQueuedRunResponse": {
             "type": "object",
             "properties": {
@@ -8367,6 +8983,10 @@
         "proto.Error": {
             "type": "object",
             "properties": {
+                "code": {
+                    "description": "Code is a machine-readable error code, when the route defines one\n(for example [ErrCodeSessionNotOnNode]).",
+                    "type": "string"
+                },
                 "message": {
                     "type": "string"
                 }
@@ -8612,6 +9232,105 @@
                     "type": "string"
                 },
                 "target_node_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.NodeSearchHistoryParams": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.NodeSearchHistoryResult": {
+            "type": "object",
+            "properties": {
+                "fallback_reason": {
+                    "type": "string"
+                },
+                "hits": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.NodeSessionHit"
+                    }
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": [
+                        "hybrid",
+                        "text"
+                    ]
+                },
+                "semantic_used": {
+                    "type": "boolean"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "proto.NodeSessionHit": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "match": {
+                    "type": "string"
+                },
+                "message_id": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "root": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "number"
+                },
+                "session_id": {
+                    "type": "string"
+                },
+                "session_title": {
+                    "type": "string"
+                },
+                "snippet": {
+                    "type": "string"
+                },
+                "workspace_id": {
+                    "type": "string"
+                },
+                "workspace_root": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.NodeUnavailable": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "node_name": {
+                    "type": "string"
+                },
+                "root": {
                     "type": "string"
                 }
             }
@@ -9622,6 +10341,40 @@
                 },
                 "workspace_id": {
                     "type": "string"
+                }
+            }
+        },
+        "proto.WorkspaceRoot": {
+            "type": "object",
+            "properties": {
+                "attached": {
+                    "type": "boolean"
+                },
+                "data_dir": {
+                    "type": "string"
+                },
+                "last_used_at": {
+                    "type": "integer"
+                },
+                "root": {
+                    "type": "string"
+                },
+                "session_count": {
+                    "type": "integer"
+                },
+                "workspace_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.WorkspaceRoots": {
+            "type": "object",
+            "properties": {
+                "roots": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.WorkspaceRoot"
+                    }
                 }
             }
         },

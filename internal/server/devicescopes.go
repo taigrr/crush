@@ -21,6 +21,7 @@ import (
 const (
 	routePostAgent       = "POST /v1/workspaces/{id}/agent"
 	routePermissionGrant = "POST /v1/workspaces/{id}/permissions/grant"
+	routeCreateSession   = "POST /v1/sessions"
 	routeWorkspaceEvents = "GET /v1/workspaces/{id}/events"
 	routeGlobalEvents    = "GET /v1/events"
 )
@@ -120,6 +121,17 @@ func applyBodyRules(pattern string, d pairing.Device, body []byte) ([]byte, *bri
 		// name another session as the sender); a device sends text.
 		msg.SwarmParts = nil
 		out, err := json.Marshal(msg)
+		if err != nil {
+			return nil, newBridgeError(codeBadRequest, "invalid body")
+		}
+		return out, nil
+	case routeCreateSession:
+		var params proto.DeviceCreateSessionParams
+		if !isJSONObject(body) || json.Unmarshal(body, &params) != nil {
+			return nil, newBridgeError(codeBadRequest, "body must be a JSON object")
+		}
+		params.ClientID = deviceClientPrefix + d.DeviceID
+		out, err := json.Marshal(params)
 		if err != nil {
 			return nil, newBridgeError(codeBadRequest, "invalid body")
 		}

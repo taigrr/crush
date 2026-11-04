@@ -42,7 +42,7 @@ func TestLocalEndpointsFrom(t *testing.T) {
 			{Name: "en0", Flags: net.FlagBroadcast, Addrs: ips("192.168.1.2")},
 			{Name: "en1", Flags: bcast, Addrs: ips("10.0.0.2")},
 		}, []string{"10.0.0.2:7733"}},
-		{"tunnels by name ranked last even without the p2p flag", []NetInterface{
+		{"tunnels by name: wireguard, vpn, then bridges last", []NetInterface{
 			{Name: "wg0", Flags: bcast, Addrs: ips("10.8.0.1")},
 			{Name: "docker0", Flags: bcast, Addrs: ips("172.17.0.1")},
 			{Name: "br-1234", Flags: bcast, Addrs: ips("172.18.0.1")},
@@ -50,12 +50,12 @@ func TestLocalEndpointsFrom(t *testing.T) {
 			{Name: "vmnet8", Flags: bcast, Addrs: ips("192.168.100.1")},
 			{Name: "ipsec0", Flags: up, Addrs: ips("10.9.0.1")},
 			{Name: "eth0", Flags: bcast, Addrs: ips("192.168.1.9")},
-		}, []string{"192.168.1.9:7733", "172.18.0.1:7733", "192.168.64.1:7733", "172.17.0.1:7733", "10.9.0.1:7733", "192.168.100.1:7733", "10.8.0.1:7733"}},
-		{"tailscale kept last", []NetInterface{
+		}, []string{"192.168.1.9:7733", "10.8.0.1:7733", "10.9.0.1:7733", "172.18.0.1:7733", "192.168.64.1:7733", "172.17.0.1:7733", "192.168.100.1:7733"}},
+		{"tailscale after wireguard", []NetInterface{
 			{Name: "tailscale0", Flags: up | net.FlagPointToPoint, Addrs: ips("100.101.102.103", "fd7a:115c:a1e0::1")},
 			{Name: "utun3", Flags: up | net.FlagPointToPoint, Addrs: ips("192.168.2.15")},
 			{Name: "eth0", Flags: bcast, Addrs: ips("203.0.113.7")},
-		}, []string{"203.0.113.7:7733", "[fd7a:115c:a1e0::1]:7733", "192.168.2.15:7733", "100.101.102.103:7733"}},
+		}, []string{"203.0.113.7:7733", "192.168.2.15:7733", "100.101.102.103:7733", "[fd7a:115c:a1e0::1]:7733"}},
 		{"private broadcast before private non-broadcast before public", []NetInterface{
 			{Name: "en5", Flags: up, Addrs: ips("10.1.1.1")},
 			{Name: "en2", Flags: bcast, Addrs: ips("198.51.100.4")},
@@ -122,4 +122,86 @@ func TestOrderAddrs(t *testing.T) {
 			require.Equal(t, tt.want, orderAddrs(grokbox, tt.in))
 		})
 	}
+}
+
+func TestClassifyInterfaceAddr(t *testing.T) {
+	t.Parallel()
+	p2p := up | net.FlagPointToPoint
+	tests := []struct {
+		name  string
+		ifc   NetInterface
+		ip    string
+		kind  AddrKind
+		prio  int
+		valid bool
+	}{
+		{"lan broadcast", NetInterface{Name: "en0", Flags: bcast}, "192.168.1.5", KindLAN, PriorityLAN, true},
+		{"lan non-broadcast", NetInterface{Name: "en5", Flags: up}, "10.1.1.1", KindLAN, PriorityLANOther, true},
+		{"lan ula", NetInterface{Name: "eth0", Flags: bcast}, "fd12:3456::1", KindLAN, PriorityLANv6, true},
+		{"public v4", NetInterface{Name: "eth0", Flags: bcast}, "203.0.113.7", KindPublic, PriorityPublic, true},
+		{"public v6", NetInterface{Name: "en0", Flags: bcast}, "2001:db8::5", KindPublic, PriorityPublicV6, true},
+		{"wireguard utun p2p", NetInterface{Name: "utun4", Flags: p2p}, "192.168.2.241", KindWireGuard, PriorityWireGuard, true},
+		{"wireguard wg0", NetInterface{Name: "wg0", Flags: bcast}, "10.8.0.1", KindWireGuard, PriorityWireGuard, true},
+		{"utun without p2p is vpn", NetInterface{Name: "utun2", Flags: up}, "10.7.0.2", KindVPN, PriorityVPN, true},
+		{"openvpn tun", NetInterface{Name: "tun0", Flags: p2p}, "10.9.0.1", KindVPN, PriorityVPN, true},
+		{"ipsec", NetInterface{Name: "ipsec0", Flags: up}, "10.9.0.1", KindVPN, PriorityVPN, true},
+		{"tailscale range on utun", NetInterface{Name: "utun5", Flags: p2p}, "100.101.102.103", KindTailscale, PriorityTailscale, true},
+		{"tailscale0 v6", NetInterface{Name: "tailscale0", Flags: p2p}, "fd7a:115c:a1e0::1", KindTailscale, PriorityTailscaleV6, true},
+		{"tailscale v6 range on utun", NetInterface{Name: "utun6", Flags: p2p}, "fd7a:115c:a1e0::2", KindTailscale, PriorityTailscaleV6, true},
+		{"docker0", NetInterface{Name: "docker0", Flags: bcast}, "172.17.0.1", KindBridge, PriorityBridge, true},
+		{"default docker range anywhere", NetInterface{Name: "eth1", Flags: bcast}, "172.17.0.5", KindBridge, PriorityBridge, true},
+		{"br-", NetInterface{Name: "br-1234", Flags: bcast}, "172.18.0.1", KindBridge, PriorityBridge, true},
+		{"veth", NetInterface{Name: "veth9", Flags: bcast}, "10.200.0.1", KindBridge, PriorityBridge, true},
+		{"vmnet", NetInterface{Name: "vmnet8", Flags: bcast}, "192.168.100.1", KindBridge, PriorityBridge, true},
+		{"vboxnet", NetInterface{Name: "vboxnet0", Flags: bcast}, "192.168.56.1", KindBridge, PriorityBridge, true},
+		{"bridge100", NetInterface{Name: "bridge100", Flags: bcast}, "192.168.64.1", KindBridge, PriorityBridge, true},
+		{"loopback iface", NetInterface{Name: "lo0", Flags: up | net.FlagLoopback}, "127.0.0.1", "", 0, false},
+		{"down", NetInterface{Name: "en1", Flags: net.FlagBroadcast}, "10.0.0.1", "", 0, false},
+		{"link-local v4", NetInterface{Name: "en0", Flags: bcast}, "169.254.1.1", "", 0, false},
+		{"link-local v6", NetInterface{Name: "en0", Flags: bcast}, "fe80::1", "", 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			kind, prio, ok := ClassifyInterfaceAddr(tt.ifc, netip.MustParseAddr(tt.ip))
+			require.Equal(t, tt.valid, ok)
+			if ok {
+				require.Equal(t, tt.kind, kind)
+				require.Equal(t, tt.prio, prio)
+			}
+		})
+	}
+}
+
+func TestClassifyAddrsRanking(t *testing.T) {
+	t.Parallel()
+	ifs := []NetInterface{
+		{Name: "docker0", Flags: bcast, Addrs: ips("172.17.0.1")},
+		{Name: "tailscale0", Flags: up | net.FlagPointToPoint, Addrs: ips("100.64.0.9")},
+		{Name: "utun4", Flags: up | net.FlagPointToPoint, Addrs: ips("192.168.2.241")},
+		{Name: "en0", Flags: bcast, Addrs: ips("192.168.9.238", "fe80::1")},
+		{Name: "lo0", Flags: up | net.FlagLoopback, Addrs: ips("127.0.0.1")},
+	}
+	got := ClassifyAddrs(ifs, []string{
+		"172.17.0.1:1", "100.64.0.9:1", "192.168.2.241:1", "192.168.9.238:1", "127.0.0.1:1", "[fe80::1]:1",
+		"box.lan:1", "10.0.0.7:1", "192.168.9.238:1", "nonsense",
+	})
+	require.Equal(t, []AdvertisedEndpoint{
+		{Addr: "192.168.9.238:1", Kind: KindLAN, Priority: PriorityLAN},
+		{Addr: "10.0.0.7:1", Kind: KindLAN, Priority: PriorityLANForeign},
+		{Addr: "box.lan:1", Kind: KindPublic, Priority: PriorityHostname},
+		{Addr: "192.168.2.241:1", Kind: KindWireGuard, Priority: PriorityWireGuard},
+		{Addr: "100.64.0.9:1", Kind: KindTailscale, Priority: PriorityTailscale},
+		{Addr: "172.17.0.1:1", Kind: KindBridge, Priority: PriorityBridge},
+	}, got)
+
+	// Another node's addresses are classified by range alone.
+	got = ClassifyAddrs(nil, []string{"172.17.0.3:1", "100.100.1.1:1", "[fd7a:115c:a1e0::5]:1", "192.168.1.4:1", "198.51.100.1:1"})
+	require.Equal(t, []AdvertisedEndpoint{
+		{Addr: "192.168.1.4:1", Kind: KindLAN, Priority: PriorityLANForeign},
+		{Addr: "198.51.100.1:1", Kind: KindPublic, Priority: PriorityHostname},
+		{Addr: "100.100.1.1:1", Kind: KindTailscale, Priority: PriorityTailscale},
+		{Addr: "[fd7a:115c:a1e0::5]:1", Kind: KindTailscale, Priority: PriorityTailscale},
+		{Addr: "172.17.0.3:1", Kind: KindBridge, Priority: PriorityBridgeForeign},
+	}, got)
 }

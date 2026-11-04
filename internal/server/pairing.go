@@ -75,6 +75,8 @@ type pairingService struct {
 
 	clientAddr string
 	wsAddr     string
+	// interfaces overrides deviceInterfaces (tests).
+	interfaces func() ([]cluster.NetInterface, error)
 
 	// meshRef is the running mesh, set and cleared by startMesh/stopMesh.
 	// It is read without srv.meshMu so NATS callbacks and registry
@@ -329,17 +331,21 @@ func (p *pairingService) extras() pairing.Extras {
 	self, _ := st.Member(selfID)
 	for _, m := range st.Members {
 		info := pairing.MemberInfo{NodeID: m.NodeID, Name: m.Name, NodePub: m.PublicKey}
-		var clients []pairing.Endpoint
+		var clients, ws []pairing.Endpoint
 		if m.NodeID == selfID {
 			// This node's own live listeners, not its stored record.
-			clients, info.NATSURLs = p.selfDevice(m.Endpoints)
+			clients, ws = p.selfDeviceEndpoints(m.Endpoints)
 			info.DevicePorts = devicePortsAdvertised
-			ex.NATSURLs = info.NATSURLs
 		} else {
-			clients, info.NATSURLs, info.DevicePorts = p.memberDevice(m, self.Endpoints)
+			clients, ws, info.DevicePorts = p.memberDevice(m, self.Endpoints)
+		}
+		info.NATSURLs = wssURLs(ws)
+		info.NATSEndpoints = natsEndpoints(ws)
+		if m.NodeID == selfID {
+			ex.NATSURLs = info.NATSURLs
 		}
 		for _, ep := range clients {
-			info.Endpoints = append(info.Endpoints, pairing.InfoEndpoint{Kind: ep.Kind.String(), Addr: ep.Addr})
+			info.Endpoints = append(info.Endpoints, ep.InfoEndpoint())
 		}
 		ex.Members = append(ex.Members, info)
 	}

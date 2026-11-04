@@ -55,7 +55,7 @@ func (s Self) NodePub() ed25519.PublicKey { return s.NodeKey.Public().(ed25519.P
 func (s Self) Info() Info {
 	eps := make([]InfoEndpoint, 0, len(s.Endpoints))
 	for _, ep := range s.Endpoints {
-		eps = append(eps, InfoEndpoint{Kind: ep.Kind.String(), Addr: ep.Addr})
+		eps = append(eps, ep.InfoEndpoint())
 	}
 	return Info{
 		ClientProto: ProtoVersion,

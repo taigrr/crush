@@ -53,6 +53,28 @@ func (b *Backend) searchAllWorkspaces(ctx context.Context, requestingWorkspaceID
 	// every detached workspace's read-only embedder.
 	embParams := reqWS.Store().EmbeddingParams()
 
+	sources, ids, closeAll := b.historySources(embParams)
+	defer closeAll()
+
+	res, err := historysearch.SearchAcross(ctx, sources, params.Query,
+		historysearch.Scope(params.Scope), params.Semantic, candidateLimit, sessionLimit)
+	if err != nil {
+		return proto.SearchHistoryResult{}, err
+	}
+	return app.HistoryResultToProto(res, func(root string) string { return ids[root] }), nil
+}
+
+// historySources is a history search source for every attached and
+// registry-known workspace on this node (detached ones opened read-only),
+// with each root's workspace ID ("" when detached). closeAll closes the
+// detached databases.
+func (b *Backend) historySources(embParams embedding.Params) (sources []historysearch.Source, ids map[string]string, closeAll func()) {
+	var closers []func()
+	closeAll = func() {
+		for _, c := range closers {
+			c()
+		}
+	}
 	// Attached workspaces, iterated in a deterministic order (by resolved
 	// root) so the merged result is stable run-to-run. Mirrors
 	// overview.go.
@@ -68,8 +90,8 @@ func (b *Backend) searchAllWorkspaces(ctx context.Context, requestingWorkspaceID
 	// Tag with resolvedPath (the dedup key and overview.go's convention)
 	// so a hit's root matches what the client compares against
 	// BaseDir().
-	sources := make([]historysearch.Source, 0, len(roots))
-	ids := make(map[string]string, len(roots))
+	sources = make([]historysearch.Source, 0, len(roots))
+	ids = make(map[string]string, len(roots))
 	for _, root := range roots {
 		ws := attached[root]
 		sources = append(sources, ws.HistorySource(root))
@@ -98,17 +120,12 @@ func (b *Backend) searchAllWorkspaces(ctx context.Context, requestingWorkspaceID
 			if closeDB == nil {
 				continue // no database yet
 			}
-			defer closeDB()
+			closers = append(closers, closeDB)
 			sources = append(sources, src)
 		}
 	}
 
-	res, err := historysearch.SearchAcross(ctx, sources, params.Query,
-		historysearch.Scope(params.Scope), params.Semantic, candidateLimit, sessionLimit)
-	if err != nil {
-		return proto.SearchHistoryResult{}, err
-	}
-	return app.HistoryResultToProto(res, func(root string) string { return ids[root] }), nil
+	return sources, ids, closeAll
 }
 
 // detachedHistorySource opens a detached workspace's database read-only

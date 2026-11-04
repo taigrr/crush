@@ -164,6 +164,9 @@ Rush SHOULD set a key on every `POST` (prompts and permission answers especially
 | `route_not_allowed` | 403 | The route is not device-reachable (no `x-crush-scope`, or `never`), or is a stream route called via `api`. | Bug in client; do not retry. |
 | `not_found` | 404 | Unknown route, workspace, session, or stream (from `/v1` or the bridge). | |
 | `node_not_found` | 404 | `<node>`, `target.node`, or `target.swarm` does not name a known member or session. | Refresh members / sessions. |
+| `session_not_on_node` | 404 | A session-addressed route (see [Session routes](#session-routes)) named a session this node does not own. | Re-route to the session's `node_id` from `/v1/session-overviews`. |
+| `unknown_root` | 404 | A `root` is not in the node's registry of known workspaces. Arbitrary paths are never opened. | Refresh `/v1/workspace-roots`. |
+| `invalid_cursor` | 400 | A `cursor` or `before` value is malformed or no longer names a message. | Restart paging from the first page. |
 | `method_not_allowed` | 405 | Method other than `GET`/`POST`. | |
 | `conflict` | 409 | `/v1` conflict. | |
 | `idempotency_conflict` | 409 | Same key, different request. | |
@@ -593,6 +596,69 @@ Rules for rush:
 - Unknown `device_ports` values: treat as `"advertised"`.
 - The pairing node's own entry, `nats.urls`, and the `endpoints` it puts in offers and `/client/v1/info` come from its own listeners: the bound address when bound, else the last bound address, else (an offer is created just before the gate binds) the configured port when it is not `0`.
 - Members whose listeners are `idle` are listed with their last bound addresses: the listener binds once the new device is active.
+- A listener bound on a wildcard host (`[::]`, `0.0.0.0`) is advertised on every usable address of the host's current interfaces merged with the member's recorded cluster endpoints, deduplicated and ranked by priority (below). Loopback, link-local, and down-interface addresses are never advertised. This applies to the poll response (the pairing node's own entry and the record each member gossips), `/client/v1/info`, and the addresses `crush pair` prints. Interfaces are re-read every 30 seconds and the record is re-gossiped when it changes.
+- `crush pair --host` / `--advertise` overrides win: they replace the detected client endpoints with kind `override`, priority `0`, in the given order. A listener configured off advertises nothing.
+
+### Multipath discovery
+
+Every entry of `endpoints[]` (in `/client/v1/info`, offers, and `members[]`) is `{addr, kind, priority}`, and `members[].nats_endpoints[]` lists the same websocket URLs as `nats_urls` as `{url, kind, priority}`. Both lists are additive: `endpoints[]` keeps its LAN-first order and `nats_urls` stays a flat string list for older rush builds.
+
+| `kind` | Addresses | `priority` |
+| --- | --- | --- |
+| `override` | `crush pair --host` | 0 |
+| `lan` | RFC 1918 / ULA on a physical interface (other members' private addresses: 15) | 10–15 |
+| `public` | public addresses on a physical interface, hostnames | 16–18 |
+| `wireguard` | `wg*`, point-to-point `utun*` | 20 |
+| `tailscale` | `tailscale*`, `100.64.0.0/10`, `fd7a:115c:a1e0::/48` | 30–31 |
+| `vpn` | other tunnels (`tun`, `tap`, `ipsec`, `ppp`, non-p2p `utun`, …) | 40 |
+| `bridge` | `docker*`, `br-*`, `veth*`, `vmnet*`, `bridge*`, `vboxnet*`, `virbr*`, `172.17.0.0/16` | 90–95 |
+
+Lower priority is preferred; clients may race several endpoints and keep the first that completes. A member classifies its own addresses (it knows its interfaces); entries from members that predate this classification are classified by address range only.
+
+The TLS pin is per node: every address of a node serves the same certificate. Clients MUST verify the pinned node key / CA fingerprint and MUST NOT verify the hostname or IP, since the same node is reached under many addresses.
+
+## Session routes
+
+Runtime workspace IDs change whenever a workspace is re-attached, and
+detached workspaces (most sessions) have none. These routes address a
+session by its ID, plus an optional `root` from the overview, and are
+served by the node that owns the session (route with `target.node` =
+the session's `node_id`). A session that is not local answers 404
+`session_not_on_node`. `root` (and the data dir) must already be in the
+node's registry: an unknown root is 404 `unknown_root`. Reads of detached
+workspaces open their database read-only and never attach.
+
+| Route | Scope | Notes |
+| --- | --- | --- |
+| `GET /v1/session-overviews?limit=&cursor=&local=1` | `sessions:read` | Cluster-wide (this node only with `local`), flat, sorted `updated_at` desc then `id`. `limit` 1..200, default 50. `cursor` is opaque (keyset on `updated_at`,`id`, stable under concurrent updates). |
+| `GET /v1/sessions/{sid}?root=` | `sessions:read` | Session metadata plus `message_count`. |
+| `GET /v1/sessions/{sid}/messages?root=&limit=&before=` | `sessions:read` | Newest page first, returned in chronological order. `limit` 1..500, default 200. Pass `next_before` as `before` for the next older page. Same message shape as `GET /v1/workspaces/{id}/sessions/{sid}/messages`. |
+| `POST /v1/sessions/{sid}/open` `{"root"}` | `sessions:prompt` | Attaches the workspace if needed (idempotent) and returns `{"workspace_id","session_id","root"}` for event streams and prompts. |
+| `POST /v1/sessions` `{"root","prompt","model"?}` | `sessions:prompt` | Opens the root if needed, creates a session, sends the first prompt. Returns `{"session_id","workspace_id","root","node_id"}`. The bridge stamps `client_id`; `idempotency_key` is honored. |
+| `POST /v1/history/search` `{"query","limit","scope"}` | `sessions:read` | Hybrid search over every workspace on this node, attached or detached. Hits as in `/v1/workspaces/{id}/history/search` plus `node_id` and `root`, at most one per session; `hits` is `[]` when empty. |
+| `GET /v1/workspace-roots` | `sessions:read` | `{"roots":[{"root","data_dir","attached","workspace_id"?,"last_used_at","session_count"}]}`, most recently used first. |
+
+`GET /v1/session-overviews` response:
+
+```json
+{
+  "sessions": [
+    {
+      "id": "…", "title": "…", "updated_at": 1730000000, "is_busy": false, "unread": true,
+      "color": "aliceblue", "animal": "tiger", "favorite": false,
+      "node_id": "…", "node_name": "laptop", "root": "/src/app", "data_dir": "/src/app/.crush",
+      "workspace_id": "…", "attached": true
+    }
+  ],
+  "next_cursor": "MTczMDAwMDAwMDphYmM",
+  "total": 812,
+  "unavailable": [{ "node_id": "…", "node_name": "desktop", "error": "timeout" }]
+}
+```
+
+`workspace_id` is present only while the workspace is attached. An
+`unavailable` entry with a `root` is one workspace of that node whose
+database could not be read.
 
 ## Worked examples
 

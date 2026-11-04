@@ -430,9 +430,9 @@ func TestPairingNotInClusterAndEndpoints(t *testing.T) {
 		{Kind: cluster.EndpointNATS, Addr: "192.168.1.5:7732"},
 	}, strconv.Itoa(DefaultClientPort))
 	require.Equal(t, []pairing.Endpoint{
-		{Kind: pairing.EndpointLAN, Addr: "192.168.1.5:7733"},
-		{Kind: pairing.EndpointTailscale, Addr: "100.100.1.2:7733"},
-		{Kind: pairing.EndpointDirect, Addr: "laptop.example:7733"},
+		{Kind: pairing.EndpointLAN, Addr: "192.168.1.5:7733", Class: "lan", Priority: cluster.PriorityLANForeign},
+		{Kind: pairing.EndpointDirect, Addr: "laptop.example:7733", Class: "public", Priority: cluster.PriorityHostname},
+		{Kind: pairing.EndpointTailscale, Addr: "100.100.1.2:7733", Class: "tailscale", Priority: cluster.PriorityTailscale},
 	}, eps)
 }
 

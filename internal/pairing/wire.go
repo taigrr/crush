@@ -103,10 +103,16 @@ const (
 	ReasonRejected    = "operator_rejected"
 )
 
-// InfoEndpoint is one endpoint in /client/v1/info.
+// InfoEndpoint is one endpoint in /client/v1/info and member lists, best
+// first. Every endpoint of a node serves the same certificate, so clients
+// must verify the node's pinned key, never the hostname or address.
 type InfoEndpoint struct {
-	Kind string `json:"kind"`
+	// Kind is lan, wireguard, tailscale, vpn, bridge, public, or override.
+	Kind string `json:"kind" enums:"lan,wireguard,tailscale,vpn,bridge,public,override"`
 	Addr string `json:"addr"`
+	// Priority orders endpoints: lower is preferred (0 is an operator
+	// override). Absent (0) from older nodes, which list best first.
+	Priority int `json:"priority"`
 } //@name pairing.InfoEndpoint
 
 // Info is the GET /client/v1/info response.
@@ -186,7 +192,17 @@ type MemberInfo struct {
 	DevicePorts string `json:"device_ports,omitempty" enums:"advertised,legacy,unknown"`
 	// NATSURLs are the member's device websocket URLs (wss://host:port).
 	NATSURLs []string `json:"nats_urls,omitempty"`
+	// NATSEndpoints are NATSURLs classified, in the same order.
+	NATSEndpoints []NATSEndpoint `json:"nats_endpoints,omitempty"`
 } //@name pairing.MemberInfo
+
+// NATSEndpoint is one classified device websocket URL. Like endpoints,
+// all of a node's URLs share its pinned certificate.
+type NATSEndpoint struct {
+	URL      string `json:"url"`
+	Kind     string `json:"kind" enums:"lan,wireguard,tailscale,vpn,bridge,public,override"`
+	Priority int    `json:"priority"`
+} //@name pairing.NATSEndpoint
 
 // PollResponse is the poll reply.
 type PollResponse struct {

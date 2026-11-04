@@ -77,3 +77,8 @@ func WorkspaceLiveStreamCountForTest(ws *Workspace) int {
 func (b *Backend) SetRegistryPathForTest(path string) {
 	b.registry = registry.NewWithPath(path)
 }
+
+// AddRegistryEntryForTest records a workspace root in the registry.
+func (b *Backend) AddRegistryEntryForTest(root, dataDir string) error {
+	return b.registry.Add(registry.Entry{Root: root, DataDir: dataDir})
+}
