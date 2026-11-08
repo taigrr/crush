@@ -113,9 +113,9 @@ func TestResolveEndpointPicksFastest(t *testing.T) {
 		require.Equal(t, direct, got)
 	}
 
-	// A working endpoint is kept unless another is clearly faster.
+	// A working endpoint is kept over an equally fast one.
 	a.endpoints.set(bm.NodeID, endpointEntry{addr: slow, measured: time.Now()})
-	got, err := a.probeEndpoints(ctx, bm, []dialCandidate{{addr: slow}, {addr: slowProxy(t, direct, 35*time.Millisecond)}})
+	got, err := a.probeEndpoints(ctx, bm, []dialCandidate{{addr: slowProxy(t, direct, 40*time.Millisecond)}, {addr: slow}})
 	require.NoError(t, err)
 	require.Equal(t, slow, got)
 
@@ -150,6 +150,15 @@ func TestResolveEndpointPicksFastest(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, direct, got)
 	require.Less(t, time.Since(start), peerDialTimeout)
+}
+
+func TestClearlyFaster(t *testing.T) {
+	t.Parallel()
+	ms := time.Millisecond
+	require.True(t, clearlyFaster(1*ms, 40*ms))
+	require.False(t, clearlyFaster(35*ms, 40*ms), "within the ratio")
+	require.False(t, clearlyFaster(500*time.Microsecond, 2*ms), "within the margin")
+	require.False(t, clearlyFaster(40*ms, 40*ms))
 }
 
 func TestResolveEndpointReprobesInBackground(t *testing.T) {
