@@ -7,13 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httputil"
-	"slices"
 	"strings"
-	"sync"
-	"time"
 )
 
 // apiPrefix is where a node serves its local Crush API to members.
@@ -39,58 +35,17 @@ func (n *Node) handleAPI(w http.ResponseWriter, r *http.Request, _ Member) {
 	http.StripPrefix(apiPrefix, h).ServeHTTP(w, r)
 }
 
-// endpointCache remembers the last endpoint that answered for a member.
-type endpointCache struct {
-	mu   sync.Mutex
-	addr map[string]string
-}
-
-func (c *endpointCache) get(id string) string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.addr[id]
-}
-
-func (c *endpointCache) set(id, addr string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.addr == nil {
-		c.addr = map[string]string{}
-	}
-	c.addr[id] = addr
-}
-
-// ResolveEndpoint returns a reachable direct endpoint for member,
-// preferring the last one that worked.
+// ResolveEndpoint returns the endpoint to reach member at: the cached
+// one when it still works, re-measured against the member's other
+// candidates in the background every peerReprobeInterval (or when its
+// advertised addresses change), otherwise the fastest one that answers.
 func (n *Node) ResolveEndpoint(ctx context.Context, m Member) (string, error) {
-	// A known-good endpoint is used as is: probing it would add a full
-	// round trip to every proxied call. Failures clear it (see
-	// forgetEndpoint) so the next call probes again.
-	if cached := n.endpoints.get(m.NodeID); cached != "" {
-		return cached, nil
+	candidates := memberDialCandidates(m)
+	if cached, ok := n.endpoints.get(m.NodeID); ok {
+		n.maybeReprobe(m, cached, candidates)
+		return cached.addr, nil
 	}
-	var candidates []string
-	for _, e := range m.Endpoints {
-		if e.Kind == EndpointDirect && !slices.Contains(candidates, e.Addr) {
-			candidates = append(candidates, e.Addr)
-		}
-	}
-	var errs []error
-	d := net.Dialer{Timeout: 2 * time.Second}
-	for _, addr := range candidates {
-		c, err := d.DialContext(ctx, "tcp", addr)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		_ = c.Close()
-		n.endpoints.set(m.NodeID, addr)
-		return addr, nil
-	}
-	if len(errs) == 0 {
-		return "", fmt.Errorf("member %s has no direct endpoints", m.Name)
-	}
-	return "", fmt.Errorf("member %s unreachable: %w", m.Name, errors.Join(errs...))
+	return n.probeEndpoints(ctx, m, candidates)
 }
 
 // ProxyAPI forwards r to member nodeID's local API. The request path
@@ -239,9 +194,7 @@ func (n *Node) MemberByID(nodeID string) (Member, error) {
 
 // forgetEndpoint drops the cached endpoint for nodeID after a failure.
 func (n *Node) forgetEndpoint(nodeID string) {
-	n.endpoints.mu.Lock()
-	defer n.endpoints.mu.Unlock()
-	delete(n.endpoints.addr, nodeID)
+	n.endpoints.forget(nodeID)
 }
 
 // forgetOnTransportError clears the cached endpoint when err means the

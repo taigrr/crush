@@ -1198,7 +1198,7 @@ const docTemplate = `{
         },
         "/session-overviews": {
             "get": {
-                "description": "Flat, cluster-wide session list sorted by updated_at desc then id, paged by an opaque keyset cursor.",
+                "description": "Flat, cluster-wide session list sorted by updated_at desc then id, paged by an opaque keyset cursor. With since, only the rows changed since that sync cursor plus tombstones (delta sync).",
                 "produces": [
                     "application/json"
                 ],
@@ -1223,6 +1223,22 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Only this node's sessions",
                         "name": "local",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Opaque sync_cursor of an earlier response: return only changes since it",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "row",
+                            "cursor"
+                        ],
+                        "type": "string",
+                        "description": "row: slim rows (no data_dir); cursor: only sync_cursor, no rows",
+                        "name": "fields",
                         "in": "query"
                     }
                 ],
@@ -8920,6 +8936,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "data_dir": {
+                    "description": "DataDir is omitted from slim rows (fields=row).",
                     "type": "string"
                 },
                 "favorite": {
@@ -8958,15 +8975,48 @@ const docTemplate = `{
         "proto.DeviceSessionOverviewPage": {
             "type": "object",
             "properties": {
+                "deleted": {
+                    "description": "Deleted lists tombstones (delta responses only).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/proto.SessionTombstone"
+                    }
+                },
+                "has_more": {
+                    "description": "HasMore is set when NextCursor is.",
+                    "type": "boolean"
+                },
                 "next_cursor": {
                     "description": "NextCursor fetches the next page; null on the last page.",
                     "type": "string"
+                },
+                "reset": {
+                    "description": "Reset says the since cursor is unusable as a whole (malformed, from\na restarted node, or older than the retained change window): do a\nfull fetch. Sessions and Deleted are empty.",
+                    "type": "boolean"
+                },
+                "reset_nodes": {
+                    "description": "ResetNodes are nodes whose full list is included in Sessions: the\nclient replaces every row of those nodes (after the last page).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "sessions": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/proto.DeviceSessionOverview"
                     }
+                },
+                "stale_nodes": {
+                    "description": "StaleNodes are nodes that could not be asked; their rows and cursor\npositions are unchanged.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sync_cursor": {
+                    "description": "SyncCursor is an opaque position for a later since request. Absent\nfrom servers that predate delta sync, and on a reset.",
+                    "type": "string"
                 },
                 "total": {
                     "type": "integer"
@@ -10034,6 +10084,20 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "working_dir": {
+                    "type": "string"
+                }
+            }
+        },
+        "proto.SessionTombstone": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "node_id": {
+                    "type": "string"
+                },
+                "root": {
                     "type": "string"
                 }
             }

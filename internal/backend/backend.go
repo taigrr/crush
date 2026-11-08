@@ -100,6 +100,14 @@ type Backend struct {
 	// stuck one can be inspected from the sending side.
 	incoming  transferTracker
 	peekCache peekCache
+	// sessionSync is this node's session overview change log (see
+	// sessionChanges).
+	sessionSync     *sessionChangeLog
+	sessionSyncOnce sync.Once
+	// sessionListMu orders reading this node's sessions with observing
+	// them, so an older snapshot is never recorded after a newer one.
+	sessionListMu sync.Mutex
+	sessionPasses sessionPassCache
 	// replicaGuard bounds replication reads of detached databases.
 	replicaGuard   stallGuard
 	createGrace    time.Duration

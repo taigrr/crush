@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -172,7 +171,7 @@ func (s *Manager) startServer(ctx context.Context, name, filepath string, server
 		if s.recentlyUnavailable(name) {
 			return
 		}
-		if _, err := exec.LookPath(server.Command); err != nil {
+		if !commandInstalled(server.Command) {
 			slog.Debug("LSP server not installed, skipping", "name", name, "command", server.Command)
 			s.markUnavailable(name)
 			return

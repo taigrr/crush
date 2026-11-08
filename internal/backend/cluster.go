@@ -46,6 +46,10 @@ type RemoteOverviews struct {
 	Reachable map[string]bool
 	// Down describes members with no usable overview.
 	Down map[string]NodeDown
+	// SyncPositions are the members' session change log positions taken
+	// before their Overviews were read (absent for members that predate
+	// delta sync).
+	SyncPositions map[string]NodeSyncPos
 }
 
 // NodeDown says why and since when a member's overviews are missing.

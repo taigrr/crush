@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,12 @@ type Node struct {
 	endpoints endpointCache
 	proxyOnce sync.Once
 	proxyRT   http.RoundTripper
+
+	// peerClient is the shared client for cluster RPCs, rebuilt when the
+	// trust generation (cluster and key version) changes.
+	peerMu     sync.Mutex
+	peerClient *http.Client
+	peerGen    string
 
 	srvMu    sync.Mutex
 	srv      *http.Server
@@ -113,9 +120,33 @@ func (n *Node) trustedKeys() [][]byte {
 }
 
 // httpClient returns an mTLS client for talking to members.
+// It is shared so keep-alive connections are reused across calls (a new
+// TCP and TLS handshake per call is slow over a high-latency tunnel), and
+// rebuilt after a key rotation so pooled connections never outlive the
+// trust they were verified under.
 func (n *Node) httpClient() *http.Client {
+	gen := n.trustGeneration()
+	n.peerMu.Lock()
+	defer n.peerMu.Unlock()
+	if n.peerClient != nil && n.peerGen == gen {
+		return n.peerClient
+	}
+	if n.peerClient != nil {
+		n.peerClient.CloseIdleConnections()
+	}
 	_, clientTLS := tlsConfigs(n.currentCert, n.trustedKeys)
-	return newPeerHTTPClient(clientTLS)
+	n.peerClient, n.peerGen = newPeerHTTPClient(clientTLS), gen
+	return n.peerClient
+}
+
+// trustGeneration identifies the cluster key generation peers are
+// verified against.
+func (n *Node) trustGeneration() string {
+	st, err := n.store.Snapshot()
+	if err != nil {
+		return ""
+	}
+	return st.ClusterID + ":" + strconv.Itoa(st.KeyVersion)
 }
 
 func newPeerHTTPClient(cfg *tls.Config) *http.Client {

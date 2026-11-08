@@ -35,6 +35,10 @@ const (
 	// never wait on it (except the first load, see firstLoadWait), so it
 	// can be generous enough for a large list over a slow link.
 	overviewTimeout = 15 * time.Second
+	// syncPositionTimeout bounds the change log position read that
+	// precedes each overview fetch, so a slow answer cannot use up the
+	// fetch's budget.
+	syncPositionTimeout = 3 * time.Second
 )
 
 // meshBridge implements [backend.ClusterBridge] over the NATS mesh (for
@@ -187,6 +191,9 @@ type nodeView struct {
 	loading  bool
 	// err is the last fetch failure, cleared on success.
 	err string
+	// pos is the node's session change log position, taken before ovs
+	// were read (nil if unknown).
+	pos *backend.NodeSyncPos
 }
 
 // remoteView caches every other node's workspace overviews so listing
@@ -264,13 +271,16 @@ func (v *remoteView) collect(members []cluster.Member) backend.RemoteOverviews {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	now := v.clock()
-	out := backend.RemoteOverviews{Reachable: map[string]bool{}, Down: map[string]backend.NodeDown{}}
+	out := backend.RemoteOverviews{Reachable: map[string]bool{}, Down: map[string]backend.NodeDown{}, SyncPositions: map[string]backend.NodeSyncPos{}}
 	for _, mem := range members {
 		nv := v.nodes[mem.NodeID]
 		switch {
 		case nv == nil:
 		case nv.ok && (nv.err == "" || now.Sub(nv.at) < staleGrace):
 			out.Reachable[mem.NodeID] = true
+			if nv.pos != nil {
+				out.SyncPositions[mem.NodeID] = *nv.pos
+			}
 			for _, ov := range nv.ovs {
 				if nv.err != "" {
 					ov.Stale, ov.StaleSince, ov.LastError = true, nv.at.UnixMilli(), nv.err
@@ -306,11 +316,20 @@ func (v *remoteView) refresh(m *meshBridge, mem cluster.Member, done chan struct
 	defer cancel()
 	var ovs []proto.WorkspaceOverview
 	started := time.Now()
+	// The position is read first so it never runs ahead of the data:
+	// a delta from it may repeat a change, never miss one.
+	posCtx, posCancel := context.WithTimeout(ctx, syncPositionTimeout)
+	pos := fetchSyncPosition(posCtx, m.memberCaller(mem), mem.NodeID)
+	posCancel()
 	err := m.node.CallAPI(ctx, mem, http.MethodGet, "/v1/workspace-overviews?local=1", &ovs)
 	for j := range ovs {
 		ovs[j].NodeID, ovs[j].NodeName = mem.NodeID, mem.Name
 	}
-	if v.apply(mem.NodeID, ovs, err) {
+	changed := v.apply(mem.NodeID, ovs, err)
+	if err == nil {
+		v.setPosition(mem.NodeID, pos)
+	}
+	if changed {
 		m.backend.PublishOverviewsChanged()
 	}
 	if err != nil {
@@ -348,6 +367,28 @@ func (v *remoteView) apply(nodeID string, ovs []proto.WorkspaceOverview, err err
 	nv.ovs, nv.ok, nv.at = ovs, true, now
 	nv.err, nv.failedSince = "", time.Time{}
 	return changed
+}
+
+// setPosition records the change log position nodeID's overviews were
+// read at. It runs after apply, so collect may briefly pair new data with
+// an older position (harmless) but never the reverse.
+func (v *remoteView) setPosition(nodeID string, pos *backend.NodeSyncPos) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	// A failed position read keeps the last one: dropping it would turn
+	// the member's next delta into a full reset.
+	if nv := v.nodes[nodeID]; nv != nil && pos != nil {
+		nv.pos = pos
+	}
+}
+
+// recentlyDown reports whether nodeID's last fetch failed within the
+// refresh TTL, so callers can skip it instead of waiting on a timeout.
+func (v *remoteView) recentlyDown(nodeID string) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	nv := v.nodes[nodeID]
+	return nv != nil && nv.err != "" && v.clock().Sub(nv.failedAt) < remoteViewTTL
 }
 
 // markStale makes the next read refresh nodeID's overviews.
