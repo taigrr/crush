@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -152,6 +155,13 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	// Migrations run under poolMu, so an up-to-date database skips goose
+	// entirely: otherwise every replica open stalls every other Connect.
+	if schemaCurrent(ctx, conn) {
+		pool[absPath] = &connEntry{db: conn, refCount: 1, lock: lock}
+		return conn, nil
+	}
+
 	if err := initGoose(); err != nil {
 		conn.Close()
 		releaseLock()
@@ -209,6 +219,38 @@ func ResetPool() {
 		}
 		delete(pool, path)
 	}
+}
+
+var latestMigration = sync.OnceValue(func() int64 {
+	entries, err := fs.ReadDir(FS, "migrations")
+	if err != nil {
+		return -1
+	}
+	var latest int64 = -1
+	for _, e := range entries {
+		prefix, _, ok := strings.Cut(e.Name(), "_")
+		if !ok || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		if v, err := strconv.ParseInt(prefix, 10, 64); err == nil && v > latest {
+			latest = v
+		}
+	}
+	return latest
+})
+
+// schemaCurrent reports whether conn already has the newest embedded
+// migration applied.
+func schemaCurrent(ctx context.Context, conn *sql.DB) bool {
+	latest := latestMigration()
+	if latest < 0 {
+		return false
+	}
+	var v sql.NullInt64
+	if err := conn.QueryRowContext(ctx, `SELECT MAX(version_id) FROM goose_db_version WHERE is_applied`).Scan(&v); err != nil {
+		return false
+	}
+	return v.Valid && v.Int64 == latest
 }
 
 func initGoose() error {

@@ -206,3 +206,17 @@ func TestConnect_ServerPathFailsWhenDataDirLocked(t *testing.T) {
 	require.Error(t, err, "server-path Connect must refuse to open a locked data dir")
 	require.ErrorIs(t, err, ErrDataDirLocked)
 }
+
+func TestSchemaCurrentSkipsMigrationsOnReopen(t *testing.T) {
+	t.Cleanup(ResetPool)
+	dir := t.TempDir()
+	conn, err := Connect(t.Context(), dir)
+	require.NoError(t, err)
+	require.True(t, schemaCurrent(t.Context(), conn))
+	require.NoError(t, Release(dir))
+
+	fresh, err := openDB(filepath.Join(t.TempDir(), "crush.db"))
+	require.NoError(t, err)
+	defer fresh.Close()
+	require.False(t, schemaCurrent(t.Context(), fresh))
+}
