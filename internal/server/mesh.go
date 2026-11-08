@@ -35,6 +35,10 @@ const (
 	// never wait on it (except the first load, see firstLoadWait), so it
 	// can be generous enough for a large list over a slow link.
 	overviewTimeout = 15 * time.Second
+	// syncPositionTimeout bounds the change log position read that
+	// precedes each overview fetch, so a slow answer cannot use up the
+	// fetch's budget.
+	syncPositionTimeout = 3 * time.Second
 )
 
 // meshBridge implements [backend.ClusterBridge] over the NATS mesh (for
@@ -314,7 +318,9 @@ func (v *remoteView) refresh(m *meshBridge, mem cluster.Member, done chan struct
 	started := time.Now()
 	// The position is read first so it never runs ahead of the data:
 	// a delta from it may repeat a change, never miss one.
-	pos := fetchSyncPosition(ctx, m.memberCaller(mem), mem.NodeID)
+	posCtx, posCancel := context.WithTimeout(ctx, syncPositionTimeout)
+	pos := fetchSyncPosition(posCtx, m.memberCaller(mem), mem.NodeID)
+	posCancel()
 	err := m.node.CallAPI(ctx, mem, http.MethodGet, "/v1/workspace-overviews?local=1", &ovs)
 	for j := range ovs {
 		ovs[j].NodeID, ovs[j].NodeName = mem.NodeID, mem.Name
@@ -369,7 +375,9 @@ func (v *remoteView) apply(nodeID string, ovs []proto.WorkspaceOverview, err err
 func (v *remoteView) setPosition(nodeID string, pos *backend.NodeSyncPos) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if nv := v.nodes[nodeID]; nv != nil {
+	// A failed position read keeps the last one: dropping it would turn
+	// the member's next delta into a full reset.
+	if nv := v.nodes[nodeID]; nv != nil && pos != nil {
 		nv.pos = pos
 	}
 }

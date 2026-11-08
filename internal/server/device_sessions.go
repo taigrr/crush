@@ -38,7 +38,7 @@ func queryLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 //	@Param			cursor	query		string	false	"Opaque cursor from next_cursor"
 //	@Param			local	query		string	false	"Only this node's sessions"
 //	@Param			since	query		string	false	"Opaque sync_cursor of an earlier response: return only changes since it"
-//	@Param			fields	query		string	false	"row: slim rows (no data_dir)"	Enums(row)
+//	@Param			fields	query		string	false	"row: slim rows (no data_dir); cursor: only sync_cursor, no rows"	Enums(row,cursor)
 //	@Success		200		{object}	proto.DeviceSessionOverviewPage
 //	@Failure		400		{object}	proto.Error
 //	@Failure		500		{object}	proto.Error
@@ -51,8 +51,8 @@ func (c *controllerV1) handleGetSessionOverviews(w http.ResponseWriter, r *http.
 	}
 	q := r.URL.Query()
 	fields := proto.SessionOverviewFields(q.Get(proto.SessionOverviewsParamFields))
-	if fields != "" && fields != proto.SessionOverviewFieldsRow {
-		jsonError(w, http.StatusBadRequest, "fields must be row")
+	if fields != "" && fields != proto.SessionOverviewFieldsRow && fields != proto.SessionOverviewFieldsCursor {
+		jsonError(w, http.StatusBadRequest, "fields must be row or cursor")
 		return
 	}
 	page, err := c.backend.ListSessionOverviews(r.Context(), backend.SessionOverviewQuery{

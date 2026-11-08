@@ -524,6 +524,10 @@ func (b *Backend) ListSessionOverviews(ctx context.Context, q SessionOverviewQue
 			return proto.DeviceSessionOverviewPage{}, err
 		}
 	}
+	if q.Fields == proto.SessionOverviewFieldsCursor {
+		// Position only: no rows, and no pass kept for later pages.
+		return proto.DeviceSessionOverviewPage{SyncCursor: pass.meta.SyncCursor}, nil
+	}
 	page := pass.page(limit, after, q.Fields)
 	if page.NextCursor != nil {
 		pass.id = b.sessionPasses.put(pass, key)
@@ -534,7 +538,7 @@ func (b *Backend) ListSessionOverviews(ctx context.Context, q SessionOverviewQue
 
 // passKey identifies the queries a pass can serve later pages of.
 func (q SessionOverviewQuery) passKey() string {
-	return fmt.Sprintf("%t|%s", q.Local, q.Since)
+	return fmt.Sprintf("%t|%s|%s", q.Local, q.Since, q.Fields)
 }
 
 // sessionOverviewFull computes a full list pass.

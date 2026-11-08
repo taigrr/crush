@@ -1233,10 +1233,11 @@ const docTemplate = `{
                     },
                     {
                         "enum": [
-                            "row"
+                            "row",
+                            "cursor"
                         ],
                         "type": "string",
-                        "description": "row: slim rows (no data_dir)",
+                        "description": "row: slim rows (no data_dir); cursor: only sync_cursor, no rows",
                         "name": "fields",
                         "in": "query"
                     }

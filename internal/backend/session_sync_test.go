@@ -405,3 +405,29 @@ func TestSessionOverviewDeltaWireSize(t *testing.T) {
 		t.Logf("%-15s raw=%8d bytes gzip=%7d bytes", tc.name, len(raw), gzipSize(t, raw))
 	}
 }
+
+func TestSessionOverviewCursorOnly(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	b, _ := newSyncBackend(t, map[string][]string{"/proj/a": {"a1", "a2", "a3"}})
+	page, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{Local: true, Limit: 1, Fields: proto.SessionOverviewFieldsCursor})
+	require.NoError(t, err)
+	require.NotEmpty(t, page.SyncCursor)
+	require.Empty(t, page.Sessions)
+	require.Nil(t, page.NextCursor)
+	b.sessionPasses.mu.Lock()
+	require.Empty(t, b.sessionPasses.passes, "a position read must not keep a pass")
+	b.sessionPasses.mu.Unlock()
+
+	// The position is usable as a since cursor.
+	delta, err := b.ListSessionOverviews(ctx, SessionOverviewQuery{Local: true, Since: page.SyncCursor})
+	require.NoError(t, err)
+	require.False(t, delta.Reset)
+	require.Empty(t, delta.Sessions)
+}
+
+func TestSessionOverviewPassKeyIncludesFields(t *testing.T) {
+	t.Parallel()
+	slim := SessionOverviewQuery{Since: "x", Fields: proto.SessionOverviewFieldsRow}
+	require.NotEqual(t, slim.passKey(), SessionOverviewQuery{Since: "x"}.passKey())
+}

@@ -64,6 +64,10 @@ type SessionOverviewFields string
 // row shows (no data_dir).
 const SessionOverviewFieldsRow SessionOverviewFields = "row"
 
+// SessionOverviewFieldsCursor returns no rows, only the sync cursor: what
+// a node needs to record a member's change log position.
+const SessionOverviewFieldsCursor SessionOverviewFields = "cursor"
+
 // SessionTombstone names a session that left a node's list (deleted,
 // archived, or moved to another node) since a sync cursor.
 type SessionTombstone struct {

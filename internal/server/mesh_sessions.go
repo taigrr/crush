@@ -140,8 +140,7 @@ func memberPosition(cursor, nodeID string) *backend.NodeSyncPos {
 func fetchSyncPosition(ctx context.Context, call memberCall, nodeID string) *backend.NodeSyncPos {
 	query := url.Values{}
 	query.Set(proto.SessionOverviewsParamLocal, localFlag)
-	query.Set(proto.SessionOverviewsParamLimit, "1")
-	query.Set(proto.SessionOverviewsParamFields, string(proto.SessionOverviewFieldsRow))
+	query.Set(proto.SessionOverviewsParamFields, string(proto.SessionOverviewFieldsCursor))
 	var page proto.DeviceSessionOverviewPage
 	if err := call(ctx, sessionOverviewsPath+"?"+query.Encode(), &page); err != nil {
 		return nil

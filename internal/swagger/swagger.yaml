@@ -3548,9 +3548,10 @@ paths:
         in: query
         name: since
         type: string
-      - description: 'row: slim rows (no data_dir)'
+      - description: 'row: slim rows (no data_dir); cursor: only sync_cursor, no rows'
         enum:
         - row
+        - cursor
         in: query
         name: fields
         type: string
