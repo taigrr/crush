@@ -114,3 +114,10 @@ func (n *Node) otherMembers() []Member {
 	}
 	return out
 }
+
+// IsPeerStatus reports whether err is a well-formed non-2xx response
+// from a peer, as opposed to a transport or decoding failure.
+func IsPeerStatus(err error) bool {
+	var se *statusError
+	return errors.As(err, &se)
+}

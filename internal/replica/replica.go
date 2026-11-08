@@ -52,6 +52,9 @@ type Batch struct {
 	EmbedCursor int64 `json:"embed_cursor,omitempty"`
 	// More is set when the batch was truncated; pull again.
 	More bool `json:"more,omitempty"`
+	// Repair marks a batch of drifted sessions (see [ServeSessions]); it
+	// carries no sequence and must not move the receiver's cursors.
+	Repair bool `json:"repair,omitempty"`
 }
 
 // pkColumns maps replicated tables to their primary key columns.
@@ -200,7 +203,7 @@ func valueString(v transfer.Value) string {
 
 // Stats summarizes an applied batch.
 type Stats struct {
-	Applied, Skipped, Deleted int
+	Applied, Unchanged, Skipped, Deleted int
 }
 
 // Apply writes batch, received from peer, into db. A row is applied only
@@ -216,6 +219,20 @@ func Apply(ctx context.Context, db *sql.DB, peer string, batch Batch) (Stats, er
 		return st, err
 	}
 	defer func() { _ = tx.Rollback() }()
+
+	// Replicated writes must not land in this node's _changelog: it lists
+	// only local changes, and otherwise every apply would announce a change
+	// and make every peer pull again. The no-op write takes the write lock
+	// first so no local change can slip between the read and the apply.
+	if _, err := tx.ExecContext(ctx, `UPDATE sync_metadata SET value = value WHERE key = 'change_seq'`); err != nil {
+		return st, err
+	}
+	var seqBefore sql.NullString
+	_ = tx.QueryRowContext(ctx, `SELECT value FROM sync_metadata WHERE key = 'change_seq'`).Scan(&seqBefore)
+	var logBefore sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(change_seq) FROM _changelog`).Scan(&logBefore); err != nil {
+		return st, err
+	}
 
 	owner := func(sessionID string) (string, bool) {
 		var o, moved sql.NullString
@@ -273,17 +290,30 @@ func Apply(ctx context.Context, db *sql.DB, peer string, batch Batch) (Stats, er
 						continue
 					}
 				}
-				if err := upsert(ctx, tx, table, c.Row, table == "sessions"); err != nil {
+				changed, err := upsert(ctx, tx, table, c.Row, table == "sessions")
+				if err != nil {
 					return st, fmt.Errorf("apply %s: %w", table, err)
 				}
-				st.Applied++
+				if changed {
+					st.Applied++
+				} else {
+					st.Unchanged++
+				}
 			}
 		}
 	}
 	// Message inserts bump trigger-maintained counters; restore the
 	// owner's values.
 	for _, c := range sessionRows {
-		if err := upsert(ctx, tx, "sessions", c.Row, false); err != nil {
+		if _, err := upsert(ctx, tx, "sessions", c.Row, false); err != nil {
+			return st, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM _changelog WHERE change_seq > ?`, logBefore.Int64); err != nil {
+		return st, err
+	}
+	if seqBefore.Valid {
+		if _, err := tx.ExecContext(ctx, `UPDATE sync_metadata SET value = ? WHERE key = 'change_seq'`, seqBefore.String); err != nil {
 			return st, err
 		}
 	}
@@ -329,7 +359,9 @@ func quote(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"
 // upsert inserts row or updates the existing row in place. It never uses
 // REPLACE, which would cascade-delete a session's children. With
 // deferRefs, session references to rows not yet applied are cleared.
-func upsert(ctx context.Context, tx *sql.Tx, table string, row map[string]transfer.Value, deferRefs bool) error {
+// upsert writes row and reports whether anything changed. Identical rows
+// are left alone so update triggers do not fire for them.
+func upsert(ctx context.Context, tx *sql.Tx, table string, row map[string]transfer.Value, deferRefs bool) (bool, error) {
 	pk := pkColumns[table]
 	names := make([]string, 0, len(row))
 	for c := range row {
@@ -338,11 +370,11 @@ func upsert(ctx context.Context, tx *sql.Tx, table string, row map[string]transf
 	slices.Sort(names)
 	args := make([]any, len(names))
 	quoted := make([]string, len(names))
-	var sets []string
+	var sets, diffs []string
 	for i, c := range names {
 		v, err := transfer.DecodeValue(row[c])
 		if err != nil {
-			return err
+			return false, err
 		}
 		if deferRefs && (c == "worktree_id" || c == "forked_from_snapshot_id") {
 			v = nil
@@ -351,21 +383,26 @@ func upsert(ctx context.Context, tx *sql.Tx, table string, row map[string]transf
 		quoted[i] = quote(c)
 		if !slices.Contains(pk, c) {
 			sets = append(sets, quote(c)+" = excluded."+quote(c))
+			diffs = append(diffs, quote(c)+" IS NOT excluded."+quote(c))
 		}
 	}
 	pkq := make([]string, len(pk))
 	for i, c := range pk {
 		pkq[i] = quote(c)
 	}
-	q := fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) ON CONFLICT(%s) DO UPDATE SET %s`,
+	q := fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) ON CONFLICT(%s) DO UPDATE SET %s WHERE %s`,
 		quote(table), strings.Join(quoted, ","), strings.TrimSuffix(strings.Repeat("?,", len(names)), ","),
-		strings.Join(pkq, ","), strings.Join(sets, ", "))
+		strings.Join(pkq, ","), strings.Join(sets, ", "), strings.Join(diffs, " OR "))
 	if len(sets) == 0 {
 		q = fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) ON CONFLICT DO NOTHING`,
 			quote(table), strings.Join(quoted, ","), strings.TrimSuffix(strings.Repeat("?,", len(names)), ","))
 	}
-	_, err := tx.ExecContext(ctx, q, args...)
-	return err
+	res, err := tx.ExecContext(ctx, q, args...)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // Cursor reads the last applied sequence from peer, or -1 when this

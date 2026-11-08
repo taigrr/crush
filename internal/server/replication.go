@@ -21,15 +21,62 @@ const (
 	replSweepInterval  = 30 * time.Second
 	replNotifyInterval = 3 * time.Second
 	replDebounce       = time.Second
-	// replFullEvery forces a full snapshot now and then so a replica
-	// heals from anything an incremental pull missed (for example an
+	// replReconcileEvery is how often a replica compares per-session
+	// digests with the owner and re-fetches only the sessions that drifted,
+	// healing from anything an incremental pull missed (for example an
 	// ownership hand-off it could not apply at the time).
-	replFullEvery = 10 * time.Minute
+	replReconcileEvery = 10 * time.Minute
+	// replRepairPage bounds the session IDs per repair request.
+	replRepairPage = 50
+	// replStartDelay lets workspaces open before the first sweep.
+	replStartDelay = 10 * time.Second
+	// replMaxBackoff caps the delay between pulls from a failing peer.
+	replMaxBackoff = 10 * time.Minute
 )
 
 func (s *Server) installReplicationRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /v1/replication/projects", s.handleReplicationProjects)
 	mux.HandleFunc("GET /v1/replication/changes", s.handleReplicationChanges)
+	mux.HandleFunc("GET /v1/replication/digest", s.handleReplicationDigest)
+	mux.HandleFunc("GET /v1/replication/repair", s.handleReplicationRepair)
+}
+
+// handleReplicationDigest handles "hash owned sessions".
+//
+//	@Summary		Hash owned sessions
+//	@Tags			replication
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/replication/digest [get]
+func (s *Server) handleReplicationDigest(w http.ResponseWriter, r *http.Request) {
+	digest, err := s.backend.ReplicationDigest(r.Context(), r.URL.Query().Get("root"))
+	if err != nil {
+		jsonError(w, transferStatus(err), err.Error())
+		return
+	}
+	jsonEncode(w, digest)
+}
+
+// handleReplicationRepair handles "serve drifted sessions".
+//
+//	@Summary		Serve drifted sessions
+//	@Tags			replication
+//	@Produce		json
+//	@x-crush-scope	"never"
+//	@Router			/replication/repair [get]
+func (s *Server) handleReplicationRepair(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	ids := q["session"]
+	if len(ids) > replRepairPage {
+		jsonError(w, http.StatusBadRequest, "too many sessions")
+		return
+	}
+	batch, err := s.backend.ReplicationRepair(r.Context(), q.Get("root"), ids)
+	if err != nil {
+		jsonError(w, transferStatus(err), err.Error())
+		return
+	}
+	jsonEncode(w, batch)
 }
 
 // handleReplicationProjects handles "list replicated projects".
@@ -70,14 +117,46 @@ type replicator struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	mu       sync.Mutex
-	pending  map[string]*time.Timer
-	running  map[string]bool
-	lastFull map[string]time.Time
+	mu        sync.Mutex
+	pending   map[string]*time.Timer
+	running   map[string]bool
+	lastCheck map[string]time.Time
+	// unusable holds peer+root pairs whose root cannot be mirrored here;
+	// they are skipped for the life of the process.
+	unusable map[string]bool
+	// backoff delays pulls from peers that keep failing.
+	backoff map[string]peerBackoff
+}
+
+type peerBackoff struct {
+	fails int
+	until time.Time
+}
+
+// failed records a failed pull from peer and backs off exponentially.
+func (r *replicator) failed(peer string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	b := r.backoff[peer]
+	b.fails++
+	b.until = time.Now().Add(min(replSweepInterval<<min(b.fails-1, 5), replMaxBackoff))
+	r.backoff[peer] = b
+}
+
+func (r *replicator) succeeded(peer string) {
+	r.mu.Lock()
+	delete(r.backoff, peer)
+	r.mu.Unlock()
+}
+
+func (r *replicator) backingOff(peer string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return time.Now().Before(r.backoff[peer].until)
 }
 
 func newReplicator(br *meshBridge) *replicator {
-	return &replicator{bridge: br, pending: map[string]*time.Timer{}, running: map[string]bool{}, lastFull: map[string]time.Time{}}
+	return &replicator{bridge: br, pending: map[string]*time.Timer{}, running: map[string]bool{}, lastCheck: map[string]time.Time{}, unusable: map[string]bool{}, backoff: map[string]peerBackoff{}}
 }
 
 type replChanged struct {
@@ -134,6 +213,11 @@ func (r *replicator) notifyLoop(ctx context.Context) {
 }
 
 func (r *replicator) sweepLoop(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(replStartDelay):
+	}
 	tick := time.NewTicker(replSweepInterval)
 	defer tick.Stop()
 	for {
@@ -179,6 +263,9 @@ func (r *replicator) schedule(peer string) {
 
 // pull fetches and applies every changed project from peer.
 func (r *replicator) pull(ctx context.Context, peer string) {
+	if r.backingOff(peer) {
+		return
+	}
 	mem, err := r.bridge.node.MemberByID(peer)
 	if err != nil {
 		return
@@ -186,54 +273,121 @@ func (r *replicator) pull(ctx context.Context, peer string) {
 	var projects []replica.Project
 	if err := r.bridge.node.CallAPI(ctx, mem, http.MethodGet, "/v1/replication/projects", &projects); err != nil {
 		slog.Debug("Replication: peer unreachable", "peer", mem.Name, "error", err)
+		r.failed(peer)
 		return
 	}
 	for _, p := range projects {
-		r.pullProject(ctx, mem, p)
+		key := mem.NodeID + "\x00" + p.Root
+		r.mu.Lock()
+		skip := r.unusable[key]
+		r.mu.Unlock()
+		if skip {
+			continue
+		}
+		if err := r.bridge.backend.ReplicaRootUsable(p.Root); err != nil {
+			slog.Info("Replication: skipping project that cannot be mirrored here", "peer", mem.Name, "root", p.Root, "error", err)
+			r.mu.Lock()
+			r.unusable[key] = true
+			r.mu.Unlock()
+			continue
+		}
+		ok, transport := r.pullProject(ctx, mem, p)
+		if transport {
+			// The peer is struggling; leave the rest for a later pass.
+			r.failed(peer)
+			return
+		}
+		if ok {
+			r.maybeReconcile(ctx, mem, p)
+		}
+	}
+	r.succeeded(peer)
+}
+
+// maybeReconcile compares session digests with mem at most every
+// replReconcileEvery and re-fetches only the sessions that differ.
+func (r *replicator) maybeReconcile(ctx context.Context, mem cluster.Member, p replica.Project) {
+	key := mem.NodeID + "\x00" + p.Root
+	r.mu.Lock()
+	last, seen := r.lastCheck[key]
+	if !seen {
+		// The first pull after start already brought the replica up to
+		// date; check on the next interval.
+		r.lastCheck[key] = time.Now()
+	}
+	due := seen && time.Since(last) > replReconcileEvery
+	if due {
+		r.lastCheck[key] = time.Now()
+	}
+	r.mu.Unlock()
+	if !due {
+		return
+	}
+	b := r.bridge.backend
+	var remote map[string]string
+	q := url.Values{"root": {p.Root}}
+	if err := r.bridge.node.CallAPI(ctx, mem, http.MethodGet, "/v1/replication/digest?"+q.Encode(), &remote); err != nil {
+		slog.Debug("Replication: digest failed", "peer", mem.Name, "root", p.Root, "error", err)
+		return
+	}
+	local, err := b.ReplicaDigest(ctx, mem.NodeID, p.Root, p.DataDirRel)
+	if err != nil {
+		slog.Debug("Replication: local digest failed", "peer", mem.Name, "root", p.Root, "error", err)
+		return
+	}
+	drifted := replica.Drifted(remote, local)
+	for len(drifted) > 0 {
+		n := min(len(drifted), replRepairPage)
+		q := url.Values{"root": {p.Root}, "session": drifted[:n]}
+		drifted = drifted[n:]
+		var batch replica.Batch
+		if err := r.bridge.node.CallAPI(ctx, mem, http.MethodGet, "/v1/replication/repair?"+q.Encode(), &batch); err != nil {
+			slog.Warn("Replication: repair fetch failed", "peer", mem.Name, "root", p.Root, "error", err)
+			return
+		}
+		batch.Repair = true
+		st, err := b.ApplyReplica(ctx, mem.NodeID, batch)
+		if err != nil {
+			slog.Warn("Replication: repair apply failed", "peer", mem.Name, "root", p.Root, "error", err)
+			return
+		}
+		slog.Debug("Replication repaired drift", "peer", mem.Name, "root", p.Root, "sessions", n, "applied", st.Applied)
 	}
 }
 
 // pullProject applies one project's pending changes from mem, paging
-// until the peer reports nothing more.
-func (r *replicator) pullProject(ctx context.Context, mem cluster.Member, p replica.Project) {
+// until the peer reports nothing more. It reports whether the replica
+// ended up current. Only changes are fetched; the owner falls back to a
+// full snapshot itself when this node never synced or fell behind its
+// retained changelog. transport reports a failure talking to the peer.
+func (r *replicator) pullProject(ctx context.Context, mem cluster.Member, p replica.Project) (ok, transport bool) {
 	b := r.bridge.backend
-	key := mem.NodeID + "\x00" + p.Root
-	r.mu.Lock()
-	full := time.Since(r.lastFull[key]) > replFullEvery
-	if full {
-		r.lastFull[key] = time.Now()
-	}
-	r.mu.Unlock()
 	for page := 0; page < 1000; page++ {
 		cursor, embed := b.ReplicaCursor(ctx, mem.NodeID, p.Root, p.DataDirRel)
-		if !full && cursor >= 0 && p.MaxSeq <= cursor && p.MaxEmbed <= embed {
-			return
+		if cursor >= 0 && p.MaxSeq <= cursor && p.MaxEmbed <= embed {
+			return true, false
 		}
 		q := url.Values{
 			"root":        {p.Root},
 			"since":       {strconv.FormatInt(cursor, 10)},
 			"embed_since": {strconv.FormatInt(embed, 10)},
 		}
-		if full {
-			q.Set("full", "1")
-			q.Set("embed_since", "0")
-			full = false
-		}
 		var batch replica.Batch
 		if err := r.bridge.node.CallAPI(ctx, mem, http.MethodGet, "/v1/replication/changes?"+q.Encode(), &batch); err != nil {
 			slog.Warn("Replication: fetch failed", "peer", mem.Name, "root", p.Root, "error", err)
-			return
+			return false, !cluster.IsPeerStatus(err)
 		}
 		st, err := b.ApplyReplica(ctx, mem.NodeID, batch)
 		if err != nil {
 			slog.Warn("Replication: apply failed", "peer", mem.Name, "root", p.Root, "error", err)
-			return
+			return false, false
 		}
 		if st.Applied+st.Deleted > 0 {
-			slog.Debug("Replication applied", "peer", mem.Name, "root", p.Root, "applied", st.Applied, "deleted", st.Deleted, "skipped", st.Skipped)
+			slog.Debug("Replication applied", "peer", mem.Name, "root", p.Root, "full", batch.Full, "applied", st.Applied, "unchanged", st.Unchanged, "deleted", st.Deleted, "skipped", st.Skipped)
 		}
 		if !batch.More {
-			return
+			return true, false
 		}
 	}
+	return true, false
 }

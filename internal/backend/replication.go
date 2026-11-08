@@ -31,7 +31,7 @@ func (b *Backend) replicaSources() []replicaSource {
 	var out []replicaSource
 	seen := map[string]bool{}
 	for _, ws := range b.workspaces.Seq2() {
-		if ws.Cfg == nil || ws.App == nil {
+		if ws.Cfg == nil || ws.App == nil || !servableRoot(ws.resolvedPath) {
 			continue
 		}
 		out = append(out, replicaSource{root: ws.resolvedPath, dataDir: ws.Cfg.Config().Options.DataDirectory, ws: ws})
@@ -40,13 +40,45 @@ func (b *Backend) replicaSources() []replicaSource {
 	if b.registry != nil {
 		entries, _ := b.registry.List()
 		for _, e := range entries {
-			if !seen[e.Root] {
+			if !seen[e.Root] && servableRoot(e.Root) {
 				out = append(out, replicaSource{root: e.Root, dataDir: e.DataDir})
 				seen[e.Root] = true
 			}
 		}
 	}
 	return out
+}
+
+// servableRoot reports whether root is a project worth replicating.
+// The home directory itself and anything under ~/Library are not
+// projects, and mirroring them makes every peer walk huge trees.
+func servableRoot(root string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return true
+	}
+	root, home = filepath.Clean(root), filepath.Clean(home)
+	if root == home || root == filepath.Dir(home) || root == "/" {
+		return false
+	}
+	lib := filepath.Join(home, "Library")
+	return root != lib && !strings.HasPrefix(root, lib+string(filepath.Separator))
+}
+
+// ReplicaRootUsable reports whether a peer's project root can be
+// mirrored here, creating it if needed. Callers check this before
+// fetching so an unusable root never costs the owner a full snapshot.
+func (b *Backend) ReplicaRootUsable(root string) error {
+	if !filepath.IsAbs(root) {
+		return errors.New("replica root must be absolute")
+	}
+	if !servableRoot(root) {
+		return fmt.Errorf("replica root %s is not a project", root)
+	}
+	if err := os.MkdirAll(filepath.Clean(root), 0o755); err != nil {
+		return fmt.Errorf("create replica root: %w", err)
+	}
+	return nil
 }
 
 func dataDirRel(root, dataDir string) (string, bool) {
@@ -101,33 +133,87 @@ func (b *Backend) ReplicationProjects(ctx context.Context) []replica.Project {
 	return out
 }
 
-// ReplicationChanges serves owned changes after since for root.
-func (b *Backend) ReplicationChanges(ctx context.Context, root string, since, embedSince int64, full bool) (replica.Batch, error) {
+// withReplicationSource runs fn against the database of the served
+// project at root, passing this node's ID and the data dir relative to
+// root.
+func (b *Backend) withReplicationSource(ctx context.Context, root string, fn func(ctx context.Context, conn *sql.DB, self string) error) (string, string, error) {
 	self := b.selfNodeID()
 	if self == "" {
-		return replica.Batch{}, ErrNoCluster
+		return "", "", ErrNoCluster
 	}
 	root = filepath.Clean(root)
-	i := slices.IndexFunc(b.replicaSources(), func(s replicaSource) bool { return s.root == root })
+	sources := b.replicaSources()
+	i := slices.IndexFunc(sources, func(s replicaSource) bool { return s.root == root })
 	if i < 0 {
-		return replica.Batch{}, ErrWorkspaceNotFound
+		return "", "", ErrWorkspaceNotFound
 	}
-	src := b.replicaSources()[i]
+	src := sources[i]
 	rel, ok := dataDirRel(src.root, src.dataDir)
 	if !ok {
-		return replica.Batch{}, errors.New("data directory outside project root")
+		return "", "", errors.New("data directory outside project root")
 	}
-	var batch replica.Batch
 	found, err := b.withSourceDB(ctx, src, func(ctx context.Context, conn *sql.DB) error {
+		return fn(ctx, conn, self)
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if !found {
+		return "", "", ErrWorkspaceNotFound
+	}
+	return root, rel, nil
+}
+
+// ReplicationDigest hashes every session this node owns in root.
+func (b *Backend) ReplicationDigest(ctx context.Context, root string) (map[string]string, error) {
+	var out map[string]string
+	_, _, err := b.withReplicationSource(ctx, root, func(ctx context.Context, conn *sql.DB, self string) error {
+		var err error
+		out, err = replica.OwnedDigest(ctx, conn, self)
+		return err
+	})
+	return out, err
+}
+
+// ReplicationRepair serves the current rows of the given owned sessions
+// in root.
+func (b *Backend) ReplicationRepair(ctx context.Context, root string, ids []string) (replica.Batch, error) {
+	var batch replica.Batch
+	root, rel, err := b.withReplicationSource(ctx, root, func(ctx context.Context, conn *sql.DB, self string) error {
+		var err error
+		batch, err = replica.ServeSessions(ctx, conn, self, ids)
+		return err
+	})
+	if err != nil {
+		return replica.Batch{}, err
+	}
+	batch.Root, batch.DataDirRel = root, rel
+	return batch, nil
+}
+
+// ReplicaDigest hashes the sessions replicated here from peer for root.
+func (b *Backend) ReplicaDigest(ctx context.Context, peer, root, dataRel string) (map[string]string, error) {
+	conn, err := db.OpenReadOnly(filepath.Join(root, filepath.FromSlash(dataRel)))
+	if err != nil {
+		return nil, err
+	}
+	if conn == nil {
+		return map[string]string{}, nil
+	}
+	defer conn.Close()
+	return replica.PeerDigest(ctx, conn, peer)
+}
+
+// ReplicationChanges serves owned changes after since for root.
+func (b *Backend) ReplicationChanges(ctx context.Context, root string, since, embedSince int64, full bool) (replica.Batch, error) {
+	var batch replica.Batch
+	root, rel, err := b.withReplicationSource(ctx, root, func(ctx context.Context, conn *sql.DB, self string) error {
 		var err error
 		batch, err = replica.Serve(ctx, conn, self, since, embedSince, full)
 		return err
 	})
 	if err != nil {
 		return replica.Batch{}, err
-	}
-	if !found {
-		return replica.Batch{}, ErrWorkspaceNotFound
 	}
 	batch.Root, batch.DataDirRel = root, rel
 	if batch.Full {
@@ -205,6 +291,9 @@ func (b *Backend) ApplyReplica(ctx context.Context, peer string, batch replica.B
 	st, err := replica.Apply(ctx, conn, peer, batch)
 	if err != nil {
 		return st, err
+	}
+	if batch.Repair {
+		return st, nil
 	}
 	if err := replica.SetCursor(ctx, conn, peer, batch.MaxSeq); err != nil {
 		return st, err

@@ -3468,12 +3468,30 @@ paths:
       tags:
       - replication
       x-crush-scope: never
+  /replication/digest:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Hash owned sessions
+      tags:
+      - replication
+      x-crush-scope: never
   /replication/projects:
     get:
       produces:
       - application/json
       responses: {}
       summary: List replicated projects
+      tags:
+      - replication
+      x-crush-scope: never
+  /replication/repair:
+    get:
+      produces:
+      - application/json
+      responses: {}
+      summary: Serve drifted sessions
       tags:
       - replication
       x-crush-scope: never

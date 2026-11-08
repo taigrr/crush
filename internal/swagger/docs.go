@@ -1111,6 +1111,19 @@ const docTemplate = `{
                 "x-crush-scope": "never"
             }
         },
+        "/replication/digest": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "replication"
+                ],
+                "summary": "Hash owned sessions",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
         "/replication/projects": {
             "get": {
                 "produces": [
@@ -1120,6 +1133,19 @@ const docTemplate = `{
                     "replication"
                 ],
                 "summary": "List replicated projects",
+                "responses": {},
+                "x-crush-scope": "never"
+            }
+        },
+        "/replication/repair": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "replication"
+                ],
+                "summary": "Serve drifted sessions",
                 "responses": {},
                 "x-crush-scope": "never"
             }

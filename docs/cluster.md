@@ -230,7 +230,13 @@ garbage-collect the `.crush/git` snapshot repository first.
 - `replica.Apply` only writes rows whose session is owned by the
   sending peer, uses upserts (never `REPLACE`, which would cascade
   deletes), and restores trigger-maintained counters afterwards. A node
-  never overwrites a session it owns.
+  never overwrites a session it owns. Identical rows are skipped, and
+  replicated writes are removed from the receiver's `_changelog`, so
+  applying a peer's rows never announces a local change.
+- Drift healing is diff based: every 10 minutes a replica compares
+  per-session digests (`/v1/replication/digest`) with the owner and
+  re-fetches only the sessions that differ (`/v1/replication/repair`).
+  Repair batches never move replication cursors.
 - Replicas live in each project's own `.crush/crush.db` at the same
   path; the first full snapshot also mirrors the directory skeleton.
 - If an owner is unreachable, its sessions still appear (read-only,
