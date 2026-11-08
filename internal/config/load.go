@@ -15,7 +15,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	powernapConfig "github.com/charmbracelet/x/powernap/pkg/config"
 	"github.com/qjebbs/go-jsons"
@@ -93,7 +95,7 @@ func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
 		return nil, fmt.Errorf("invalid hook configuration: %w", err)
 	}
 
-	if !isInsideWorktree() {
+	if !isInsideWorktree(workingDir) {
 		const depth = 2
 		const items = 100
 		slog.Warn("No git repository detected in working directory, will limit file walk operations", "depth", depth, "items", items)
@@ -1090,13 +1092,11 @@ func assignIfNil[T any](ptr **T, val T) {
 	}
 }
 
-func isInsideWorktree() bool {
-	bts, err := exec.CommandContext(
-		context.Background(),
-		"git", "rev-parse",
-		"--is-inside-work-tree",
-	).CombinedOutput()
-	return err == nil && strings.TrimSpace(string(bts)) == "true"
+// isInsideWorktree reports whether dir is inside a git working tree. It
+// must check the workspace directory, not the process cwd: a server
+// hosts many workspaces from one cwd.
+func isInsideWorktree(dir string) bool {
+	return worktreeRoot(dir) != ""
 }
 
 // worktreeRoot returns the absolute path of the canonical project root
@@ -1122,6 +1122,45 @@ func isInsideWorktree() bool {
 // from the git remote plus the repo-relative `.crush/` path. A stable,
 // git-anchored project root keeps that fingerprint consistent.
 func worktreeRoot(dir string) string {
+	key := normalizePath(dir)
+	worktreeRootCache.Lock()
+	if e, ok := worktreeRootCache.m[key]; ok && time.Since(e.at) < worktreeRootTTL {
+		worktreeRootCache.Unlock()
+		return e.root
+	}
+	worktreeRootCache.Unlock()
+
+	root := resolveWorktreeRoot(dir)
+	worktreeRootCache.Lock()
+	worktreeRootCache.m[key] = worktreeRootEntry{root: root, at: time.Now()}
+	worktreeRootCache.Unlock()
+	return root
+}
+
+// worktreeRootTTL bounds how long a resolved root is reused. Loading one
+// workspace asks for the same root several times, and each lookup costs
+// git subprocesses; a short TTL still notices a later `git init`.
+const worktreeRootTTL = 5 * time.Second
+
+type worktreeRootEntry struct {
+	root string
+	at   time.Time
+}
+
+var worktreeRootCache = struct {
+	sync.Mutex
+	m map[string]worktreeRootEntry
+}{m: map[string]worktreeRootEntry{}}
+
+func resolveWorktreeRoot(dir string) string {
+	// One git call answers both questions; older git without
+	// --path-format fails it and falls back to separate calls.
+	if out, err := gitRevParse(dir, "--show-toplevel", "--path-format=absolute", "--git-common-dir"); err == nil {
+		top, common, ok := strings.Cut(out, "\n")
+		if ok && top != "" {
+			return collapseWorktree(normalizePath(top), strings.TrimSpace(common))
+		}
+	}
 	top, err := gitRevParse(dir, "--show-toplevel")
 	if err != nil || top == "" {
 		return ""
@@ -1150,7 +1189,23 @@ func worktreeRoot(dir string) string {
 // fall back to the tree's own top-level.
 func gitMainWorktreeRoot(dir string) (string, bool) {
 	common, err := gitRevParse(dir, "--path-format=absolute", "--git-common-dir")
-	if err != nil || common == "" {
+	if err != nil {
+		return "", false
+	}
+	return mainRootFromCommon(common)
+}
+
+// collapseWorktree maps top (a working tree's top level) to the main
+// repository root given its --git-common-dir output.
+func collapseWorktree(top, common string) string {
+	if mainRoot, ok := mainRootFromCommon(common); ok && mainRoot != top {
+		return mainRoot
+	}
+	return top
+}
+
+func mainRootFromCommon(common string) (string, bool) {
+	if common == "" {
 		return "", false
 	}
 	common = normalizePath(common)

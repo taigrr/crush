@@ -285,10 +285,15 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	go app.LSPManager.TrackConfigured()
 
 	// Validate worktree state on startup.
+	// It shells out to git, so it runs in the background rather than
+	// delaying the workspace; tracked so it finishes before shutdown
+	// releases the database.
 	if worktrees != nil && worktrees.IsEnabled() {
-		if err := worktrees.ValidateState(ctx); err != nil {
-			slog.Warn("Worktree validation failed", "error", err)
-		}
+		app.serviceEventsWG.Go(func() {
+			if err := worktrees.ValidateState(app.eventsCtx); err != nil {
+				slog.Warn("Worktree validation failed", "error", err)
+			}
+		})
 	}
 
 	return app, nil
