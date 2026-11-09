@@ -51,7 +51,7 @@ require (
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats-server/v2 v2.15.2
 	github.com/nats-io/nats.go v1.55.0
-	github.com/nats-io/nkeys v0.4.16
+	github.com/nats-io/nkeys v0.4.17
 	github.com/ncruces/go-sqlite3 v0.36.0
 	github.com/neovim/go-client v1.2.1
 	github.com/nxadm/tail v1.4.11
@@ -71,7 +71,7 @@ require (
 	github.com/taigrr/fantasy v0.31.0-fork
 	github.com/taigrr/simplecolorpalettes v0.10.1
 	github.com/tidwall/gjson v1.20.0
-	github.com/tidwall/sjson v1.2.5
+	github.com/tidwall/sjson v1.2.6
 	github.com/yuin/gopher-lua v1.1.2
 	github.com/zeebo/xxh3 v1.1.0
 	go.uber.org/goleak v1.3.0
