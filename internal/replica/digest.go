@@ -29,24 +29,28 @@ func OwnedDigest(ctx context.Context, db *sql.DB, self string) (map[string]strin
 
 // PeerDigest hashes every replicated session owned by peer.
 func PeerDigest(ctx context.Context, db *sql.DB, peer string) (map[string]string, error) {
+	ids, err := peerSessionIDs(ctx, db, peer)
+	if err != nil {
+		return nil, err
+	}
+	return digest(ctx, db, ids)
+}
+
+func peerSessionIDs(ctx context.Context, db *sql.DB, peer string) ([]string, error) {
 	rows, err := db.QueryContext(ctx, `SELECT id FROM sessions WHERE owner_node = ?`, peer)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	var ids []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
 			return nil, err
 		}
 		ids = append(ids, id)
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return digest(ctx, db, ids)
+	return ids, rows.Err()
 }
 
 // Drifted returns the owner's sessions whose local digest differs or is
