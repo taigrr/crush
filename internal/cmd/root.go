@@ -377,8 +377,6 @@ func ensureServer(cmd *cobra.Command, hostURL *url.URL) error {
 			if clientHost == server.DefaultHost() && cluster.ServiceInstalled() {
 				// The service manager owns the server; spawning our own would
 				// race it for the socket. Nudge it and wait instead.
-				stop := noticeWhileWaiting(cmd.Context(), "the background crush service to start")
-				defer stop()
 				return waitForService(cmd, hostURL)
 			}
 			// Serialize spawn across concurrent clients: spawnAndWaitReady
@@ -495,7 +493,7 @@ func safeHostName(hostURL *url.URL) string {
 // serverReadyTimeout returns the total budget for the readiness probe.
 // Overridable via CRUSH_SERVER_READY_TIMEOUT (parsed as a Go duration).
 func serverReadyTimeout() time.Duration {
-	const def = 10 * time.Second
+	const def = defaultServerReadyTimeout
 	v := os.Getenv("CRUSH_SERVER_READY_TIMEOUT")
 	if v == "" {
 		return def
@@ -507,9 +505,9 @@ func serverReadyTimeout() time.Duration {
 	return d
 }
 
-// waitForServerReady polls GET /v1/health until the server responds with
-// any 2xx status or the total timeout elapses. Each attempt uses a short
-// per-attempt timeout so a hung listener doesn't burn the whole budget.
+// waitForServerReady polls GET /v1/health with backoff until the server
+// responds with any 2xx status or [serverReadyTimeout] elapses. Dial
+// errors (missing socket, refused connection) count as "not up yet".
 //
 // The HTTP transport is built to mirror how *client.Client dials so the
 // same unix socket / npipe / tcp setups all work uniformly here.
@@ -518,36 +516,21 @@ func waitForServerReady(ctx context.Context, hostURL *url.URL) error {
 	if err != nil {
 		return err
 	}
+	return newReadyPoller(serverReadyTimeout()).poll(ctx, func(ctx context.Context) error {
+		return probeHealth(ctx, httpClient, reqURL, hostURL)
+	})
+}
 
-	const perAttempt = 100 * time.Millisecond
-	deadline := time.Now().Add(serverReadyTimeout())
-
-	var lastErr error
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if time.Now().After(deadline) {
-			if lastErr != nil {
-				return lastErr
-			}
-			return fmt.Errorf("timed out waiting for server readiness")
-		}
-
-		attemptCtx, cancel := context.WithTimeout(ctx, perAttempt)
-		err := probeHealth(attemptCtx, httpClient, reqURL, hostURL)
-		cancel()
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(perAttempt):
-		}
+// waitForServiceReady waits for the background service on hostURL to
+// answer health checks after a (re)start, pointing at the service logs
+// on failure.
+func waitForServiceReady(ctx context.Context, hostURL *url.URL) error {
+	stop := noticeWhileWaiting(ctx, "the background crush service to start")
+	defer stop()
+	if err := waitForServerReady(ctx, hostURL); err != nil {
+		return fmt.Errorf("the background service did not come up (see %s): %w", serviceLogDir(), err)
 	}
+	return nil
 }
 
 // readinessHTTPClient builds an *http.Client whose transport dials the
@@ -698,24 +681,25 @@ func restartPersistentDaemon(cmd *cobra.Command, c *client.Client, vi *proto.Ver
 	if _, err := cluster.RestartService(cmd.Context()); err != nil {
 		_ = c.ShutdownServer(cmd.Context())
 	}
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		select {
-		case <-cmd.Context().Done():
-			return cmd.Context().Err()
-		case <-time.After(250 * time.Millisecond):
-		}
-		nvi, err := c.VersionInfo(cmd.Context())
+	err := newReadyPoller(serverReadyTimeout()).poll(cmd.Context(), func(ctx context.Context) error {
+		nvi, err := c.VersionInfo(ctx)
 		if err != nil {
-			continue
+			return err
 		}
 		if nvi.Version == version.Version && nvi.BuildID == version.BuildID {
 			return nil
 		}
 		if nvi.BuildID != vi.BuildID {
 			// The supervisor restarted it, but on a different build.
-			return &errDaemonVersion{server: nvi.Version}
+			return stopPolling(&errDaemonVersion{server: nvi.Version})
 		}
+		return &errDaemonVersion{server: vi.Version}
+	})
+	if err == nil || errors.Is(err, context.Canceled) {
+		return err
+	}
+	if dv, ok := errors.AsType[*errDaemonVersion](err); ok {
+		return dv
 	}
 	return &errDaemonVersion{server: vi.Version}
 }
@@ -854,10 +838,5 @@ func waitForService(cmd *cobra.Command, hostURL *url.URL) error {
 	if _, err := cluster.RestartService(cmd.Context()); err != nil {
 		slog.Warn("Failed to start background service", "error", err)
 	}
-	ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
-	defer cancel()
-	if err := waitForServerReady(ctx, hostURL); err != nil {
-		return fmt.Errorf("the background service did not come up (see %s): %w", serviceLogDir(), err)
-	}
-	return nil
+	return waitForServiceReady(cmd.Context(), hostURL)
 }

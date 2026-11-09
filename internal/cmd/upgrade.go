@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/taigrr/crush/internal/cluster"
+	"github.com/taigrr/crush/internal/server"
 	"github.com/taigrr/crush/internal/update"
 	"github.com/taigrr/crush/internal/version"
 )
@@ -54,6 +55,15 @@ func upgradeLocal(cmd *cobra.Command, target string) (string, error) {
 	case err != nil:
 		return tag, fmt.Errorf("installed %s but failed to restart the service: %w", tag, err)
 	case restarted:
+		// The service manager recreates the socket asynchronously; wait
+		// here so callers don't race it (and restart it a second time).
+		hostURL, err := server.ParseHostURL(clientHost)
+		if err != nil {
+			return tag, err
+		}
+		if err := waitForServiceReady(cmd.Context(), hostURL); err != nil {
+			return tag, fmt.Errorf("installed %s but %w", tag, err)
+		}
 		fmt.Fprintf(out, "Installed %s and restarted the background service.\n", tag)
 	default:
 		if c, err := clientForExisting(); err == nil {
