@@ -24,6 +24,16 @@ func TestApplyLeavesLocalChangelogAlone(t *testing.T) {
 	require.Positive(t, st.Applied)
 	require.Equal(t, before, MaxSeq(ctx, b), "replicated rows must not be announced as local changes")
 
+	// The owner's timestamps survive the apply, even though inserting
+	// messages updates the session row on this node.
+	exec(t, a, `UPDATE sessions SET updated_at = 1000 WHERE id = 's1'`)
+	batch, err = Serve(ctx, a, "nodeA", -1, 0, false)
+	require.NoError(t, err)
+	_, err = Apply(ctx, b, "nodeA", roundTrip(t, batch))
+	require.NoError(t, err)
+	require.Equal(t, 1, count(t, b, `SELECT COUNT(*) FROM sessions WHERE id = 's1' AND updated_at = 1000`))
+	require.Equal(t, before, MaxSeq(ctx, b))
+
 	// Reapplying the same rows changes nothing.
 	st, err = Apply(ctx, b, "nodeA", roundTrip(t, batch))
 	require.NoError(t, err)

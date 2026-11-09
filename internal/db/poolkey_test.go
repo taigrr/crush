@@ -29,11 +29,11 @@ func TestOpenReadOnlyMigratesAnOlderDatabase(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), ".crush")
 	conn, err := Connect(t.Context(), dir)
 	require.NoError(t, err)
-	// Roll the newest migration back by hand, as a database last opened
-	// by an older build would look.
+	// Roll the migrations since owner_node back by hand, as a database
+	// last opened by an older build would look.
 	_, err = conn.Exec(`ALTER TABLE sessions DROP COLUMN owner_node`)
 	require.NoError(t, err)
-	_, err = conn.Exec(`DELETE FROM goose_db_version WHERE version_id = ?`, LatestSchemaVersion())
+	_, err = conn.Exec(`DELETE FROM goose_db_version WHERE version_id >= ?`, ownerNodeMigration)
 	require.NoError(t, err)
 	require.NoError(t, Release(dir))
 
@@ -43,3 +43,6 @@ func TestOpenReadOnlyMigratesAnOlderDatabase(t *testing.T) {
 	_, err = ro.Exec(`SELECT owner_node FROM sessions`)
 	require.NoError(t, err, "the read-only handle sees the migrated schema")
 }
+
+// ownerNodeMigration is the migration that added sessions.owner_node.
+const ownerNodeMigration = 20261026000100

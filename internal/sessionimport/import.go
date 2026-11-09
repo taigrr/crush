@@ -170,7 +170,7 @@ func Import(ctx context.Context, database *sql.DB, imported Session) (Result, er
 			return Result{}, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = ?, created_at = ? WHERE id = ?", max(updatedAt, lastInsertTimestamp), createdAt, id); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = ?, created_at = ? WHERE id = ?", max(updatedAt, lastInsertTimestamp, time.Now().Unix()), createdAt, id); err != nil {
 		return Result{}, fmt.Errorf("dating imported session: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -243,8 +243,9 @@ func isImportedPrefix(sessionID string, ids []string) bool {
 
 // appendMessages writes imported messages from startIndex onward in a
 // single transaction and returns the number inserted. It advances the
-// session's updated_at so re-synced sessions surface as recently
-// active (the message-insert trigger only maintains message_count).
+// session's updated_at to at least now so re-synced sessions surface as
+// recently active (the message-insert trigger only maintains
+// message_count, and the updated_at trigger leaves explicit writes be).
 func appendMessages(ctx context.Context, database *sql.DB, id string, imported Session, startIndex int, lastTimestamp int64) (int, error) {
 	tx, err := database.BeginTx(ctx, nil)
 	if err != nil {
@@ -258,7 +259,7 @@ func appendMessages(ctx context.Context, database *sql.DB, id string, imported S
 			return 0, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = ? WHERE id = ?", max(imported.UpdatedAt, lastTimestamp), id); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = ? WHERE id = ?", max(imported.UpdatedAt, lastTimestamp, time.Now().Unix()), id); err != nil {
 		return 0, fmt.Errorf("dating imported session: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

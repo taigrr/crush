@@ -5,12 +5,9 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"testing"
 
@@ -221,29 +218,11 @@ func ResetPool() {
 	}
 }
 
-var latestMigration = sync.OnceValue(func() int64 {
-	entries, err := fs.ReadDir(FS, "migrations")
-	if err != nil {
-		return -1
-	}
-	var latest int64 = -1
-	for _, e := range entries {
-		prefix, _, ok := strings.Cut(e.Name(), "_")
-		if !ok || !strings.HasSuffix(e.Name(), ".sql") {
-			continue
-		}
-		if v, err := strconv.ParseInt(prefix, 10, 64); err == nil && v > latest {
-			latest = v
-		}
-	}
-	return latest
-})
-
 // schemaCurrent reports whether conn already has the newest embedded
 // migration applied.
 func schemaCurrent(ctx context.Context, conn *sql.DB) bool {
-	latest := latestMigration()
-	if latest < 0 {
+	latest := LatestSchemaVersion()
+	if latest <= 0 {
 		return false
 	}
 	var v sql.NullInt64

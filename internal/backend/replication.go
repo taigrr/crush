@@ -58,7 +58,7 @@ func servableRoot(root string) bool {
 		return true
 	}
 	root, home = filepath.Clean(root), filepath.Clean(home)
-	if root == home || root == filepath.Dir(home) || root == "/" {
+	if root == home || root == filepath.Dir(home) || filepath.Dir(root) == root {
 		return false
 	}
 	lib := filepath.Join(home, "Library")
