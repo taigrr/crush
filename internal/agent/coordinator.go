@@ -871,41 +871,8 @@ func applyAnthropicProviderOptions(options fantasy.ProviderOptions, mergedOption
 	}
 
 	parsed, err := anthropic.ParseOptions(mergedOptions)
-	if err != nil {
-		return
-	}
-	if providerCfg.ID != string(catwalk.InferenceProviderAlibabaSingapore) {
-		applyThinkingBlockBinding(parsed)
-	}
-	options[anthropic.Name] = parsed
-}
-
-const (
-	// thinkingBindingBeta enables thinking.block_binding controls.
-	thinkingBindingBeta = "thinking-binding-controls-2026-08-01"
-	// thinkingBlockBindingPath is merged into the request body so the rest
-	// of the thinking object (type, display) is preserved.
-	thinkingBlockBindingPath = "thinking.block_binding"
-	dropBlockBehavior        = "drop_block"
-)
-
-// applyThinkingBlockBinding asks Anthropic to drop prior thinking blocks
-// whose signature no longer matches the conversation prefix (e.g. the tools
-// list changed) instead of rejecting the request. Only adaptive thinking
-// (sent whenever effort is set) accepts block_binding; enabled thinking
-// with budget_tokens rejects it.
-func applyThinkingBlockBinding(opts *anthropic.ProviderOptions) {
-	if opts == nil || opts.Effort == nil {
-		return
-	}
-	if !slices.Contains(opts.Betas, thinkingBindingBeta) {
-		opts.Betas = append(opts.Betas, thinkingBindingBeta)
-	}
-	if opts.ExtraBody == nil {
-		opts.ExtraBody = make(map[string]any)
-	}
-	opts.ExtraBody[thinkingBlockBindingPath] = map[string]any{
-		"prefix_mismatch_behavior": dropBlockBehavior,
+	if err == nil {
+		options[anthropic.Name] = parsed
 	}
 }
 

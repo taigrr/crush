@@ -5,14 +5,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/taigrr/catwalk/pkg/catwalk"
 	"github.com/taigrr/fantasy"
 	"github.com/taigrr/fantasy/providers/anthropic"
-	"github.com/taigrr/fantasy/providers/bedrock"
 	"github.com/taigrr/fantasy/providers/google"
 	"github.com/taigrr/fantasy/providers/openai"
-
-	"github.com/taigrr/crush/internal/config"
 )
 
 type bindingToolInput struct {
@@ -163,42 +159,4 @@ func TestThinkingBindingPerSession(t *testing.T) {
 	binding.apply("a", toolListHash(bindingTools("view")), history)
 	got := binding.apply("b", toolListHash(bindingTools("edit")), history)
 	require.Equal(t, 1, countAnthropicReasoning(got))
-}
-
-func TestGetProviderOptionsThinkingBlockBinding(t *testing.T) {
-	t.Parallel()
-	for _, providerType := range []catwalk.Type{catwalk.Type(anthropic.Name), catwalk.Type(bedrock.Name)} {
-		t.Run(string(providerType), func(t *testing.T) {
-			t.Parallel()
-			model := Model{
-				CatwalkCfg: catwalk.Model{ID: "claude-fable-5-2", CanReason: true, ReasoningLevels: []string{"high"}},
-				ModelCfg:   config.SelectedModel{Provider: "test", ReasoningEffort: "high"},
-			}
-			providerCfg := config.ProviderConfig{
-				ID:              "test",
-				Type:            providerType,
-				ProviderOptions: map[string]any{"betas": []string{"context-1m-2025-08-07"}},
-			}
-			parsed, ok := getProviderOptions(model, providerCfg)[anthropic.Name].(*anthropic.ProviderOptions)
-			require.True(t, ok)
-			require.NotNil(t, parsed.Effort)
-			require.Equal(t, anthropic.Effort("high"), *parsed.Effort)
-			require.Contains(t, parsed.Betas, thinkingBindingBeta)
-			require.Contains(t, parsed.Betas, "context-1m-2025-08-07")
-			require.Equal(t, map[string]any{"prefix_mismatch_behavior": "drop_block"}, parsed.ExtraBody[thinkingBlockBindingPath])
-		})
-	}
-}
-
-func TestGetProviderOptionsNoBlockBindingWithBudgetThinking(t *testing.T) {
-	t.Parallel()
-	model := Model{
-		CatwalkCfg: catwalk.Model{ID: "claude-sonnet-4", CanReason: true},
-		ModelCfg:   config.SelectedModel{Provider: "test", Think: true},
-	}
-	parsed, ok := getProviderOptions(model, config.ProviderConfig{ID: "test", Type: catwalk.Type(anthropic.Name)})[anthropic.Name].(*anthropic.ProviderOptions)
-	require.True(t, ok)
-	require.Nil(t, parsed.Effort)
-	require.NotContains(t, parsed.Betas, thinkingBindingBeta)
-	require.NotContains(t, parsed.ExtraBody, thinkingBlockBindingPath)
 }
