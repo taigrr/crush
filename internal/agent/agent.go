@@ -187,6 +187,9 @@ type sessionAgent struct {
 	// activeTurns records each session's streaming turn (RunID and
 	// permission policy) while it holds its active request.
 	activeTurns activeTurnRegistry
+	// thinkingBinding strips Anthropic thinking replayed under a stale
+	// tools list.
+	thinkingBinding thinkingBinding
 
 	isSubAgent           bool
 	sessions             session.Service
