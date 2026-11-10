@@ -495,6 +495,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				// not the one the provider sees.
 				prepared.Tools[len(prepared.Tools)-1].SetProviderOptions(a.getCacheControlOptions())
 			}
+			// Anthropic binds thinking signatures to the tools list; strip
+			// thinking produced under a different list so the request is
+			// not rejected as a different conversation.
+			prepared.Messages = a.thinkingBinding.apply(call.SessionID, toolListHash(prepared.Tools), prepared.Messages)
 
 			// Drain queued follow-up prompts for this step. Calls covered
 			// by a cancel recorded while they sat in the queue are dropped:
