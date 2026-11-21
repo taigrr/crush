@@ -12,7 +12,7 @@ import (
 
 // pairedTrio builds three approved members, each with an advertised
 // mesh endpoint, and returns them with their mesh addresses.
-func pairedTrio(t *testing.T) ([]*Node, []string) {
+func pairedTrio(t testing.TB) ([]*Node, []string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()

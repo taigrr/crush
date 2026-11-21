@@ -12,7 +12,16 @@ const (
 	// background service to start answering health checks. A service
 	// manager restart can take several seconds to recreate the socket.
 	defaultServerReadyTimeout = 30 * time.Second
-	// readyPollMinBackoff is the delay after the first failed probe.
+	// readyPollFastInterval is the probe spacing during the first
+	// readyPollFastWindow. A freshly spawned server usually starts
+	// listening within a few hundred milliseconds, so exponential backoff
+	// from the very first probe would overshoot that by up to a full
+	// backoff step. A failed unix-socket dial is cheap.
+	readyPollFastInterval = 10 * time.Millisecond
+	// readyPollFastWindow is how long probes stay at readyPollFastInterval
+	// before switching to exponential backoff.
+	readyPollFastWindow = time.Second
+	// readyPollMinBackoff is the first backoff delay after the fast window.
 	readyPollMinBackoff = 100 * time.Millisecond
 	// readyPollMaxBackoff caps the delay between probes.
 	readyPollMaxBackoff = time.Second
@@ -26,6 +35,8 @@ const (
 // injectable so tests stay hermetic.
 type readyPoller struct {
 	timeout    time.Duration
+	fast       time.Duration
+	fastWindow time.Duration
 	minBackoff time.Duration
 	maxBackoff time.Duration
 	attempt    time.Duration
@@ -36,6 +47,8 @@ type readyPoller struct {
 func newReadyPoller(timeout time.Duration) readyPoller {
 	return readyPoller{
 		timeout:    timeout,
+		fast:       readyPollFastInterval,
+		fastWindow: readyPollFastWindow,
 		minBackoff: readyPollMinBackoff,
 		maxBackoff: readyPollMaxBackoff,
 		attempt:    readyPollAttemptTimeout,
@@ -58,7 +71,8 @@ func stopPolling(err error) error { return &errStopPolling{err: err} }
 // non-2xx, ...) counts as "not up yet" unless wrapped with
 // [stopPolling]. After the deadline it returns the last probe error.
 func (p readyPoller) poll(ctx context.Context, probe func(context.Context) error) error {
-	deadline := p.now().Add(p.timeout)
+	start := p.now()
+	deadline := start.Add(p.timeout)
 	backoff := p.minBackoff
 	var lastErr error
 	for {
@@ -83,11 +97,18 @@ func (p readyPoller) poll(ctx context.Context, probe func(context.Context) error
 		if remaining <= 0 {
 			return fmt.Errorf("timed out after %s: %w", p.timeout, lastErr)
 		}
+		delay := backoff
+		fast := p.now().Sub(start) < p.fastWindow
+		if fast {
+			delay = p.fast
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-p.after(min(backoff, remaining)):
+		case <-p.after(min(delay, remaining)):
 		}
-		backoff = min(backoff*2, p.maxBackoff)
+		if !fast {
+			backoff = min(backoff*2, p.maxBackoff)
+		}
 	}
 }

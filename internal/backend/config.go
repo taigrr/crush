@@ -15,6 +15,7 @@ import (
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/skills"
 	"github.com/taigrr/crush/internal/sound"
+	"github.com/taigrr/crush/internal/startuptrace"
 )
 
 // publishConfigChanged publishes a ConfigChanged event on the workspace's
@@ -68,9 +69,13 @@ func (b *Backend) reloadWorkspaceConfig(ws *Workspace) {
 	if ws == nil || ws.Cfg == nil {
 		return
 	}
-	if !ws.Cfg.ConfigStaleness().Dirty {
+	endStale := startuptrace.Span("srv.config_staleness")
+	dirty := ws.Cfg.ConfigStaleness().Dirty
+	endStale()
+	if !dirty {
 		return
 	}
+	defer startuptrace.Span("srv.config_reload")()
 	if err := ws.Cfg.ReloadFromDisk(b.ctx); err != nil {
 		slog.Warn("Failed to reload workspace config on client connect",
 			"workspace", ws.ID, "error", err)

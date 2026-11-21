@@ -288,6 +288,11 @@ type WorkspaceOverview struct {
 	WorkspaceID string            `json:"workspace_id,omitempty"`
 	Attached    bool              `json:"attached"`
 	Sessions    []SessionOverview `json:"sessions"`
+	// SessionCount is the workspace's total number of listed sessions
+	// when the request asked for a bounded list (limit); Sessions then
+	// holds only the first limit of them in display order. Zero when the
+	// list is complete.
+	SessionCount int `json:"session_count,omitempty"`
 	// Unavailable marks a workspace (or, with an empty Root, a whole
 	// cluster node) whose sessions could not be read in time; Error says
 	// why. Sessions is then empty or a stale subset.

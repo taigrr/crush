@@ -123,15 +123,15 @@ func stampOwner(row map[string]transfer.Value, self string) {
 // that predates the retained changelog, or full returns a full snapshot
 // of every owned session instead.
 func Serve(ctx context.Context, db *sql.DB, self string, since, embedSince int64, full bool) (Batch, error) {
-	owned, err := ownedIDs(ctx, db, self)
-	if err != nil {
-		return Batch{}, err
-	}
 	b := Batch{MaxSeq: MaxSeq(ctx, db)}
 	if lo := minSeq(ctx, db); since >= 0 && lo > since+1 {
 		full = true
 	}
 	if full || since < 0 {
+		owned, err := ownedIDs(ctx, db, self)
+		if err != nil {
+			return Batch{}, err
+		}
 		b.Full = true
 		ids := make([]string, 0, len(owned))
 		for id := range owned {
@@ -141,7 +141,7 @@ func Serve(ctx context.Context, db *sql.DB, self string, since, embedSince int64
 		if len(ids) == 0 {
 			return b, nil
 		}
-		err := transfer.ExportRows(ctx, db, ids, func(r transfer.Row) error {
+		err = transfer.ExportRows(ctx, db, ids, func(r transfer.Row) error {
 			if r.Table == "sessions" {
 				stampOwner(r.Cols, self)
 			}
@@ -154,8 +154,9 @@ func Serve(ctx context.Context, db *sql.DB, self string, since, embedSince int64
 		if err != nil {
 			return b, err
 		}
-		return b, serveEmbeddings(ctx, db, owned, 0, &b)
+		return b, serveEmbeddings(ctx, db, func(id string) (bool, error) { return owned[id], nil }, 0, &b)
 	}
+	owns := ownerCheck(ctx, db, self)
 
 	changes, maxSeq, err := crushsync.PendingChanges(ctx, db, since)
 	if err != nil {
@@ -174,8 +175,11 @@ func Serve(ctx context.Context, db *sql.DB, self string, since, embedSince int64
 			b.Changes = append(b.Changes, rc)
 			continue
 		}
-		sid := sessionOf(c.Table, c.Row)
-		if !owned[sid] {
+		ok, err := owns(sessionOf(c.Table, c.Row))
+		if err != nil {
+			return Batch{}, err
+		}
+		if !ok {
 			continue
 		}
 		rc.Op, rc.Row = "U", typed(c.Row)
@@ -184,7 +188,40 @@ func Serve(ctx context.Context, db *sql.DB, self string, since, embedSince int64
 		}
 		b.Changes = append(b.Changes, rc)
 	}
-	return b, serveEmbeddings(ctx, db, owned, embedSince, &b)
+	return b, serveEmbeddings(ctx, db, owns, embedSince, &b)
+}
+
+// ownerBulkAfter is how many distinct sessions a delta may touch before
+// ownership is resolved with one scan instead of point lookups.
+const ownerBulkAfter = 64
+
+// ownerCheck reports whether self owns a session, resolving lazily so an
+// idle delta poll never scans the sessions table.
+func ownerCheck(ctx context.Context, db *sql.DB, self string) func(string) (bool, error) {
+	cache := map[string]bool{}
+	var all map[string]bool
+	return func(id string) (bool, error) {
+		if all != nil {
+			return all[id], nil
+		}
+		if v, ok := cache[id]; ok {
+			return v, nil
+		}
+		if len(cache) >= ownerBulkAfter {
+			var err error
+			if all, err = ownedIDs(ctx, db, self); err != nil {
+				return false, err
+			}
+			return all[id], nil
+		}
+		var one int
+		err := db.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE id = ? AND (owner_node IS NULL OR owner_node = '' OR owner_node = ?) AND moved_to_node IS NULL`, id, self).Scan(&one)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return false, err
+		}
+		cache[id] = err == nil
+		return err == nil, nil
+	}
 }
 
 func sessionOf(table string, row map[string]any) string {
@@ -234,16 +271,30 @@ func Apply(ctx context.Context, db *sql.DB, peer string, batch Batch) (Stats, er
 		return st, err
 	}
 
+	stmts := &stmtCache{tx: tx, m: map[string]*sql.Stmt{}}
+	defer stmts.close()
+
+	type ownerEntry struct {
+		owner  string
+		exists bool
+	}
+	// Owner lookups are cached for the batch; any write to a sessions row
+	// drops its entry so later lookups see the batch's own changes.
+	ownerCache := map[string]ownerEntry{}
 	owner := func(sessionID string) (string, bool) {
+		if e, ok := ownerCache[sessionID]; ok {
+			return e.owner, e.exists
+		}
+		var e ownerEntry
 		var o, moved sql.NullString
-		err := tx.QueryRowContext(ctx, `SELECT owner_node, moved_to_node FROM sessions WHERE id = ?`, sessionID).Scan(&o, &moved)
-		if err != nil {
-			return "", false
+		if err := stmts.queryRow(ctx, `SELECT owner_node, moved_to_node FROM sessions WHERE id = ?`, sessionID).Scan(&o, &moved); err == nil {
+			e.exists = true
+			if o.Valid {
+				e.owner = o.String
+			}
 		}
-		if !o.Valid || o.String == "" {
-			return "", true // owned by this node
-		}
-		return o.String, true
+		ownerCache[sessionID] = e
+		return e.owner, e.exists
 	}
 
 	byTable := map[string][]Change{}
@@ -256,6 +307,9 @@ func Apply(ctx context.Context, db *sql.DB, peer string, batch Batch) (Stats, er
 			switch c.Op {
 			case "D":
 				ok, err := deleteIfPeerOwned(ctx, tx, c, peer, owner)
+				if table == "sessions" {
+					delete(ownerCache, c.PK)
+				}
 				if err != nil {
 					return st, err
 				}
@@ -290,7 +344,10 @@ func Apply(ctx context.Context, db *sql.DB, peer string, batch Batch) (Stats, er
 						continue
 					}
 				}
-				changed, err := upsert(ctx, tx, table, c.Row, table == "sessions")
+				if table == "sessions" {
+					delete(ownerCache, valueString(c.Row["id"]))
+				}
+				changed, err := upsert(ctx, stmts, table, c.Row, table == "sessions")
 				if err != nil {
 					return st, fmt.Errorf("apply %s: %w", table, err)
 				}
@@ -305,7 +362,7 @@ func Apply(ctx context.Context, db *sql.DB, peer string, batch Batch) (Stats, er
 	// Message inserts bump trigger-maintained counters; restore the
 	// owner's values.
 	for _, c := range sessionRows {
-		if _, err := upsert(ctx, tx, "sessions", c.Row, false); err != nil {
+		if _, err := upsert(ctx, stmts, "sessions", c.Row, false); err != nil {
 			return st, err
 		}
 	}
@@ -354,6 +411,49 @@ func deleteIfPeerOwned(ctx context.Context, tx *sql.Tx, c Change, peer string, o
 	return err == nil, err
 }
 
+// stmtCache reuses prepared statements within one transaction so the
+// per-row queries of a batch are prepared once.
+type stmtCache struct {
+	tx *sql.Tx
+	m  map[string]*sql.Stmt
+}
+
+func (c *stmtCache) get(ctx context.Context, q string) (*sql.Stmt, error) {
+	if s, ok := c.m[q]; ok {
+		return s, nil
+	}
+	s, err := c.tx.PrepareContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	c.m[q] = s
+	return s, nil
+}
+
+func (c *stmtCache) exec(ctx context.Context, q string, args ...any) (sql.Result, error) {
+	s, err := c.get(ctx, q) //nolint:sqlclosecheck // Closed by stmtCache.close.
+	if err != nil {
+		return nil, err
+	}
+	return s.ExecContext(ctx, args...)
+}
+
+// queryRow falls back to an unprepared query when preparing fails so the
+// error surfaces through Scan as before.
+func (c *stmtCache) queryRow(ctx context.Context, q string, args ...any) *sql.Row {
+	s, err := c.get(ctx, q) //nolint:sqlclosecheck // Closed by stmtCache.close.
+	if err != nil {
+		return c.tx.QueryRowContext(ctx, q, args...)
+	}
+	return s.QueryRowContext(ctx, args...)
+}
+
+func (c *stmtCache) close() {
+	for _, s := range c.m {
+		_ = s.Close()
+	}
+}
+
 func quote(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
 
 // upsert inserts row or updates the existing row in place. It never uses
@@ -361,7 +461,7 @@ func quote(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"
 // deferRefs, session references to rows not yet applied are cleared.
 // upsert writes row and reports whether anything changed. Identical rows
 // are left alone so update triggers do not fire for them.
-func upsert(ctx context.Context, tx *sql.Tx, table string, row map[string]transfer.Value, deferRefs bool) (bool, error) {
+func upsert(ctx context.Context, stmts *stmtCache, table string, row map[string]transfer.Value, deferRefs bool) (bool, error) {
 	pk := pkColumns[table]
 	names := make([]string, 0, len(row))
 	for c := range row {
@@ -397,7 +497,7 @@ func upsert(ctx context.Context, tx *sql.Tx, table string, row map[string]transf
 		q = fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) ON CONFLICT DO NOTHING`,
 			quote(table), strings.Join(quoted, ","), strings.TrimSuffix(strings.Repeat("?,", len(names)), ","))
 	}
-	res, err := tx.ExecContext(ctx, q, args...)
+	res, err := stmts.exec(ctx, q, args...)
 	if err != nil {
 		return false, err
 	}
@@ -434,7 +534,7 @@ func MaxEmbed(ctx context.Context, db *sql.DB) int64 {
 }
 
 // serveEmbeddings appends owned embeddings with rowid > since.
-func serveEmbeddings(ctx context.Context, db *sql.DB, owned map[string]bool, since int64, b *Batch) error {
+func serveEmbeddings(ctx context.Context, db *sql.DB, owns func(string) (bool, error), since int64, b *Batch) error {
 	b.EmbedCursor = since
 	rows, err := db.QueryContext(ctx, `SELECT rowid, * FROM embeddings WHERE rowid > ? ORDER BY rowid LIMIT ?`, since, embedPage)
 	if err != nil {
@@ -449,6 +549,7 @@ func serveEmbeddings(ctx context.Context, db *sql.DB, owned map[string]bool, sin
 		return err
 	}
 	n := 0
+	var found []map[string]transfer.Value
 	for rows.Next() {
 		n++
 		vals := make([]any, len(cols))
@@ -469,12 +570,23 @@ func serveEmbeddings(ctx context.Context, db *sql.DB, owned map[string]bool, sin
 			}
 			row[c] = transfer.EncodeValue(vals[i])
 		}
-		if sid := valueString(row["session_id"]); owned[sid] {
+		found = append(found, row)
+	}
+	b.More = n == embedPage
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows.Close()
+	for _, row := range found {
+		ok, err := owns(valueString(row["session_id"]))
+		if err != nil {
+			return err
+		}
+		if ok {
 			b.Changes = append(b.Changes, Change{Op: "U", Table: "embeddings", Row: row})
 		}
 	}
-	b.More = n == embedPage
-	return rows.Err()
+	return nil
 }
 
 // EmbedCursor reads the last applied embedding rowid from peer.

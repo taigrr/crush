@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -32,4 +33,16 @@ func TestWorktreeRootCollapsesLinkedWorktree(t *testing.T) {
 	require.Equal(t, want, worktreeRoot(filepath.Join(linked)))
 	require.Empty(t, worktreeRoot(t.TempDir()))
 	require.False(t, isInsideWorktree(t.TempDir()))
+}
+
+func TestMayBeInGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	require.False(t, mayBeInGitRepo(dir))
+	t.Setenv("GIT_DIR", dir)
+	require.True(t, mayBeInGitRepo(dir))
+	t.Setenv("GIT_DIR", "")
+	sub := filepath.Join(dir, "a", "b")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0o755))
+	require.True(t, mayBeInGitRepo(sub))
 }

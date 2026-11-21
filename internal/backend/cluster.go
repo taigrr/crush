@@ -103,6 +103,20 @@ func (b *Backend) IngestRemoteAttention(ev proto.AttentionEvent) {
 // ListClusterOverviews returns this node's overviews followed by every
 // reachable remote node's, each remote overview tagged with its node.
 func (b *Backend) ListClusterOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error) {
+	return b.ListClusterOverviewsLimit(ctx, 0)
+}
+
+// ListClusterOverviewsLimit is [Backend.ListClusterOverviews] bounded to
+// limit sessions per workspace, as [Backend.ListWorkspaceOverviewsLimit].
+func (b *Backend) ListClusterOverviewsLimit(ctx context.Context, limit int) ([]proto.WorkspaceOverview, error) {
+	ovs, err := b.listClusterOverviews(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return limitOverviews(ovs, limit), nil
+}
+
+func (b *Backend) listClusterOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error) {
 	all, err := b.listAllOverviews(ctx)
 	if err != nil {
 		return nil, err

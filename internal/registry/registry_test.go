@@ -72,3 +72,30 @@ func TestStore_CompactDropsSuperseded(t *testing.T) {
 	require.Equal(t, "/b", entries[0].Root)
 	require.Equal(t, "/a2", entries[1].DataDir)
 }
+
+func TestStore_ListCacheSeesExternalAppends(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "workspaces.jsonl")
+	s := NewWithPath(path)
+	require.NoError(t, s.Add(Entry{Root: "/a", DataDir: "/a/.crush", LastUsed: 1}))
+	got, err := s.List()
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+
+	// Callers may modify the returned slice without corrupting the cache.
+	got[0].Root = "/mutated"
+
+	// Another process appends to the same file.
+	other := NewWithPath(path)
+	require.NoError(t, other.Add(Entry{Root: "/b", DataDir: "/b/.crush", LastUsed: 2}))
+	got, err = s.List()
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, "/b", got[0].Root)
+	require.Equal(t, "/a", got[1].Root)
+
+	require.NoError(t, s.Add(Entry{Root: "/c", DataDir: "/c/.crush", LastUsed: 3}))
+	got, err = s.List()
+	require.NoError(t, err)
+	require.Equal(t, []string{"/c", "/b", "/a"}, []string{got[0].Root, got[1].Root, got[2].Root})
+}

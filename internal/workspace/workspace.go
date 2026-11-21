@@ -166,6 +166,10 @@ type Workspace interface {
 	// ListWorkspaceOverviews returns all known workspaces (attached and
 	// registry-known) with their sessions for the cross-workspace picker.
 	ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error)
+	// ListWorkspaceOverviewsLimit is ListWorkspaceOverviews keeping at
+	// most limit sessions per workspace, with SessionCount set to the
+	// total for truncated ones. A limit <= 0 lists everything.
+	ListWorkspaceOverviewsLimit(ctx context.Context, limit int) ([]proto.WorkspaceOverview, error)
 
 	// Messages
 	ListMessages(ctx context.Context, sessionID string) ([]message.Message, error)

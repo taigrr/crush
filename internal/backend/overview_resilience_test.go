@@ -177,3 +177,69 @@ func TestListWorkspaceOverviews_HidesTempWorkspaces(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ovs, 1)
 }
+
+func TestListWorkspaceOverviews_ServesStaleOnTimeout(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(dataDir, "crush.db")
+	require.NoError(t, os.WriteFile(dbPath, []byte("a"), 0o600))
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	var stuck atomic.Bool
+	b := newOverviewBackend(t, &fakePeeker{}, registry.Entry{Root: "/proj/a", DataDir: dataDir})
+	b.peekCache.peek = func(context.Context, string) ([]db.PeekedSession, error) {
+		if stuck.Load() {
+			<-release
+		}
+		return []db.PeekedSession{{ID: "s1", Title: "ok"}}, nil
+	}
+
+	ovs, err := b.ListWorkspaceOverviews(t.Context())
+	require.NoError(t, err)
+	require.Len(t, ovs, 1)
+	require.False(t, ovs[0].Stale)
+	require.Len(t, ovs[0].Sessions, 1)
+
+	stuck.Store(true)
+	require.NoError(t, os.WriteFile(dbPath, []byte("changed"), 0o600))
+	ovs, err = b.ListWorkspaceOverviews(t.Context())
+	require.NoError(t, err)
+	require.Len(t, ovs, 1)
+	require.False(t, ovs[0].Unavailable)
+	require.True(t, ovs[0].Stale)
+	require.NotZero(t, ovs[0].StaleSince)
+	require.NotEmpty(t, ovs[0].LastError)
+	require.Len(t, ovs[0].Sessions, 1)
+	require.Equal(t, "s1", ovs[0].Sessions[0].ID)
+}
+
+func TestPeekOverviews_BoundsConcurrency(t *testing.T) {
+	t.Parallel()
+	var running, maxRunning atomic.Int32
+	var entries []registry.Entry
+	for i := range 40 {
+		entries = append(entries, registry.Entry{Root: "/proj/" + string(rune('A'+i)), DataDir: "/data/" + string(rune('A'+i))})
+	}
+	b := newOverviewBackend(t, &fakePeeker{})
+	b.peekCache.guard.timeout = 5 * time.Second
+	b.peekCache.peek = func(_ context.Context, dataDir string) ([]db.PeekedSession, error) {
+		n := running.Add(1)
+		for {
+			m := maxRunning.Load()
+			if n <= m || maxRunning.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		time.Sleep(2 * time.Millisecond)
+		running.Add(-1)
+		return []db.PeekedSession{{ID: filepath.Base(dataDir)}}, nil
+	}
+	ovs := b.peekOverviews(t.Context(), entries)
+	require.Len(t, ovs, len(entries))
+	for i, ov := range ovs {
+		require.Equal(t, entries[i].Root, ov.Root)
+		require.Len(t, ov.Sessions, 1)
+		require.Equal(t, filepath.Base(entries[i].DataDir), ov.Sessions[0].ID)
+	}
+	require.LessOrEqual(t, int(maxRunning.Load()), peekConcurrency())
+}

@@ -40,6 +40,9 @@ type Mesh struct {
 	ec     *nats.Conn
 	routes []string
 	wsAddr string
+	stop   chan struct{}
+	// redialed records when a peer's route was last re-solicited.
+	redialed map[string]time.Time
 
 	devMu   sync.RWMutex
 	devices map[string]string
@@ -137,7 +140,7 @@ func (n *Node) StartMesh(routeAddr string) (*Mesh, error) {
 	}
 	srv.SetLoggerV2(newNATSLogger(nil, n.id.Name, false), false, false, false)
 	go srv.Start()
-	if !srv.ReadyForConnections(10 * time.Second) {
+	if !waitMeshReady(srv, 10*time.Second) {
 		srv.Shutdown()
 		return nil, errors.New("mesh server did not become ready")
 	}
@@ -166,6 +169,9 @@ func (n *Node) StartMesh(routeAddr string) (*Mesh, error) {
 	m.bc = bc
 	m.srv, m.opts, m.nc = srv, opts, nc
 	m.routes = urlStrings(opts.Routes)
+	m.stop = make(chan struct{})
+	m.redialed = map[string]time.Time{}
+	go m.redialLoop(m.stop)
 	n.store.Watch(func(State) { m.Reconcile() })
 	slog.Info("Cluster mesh started", "routes", len(opts.Routes), "listen", net.JoinHostPort(host, portStr))
 	return m, nil
@@ -226,11 +232,121 @@ func (m *Mesh) Close() {
 	if m.ec != nil {
 		m.ec.Close()
 	}
+	if m.stop != nil {
+		close(m.stop)
+		m.stop = nil
+	}
 	if m.srv != nil {
 		m.srv.Shutdown()
 		m.srv.WaitForShutdown()
 	}
 	m.nc, m.srv = nil, nil
+}
+
+const (
+	redialProbeInterval = 100 * time.Millisecond
+	redialProbeTimeout  = 100 * time.Millisecond
+	redialCooldown      = time.Second
+)
+
+// redialLoop shortens one-sided reconnects. nats-server redials a lost
+// explicit route only once a second; when a member without a route is
+// accepting connections again, re-soliciting its route URL dials it now.
+func (m *Mesh) redialLoop(stop <-chan struct{}) {
+	tick := time.NewTicker(redialProbeInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-tick.C:
+			m.redialMissing()
+		}
+	}
+}
+
+func (m *Mesh) missingRoutes() []string {
+	st, err := m.node.store.Snapshot()
+	if err != nil {
+		return nil
+	}
+	m.mu.Lock()
+	srv := m.srv
+	routes := m.routes
+	m.mu.Unlock()
+	if srv == nil || len(routes) == 0 {
+		return nil
+	}
+	rz, err := srv.Routez(nil)
+	if err != nil {
+		return nil
+	}
+	connected := make(map[string]bool, len(rz.Routes))
+	for _, r := range rz.Routes {
+		connected[r.RemoteName] = true
+	}
+	var out []string
+	for _, mem := range st.Members {
+		if mem.NodeID == m.node.id.ID || connected[mem.NodeID] {
+			continue
+		}
+		if addr := MeshAddr(mem); addr != "" {
+			out = append(out, addr)
+		}
+	}
+	return out
+}
+
+func (m *Mesh) redialMissing() {
+	for _, addr := range m.missingRoutes() {
+		m.mu.Lock()
+		recent := time.Since(m.redialed[addr]) < redialCooldown
+		m.mu.Unlock()
+		if recent {
+			continue
+		}
+		conn, err := (&net.Dialer{Timeout: redialProbeTimeout}).DialContext(context.Background(), "tcp", addr)
+		if err != nil {
+			continue
+		}
+		_ = conn.Close()
+		m.resolicit(addr)
+	}
+}
+
+// resolicit drops and re-adds the route URL for addr so the server starts
+// a fresh, immediate dial instead of waiting out its reconnect delay.
+func (m *Mesh) resolicit(addr string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.srv == nil {
+		return
+	}
+	m.redialed[addr] = time.Now()
+	var without []*url.URL
+	found := false
+	for _, u := range m.opts.Routes {
+		if u.Host == addr {
+			found = true
+			continue
+		}
+		without = append(without, u)
+	}
+	if !found {
+		return
+	}
+	tmp := m.opts.Clone()
+	tmp.Routes = without
+	if err := m.srv.ReloadOptions(tmp); err != nil {
+		slog.Warn("Failed to re-solicit mesh route", "addr", addr, "error", err)
+		return
+	}
+	next := m.opts.Clone()
+	if err := m.srv.ReloadOptions(next); err != nil {
+		slog.Warn("Failed to re-solicit mesh route", "addr", addr, "error", err)
+		return
+	}
+	m.opts = next
 }
 
 // routeURLs returns one NATS route URL per other member, preferring an
@@ -364,4 +480,20 @@ func WithMeshEndpoints(eps []Endpoint, meshPort int) []Endpoint {
 		out = append(out, Endpoint{Kind: EndpointNATS, Addr: net.JoinHostPort(h, strconv.Itoa(meshPort))})
 	}
 	return out
+}
+
+// waitMeshReady polls readiness in short steps. ReadyForConnections sleeps
+// 25ms after a failed check when given a longer timeout, which would add
+// that delay to every mesh start.
+func waitMeshReady(srv *natsserver.Server, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if srv.ReadyForConnections(time.Millisecond) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(200 * time.Microsecond)
+	}
 }

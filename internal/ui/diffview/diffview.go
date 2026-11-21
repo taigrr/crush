@@ -210,6 +210,7 @@ func (dv *DiffView) String() string {
 	dv.convertDiffToSplit()
 	dv.adjustStyles()
 	dv.detectNumDigits()
+	dv.prerenderLineNumbers()
 	dv.detectTotalLines()
 	dv.preventInfiniteYScroll()
 
@@ -414,8 +415,8 @@ func (dv *DiffView) resizeCodeWidth() {
 // rawContent is truncated to the column width with an ellipsis.
 func (dv *DiffView) writeUnifiedHeaderRow(b *strings.Builder, ls LineStyle, rawContent string) {
 	if dv.lineNumbers {
-		b.WriteString(ls.LineNumber.Render(pad("…", dv.beforeNumDigits)))
-		b.WriteString(ls.LineNumber.Render(pad("…", dv.afterNumDigits)))
+		b.WriteString(ls.renderLineNumber("…", dv.beforeNumDigits))
+		b.WriteString(ls.renderLineNumber("…", dv.afterNumDigits))
 	}
 	content := ansi.Truncate(rawContent, dv.fullCodeWidth, "…")
 	b.WriteString(ls.Code.Width(dv.fullCodeWidth).Render(content))
@@ -443,7 +444,7 @@ func (dv *DiffView) writeSplitColumn(b *strings.Builder, line *udiff.Line, lineN
 	if line == nil {
 		ls := dv.style.MissingLine
 		if dv.lineNumbers {
-			b.WriteString(ls.LineNumber.Render(pad(" ", numDigits)))
+			b.WriteString(ls.renderLineNumber(" ", numDigits))
 		}
 		b.WriteString(contentStyle.Render(
 			ls.Code.Width(fullWidth).Render("  "),
@@ -455,7 +456,7 @@ func (dv *DiffView) writeSplitColumn(b *strings.Builder, line *udiff.Line, lineN
 		ls := dv.style.EqualLine
 		content, leadingEllipsis := dv.getContent(line.Content, ls)
 		if dv.lineNumbers {
-			b.WriteString(ls.LineNumber.Render(pad(lineNum, numDigits)))
+			b.WriteString(ls.renderLineNumber(lineNum, numDigits))
 		}
 		b.WriteString(contentStyle.Render(
 			ls.Code.Width(fullWidth).Render(ternary(leadingEllipsis, " …", "  ") + content),
@@ -467,7 +468,7 @@ func (dv *DiffView) writeSplitColumn(b *strings.Builder, line *udiff.Line, lineN
 	ls := dv.lineStyleForType(line.Kind)
 	content, leadingEllipsis := dv.getContent(line.Content, ls)
 	if dv.lineNumbers {
-		b.WriteString(ls.LineNumber.Render(pad(lineNum, numDigits)))
+		b.WriteString(ls.renderLineNumber(lineNum, numDigits))
 	}
 	b.WriteString(contentStyle.Render(
 		ls.Symbol.Render(ternary(leadingEllipsis, changeSym+"…", changeSym+" ")) +
@@ -509,8 +510,8 @@ outer:
 				if shouldWrite() {
 					ls := dv.lineStyleForType(l.Kind)
 					if dv.lineNumbers {
-						b.WriteString(ls.LineNumber.Render(pad("…", dv.beforeNumDigits)))
-						b.WriteString(ls.LineNumber.Render(pad("…", dv.afterNumDigits)))
+						b.WriteString(ls.renderLineNumber("…", dv.beforeNumDigits))
+						b.WriteString(ls.renderLineNumber("…", dv.afterNumDigits))
 					}
 					b.WriteString(fullContentStyle.Render(
 						ls.Code.Width(dv.fullCodeWidth).Render("  …"),
@@ -526,8 +527,8 @@ outer:
 					ls := dv.style.EqualLine
 					content, leadingEllipsis := dv.getContent(l.Content, ls)
 					if dv.lineNumbers {
-						b.WriteString(ls.LineNumber.Render(pad(beforeLine, dv.beforeNumDigits)))
-						b.WriteString(ls.LineNumber.Render(pad(afterLine, dv.afterNumDigits)))
+						b.WriteString(ls.renderLineNumber(beforeLine, dv.beforeNumDigits))
+						b.WriteString(ls.renderLineNumber(afterLine, dv.afterNumDigits))
 					}
 					b.WriteString(fullContentStyle.Render(
 						ls.Code.Width(dv.fullCodeWidth).Render(ternary(leadingEllipsis, " …", "  ") + content),
@@ -540,8 +541,8 @@ outer:
 					ls := dv.style.InsertLine
 					content, leadingEllipsis := dv.getContent(l.Content, ls)
 					if dv.lineNumbers {
-						b.WriteString(ls.LineNumber.Render(pad(" ", dv.beforeNumDigits)))
-						b.WriteString(ls.LineNumber.Render(pad(afterLine, dv.afterNumDigits)))
+						b.WriteString(ls.renderLineNumber(" ", dv.beforeNumDigits))
+						b.WriteString(ls.renderLineNumber(afterLine, dv.afterNumDigits))
 					}
 					b.WriteString(fullContentStyle.Render(
 						ls.Symbol.Render(ternary(leadingEllipsis, "+…", "+ ")) +
@@ -554,8 +555,8 @@ outer:
 					ls := dv.style.DeleteLine
 					content, leadingEllipsis := dv.getContent(l.Content, ls)
 					if dv.lineNumbers {
-						b.WriteString(ls.LineNumber.Render(pad(beforeLine, dv.beforeNumDigits)))
-						b.WriteString(ls.LineNumber.Render(pad(" ", dv.afterNumDigits)))
+						b.WriteString(ls.renderLineNumber(beforeLine, dv.beforeNumDigits))
+						b.WriteString(ls.renderLineNumber(" ", dv.afterNumDigits))
 					}
 					b.WriteString(fullContentStyle.Render(
 						ls.Symbol.Render(ternary(leadingEllipsis, "-…", "- ")) +
@@ -580,12 +581,12 @@ outer:
 // style. rawContent is truncated to the column width with an ellipsis.
 func (dv *DiffView) writeSplitHeaderRow(b *strings.Builder, ls LineStyle, rawContent string) {
 	if dv.lineNumbers {
-		b.WriteString(ls.LineNumber.Render(pad("…", dv.beforeNumDigits)))
+		b.WriteString(ls.renderLineNumber("…", dv.beforeNumDigits))
 	}
 	content := ansi.Truncate(rawContent, dv.fullCodeWidth, "…")
 	b.WriteString(ls.Code.Width(dv.fullCodeWidth).Render(content))
 	if dv.lineNumbers {
-		b.WriteString(ls.LineNumber.Render(pad("…", dv.afterNumDigits)))
+		b.WriteString(ls.renderLineNumber("…", dv.afterNumDigits))
 	}
 	b.WriteString(ls.Code.Width(dv.fullCodeWidth + btoi(dv.extraColOnAfter)).Render(" "))
 	b.WriteRune('\n')
@@ -629,7 +630,7 @@ outer:
 						ls = dv.lineStyleForType(l.before.Kind)
 					}
 					if dv.lineNumbers {
-						b.WriteString(ls.LineNumber.Render(pad("…", dv.beforeNumDigits)))
+						b.WriteString(ls.renderLineNumber("…", dv.beforeNumDigits))
 					}
 					b.WriteString(beforeFullContentStyle.Render(
 						ls.Code.Width(dv.fullCodeWidth).Render("  …"),
@@ -639,7 +640,7 @@ outer:
 						ls = dv.lineStyleForType(l.after.Kind)
 					}
 					if dv.lineNumbers {
-						b.WriteString(ls.LineNumber.Render(pad("…", dv.afterNumDigits)))
+						b.WriteString(ls.renderLineNumber("…", dv.afterNumDigits))
 					}
 					b.WriteString(afterFullContentStyle.Render(
 						ls.Code.Width(dv.fullCodeWidth).Render("  …"),
@@ -734,6 +735,17 @@ func (dv *DiffView) hightlightCode(source string, bgColor color.Color) string {
 	}
 
 	l := dv.getChromaLexer()
+	sharedKey := sharedHighlightKey{
+		style:  dv.chromaStyle,
+		lexer:  lexerName(l),
+		source: source,
+	}
+	sharedKey.r, sharedKey.g, sharedKey.b, sharedKey.a = bgColor.RGBA()
+	if cached, ok := sharedHighlights.get(sharedKey); ok {
+		dv.syntaxCache[cacheKey] = cached
+		return cached
+	}
+
 	f := dv.getChromaFormatter(bgColor)
 
 	it, err := l.Tokenise(nil, source)
@@ -750,6 +762,7 @@ func (dv *DiffView) hightlightCode(source string, bgColor color.Color) string {
 
 	// Cache the result for future use
 	dv.syntaxCache[cacheKey] = result
+	sharedHighlights.put(sharedKey, result)
 
 	return result
 }

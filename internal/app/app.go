@@ -38,6 +38,7 @@ import (
 	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/shell"
 	"github.com/taigrr/crush/internal/skills"
+	"github.com/taigrr/crush/internal/startuptrace"
 	"github.com/taigrr/crush/internal/update"
 	"github.com/taigrr/crush/internal/version"
 	"github.com/taigrr/crush/internal/worktree"
@@ -147,7 +148,9 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 			})
 		}
 	}
+	endCheckpoint := startuptrace.Span("srv.app.checkpoint_service")
 	checkpoints, err := checkpoint.NewService(checkpointCfg, q, conn)
+	endCheckpoint()
 	if err != nil {
 		slog.Warn("Failed to initialize checkpoint service", "error", err)
 		// Continue without snapshots - it's not critical.
@@ -162,7 +165,9 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	if cfg.Worktree != nil {
 		worktreeCfg.PostCreateHooks = cfg.Worktree.PostCreate
 	}
+	endWorktree := startuptrace.Span("srv.app.worktree_service")
 	worktrees, err := worktree.NewService(worktreeCfg, q, conn, checkpoints)
+	endWorktree()
 	if err != nil {
 		slog.Warn("Failed to initialize worktree service", "error", err)
 		worktrees, _ = worktree.NewService(worktree.ServiceConfig{Enabled: false}, q, conn, checkpoints)
@@ -622,6 +627,7 @@ func (app *App) subscribeMustDeliver[T any](
 }
 
 func (app *App) InitCoderAgent(ctx context.Context) error {
+	defer startuptrace.Span("srv.app.init_coder_agent")()
 	coderAgentCfg := app.config.Config().Agents[config.AgentCoder]
 	if coderAgentCfg.ID == "" {
 		return fmt.Errorf("coder agent configuration is missing")

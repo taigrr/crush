@@ -12,9 +12,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/charlievieth/fastwalk"
 	"gopkg.in/yaml.v3"
+
+	"github.com/taigrr/crush/internal/startuptrace"
 )
 
 const (
@@ -201,6 +204,12 @@ func DiscoverWithStates(paths []string) ([]*Skill, []*SkillState) {
 		mu.Unlock()
 	}
 
+	var visited atomic.Int64
+	endWalk := startuptrace.Span("skills.walk")
+	defer func() {
+		endWalk()
+		startuptrace.Count("skills.walk_entries", int(visited.Load()))
+	}()
 	for _, base := range paths {
 		// We use fastwalk with Follow: true instead of filepath.WalkDir because
 		// WalkDir doesn't follow symlinked directories at any depth—only entry
@@ -211,6 +220,7 @@ func DiscoverWithStates(paths []string) ([]*Skill, []*SkillState) {
 			ToSlash: fastwalk.DefaultToSlash(),
 		}
 		err := fastwalk.Walk(&conf, base, func(path string, d os.DirEntry, err error) error {
+			visited.Add(1)
 			if err != nil {
 				slog.Warn("Failed to walk skills path entry", "base", base, "path", path, "error", err)
 				addState("", path, StateError, err)

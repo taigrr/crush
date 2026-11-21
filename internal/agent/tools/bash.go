@@ -154,8 +154,8 @@ func bashDescription(attribution *config.Attribution, modelName string) string {
 		Attribution:      *attribution,
 		ModelName:        modelName,
 		RgAvailable:      getRg() != "",
-		GhAvailable:      ghAvailable,
-		GhStackAvailable: ghStackAvailable,
+		GhAvailable:      ghAvailable(),
+		GhStackAvailable: ghStackAvailable(),
 	}); err != nil {
 		// this should never happen.
 		panic("failed to execute bash description template: " + err.Error())

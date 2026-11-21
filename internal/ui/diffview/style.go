@@ -10,6 +10,8 @@ type LineStyle struct {
 	LineNumber lipgloss.Style
 	Symbol     lipgloss.Style
 	Code       lipgloss.Style
+
+	numAffixes [2]lineNumAffix
 }
 
 // Style defines the overall style for the diff view, including styles for

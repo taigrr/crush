@@ -18,6 +18,7 @@ import (
 	"github.com/taigrr/crush/internal/procedures"
 	"github.com/taigrr/crush/internal/shell"
 	"github.com/taigrr/crush/internal/skills"
+	"github.com/taigrr/crush/internal/startuptrace"
 )
 
 // Prompt represents a template-based prompt generator.
@@ -81,6 +82,7 @@ func NewPrompt(name, promptTemplate string, opts ...Option) (*Prompt, error) {
 }
 
 func (p *Prompt) Build(ctx context.Context, provider, model string, store *config.ConfigStore) (string, error) {
+	defer startuptrace.Span("srv.prompt.build")()
 	t, err := template.New(p.name).Parse(p.template)
 	if err != nil {
 		return "", fmt.Errorf("parsing template: %w", err)
@@ -156,6 +158,7 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 	files := map[string][]ContextFile{}
 
 	cfg := store.Config()
+	endContext := startuptrace.Span("srv.prompt.context_files")
 	for _, pth := range cfg.Options.ContextPaths {
 		expanded := expandPath(pth, store)
 		pathKey := strings.ToLower(expanded)
@@ -165,11 +168,14 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		content := processContextPath(expanded, store)
 		files[pathKey] = content
 	}
+	endContext()
+	startuptrace.Count("srv.prompt.context_paths_checked", len(cfg.Options.ContextPaths))
 
 	// Discover and load skills metadata.
 	var availSkillXML string
 
 	// Start with builtin skills.
+	endSkills := startuptrace.Span("srv.prompt.skills_discover")
 	allSkills := skills.DiscoverBuiltin()
 	builtinNames := make(map[string]struct{}, len(allSkills))
 	for _, s := range allSkills {
@@ -182,7 +188,7 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		for _, pth := range cfg.Options.SkillsPaths {
 			expandedPaths = append(expandedPaths, expandPath(pth, store))
 		}
-		for _, userSkill := range skills.Discover(expandedPaths) {
+		for _, userSkill := range cachedDiscoverSkills(expandedPaths) {
 			if _, ok := builtinNames[userSkill.Name]; ok {
 				slog.Warn("User skill overrides builtin skill", "name", userSkill.Name)
 			}
@@ -192,6 +198,7 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 
 	// Deduplicate: user skills override builtins with the same name.
 	allSkills = skills.Deduplicate(allSkills)
+	endSkills()
 
 	// Filter out disabled skills.
 	allSkills = skills.Filter(allSkills, cfg.Options.DisabledSkills)
@@ -212,7 +219,9 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		AvailSkillXML: availSkillXML,
 	}
 	if isGit {
-		data.GitStatus = getGitStatus(ctx, store.WorkingDir())
+		endGit := startuptrace.Span("srv.prompt.git_status")
+		data.GitStatus = cachedGitStatus(ctx, store.WorkingDir())
+		endGit()
 	}
 
 	for _, contextFiles := range files {

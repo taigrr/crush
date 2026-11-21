@@ -601,24 +601,18 @@ func MarshalParts(parts []ContentPart) ([]byte, error) {
 }
 
 func UnmarshalParts(data []byte) ([]ContentPart, error) {
-	temp := []json.RawMessage{}
+	var temp []struct {
+		Type partType        `json:"type"`
+		Data json.RawMessage `json:"data"`
+	}
 
 	if err := json.Unmarshal(data, &temp); err != nil {
 		return nil, err
 	}
 
-	parts := make([]ContentPart, 0)
+	parts := make([]ContentPart, 0, len(temp))
 
-	for _, rawPart := range temp {
-		var wrapper struct {
-			Type partType        `json:"type"`
-			Data json.RawMessage `json:"data"`
-		}
-
-		if err := json.Unmarshal(rawPart, &wrapper); err != nil {
-			return nil, err
-		}
-
+	for _, wrapper := range temp {
 		switch wrapper.Type {
 		case reasoningType:
 			part := ReasoningContent{}

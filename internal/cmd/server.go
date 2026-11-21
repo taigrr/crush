@@ -19,6 +19,7 @@ import (
 	"github.com/taigrr/crush/internal/config"
 	crushlog "github.com/taigrr/crush/internal/log"
 	"github.com/taigrr/crush/internal/server"
+	"github.com/taigrr/crush/internal/startuptrace"
 	"github.com/taigrr/crush/internal/update"
 	"github.com/taigrr/crush/internal/version"
 )
@@ -107,9 +108,18 @@ var serverCmd = &cobra.Command{
 		srv := server.NewServer(cfg, hostURL.Scheme, hostURL.Host)
 		srv.SetLogger(slog.Default())
 		srv.Backend().SetPersistent(serverPersistent)
+		if startuptrace.Enabled() {
+			// Benchmark-only knob so the harness can force idle teardown
+			// between reconnects without waiting out the default grace.
+			if d, err := time.ParseDuration(os.Getenv("CRUSH_STARTUP_TRACE_RECONNECT_GRACE")); err == nil {
+				srv.Backend().SetReconnectGrace(d)
+			}
+		}
+		endCluster := startuptrace.Span("srv.enable_cluster")
 		if err := enableCluster(srv, cfg.Config().Cluster); err != nil {
 			slog.Error("Failed to enable clustering", "error", err)
 		}
+		endCluster()
 		slog.Info("Starting Crush server...", "addr", serverHost)
 
 		errch := make(chan error, 1)
@@ -118,6 +128,7 @@ var serverCmd = &cobra.Command{
 		sigs = append(sigs, addSignals(sigs)...)
 		signal.Notify(sigch, sigs...)
 
+		startuptrace.Mark("server_listen")
 		go func() {
 			errch <- srv.ListenAndServe()
 		}()

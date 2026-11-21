@@ -55,3 +55,6 @@ completions/crush.*sh
 .prettierignore
 .task
 profiles
+
+# Benchmark results
+bench/out/

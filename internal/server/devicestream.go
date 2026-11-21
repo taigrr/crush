@@ -605,20 +605,21 @@ func (s *deviceStream) finish(w *streamWriter) {
 // waitCredit blocks while the device has too many unacknowledged frames,
 // ending the stream after tune.blocked.
 func (s *deviceStream) waitCredit(ctx context.Context) bool {
+	expired := false
 	timer := time.AfterFunc(s.tune.blocked, func() {
 		s.mu.Lock()
+		expired = true
 		s.cond.Broadcast()
 		s.mu.Unlock()
 	})
 	defer timer.Stop()
-	deadline := time.Now().Add(s.tune.blocked)
 	s.mu.Lock()
 	for s.sent-s.acked >= s.credit && s.reason == "" {
 		if ctx.Err() != nil {
 			s.mu.Unlock()
 			return false
 		}
-		if !time.Now().Before(deadline) {
+		if expired {
 			s.mu.Unlock()
 			s.end(endCreditTimeout)
 			return false

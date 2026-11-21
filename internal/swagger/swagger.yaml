@@ -2643,6 +2643,13 @@ definitions:
         type: string
       root:
         type: string
+      session_count:
+        description: |-
+          SessionCount is the workspace's total number of listed sessions
+          when the request asked for a bounded list (limit); Sessions then
+          holds only the first limit of them in display order. Zero when the
+          list is complete.
+        type: integer
       sessions:
         items:
           $ref: '#/definitions/proto.SessionOverview'
@@ -3931,6 +3938,16 @@ paths:
       x-crush-scope: sessions:prompt
   /workspace-overviews:
     get:
+      parameters:
+      - description: Max sessions per workspace (display order); session_count then
+          carries the total. Omitted or 0 lists all.
+        in: query
+        name: limit
+        type: integer
+      - description: 'Non-empty: only this node''s workspaces (node-to-node fetch)'
+        in: query
+        name: local
+        type: string
       produces:
       - application/json
       responses:
@@ -3940,6 +3957,10 @@ paths:
             items:
               $ref: '#/definitions/proto.WorkspaceOverview'
             type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/proto.Error'
         "500":
           description: Internal Server Error
           schema:

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -113,15 +112,27 @@ func (c *controllerV1) handleGetWorkspaces(w http.ResponseWriter, _ *http.Reques
 //	@Summary		List workspace/session overviews
 //	@Tags			workspaces
 //	@Produce		json
-//	@Success		200	{array}		proto.WorkspaceOverview
-//	@Failure		500	{object}	proto.Error
+//	@Param			limit	query		int		false	"Max sessions per workspace (display order); session_count then carries the total. Omitted or 0 lists all."
+//	@Param			local	query		string	false	"Non-empty: only this node's workspaces (node-to-node fetch)"
+//	@Success		200		{array}		proto.WorkspaceOverview
+//	@Failure		400		{object}	proto.Error
+//	@Failure		500		{object}	proto.Error
 //	@x-crush-scope	"sessions:read"
 //	@Router			/workspace-overviews [get]
 func (c *controllerV1) handleGetWorkspaceOverviews(w http.ResponseWriter, r *http.Request) {
+	limit := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			jsonError(w, http.StatusBadRequest, "invalid limit")
+			return
+		}
+		limit = n
+	}
 	if r.URL.Query().Get("local") != "" {
 		// Node-to-node fetch: lists of a few thousand sessions run to
 		// hundreds of KB, which is slow over a WAN; compress them.
-		overviews, err := c.backend.ListWorkspaceOverviews(r.Context())
+		overviews, err := c.backend.ListWorkspaceOverviewsLimit(r.Context(), limit)
 		if err != nil {
 			c.handleError(w, r, err)
 			return
@@ -129,7 +140,7 @@ func (c *controllerV1) handleGetWorkspaceOverviews(w http.ResponseWriter, r *htt
 		jsonEncodeGzip(w, r, overviews)
 		return
 	}
-	overviews, err := c.backend.ListClusterOverviews(r.Context())
+	overviews, err := c.backend.ListClusterOverviewsLimit(r.Context(), limit)
 	c.respond(w, r, overviews, err)
 }
 
@@ -387,12 +398,12 @@ func (c *controllerV1) handleGetWorkspaceEvents(w http.ResponseWriter, r *http.R
 			if wrapped == nil {
 				continue
 			}
-			data, err := json.Marshal(wrapped)
+			data, err := appendSSE(nil, wrapped)
 			if err != nil {
 				c.server.logError(r, "Failed to marshal event", "error", err)
 				continue
 			}
-			if _, err := fmt.Fprintf(out, "data: %s\n\n", data); err != nil {
+			if _, err := out.Write(data); err != nil {
 				c.server.logError(
 					r, "SSE write failed",
 					slog.String("workspace_id", id),
@@ -508,12 +519,12 @@ func (c *controllerV1) handleGetGlobalEvents(w http.ResponseWriter, r *http.Requ
 			if wrapped == nil {
 				continue
 			}
-			data, err := json.Marshal(wrapped)
+			data, err := appendSSE(nil, wrapped)
 			if err != nil {
 				c.server.logError(r, "Failed to marshal attention event", "error", err)
 				continue
 			}
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+			if _, err := w.Write(data); err != nil {
 				c.server.logError(r, "Global attention SSE write failed", slog.String("error", err.Error()))
 				return
 			}

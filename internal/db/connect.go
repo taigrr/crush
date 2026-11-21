@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/pressly/goose/v3"
+
+	"github.com/taigrr/crush/internal/startuptrace"
 )
 
 var (
@@ -105,8 +107,10 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 
 	if entry, ok := pool[absPath]; ok {
 		entry.refCount++
+		startuptrace.Count("srv.db.pool_hit", 1)
 		return entry.db, nil
 	}
+	defer startuptrace.Span("srv.db.open_total")()
 
 	// Take the per-data-directory lock before opening the database so
 	// we fail fast and with a clear error rather than racing another
@@ -146,7 +150,10 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 		}
 	}
 
-	if err = conn.PingContext(ctx); err != nil {
+	endPing := startuptrace.Span("srv.db.open_ping")
+	err = conn.PingContext(ctx)
+	endPing()
+	if err != nil {
 		conn.Close()
 		releaseLock()
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
@@ -154,7 +161,10 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 
 	// Migrations run under poolMu, so an up-to-date database skips goose
 	// entirely: otherwise every replica open stalls every other Connect.
-	if schemaCurrent(ctx, conn) {
+	endSchema := startuptrace.Span("srv.db.schema_check")
+	current := schemaCurrent(ctx, conn)
+	endSchema()
+	if current {
 		pool[absPath] = &connEntry{db: conn, refCount: 1, lock: lock}
 		return conn, nil
 	}
@@ -166,7 +176,10 @@ func Connect(ctx context.Context, dataDir string, opts ...ConnectOption) (*sql.D
 		return nil, fmt.Errorf("failed to initialize goose: %w", err)
 	}
 
-	if err := goose.Up(conn, "migrations"); err != nil {
+	endMigrate := startuptrace.Span("srv.db.migrate")
+	err = goose.Up(conn, "migrations")
+	endMigrate()
+	if err != nil {
 		conn.Close()
 		releaseLock()
 		slog.Error("Failed to apply migrations", "error", err)

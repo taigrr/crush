@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/taigrr/crush/internal/db"
 )
 
-func open(t *testing.T) *sql.DB {
+func open(t testing.TB) *sql.DB {
 	t.Helper()
 	dir := t.TempDir()
 	conn, err := db.Connect(t.Context(), dir)
@@ -20,24 +21,24 @@ func open(t *testing.T) *sql.DB {
 	return conn
 }
 
-func exec(t *testing.T, conn *sql.DB, q string, args ...any) {
+func exec(t testing.TB, conn *sql.DB, q string, args ...any) {
 	t.Helper()
 	_, err := conn.Exec(q, args...)
 	require.NoError(t, err)
 }
 
-func addSession(t *testing.T, conn *sql.DB, id, title string) {
+func addSession(t testing.TB, conn *sql.DB, id, title string) {
 	now := time.Now().UnixMilli()
 	exec(t, conn, `INSERT INTO sessions (id, title, message_count, prompt_tokens, completion_tokens, cost, updated_at, created_at) VALUES (?,?,0,0,0,0,?,?)`, id, title, now, now)
 }
 
-func addMessage(t *testing.T, conn *sql.DB, id, sid string) {
+func addMessage(t testing.TB, conn *sql.DB, id, sid string) {
 	now := time.Now().UnixMilli()
 	exec(t, conn, `INSERT INTO messages (id, session_id, role, parts, created_at, updated_at) VALUES (?,?,'user','[]',?,?)`, id, sid, now, now)
 }
 
 // roundTrip simulates the wire: JSON encode then decode.
-func roundTrip(t *testing.T, b Batch) Batch {
+func roundTrip(t testing.TB, b Batch) Batch {
 	t.Helper()
 	data, err := json.Marshal(b)
 	require.NoError(t, err)
@@ -193,4 +194,36 @@ func TestReplicaFollowsHandoffBetweenOtherNodes(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, laptop.QueryRow(`SELECT title FROM sessions WHERE id='s1'`).Scan(&title))
 	require.Equal(t, "job on mini2", title)
+}
+
+func TestServeDeltaFiltersByOwner(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	a := open(t)
+	addSession(t, a, "mine", "mine")
+	addSession(t, a, "theirs", "theirs")
+	exec(t, a, `UPDATE sessions SET owner_node='other' WHERE id='theirs'`)
+	since := MaxSeq(ctx, a)
+
+	idle, err := Serve(ctx, a, "nodeA", since, MaxEmbed(ctx, a), false)
+	require.NoError(t, err)
+	require.False(t, idle.Full)
+	require.Empty(t, idle.Changes)
+
+	for i := range ownerBulkAfter + 5 {
+		addSession(t, a, fmt.Sprintf("bulk-%03d", i), "bulk")
+	}
+	addMessage(t, a, "m-mine", "mine")
+	addMessage(t, a, "m-theirs", "theirs")
+	b, err := Serve(ctx, a, "nodeA", since, 0, false)
+	require.NoError(t, err)
+	got := map[string]bool{}
+	for _, c := range b.Changes {
+		if c.Op == "U" {
+			got[valueString(c.Row["id"])] = true
+		}
+	}
+	require.True(t, got["m-mine"])
+	require.False(t, got["m-theirs"])
+	require.True(t, got[fmt.Sprintf("bulk-%03d", ownerBulkAfter+4)])
 }

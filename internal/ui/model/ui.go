@@ -19,6 +19,7 @@ import (
 	"github.com/taigrr/crush/internal/session"
 	"github.com/taigrr/crush/internal/sessionimport"
 	"github.com/taigrr/crush/internal/skills"
+	"github.com/taigrr/crush/internal/startuptrace"
 	"github.com/taigrr/crush/internal/ui/attachments"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/completions"
@@ -347,6 +348,9 @@ type UI struct {
 	frameSkipPut     bool
 	frameGCArmed     bool
 
+	// canvas is the screen buffer reused by View across frames.
+	canvas uv.ScreenBuffer
+
 	// Wheel coalescing (see scroll.go). pendingScroll accumulates wheel
 	// deltas while scrollFlushPending marks an open coalesce window.
 	pendingScroll      int
@@ -574,7 +578,7 @@ func (m *UI) Init() tea.Cmd {
 	cmds = append(cmds, m.loadInitialLSPStates(), m.loadInitialMCPStates(), m.loadInitialSkillStates())
 	// load cross-workspace session overviews for the landing screen and
 	// the session navigator.
-	cmds = append(cmds, m.loadWorkspaceOverviews())
+	cmds = append(cmds, m.prefetchWorkspaceOverviews())
 	// load initial session if specified
 	if cmd := m.loadInitialSession(); cmd != nil {
 		cmds = append(cmds, cmd)
@@ -630,12 +634,17 @@ func (m *UI) setState(state uiState, focus uiFocusState) {
 // loadCustomCommands loads the custom commands asynchronously.
 func (m *UI) loadCustomCommands() tea.Cmd {
 	return func() tea.Msg {
+		endCommands := startuptrace.Span("cli.load_custom_commands")
 		customCommands, err := commands.LoadCustomCommands(m.com.Config())
+		endCommands()
+		startuptrace.Count("cli.custom_commands", len(customCommands))
 		if err != nil {
 			slog.Error("Failed to load custom commands", "error", err)
 		}
 		// Append user-invocable skills as commands.
+		endSkills := startuptrace.Span("cli.list_skills_rpc")
 		skillEntries, err := m.com.Workspace.ListSkills(context.Background())
+		endSkills()
 		if err != nil {
 			slog.Error("Failed to load skill commands", "error", err)
 		}

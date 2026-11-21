@@ -97,8 +97,8 @@ func fullEvents(updates []message.Message) [][]byte {
 	out := make([][]byte, 0, len(updates))
 	for _, m := range updates {
 		p := wrapEvent(pubsub.Event[message.Message]{Type: pubsub.UpdatedEvent, Payload: m})
-		data, _ := json.Marshal(p)
-		out = append(out, append(append([]byte("data: "), data...), '\n', '\n'))
+		data, _ := appendSSE(nil, p)
+		out = append(out, data)
 	}
 	return out
 }

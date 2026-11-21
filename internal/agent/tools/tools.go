@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/taigrr/fantasy"
@@ -102,15 +103,15 @@ func FirstLineDescription(content []byte) string {
 }
 
 // ghAvailable indicates whether the `gh` CLI is available on PATH.
-var ghAvailable = func() bool {
+var ghAvailable = sync.OnceValue(func() bool {
 	_, err := exec.LookPath("gh")
 	return err == nil
-}()
+})
 
 // ghStackAvailable indicates whether the `gh-stack` extension is installed.
 // It is only probed when `gh` itself is on PATH.
-var ghStackAvailable = func() bool {
-	if !ghAvailable {
+var ghStackAvailable = sync.OnceValue(func() bool {
+	if !ghAvailable() {
 		return false
 	}
 	out, err := exec.Command("gh", "extension", "list").Output()
@@ -118,7 +119,7 @@ var ghStackAvailable = func() bool {
 		return false
 	}
 	return strings.Contains(string(out), "github/gh-stack")
-}()
+})
 
 // ToolDescriptionData is the common data structure for tool description templates.
 type ToolDescriptionData struct {
@@ -128,7 +129,7 @@ type ToolDescriptionData struct {
 // RenderToolDescription renders a tool description template with the common data.
 func RenderToolDescription(tmpl *template.Template) string {
 	data := ToolDescriptionData{
-		GhAvailable: ghAvailable,
+		GhAvailable: ghAvailable(),
 	}
 	var out bytes.Buffer
 	if err := tmpl.Execute(&out, data); err != nil {

@@ -16,12 +16,16 @@ package registry
 
 import (
 	"bufio"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/taigrr/crush/internal/config"
 )
@@ -43,6 +47,25 @@ type Entry struct {
 type Store struct {
 	path string
 	mu   sync.Mutex
+	// cached is the last deduplicated listing, valid while the file's
+	// stat matches cachedStat. Other processes append to the file too,
+	// so the stat (not just our own writes) gates reuse.
+	cached     []Entry
+	cachedStat fileStat
+}
+
+type fileStat struct {
+	size    int64
+	modTime time.Time
+	ok      bool
+}
+
+func statFile(path string) fileStat {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return fileStat{}
+	}
+	return fileStat{size: fi.Size(), modTime: fi.ModTime(), ok: true}
 }
 
 // defaultPath returns the location of the global registry file, alongside
@@ -70,6 +93,7 @@ func (s *Store) Add(e Entry) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.cached = nil
 
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
@@ -96,7 +120,19 @@ func (s *Store) Add(e Entry) error {
 func (s *Store) List() ([]Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.listLocked()
+	st := statFile(s.path)
+	if st.ok && s.cached != nil && st == s.cachedStat {
+		return slices.Clone(s.cached), nil
+	}
+	entries, err := s.listLocked()
+	if err != nil {
+		s.cached = nil
+		return nil, err
+	}
+	if st.ok {
+		s.cached, s.cachedStat = slices.Clone(entries), st
+	}
+	return entries, nil
 }
 
 func (s *Store) listLocked() ([]Entry, error) {
@@ -151,6 +187,7 @@ func (s *Store) Compact() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.cached = nil
 	entries, err := s.listLocked()
 	if err != nil {
 		return err
@@ -188,15 +225,12 @@ func (s *Store) Compact() error {
 }
 
 func sortByLastUsedDesc(entries []Entry) {
-	for i := 1; i < len(entries); i++ {
-		for j := i; j > 0; j-- {
-			a, b := entries[j-1], entries[j]
-			if a.LastUsed > b.LastUsed || (a.LastUsed == b.LastUsed && a.Root <= b.Root) {
-				break
-			}
-			entries[j-1], entries[j] = b, a
+	slices.SortFunc(entries, func(a, b Entry) int {
+		if c := cmp.Compare(b.LastUsed, a.LastUsed); c != 0 {
+			return c
 		}
-	}
+		return strings.Compare(a.Root, b.Root)
+	})
 }
 
 // Path returns the registry file's location.

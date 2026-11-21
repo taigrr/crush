@@ -278,6 +278,28 @@ func (s *SessionsSidebar) AttachedSessions() []proto.SessionOverview {
 	return nil
 }
 
+// Truncated reports whether any workspace's session list was bounded by
+// the server (see proto.WorkspaceOverview.SessionCount).
+func (s *SessionsSidebar) Truncated() bool {
+	for _, ws := range s.overviews {
+		if ws.SessionCount > len(ws.Sessions) {
+			return true
+		}
+	}
+	return false
+}
+
+// hiddenSessions is how many of workspace wi's sessions the server left
+// out of a bounded list. They are unknown to any filter, so they only
+// count when no filter is active.
+func (s *SessionsSidebar) hiddenSessions(wi int) int {
+	ws := s.overviews[wi]
+	if s.searchQuery() != "" || !s.nodeMatches(ws) {
+		return 0
+	}
+	return max(0, ws.SessionCount-len(ws.Sessions))
+}
+
 // WorkspaceCount returns the number of known workspaces.
 func (s *SessionsSidebar) WorkspaceCount() int {
 	return len(s.overviews)
@@ -346,7 +368,8 @@ type SessionCounts struct {
 // block agrees with the (filtered) rows shown below it.
 func (s *SessionsSidebar) SessionCounts() SessionCounts {
 	var c SessionCounts
-	for _, ws := range s.overviews {
+	for wi, ws := range s.overviews {
+		c.Total += s.hiddenSessions(wi)
 		for _, sess := range ws.Sessions {
 			if !s.sessionMatchesFilter(sess, ws) {
 				continue
@@ -560,7 +583,7 @@ func (s *SessionsSidebar) rebuildGroupedRows() {
 		for _, si := range idxs[:shown] {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: si})
 		}
-		if remaining := len(idxs) - shown; remaining > 0 {
+		if remaining := len(idxs) - shown + s.hiddenSessions(wi); remaining > 0 {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowOverflow, wsIdx: wi, remaining: remaining})
 		}
 	}
@@ -604,6 +627,9 @@ func (s *SessionsSidebar) computeCaps() []int {
 	for i := range s.overviews {
 		c := len(s.filteredIdxs(i))
 		counts[i] = c
+		if c > 0 {
+			c += s.hiddenSessions(i)
+		}
 		if c == 0 {
 			continue
 		}

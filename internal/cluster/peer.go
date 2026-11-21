@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 )
 
 // statusError is a non-2xx response from a peer.
@@ -50,10 +51,12 @@ func (n *Node) call(ctx context.Context, hc *http.Client, addr, method, path str
 		return 0, err
 	}
 	defer rsp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(rsp.Body, 8<<20))
-	if err != nil {
+	buf := respBufPool.Get().(*bytes.Buffer)
+	defer putRespBuf(buf)
+	if _, err := buf.ReadFrom(io.LimitReader(rsp.Body, 8<<20)); err != nil {
 		return 0, err
 	}
+	data := buf.Bytes()
 	if rsp.StatusCode < 200 || rsp.StatusCode > 299 {
 		var eb errorBody
 		_ = json.Unmarshal(data, &eb)
@@ -73,6 +76,18 @@ func (n *Node) call(ctx context.Context, hc *http.Client, addr, method, path str
 		}
 	}
 	return rsp.StatusCode, nil
+}
+
+// respBufPool recycles peer response buffers; decoded values never alias
+// them because json.Unmarshal copies what it keeps.
+var respBufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+
+func putRespBuf(buf *bytes.Buffer) {
+	if buf.Cap() > 1<<20 {
+		return
+	}
+	buf.Reset()
+	respBufPool.Put(buf)
 }
 
 // callMember tries each of a member's endpoints until one answers.

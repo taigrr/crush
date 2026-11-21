@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"path/filepath"
+	"slices"
 
 	"charm.land/bubbles/v2/key"
 
@@ -11,6 +13,8 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/taigrr/crush/internal/config"
 	"github.com/taigrr/crush/internal/proto"
+	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/startuptrace"
 	"github.com/taigrr/crush/internal/ui/dialog"
 	"github.com/taigrr/crush/internal/ui/util"
 	"github.com/taigrr/crush/internal/workspace"
@@ -41,16 +45,40 @@ type workspaceOverviewsMsg struct {
 	overviews []proto.WorkspaceOverview
 }
 
+// overviewSessionLimit bounds how many sessions per workspace the sidebar
+// fetches. The sidebar shows far fewer per workspace (its cap is an even
+// share of the body height); the rest collapse into the "…N more" row,
+// which opens the workspace's full session picker. A text search fetches
+// complete lists.
+const overviewSessionLimit = 50
+
 // loadWorkspaceOverviews fetches the cross-workspace session overviews off
-// the Update goroutine.
+// the Update goroutine. Lists are bounded unless the sidebar is searching.
 func (m *UI) loadWorkspaceOverviews() tea.Cmd {
+	limit := overviewSessionLimit
+	if m.leftSidebar != nil && m.leftSidebar.Searching() {
+		limit = 0
+	}
 	return func() tea.Msg {
-		overviews, err := m.com.Workspace.ListWorkspaceOverviews(context.Background())
+		startuptrace.Mark("overviews_req_start")
+		overviews, err := m.com.Workspace.ListWorkspaceOverviewsLimit(context.Background(), limit)
+		startuptrace.Mark("overviews_req_done")
 		if err != nil {
 			return util.InfoMsg{Type: util.InfoTypeError, Msg: err.Error()}
 		}
 		return workspaceOverviewsMsg{overviews: overviews}
 	}
+}
+
+// prefetchWorkspaceOverviews starts the overview fetch right away instead of
+// when Bubble Tea gets around to running Init commands, which happens only
+// after the first frames and terminal queries are processed. The returned
+// command delivers the result.
+func (m *UI) prefetchWorkspaceOverviews() tea.Cmd {
+	done := make(chan tea.Msg, 1)
+	load := m.loadWorkspaceOverviews()
+	go func() { done <- load() }()
+	return func() tea.Msg { return <-done }
 }
 
 // toggleLeftSidebar shows/hides the left session navigator. Showing it also
@@ -157,6 +185,10 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 		// focused (this handler runs solely in that case), so it never
 		// collides with the editor's "/" add-file binding.
 		m.leftSidebar.EnterSearch()
+		if m.leftSidebar.Truncated() {
+			// Search must see every session, not just the bounded top.
+			return tea.Batch(m.scheduleSidebarPreview(), m.loadWorkspaceOverviews()), true
+		}
 		return m.scheduleSidebarPreview(), true
 	}
 	switch msg.String() {
@@ -648,5 +680,46 @@ func batchTargets(targets []SessionTarget) []workspace.BatchTarget {
 	for i, t := range targets {
 		out[i] = workspace.BatchTarget{WorkspaceID: t.WorkspaceID, Root: t.Root, SessionID: t.ID}
 	}
+	return out
+}
+
+// mergeActiveSession makes sure the open session is listed under its
+// workspace even when a bounded overview cut it off, so the sidebar can
+// always mark it. The overviews are copied before modification.
+func mergeActiveSession(ovs []proto.WorkspaceOverview, root string, sess *session.Session) []proto.WorkspaceOverview {
+	if sess == nil || sess.ID == "" || sess.ParentSessionID != "" {
+		return ovs
+	}
+	target := -1
+	resolved := root
+	if r, err := filepath.EvalSymlinks(root); err == nil {
+		resolved = r
+	}
+	for i, ov := range ovs {
+		for _, s := range ov.Sessions {
+			if s.ID == sess.ID {
+				return ovs
+			}
+		}
+		if target < 0 && (ov.Root == root || ov.Root == resolved) {
+			target = i
+		}
+	}
+	if target < 0 {
+		return ovs
+	}
+	out := slices.Clone(ovs)
+	ov := &out[target]
+	ov.Sessions = append(slices.Clip(ov.Sessions), proto.SessionOverview{
+		ID:         sess.ID,
+		Title:      sess.Title,
+		WorkingDir: sess.WorkingDir,
+		UpdatedAt:  sess.UpdatedAt,
+		Unread:     sess.Unread(),
+		Color:      sess.Color,
+		Animal:     sess.Animal,
+		Favorite:   sess.Favorite,
+		OwnerNode:  sess.OwnerNode,
+	})
 	return out
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/taigrr/crush/internal/pubsub"
 	"github.com/taigrr/crush/internal/shell"
 	"github.com/taigrr/crush/internal/sound"
+	"github.com/taigrr/crush/internal/startuptrace"
 )
 
 // SendMessage validates and accepts a prompt for the workspace's agent,
@@ -241,7 +242,10 @@ func (b *Backend) InitAgent(ctx context.Context, workspaceID string) error {
 		return err
 	}
 
-	if err := ws.InitCoderAgent(ctx); err != nil {
+	endInit := startuptrace.Span("srv.init_agent_rpc")
+	err = ws.InitCoderAgent(ctx)
+	endInit()
+	if err != nil {
 		return err
 	}
 

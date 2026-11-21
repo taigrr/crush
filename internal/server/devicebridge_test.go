@@ -650,6 +650,27 @@ func TestDeviceBridgeStreamCredit(t *testing.T) {
 	require.Equal(t, endCreditTimeout, blocked.reason)
 }
 
+func TestDeviceStreamCreditTimeoutSurvivesEarlyWake(t *testing.T) {
+	t.Parallel()
+	s := &deviceStream{credit: 1, sent: 1, tune: streamTuning{blocked: 200 * time.Millisecond}, cancel: func() {}}
+	s.cond = newCond(s)
+	done := make(chan bool, 1)
+	go func() { done <- s.waitCredit(t.Context()) }()
+	for range 5 {
+		time.Sleep(10 * time.Millisecond)
+		s.mu.Lock()
+		s.cond.Broadcast()
+		s.mu.Unlock()
+	}
+	select {
+	case ok := <-done:
+		require.False(t, ok)
+	case <-time.After(5 * time.Second):
+		t.Fatal("a stream woken before its lease expired must still end")
+	}
+	require.Equal(t, endCreditTimeout, s.reason)
+}
+
 func TestDeviceStreamResumeBuffer(t *testing.T) {
 	t.Parallel()
 	srv, _ := initPhoneNode(t)

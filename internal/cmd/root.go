@@ -37,6 +37,7 @@ import (
 	"github.com/taigrr/crush/internal/proto"
 	"github.com/taigrr/crush/internal/server"
 	"github.com/taigrr/crush/internal/session"
+	"github.com/taigrr/crush/internal/startuptrace"
 	"github.com/taigrr/crush/internal/ui/anim"
 	"github.com/taigrr/crush/internal/ui/common"
 	ui "github.com/taigrr/crush/internal/ui/model"
@@ -156,6 +157,7 @@ crush skill print
 		}
 		program := tea.NewProgram(model, opts...)
 		go ws.Subscribe(program)
+		startuptrace.Mark("program_start")
 
 		if _, err := program.Run(); err != nil {
 			slog.Error("TUI run error", "error", err)
@@ -273,18 +275,23 @@ func setupClientServerWorkspace(cmd *cobra.Command) (workspace.Workspace, func()
 	clientWs := workspace.NewClientWorkspace(c, *protoWs)
 
 	if protoWs.Config.IsConfigured() {
+		endInit := startuptrace.Span("cli.init_agent_rpc")
 		if err := clientWs.InitCoderAgent(cmd.Context()); err != nil {
 			slog.Error("Failed to initialize coder agent", "error", err)
 		}
+		endInit()
 	}
 
+	startuptrace.Mark("agent_init")
 	return clientWs, cleanupServer, nil
 }
 
 // connectToServer ensures the server is running, creates a client and
 // workspace, and returns a cleanup function that deletes the workspace.
 func connectToServer(cmd *cobra.Command, opts ...func(*proto.Workspace)) (*client.Client, *proto.Workspace, func(), error) {
+	endCwd := startuptrace.Span("cli.resolve_cwd")
 	cwd, err := ResolveCwd(cmd)
+	endCwd()
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -299,9 +306,13 @@ func connectToServerAt(cmd *cobra.Command, cwd string, opts ...func(*proto.Works
 		return nil, nil, nil, fmt.Errorf("invalid host URL: %v", err)
 	}
 
-	if err := ensureServer(cmd, hostURL); err != nil {
+	endEnsure := startuptrace.Span("cli.ensure_server")
+	err = ensureServer(cmd, hostURL)
+	endEnsure()
+	if err != nil {
 		return nil, nil, nil, err
 	}
+	startuptrace.Mark("server_ready")
 
 	debug, _ := cmd.Flags().GetBool("debug")
 	yolo, _ := cmd.Flags().GetBool("yolo")
@@ -326,8 +337,11 @@ func connectToServerAt(cmd *cobra.Command, cwd string, opts ...func(*proto.Works
 	}
 
 	stopNotice := noticeWhileWaiting(ctx, "the crush server to open the workspace at "+cwd)
+	endCreate := startuptrace.Span("cli.create_workspace_rpc")
 	ws, err := c.CreateWorkspace(ctx, wsReq)
+	endCreate()
 	stopNotice()
+	startuptrace.Mark("workspace_created")
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create workspace: %v", err)
 	}

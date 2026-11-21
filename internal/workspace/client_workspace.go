@@ -1639,7 +1639,13 @@ func (w *ClientWorkspace) requestSwitch() {
 // ListWorkspaceOverviews returns all known workspaces (attached and
 // registry-known) with their sessions for the cross-workspace picker.
 func (w *ClientWorkspace) ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceOverview, error) {
-	ovs, err := w.home.ListWorkspaceOverviews(ctx)
+	return w.ListWorkspaceOverviewsLimit(ctx, 0)
+}
+
+// ListWorkspaceOverviewsLimit is [ClientWorkspace.ListWorkspaceOverviews]
+// keeping at most limit sessions per workspace (0 = all).
+func (w *ClientWorkspace) ListWorkspaceOverviewsLimit(ctx context.Context, limit int) ([]proto.WorkspaceOverview, error) {
+	ovs, err := w.home.ListWorkspaceOverviewsLimit(ctx, limit)
 	if err != nil {
 		return nil, err
 	}

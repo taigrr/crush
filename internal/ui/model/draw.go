@@ -12,6 +12,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/ultraviolet/screen"
 	"github.com/taigrr/crush/internal/home"
+	"github.com/taigrr/crush/internal/startuptrace"
 	"github.com/taigrr/crush/internal/version"
 )
 
@@ -167,6 +168,7 @@ func (m *UI) editorCaret() *tea.Cursor {
 
 // View renders the UI model's view.
 func (m *UI) View() tea.View {
+	startuptrace.Mark("first_frame")
 	var v tea.View
 	v.AltScreen = true
 	if !m.isTransparent {
@@ -191,7 +193,7 @@ func (m *UI) View() tea.View {
 		}
 	}
 
-	canvas := uv.NewScreenBuffer(m.width, m.height)
+	canvas := m.frameCanvas()
 	v.Cursor = m.Draw(canvas, canvas.Bounds())
 
 	content := strings.ReplaceAll(canvas.Render(), "\r\n", "\n") // normalize newlines
@@ -210,6 +212,20 @@ func (m *UI) View() tea.View {
 	m.applyProgressBar(&v)
 
 	return v
+}
+
+// frameCanvas returns the screen buffer View draws into. The buffer is reused
+// across frames and reset to empty cells, so it matches a fresh buffer; it is
+// only reallocated when the terminal size changes. Nothing outlives View that
+// references it, since the rendered frame is flattened into a string.
+func (m *UI) frameCanvas() uv.ScreenBuffer {
+	c := m.canvas
+	if c.RenderBuffer == nil || c.Width() != m.width || c.Height() != m.height {
+		m.canvas = uv.NewScreenBuffer(m.width, m.height)
+		return m.canvas
+	}
+	c.Buffer.Clear()
+	return c
 }
 
 // applyProgressBar attaches the terminal progress bar while the agent is

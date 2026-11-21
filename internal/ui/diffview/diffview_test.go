@@ -339,3 +339,19 @@ func assertLineWidth(t *testing.T, expected int, output string) {
 		t.Errorf("expected output width to be == %d, got %d", expected, lineWidth)
 	}
 }
+
+func TestSharedHighlightCacheIdenticalOutput(t *testing.T) {
+	before := "package main\n\nfunc a() int { return 1 }\n// comment\n"
+	after := "package main\n\nfunc a() int { return 2 }\n// comment\n"
+	render := func() string {
+		return diffview.New().Before("x.go", before).After("x.go", after).
+			ChromaStyle(styles.Get("dracula")).Width(80).String()
+	}
+	first := render()
+	if second := render(); first != second {
+		t.Fatalf("cached render differs:\n%q\n%q", first, second)
+	}
+	if !strings.Contains(first, "\x1b[") {
+		t.Fatal("expected highlighted output")
+	}
+}

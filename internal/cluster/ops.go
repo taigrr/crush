@@ -110,6 +110,7 @@ func (n *Node) Join(ctx context.Context, addr, token string, opts JoinOptions) e
 	notified := false
 	for {
 		var rsp joinResponse
+		start := time.Now()
 		_, err := n.call(ctx, hc, addr, http.MethodPost, "/cluster/v1/join", body, &rsp)
 		switch {
 		case rsp.Status == JoinDenied:
@@ -120,9 +121,16 @@ func (n *Node) Join(ctx context.Context, addr, token string, opts JoinOptions) e
 			return n.completeJoin(clusterID, rsp, addr, info.NodeID, opts.Endpoints)
 		case rsp.Status == JoinPending && !notified:
 			notified = true
+			// Later polls long-poll so approval propagates at once.
+			body.WaitMS = int(maxJoinWait / time.Millisecond)
 			if opts.OnPending != nil {
 				opts.OnPending(rsp.RequestID)
 			}
+			continue
+		}
+		if time.Since(start) >= interval {
+			// The server held the request (long poll); ask again now.
+			continue
 		}
 		select {
 		case <-ctx.Done():
@@ -199,6 +207,7 @@ func (n *Node) Approve(ctx context.Context, ref string) (Member, error) {
 		return Member{}, err
 	}
 	slog.Info("Cluster join approved", "node", m.Name, "node_id", m.NodeID)
+	n.notifyJoinDecided()
 	n.broadcast(ctx, "/cluster/v1/members", membersBody{Members: []Member{m}}, m.NodeID)
 	return m, nil
 }
@@ -222,6 +231,7 @@ func (n *Node) Deny(ref string) (JoinRequest, error) {
 	n.deniedMu.Lock()
 	n.denied[req.NodeID] = true
 	n.deniedMu.Unlock()
+	n.notifyJoinDecided()
 	return req, nil
 }
 

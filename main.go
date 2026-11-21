@@ -20,9 +20,11 @@ import (
 	_ "github.com/joho/godotenv/autoload"
 	"github.com/taigrr/crush/internal/cmd"
 	_ "github.com/taigrr/crush/internal/dns"
+	"github.com/taigrr/crush/internal/startuptrace"
 )
 
 func main() {
+	startuptrace.Mark("main")
 	if os.Getenv("CRUSH_PROFILE") != "" {
 		// Default to :6060 for the client; set CRUSH_PROFILE_PORT to use a
 		// different port (the server subprocess should use 6061).

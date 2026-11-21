@@ -38,7 +38,9 @@ func TestReadyPollerSocketAppearsLate(t *testing.T) {
 	t.Parallel()
 	clock := &fakeClock{now: time.Unix(0, 0)}
 	calls := 0
-	err := clock.poller(defaultServerReadyTimeout).poll(t.Context(), func(context.Context) error {
+	p := clock.poller(defaultServerReadyTimeout)
+	p.fastWindow = 0
+	err := p.poll(t.Context(), func(context.Context) error {
 		calls++
 		switch {
 		case calls < 4:
@@ -57,6 +59,29 @@ func TestReadyPollerSocketAppearsLate(t *testing.T) {
 		8 * readyPollMinBackoff,
 		readyPollMaxBackoff,
 	}, clock.sleeps)
+}
+
+func TestReadyPollerFastWindow(t *testing.T) {
+	t.Parallel()
+	clock := &fakeClock{now: time.Unix(0, 0)}
+	fastProbes := int(readyPollFastWindow / readyPollFastInterval)
+	calls := 0
+	err := clock.poller(defaultServerReadyTimeout).poll(t.Context(), func(context.Context) error {
+		calls++
+		if calls <= fastProbes+2 {
+			return dialErr(syscall.ENOENT)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.Len(t, clock.sleeps, fastProbes+2)
+	for _, d := range clock.sleeps[:fastProbes] {
+		require.Equal(t, readyPollFastInterval, d)
+	}
+	require.Equal(t, []time.Duration{
+		readyPollMinBackoff,
+		2 * readyPollMinBackoff,
+	}, clock.sleeps[fastProbes:])
 }
 
 func TestReadyPollerDeadlineReturnsLastError(t *testing.T) {

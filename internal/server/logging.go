@@ -4,10 +4,18 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/taigrr/crush/internal/startuptrace"
 )
 
 func (s *Server) loggingHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if startuptrace.Enabled() {
+			start := time.Now()
+			defer func() {
+				startuptrace.Count("srv.http_us:"+r.Pattern, int(time.Since(start).Microseconds()))
+			}()
+		}
 		if s.logger == nil {
 			next.ServeHTTP(w, r)
 			return

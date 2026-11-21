@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newTestNode(t *testing.T, version string) *Node {
+func newTestNode(t testing.TB, version string) *Node {
 	t.Helper()
 	n, err := NewNode(t.TempDir(), version)
 	require.NoError(t, err)
@@ -18,7 +18,7 @@ func newTestNode(t *testing.T, version string) *Node {
 	return n
 }
 
-func freeAddr(t *testing.T) string {
+func freeAddr(t testing.TB) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

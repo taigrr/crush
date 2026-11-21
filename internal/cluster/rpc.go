@@ -34,7 +34,14 @@ type NodeInfo struct {
 type joinRequestBody struct {
 	Name      string     `json:"name"`
 	Endpoints []Endpoint `json:"endpoints,omitempty"`
+	// WaitMS asks the server to hold a pending response until the
+	// request is decided or this many milliseconds pass. Older servers
+	// ignore it and answer immediately.
+	WaitMS int `json:"wait_ms,omitempty"`
 }
+
+// maxJoinWait caps how long a pending join response is held open.
+const maxJoinWait = 20 * time.Second
 
 type joinResponse struct {
 	Status     JoinStatus `json:"status"`
@@ -208,32 +215,7 @@ func (n *Node) handleJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	n.deniedMu.Lock()
-	denied := n.denied[peer.NodeID]
-	n.deniedMu.Unlock()
-	if denied {
-		writeJSON(w, http.StatusForbidden, joinResponse{Status: JoinDenied})
-		return
-	}
-
-	st, err := n.store.Snapshot()
-	if err != nil {
-		writeErr(w, http.StatusServiceUnavailable, err)
-		return
-	}
-	if m, ok := st.Member(peer.NodeID); ok {
-		if !samePublicKey(m.PublicKey, peer.PublicKey) {
-			writeErr(w, http.StatusForbidden, errors.New("node ID is pinned to a different key"))
-			return
-		}
-		n.touch(peer.NodeID, r.Header.Get(headerVersion))
-		st, _ = n.store.Snapshot()
-		writeJSON(w, http.StatusOK, joinResponse{
-			Status:     JoinApproved,
-			Members:    st.Members,
-			Key:        st.Key,
-			KeyVersion: st.KeyVersion,
-		})
+	if n.writeJoinDecision(w, r, peer) {
 		return
 	}
 
@@ -279,7 +261,80 @@ func (n *Node) handleJoin(w http.ResponseWriter, r *http.Request) {
 			n.OnJoinRequest(req)
 		}
 	}
+	if body.WaitMS > 0 {
+		wait := min(time.Duration(body.WaitMS)*time.Millisecond, maxJoinWait)
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+	wait:
+		for {
+			select {
+			case <-n.joinSignal():
+				if n.writeJoinDecision(w, r, peer) {
+					return
+				}
+			case <-timer.C:
+				break wait
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}
 	writeJSON(w, http.StatusAccepted, joinResponse{Status: JoinPending, RequestID: req.ID})
+}
+
+// writeJoinDecision answers a join from peer if it has been denied or
+// admitted, reporting whether a response was written.
+func (n *Node) writeJoinDecision(w http.ResponseWriter, r *http.Request, peer PeerInfo) bool {
+	n.deniedMu.Lock()
+	denied := n.denied[peer.NodeID]
+	n.deniedMu.Unlock()
+	if denied {
+		writeJSON(w, http.StatusForbidden, joinResponse{Status: JoinDenied})
+		return true
+	}
+
+	st, err := n.store.Snapshot()
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, err)
+		return true
+	}
+	m, ok := st.Member(peer.NodeID)
+	if !ok {
+		return false
+	}
+	if !samePublicKey(m.PublicKey, peer.PublicKey) {
+		writeErr(w, http.StatusForbidden, errors.New("node ID is pinned to a different key"))
+		return true
+	}
+	n.touch(peer.NodeID, r.Header.Get(headerVersion))
+	st, _ = n.store.Snapshot()
+	writeJSON(w, http.StatusOK, joinResponse{
+		Status:     JoinApproved,
+		Members:    st.Members,
+		Key:        st.Key,
+		KeyVersion: st.KeyVersion,
+	})
+	return true
+}
+
+// joinSignal returns a channel closed on the next join decision.
+func (n *Node) joinSignal() <-chan struct{} {
+	n.deniedMu.Lock()
+	defer n.deniedMu.Unlock()
+	if n.joinDecided == nil {
+		n.joinDecided = make(chan struct{})
+	}
+	return n.joinDecided
+}
+
+// notifyJoinDecided wakes pending join responses so they re-check.
+func (n *Node) notifyJoinDecided() {
+	n.deniedMu.Lock()
+	defer n.deniedMu.Unlock()
+	if n.joinDecided != nil {
+		close(n.joinDecided)
+		n.joinDecided = nil
+	}
 }
 
 func (n *Node) handleMembers(w http.ResponseWriter, r *http.Request, from Member) {

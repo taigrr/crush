@@ -36,6 +36,18 @@ func (c *Client) ListWorkspaceOverviews(ctx context.Context) ([]proto.WorkspaceO
 	return decodeResponse[[]proto.WorkspaceOverview](rsp, err, "list workspace overviews")
 }
 
+// ListWorkspaceOverviewsLimit is [Client.ListWorkspaceOverviews] keeping
+// at most limit sessions per workspace; SessionCount carries the total.
+// Servers predating the parameter ignore it and return full lists.
+func (c *Client) ListWorkspaceOverviewsLimit(ctx context.Context, limit int) ([]proto.WorkspaceOverview, error) {
+	if limit <= 0 {
+		return c.ListWorkspaceOverviews(ctx)
+	}
+	//nolint:bodyclose // body closed by checkResponse/decodeResponse
+	rsp, err := c.get(ctx, "/workspace-overviews", url.Values{"limit": {strconv.Itoa(limit)}}, nil)
+	return decodeResponse[[]proto.WorkspaceOverview](rsp, err, "list workspace overviews")
+}
+
 // CreateWorkspace creates a new workspace on the server.
 func (c *Client) CreateWorkspace(ctx context.Context, ws proto.Workspace) (*proto.Workspace, error) {
 	ws.ClientID = c.clientID

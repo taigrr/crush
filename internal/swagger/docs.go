@@ -1782,6 +1782,20 @@ const docTemplate = `{
                     "workspaces"
                 ],
                 "summary": "List workspace/session overviews",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Max sessions per workspace (display order); session_count then carries the total. Omitted or 0 lists all.",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Non-empty: only this node's workspaces (node-to-node fetch)",
+                        "name": "local",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -1790,6 +1804,12 @@ const docTemplate = `{
                             "items": {
                                 "$ref": "#/definitions/proto.WorkspaceOverview"
                             }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/proto.Error"
                         }
                     },
                     "500": {
@@ -10442,6 +10462,10 @@ const docTemplate = `{
                 },
                 "root": {
                     "type": "string"
+                },
+                "session_count": {
+                    "description": "SessionCount is the workspace's total number of listed sessions\nwhen the request asked for a bounded list (limit); Sessions then\nholds only the first limit of them in display order. Zero when the\nlist is complete.",
+                    "type": "integer"
                 },
                 "sessions": {
                     "type": "array",

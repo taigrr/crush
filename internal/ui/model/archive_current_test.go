@@ -79,6 +79,10 @@ func (w *archiveStubWorkspace) ListWorkspaceOverviews(_ context.Context) ([]prot
 	return nil, nil
 }
 
+func (w *archiveStubWorkspace) ListWorkspaceOverviewsLimit(_ context.Context, _ int) ([]proto.WorkspaceOverview, error) {
+	return nil, nil
+}
+
 func (w *archiveStubWorkspace) BaseDir() string { return "" }
 
 func newArchiveTestUI(t *testing.T, ws *archiveStubWorkspace, activeID string) *UI {

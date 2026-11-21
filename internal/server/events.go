@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/taigrr/crush/internal/agent/notify"
 	"github.com/taigrr/crush/internal/agent/tools/mcp"
@@ -354,4 +355,25 @@ func messagesToProto(msgs []message.Message) []proto.Message {
 		out[i] = messageToProto(m)
 	}
 	return out
+}
+
+// appendSSE appends wrapped as one SSE data event. The output is
+// byte-identical to "data: " + json.Marshal(wrapped) + "\n\n", but the
+// already-marshalled payload is copied verbatim instead of being
+// re-validated and re-compacted.
+func appendSSE(dst []byte, wrapped *pubsub.Payload) ([]byte, error) {
+	typ, err := json.Marshal(wrapped.Type)
+	if err != nil {
+		return dst, err
+	}
+	dst = slices.Grow(dst, len(typ)+len(wrapped.Payload)+32)
+	dst = append(dst, `data: {"type":`...)
+	dst = append(dst, typ...)
+	dst = append(dst, `,"payload":`...)
+	if wrapped.Payload == nil {
+		dst = append(dst, "null"...)
+	} else {
+		dst = append(dst, wrapped.Payload...)
+	}
+	return append(dst, "}\n\n"...), nil
 }

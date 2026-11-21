@@ -32,6 +32,9 @@ type Node struct {
 
 	deniedMu sync.Mutex
 	denied   map[string]bool
+	// joinDecided is closed (under deniedMu) when a join is approved or
+	// denied, waking long-polling join requests.
+	joinDecided chan struct{}
 
 	seenMu sync.Mutex
 	seen   map[string]time.Time
@@ -208,6 +211,7 @@ func (n *Node) Stop(ctx context.Context) error {
 	if srv == nil {
 		return nil
 	}
+	n.notifyJoinDecided()
 	return srv.Shutdown(ctx)
 }
 
