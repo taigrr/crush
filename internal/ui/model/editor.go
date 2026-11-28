@@ -197,13 +197,11 @@ func (m *UI) renderEditorView(width int) string {
 	}
 	parts := []string{attachmentsView, m.textarea.View(), ""}
 	if m.minimalMode {
-		// No reserved attachment or margin rows, or the one-line composer
-		// is pushed down onto the status row.
 		parts = parts[:0]
 		if attachmentsView != "" {
 			parts = append(parts, attachmentsView)
 		}
-		parts = append(parts, m.textarea.View())
+		parts = append(parts, "", m.textarea.View(), "")
 	}
 	return strings.Join(parts, "\n")
 }

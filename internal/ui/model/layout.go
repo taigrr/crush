@@ -191,11 +191,11 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 	// Minimal mode is one line until the text wraps, with no reserved margin.
 	editorMargin := editorHeightMargin
 	if m.minimalMode {
-		// One blank row between the composer and the status line, plus
-		// the attachments row when there is one.
-		editorMargin = 1
+		// One blank row above the composer and one below it, plus the
+		// attachments row when there is one.
+		editorMargin = 2
 		if len(m.attachments.List()) > 0 {
-			editorMargin = 2
+			editorMargin = 3
 		}
 	}
 	editorHeight := m.textarea.Height() + editorMargin
