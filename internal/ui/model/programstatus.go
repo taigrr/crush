@@ -138,7 +138,7 @@ func (m *UI) programStatusRecords() map[string]programStatusRecord {
 // only when one is open.
 func openRecord(m *UI, perm *permission.PermissionRequest, q *question.Request) programStatusRecord {
 	id := m.session.ID
-	rec := programStatusRecord{id: recordID(id), title: m.session.Title, state: termstatus.StateIdle, msg: "Ready"}
+	rec := programStatusRecord{id: recordID(id), title: programStatusTitle(m.session.Title), state: termstatus.StateIdle, msg: "Ready"}
 	switch {
 	case perm != nil:
 		rec.state, rec.kind, rec.msg = termstatus.StateBlocked, termstatus.KindPermission, firstNonEmpty(perm.Description, "Permission required")
@@ -161,8 +161,18 @@ func firstNonEmpty(v, fallback string) string {
 	return fallback
 }
 
+// programStatusTitle is the label for a record. "New Session" is the
+// placeholder written at creation, before the generated title exists,
+// so it is omitted until that title arrives.
+func programStatusTitle(title string) string {
+	if title == "" || title == "New Session" {
+		return ""
+	}
+	return title
+}
+
 func sessionRecord(sess proto.SessionOverview, perm *permission.PermissionRequest, q *question.Request, attention bool, out sessionOutcome) programStatusRecord {
-	rec := programStatusRecord{id: recordID(sess.ID), title: sess.Title, state: termstatus.StateIdle, msg: "Idle"}
+	rec := programStatusRecord{id: recordID(sess.ID), title: programStatusTitle(sess.Title), state: termstatus.StateIdle, msg: "Idle"}
 	switch {
 	case perm != nil:
 		rec.state, rec.kind, rec.msg = termstatus.StateBlocked, termstatus.KindPermission, firstNonEmpty(perm.Description, "Permission required")

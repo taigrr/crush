@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -43,6 +44,8 @@ func TestProgramStatusCmd(t *testing.T) {
 	first := rawOf(t, u.programStatusCmd())
 	require.Contains(t, first, "state=idle:id=")
 	require.Contains(t, first, "state=working:id=")
+	require.Contains(t, first, "title="+b64Title("Open"))
+	require.Contains(t, first, "title="+b64Title("Other"))
 	require.Nil(t, u.programStatusCmd())
 
 	u.pendingPermissions[openID] = &permission.PermissionRequest{SessionID: openID, Description: "Allow bash?"}
@@ -124,6 +127,27 @@ func TestProgramStatusClearedOnQuit(t *testing.T) {
 	require.Equal(t, "\x1b]7501;state=clear:id=s\x07", rawOf(t, u.programStatusClearCmd()))
 	require.Nil(t, u.programStatusCmd(), "nothing is reported again after quitting")
 	require.Nil(t, u.programStatusClearCmd(), "cleared once")
+}
+
+func TestProgramStatusTitleUpdatesWhenGenerated(t *testing.T) {
+	t.Parallel()
+	u := newTestUI()
+	u.com.Workspace = &sendWorkspace{readiness: func(context.Context) (bool, error) { return false, nil }}
+	const id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	u.session = &session.Session{ID: id, Title: "New Session"}
+
+	first := rawOf(t, u.programStatusCmd())
+	require.NotContains(t, first, "title=")
+
+	u.session.Title = "Fix the login form"
+	updated := rawOf(t, u.programStatusCmd())
+	require.Contains(t, updated, "title="+b64Title("Fix the login form"))
+	require.NotContains(t, updated, "title="+b64Title("New Session"))
+	require.Nil(t, u.programStatusCmd())
+}
+
+func b64Title(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
 }
 
 func TestProgramStatusClearNothingWritten(t *testing.T) {
