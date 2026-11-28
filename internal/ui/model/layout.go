@@ -310,6 +310,8 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			// Remove extra padding from editor (but keep it for header and main)
 			editorRect.Min.X -= 1
 			editorRect.Max.X += 1
+		} else if editorRect.Dy() > 0 {
+			editorRect.Min.Y++
 		}
 		if headerHeight > 0 {
 			uiLayout.header = headerRect
