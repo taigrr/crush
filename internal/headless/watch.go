@@ -47,6 +47,9 @@ type WatchRequest struct {
 	// OnBlocked, when set, is called with the pending prompts before a
 	// blocked outcome is returned.
 	OnBlocked func(proto.PendingPrompts)
+	// OnTitle, when set, is called when the session's generated title
+	// arrives. "New Session" is the placeholder and is not reported.
+	OnTitle func(string)
 }
 
 // Watch follows a session until its run ends, blocks (when requested),
@@ -126,12 +129,16 @@ func Watch(ctx context.Context, c WatchClient, req WatchRequest) Outcome {
 					ExitCode: ExitFailure,
 				}
 			}
-			switch ev.(type) {
+			switch e := ev.(type) {
 			case pubsub.Event[proto.PermissionRequest], pubsub.Event[proto.QuestionRequest]:
 				if out, ok := blocked(); ok {
 					return out
 				}
 				continue
+			case pubsub.Event[proto.Session]:
+				if req.OnTitle != nil && e.Payload.ID == req.SessionID && e.Payload.Title != "" && e.Payload.Title != "New Session" {
+					req.OnTitle(e.Payload.Title)
+				}
 			}
 			wasStarted := req.Tracker.Started()
 			out, err := req.Tracker.Handle(ev)

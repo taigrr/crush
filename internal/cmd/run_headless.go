@@ -108,6 +108,10 @@ func runHeadless(
 		SendErr:     sendErr,
 		Timeout:     opts.timeout,
 		StopOnBlock: opts.mode.Delegates(),
+		OnTitle: func(title string) {
+			status.setTitle(title)
+			status.report(termstatus.StateWorking, "", "Running")
+		},
 		OnBlocked: func(p proto.PendingPrompts) {
 			status.reportBlocked(p)
 			if progress != nil {
@@ -145,10 +149,19 @@ type runStatus struct {
 
 func newRunStatus(sess *proto.Session, on bool) *runStatus {
 	title := ""
-	if sess != nil {
+	if sess != nil && sess.Title != "New Session" {
 		title = sess.Title
 	}
 	return &runStatus{title: title, w: os.Stderr, on: on}
+}
+
+// setTitle records a title that arrived after the run started. "New
+// Session" is the placeholder, so it is not reported.
+func (s *runStatus) setTitle(title string) {
+	if s == nil || title == "" || title == "New Session" {
+		return
+	}
+	s.title = title
 }
 
 func (s *runStatus) report(state termstatus.State, kind termstatus.Kind, msg string) {
