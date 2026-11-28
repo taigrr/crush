@@ -362,6 +362,9 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			}
 			pillsHeight := m.pillsAreaHeight()
 			if pillsHeight > 0 {
+				if m.minimalMode {
+					pillsHeight++
+				}
 				pillsHeight = min(pillsHeight, mainRect.Dy())
 				var chatRect, pillsRect image.Rectangle
 				layout.Vertical(
@@ -369,6 +372,9 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 					layout.Fill(1),
 				).Split(mainRect).Assign(&chatRect, &pillsRect)
 				uiLayout.main = chatRect
+				if m.minimalMode {
+					pillsRect.Min.Y++
+				}
 				uiLayout.pills = pillsRect
 			} else {
 				uiLayout.main = mainRect
@@ -410,6 +416,9 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			mainRect.Max.X -= 1 // Add padding right
 			pillsHeight := m.pillsAreaHeight()
 			if pillsHeight > 0 {
+				if m.minimalMode {
+					pillsHeight++
+				}
 				pillsHeight = min(pillsHeight, mainRect.Dy())
 				var chatRect, pillsRect image.Rectangle
 				layout.Vertical(
@@ -417,6 +426,9 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 					layout.Fill(1),
 				).Split(mainRect).Assign(&chatRect, &pillsRect)
 				uiLayout.main = chatRect
+				if m.minimalMode {
+					pillsRect.Min.Y++
+				}
 				uiLayout.pills = pillsRect
 			} else {
 				uiLayout.main = mainRect

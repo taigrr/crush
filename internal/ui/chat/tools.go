@@ -574,13 +574,10 @@ func (t *baseToolMessageItem) GapBefore(prev list.Item) (int, bool) {
 	if !t.sty.Minimal {
 		return 0, false
 	}
-	if tool, ok := prev.(*baseToolMessageItem); ok {
-		if tool.Expanded() {
-			return 1, true
-		}
-		return 0, true
+	if tool, ok := prev.(*baseToolMessageItem); ok && tool.Expanded() {
+		return 1, true
 	}
-	return 0, false
+	return 0, true
 }
 
 func (t *baseToolMessageItem) Finished() bool {
