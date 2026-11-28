@@ -13,6 +13,7 @@ require (
 	github.com/MakeNowJust/heredoc v1.0.0
 	github.com/Microsoft/go-winio v0.6.4
 	github.com/PuerkitoBio/goquery v1.13.0
+	github.com/taigrr/catwalk v0.54.0-fork
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/aymanbagabas/go-nativeclipboard v0.1.3
@@ -66,7 +67,6 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/swaggo/swag v1.16.6
 	github.com/taigrr/animals v0.0.3
-	github.com/taigrr/catwalk v0.54.0-fork
 	github.com/taigrr/colorhash v0.8.0
 	github.com/taigrr/fantasy v0.31.1-fork
 	github.com/taigrr/simplecolorpalettes v0.10.1

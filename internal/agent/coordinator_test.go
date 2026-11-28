@@ -14,6 +14,8 @@ import (
 	"github.com/taigrr/fantasy/providers/anthropic"
 	"github.com/taigrr/fantasy/providers/bedrock"
 	"github.com/taigrr/fantasy/providers/google"
+	"github.com/taigrr/fantasy/providers/openai"
+	"github.com/taigrr/fantasy/providers/openaicompat"
 	"github.com/taigrr/fantasy/providers/openrouter"
 	"github.com/taigrr/fantasy/providers/vercel"
 )
@@ -502,6 +504,50 @@ func TestGetProviderOptionsRespectsExistingReasoning(t *testing.T) {
 	opts := getProviderOptions(model, config.ProviderConfig{ID: "test", Type: catwalk.Type(openrouter.Name)})
 	parsed := opts[openrouter.Name].(*openrouter.ProviderOptions)
 	require.NotNil(t, parsed.Reasoning)
+}
+
+func TestGetProviderOptionsFastMode(t *testing.T) {
+	model := func() Model {
+		return Model{
+			CatwalkCfg: catwalk.Model{ID: "grok-4.7", SupportsFast: true},
+			ModelCfg:   config.SelectedModel{Fast: true},
+		}
+	}
+
+	t.Run("openai-compat sends service_tier fast", func(t *testing.T) {
+		opts := getProviderOptions(model(), config.ProviderConfig{ID: "grok", Type: catwalk.Type(openaicompat.Name)})
+		parsed := opts[openaicompat.Name].(*openaicompat.ProviderOptions)
+		require.Equal(t, "fast", parsed.ExtraBody["service_tier"])
+	})
+
+	t.Run("openai sends the priority tier", func(t *testing.T) {
+		m := model()
+		m.CatwalkCfg.ID = "gpt-4o"
+		opts := getProviderOptions(m, config.ProviderConfig{ID: "openai", Type: catwalk.Type(openai.Name)})
+		parsed := opts[openai.Name].(*openai.ResponsesProviderOptions)
+		require.NotNil(t, parsed.ServiceTier)
+		require.Equal(t, openai.ServiceTier("priority"), *parsed.ServiceTier)
+	})
+
+	t.Run("anthropic sends speed fast", func(t *testing.T) {
+		opts := getProviderOptions(model(), config.ProviderConfig{ID: "anthropic", Type: catwalk.Type(anthropic.Name)})
+		parsed := opts[anthropic.Name].(*anthropic.ProviderOptions)
+		require.Equal(t, "fast", parsed.ExtraBody["speed"])
+	})
+
+	t.Run("off or unadvertised sends nothing", func(t *testing.T) {
+		m := model()
+		m.ModelCfg.Fast = false
+		opts := getProviderOptions(m, config.ProviderConfig{ID: "grok", Type: catwalk.Type(openaicompat.Name)})
+		parsed := opts[openaicompat.Name].(*openaicompat.ProviderOptions)
+		require.NotContains(t, parsed.ExtraBody, "service_tier")
+
+		m.ModelCfg.Fast = true
+		m.CatwalkCfg.SupportsFast = false
+		opts = getProviderOptions(m, config.ProviderConfig{ID: "grok", Type: catwalk.Type(openaicompat.Name)})
+		parsed = opts[openaicompat.Name].(*openaicompat.ProviderOptions)
+		require.NotContains(t, parsed.ExtraBody, "service_tier")
+	})
 }
 
 func TestRunSubAgent_InheritsRunPermissionPolicy(t *testing.T) {

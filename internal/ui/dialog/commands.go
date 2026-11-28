@@ -451,6 +451,13 @@ func (c *Commands) defaultCommands() []*CommandItem {
 				}))
 			}
 		}
+		if model != nil && model.SupportsFast {
+			status := "Enable"
+			if cfg.Models[agentCfg.Model].Fast {
+				status = "Disable"
+			}
+			commands = append(commands, NewCommandItem(c.com.Styles, "toggle_fast_mode", status+" Fast Mode", "", ActionToggleFastMode{}))
+		}
 	}
 	// Only show toggle compact mode command if window width is larger than compact breakpoint (120)
 	if c.windowWidth >= sidebarCompactModeBreakpoint && c.hasSession {

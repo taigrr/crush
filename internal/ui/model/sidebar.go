@@ -62,7 +62,11 @@ func reasoningInfoFor(model *workspace.AgentModel) string {
 		return "Thinking Off"
 	}
 	effort := cmp.Or(model.ModelCfg.ReasoningEffort, model.CatwalkCfg.DefaultReasoningEffort)
-	return fmt.Sprintf("Reasoning %s", common.FormatReasoningEffort(effort))
+	info := fmt.Sprintf("Reasoning %s", common.FormatReasoningEffort(effort))
+	if model.CatwalkCfg.SupportsFast && model.ModelCfg.Fast {
+		info += " · Fast"
+	}
+	return info
 }
 
 // getDynamicHeightLimits will give us the num of items to show in each section based on the height

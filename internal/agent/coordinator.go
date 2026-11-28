@@ -795,29 +795,35 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 
 	shouldSetEffort := model.CatwalkCfg.CanReason &&
 		slices.Contains(model.CatwalkCfg.ReasoningLevels, model.ModelCfg.ReasoningEffort)
+	fast := model.CatwalkCfg.SupportsFast && model.ModelCfg.Fast
 
 	switch providerCfg.Type {
 	case openai.Name, azure.Name:
-		applyOpenAIProviderOptions(options, mergedOptions, model, shouldSetEffort)
+		applyOpenAIProviderOptions(options, mergedOptions, model, shouldSetEffort, fast)
 	case anthropic.Name, bedrock.Name:
-		applyAnthropicProviderOptions(options, mergedOptions, model, providerCfg, shouldSetEffort)
+		applyAnthropicProviderOptions(options, mergedOptions, model, providerCfg, shouldSetEffort, fast)
 	case openrouter.Name:
-		applyOpenRouterProviderOptions(options, mergedOptions, model, shouldSetEffort)
+		applyOpenRouterProviderOptions(options, mergedOptions, model, shouldSetEffort, fast)
 	case vercel.Name:
-		applyVercelProviderOptions(options, mergedOptions, model, shouldSetEffort)
+		applyVercelProviderOptions(options, mergedOptions, model, shouldSetEffort, fast)
 	case google.Name:
 		applyGoogleProviderOptions(options, mergedOptions, model)
 	case openaicompat.Name, hyper.Name:
-		applyOpenAICompatProviderOptions(options, mergedOptions, model, providerCfg, shouldSetEffort)
+		applyOpenAICompatProviderOptions(options, mergedOptions, model, providerCfg, shouldSetEffort, fast)
 	}
 
 	return options
 }
 
-func applyOpenAIProviderOptions(options fantasy.ProviderOptions, mergedOptions map[string]any, model Model, shouldSetEffort bool) {
+func applyOpenAIProviderOptions(options fantasy.ProviderOptions, mergedOptions map[string]any, model Model, shouldSetEffort, fast bool) {
 	_, hasReasoningEffort := mergedOptions["reasoning_effort"]
 	if !hasReasoningEffort && shouldSetEffort {
 		mergedOptions["reasoning_effort"] = model.ModelCfg.ReasoningEffort
+	}
+	// OpenAI names the fast tier "priority"; "fast" is only an alias and
+	// fantasy drops any tier outside the set it knows.
+	if _, ok := mergedOptions["service_tier"]; !ok && fast {
+		mergedOptions["service_tier"] = "priority"
 	}
 	modelIDForResponses := model.CatwalkCfg.ID
 	if !openai.IsResponsesModel(modelIDForResponses) {
@@ -840,12 +846,15 @@ func applyOpenAIProviderOptions(options fantasy.ProviderOptions, mergedOptions m
 	}
 }
 
-func applyAnthropicProviderOptions(options fantasy.ProviderOptions, mergedOptions map[string]any, model Model, providerCfg config.ProviderConfig, shouldSetEffort bool) {
+func applyAnthropicProviderOptions(options fantasy.ProviderOptions, mergedOptions map[string]any, model Model, providerCfg config.ProviderConfig, shouldSetEffort, fast bool) {
 	var (
 		_, hasEffort = mergedOptions["effort"]
 		_, hasThink  = mergedOptions["thinking"]
 		extraBody    = make(map[string]any)
 	)
+	if fast {
+		extraBody["speed"] = "fast"
+	}
 
 	switch providerCfg.ID {
 	case string(catwalk.InferenceProviderAlibabaSingapore):
@@ -868,6 +877,9 @@ func applyAnthropicProviderOptions(options fantasy.ProviderOptions, mergedOption
 		case !hasThink && model.ModelCfg.Think:
 			mergedOptions["thinking"] = map[string]any{"budget_tokens": 2000}
 		}
+		if len(extraBody) > 0 {
+			mergedOptions["extra_body"] = extraBody
+		}
 	}
 
 	parsed, err := anthropic.ParseOptions(mergedOptions)
@@ -876,13 +888,16 @@ func applyAnthropicProviderOptions(options fantasy.ProviderOptions, mergedOption
 	}
 }
 
-func applyOpenRouterProviderOptions(options fantasy.ProviderOptions, mergedOptions map[string]any, model Model, shouldSetEffort bool) {
+func applyOpenRouterProviderOptions(options fantasy.ProviderOptions, mergedOptions map[string]any, model Model, shouldSetEffort, fast bool) {
 	_, hasReasoning := mergedOptions["reasoning"]
 	if !hasReasoning && shouldSetEffort {
 		mergedOptions["reasoning"] = map[string]any{
 			"enabled": true,
 			"effort":  model.ModelCfg.ReasoningEffort,
 		}
+	}
+	if fast {
+		mergedOptions["extra_body"] = map[string]any{"service_tier": "fast"}
 	}
 	parsed, err := openrouter.ParseOptions(mergedOptions)
 	if err == nil {
@@ -890,13 +905,16 @@ func applyOpenRouterProviderOptions(options fantasy.ProviderOptions, mergedOptio
 	}
 }
 
-func applyVercelProviderOptions(options fantasy.ProviderOptions, mergedOptions map[string]any, model Model, shouldSetEffort bool) {
+func applyVercelProviderOptions(options fantasy.ProviderOptions, mergedOptions map[string]any, model Model, shouldSetEffort, fast bool) {
 	_, hasReasoning := mergedOptions["reasoning"]
 	if !hasReasoning && shouldSetEffort {
 		mergedOptions["reasoning"] = map[string]any{
 			"enabled": true,
 			"effort":  model.ModelCfg.ReasoningEffort,
 		}
+	}
+	if fast {
+		mergedOptions["extra_body"] = map[string]any{"service_tier": "fast"}
 	}
 	parsed, err := vercel.ParseOptions(mergedOptions)
 	if err == nil {
@@ -925,8 +943,11 @@ func applyGoogleProviderOptions(options fantasy.ProviderOptions, mergedOptions m
 	}
 }
 
-func applyOpenAICompatProviderOptions(options fantasy.ProviderOptions, mergedOptions map[string]any, model Model, providerCfg config.ProviderConfig, shouldSetEffort bool) {
+func applyOpenAICompatProviderOptions(options fantasy.ProviderOptions, mergedOptions map[string]any, model Model, providerCfg config.ProviderConfig, shouldSetEffort, fast bool) {
 	extraBody := make(map[string]any)
+	if fast {
+		extraBody["service_tier"] = "fast"
+	}
 
 	_, hasReasoningEffort := mergedOptions["reasoning_effort"]
 	if !hasReasoningEffort && shouldSetEffort {

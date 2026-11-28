@@ -40,6 +40,13 @@ func TestApplyModelOverrides(t *testing.T) {
 		require.True(t, target.Think)
 	})
 
+	t.Run("Fast is copied unconditionally so it can be turned off", func(t *testing.T) {
+		t.Parallel()
+		target := SelectedModel{Fast: true}
+		applyModelOverrides(&target, SelectedModel{Fast: false}, model)
+		require.False(t, target.Fast)
+	})
+
 	t.Run("pointer fields preserved when override nil", func(t *testing.T) {
 		t.Parallel()
 		target := SelectedModel{Temperature: new(0.7), TopP: new(0.9)}
