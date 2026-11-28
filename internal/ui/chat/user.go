@@ -44,6 +44,7 @@ type UserMessageItem struct {
 	attachments *attachments.Renderer
 	message     *message.Message
 	sty         *styles.Styles
+	expanded    bool
 	imageConfig *ImageConfig
 
 	// imageIDs memoizes imageCacheID results so the content hash is
@@ -67,6 +68,19 @@ func NewUserMessageItem(sty *styles.Styles, message *message.Message, attachment
 	}
 }
 
+// SetStyles implements MessageItem.
+func (m *UserMessageItem) SetStyles(sty *styles.Styles) {
+	if m == nil || sty == nil {
+		return
+	}
+	m.sty = sty
+	if m.highlightableMessageItem != nil {
+		m.setStyles(sty)
+	}
+	m.clearCache()
+	m.Bump()
+}
+
 // Finished implements list.Item. User messages are immutable once
 // submitted, so the entry is always safe to freeze.
 func (m *UserMessageItem) Finished() bool {
@@ -84,6 +98,19 @@ func (m *UserMessageItem) RawRender(width int) string {
 	}
 
 	msgContent := strings.TrimSpace(m.message.Content().Text)
+
+	if m.sty.Minimal {
+		if header, ok := m.swarmHeader(cappedWidth); ok {
+			if !m.expanded {
+				content = header
+			} else {
+				content = joinToolParts(header, m.renderUserText(swarmBody(m.message), cappedWidth))
+			}
+			height = lipgloss.Height(content)
+			m.setCachedRender(content, cappedWidth, height)
+			return m.renderHighlighted(content, cappedWidth, height)
+		}
+	}
 
 	// Check if this is a skill invocation (loaded_skill XML)
 	if strings.HasPrefix(msgContent, "<loaded_skill>") {
@@ -103,31 +130,7 @@ func (m *UserMessageItem) RawRender(width int) string {
 	// available width and re-apply the themed base foreground per line
 	// (markdown rendering used to carry this color implicitly;
 	// ansi.Wrap emits no styling at all).
-	sanitized := ansi.Strip(msgContent)
-	sanitized = strings.ReplaceAll(sanitized, "\r\n", "\n")
-	sanitized = strings.ReplaceAll(sanitized, "\r", "\n")
-	sanitized = strings.Map(func(r rune) rune {
-		if r == '\n' || r == '\t' {
-			return r
-		}
-		if unicode.IsControl(r) {
-			return -1
-		}
-		return r
-	}, sanitized)
-	if cappedWidth > 0 {
-		content = ansi.Wrap(sanitized, cappedWidth, "")
-	} else {
-		content = sanitized
-	}
-	content = strings.TrimSuffix(content, "\n")
-	if content != "" {
-		lines := strings.Split(content, "\n")
-		for i, line := range lines {
-			lines[i] = m.sty.Messages.NoContent.Render(line)
-		}
-		content = strings.Join(lines, "\n")
-	}
+	content = m.renderUserText(msgContent, cappedWidth)
 
 	if len(m.message.BinaryContent()) > 0 {
 		attachmentsStr := m.renderAttachments(cappedWidth)
@@ -143,7 +146,84 @@ func (m *UserMessageItem) RawRender(width int) string {
 	return m.renderHighlighted(content, cappedWidth, height)
 }
 
-// renderSkillInvocation renders a loaded_skill XML as a special UI element.
+// renderUserText wraps and colors a verbatim user message.
+func (m *UserMessageItem) renderUserText(msgContent string, cappedWidth int) string {
+	sanitized := ansi.Strip(msgContent)
+	sanitized = strings.ReplaceAll(sanitized, "\r\n", "\n")
+	sanitized = strings.ReplaceAll(sanitized, "\r", "\n")
+	sanitized = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, sanitized)
+	var content string
+	if cappedWidth > 0 {
+		content = ansi.Wrap(sanitized, cappedWidth, "")
+	} else {
+		content = sanitized
+	}
+	content = strings.TrimSuffix(content, "\n")
+	if content != "" {
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			lines[i] = m.sty.Messages.NoContent.Render(line)
+		}
+		content = strings.Join(lines, "\n")
+	}
+	return content
+}
+
+// swarmHeader renders an incoming swarm message as a one-line tool row.
+func (m *UserMessageItem) swarmHeader(width int) (string, bool) {
+	for _, part := range m.message.Parts {
+		sm, ok := part.(message.SwarmMessage)
+		if !ok {
+			continue
+		}
+		name := sm.SenderColor + "-" + sm.SenderAnimal
+		return toolHeader(m.sty, ToolStatusSuccess, "Swarm", width, false, name), true
+	}
+	return "", false
+}
+
+func swarmBody(msg *message.Message) string {
+	for _, part := range msg.Parts {
+		if sm, ok := part.(message.SwarmMessage); ok {
+			return sm.Body
+		}
+	}
+	return ""
+}
+
+// ToggleExpanded implements Expandable for swarm messages.
+func (m *UserMessageItem) ToggleExpanded() bool {
+	if !m.message.IsSwarmMessage() {
+		return false
+	}
+	m.expanded = !m.expanded
+	m.clearCache()
+	m.Bump()
+	return m.expanded
+}
+
+// GapBefore implements list.GapChooser so a swarm row sits with the tools.
+func (m *UserMessageItem) GapBefore(prev list.Item) (int, bool) {
+	if !m.sty.Minimal || !m.message.IsSwarmMessage() {
+		return 0, false
+	}
+	if tool, ok := prev.(*baseToolMessageItem); ok && tool.Expanded() {
+		return 1, true
+	}
+	if _, ok := prev.(ToolMessageItem); ok {
+		return 0, true
+	}
+	return 0, false
+}
+
 func (m *UserMessageItem) renderSkillInvocation(content string, width int) string {
 	var skill skillInvocation
 	if err := xml.Unmarshal([]byte(content), &skill); err != nil {

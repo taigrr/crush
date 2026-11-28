@@ -273,7 +273,11 @@ type LSPConfig struct {
 }
 
 type TUIOptions struct {
-	CompactMode bool   `json:"compact_mode,omitempty" jsonschema:"description=Enable compact mode for the TUI interface,default=false"`
+	CompactMode bool `json:"compact_mode,omitempty" jsonschema:"description=Enable compact mode for the TUI interface,default=false"`
+	// MinimalMode is a visual mode, distinct from compact mode. When
+	// enabled the TUI drops the outer window frame: no screen margin,
+	// no top header band, and no attention outline.
+	MinimalMode bool   `json:"minimal_mode,omitempty" jsonschema:"description=Enable minimal mode for the TUI interface,default=false"`
 	DiffMode    string `json:"diff_mode,omitempty" jsonschema:"description=Diff mode for the TUI interface,enum=unified,enum=split"`
 	// Theme selects the UI color theme by name. Builtin themes ("charmtone",
 	// "hypercrush") and user themes from $config/crush/themes/*.lua are

@@ -2,10 +2,15 @@ package model
 
 import (
 	"image"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/ultraviolet/layout"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/dustin/go-humanize"
+	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/styles"
 	"github.com/taigrr/crush/internal/workspace"
@@ -45,7 +50,10 @@ func (m *UI) landingView() string {
 		parts = append(parts, t.Sidebar.WorkingDir.Render(styles.GitBranchIcon+" "+branch))
 	}
 
-	parts = append(parts, "", m.modelInfo(width))
+	if !m.minimalMode {
+		parts = append(parts, "")
+	}
+	parts = append(parts, m.modelInfo(width))
 	infoSection := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	var remainingHeightArea image.Rectangle
@@ -56,12 +64,18 @@ func (m *UI) landingView() string {
 
 	remainingHeight := max(1, remainingHeightArea.Dy())
 
-	// Left column: LSP / MCP / Skills status (as before).
+	// Left column: LSP / MCP / Skills status (as before). Minimal mode
+	// stacks the counts in one centered column.
 	mcpLspSectionWidth := min(30, (width-2)/4)
 	lspSection := m.lspInfo(mcpLspSectionWidth, remainingHeight, false)
 	mcpSection := m.mcpInfo(mcpLspSectionWidth, remainingHeight, false)
 	skillsSection := m.skillsInfo(mcpLspSectionWidth, remainingHeight, false)
-	statusCols := lipgloss.JoinHorizontal(lipgloss.Left, lspSection, " ", mcpSection, " ", skillsSection)
+	var statusCols string
+	if m.minimalMode {
+		statusCols = lipgloss.JoinVertical(lipgloss.Center, lspSection, mcpSection, skillsSection)
+	} else {
+		statusCols = lipgloss.JoinHorizontal(lipgloss.Left, lspSection, " ", mcpSection, " ", skillsSection)
+	}
 
 	// Right column: recent sessions in this workspace, filling the space
 	// that was previously empty. Loaded async at startup; empty until then.
@@ -78,13 +92,56 @@ func (m *UI) landingView() string {
 		content = statusCols
 	}
 
-	return lipgloss.NewStyle().
-		Width(width).
-		Height(m.layout.main.Dy() - 1).
-		PaddingTop(1).
-		Render(
-			lipgloss.JoinVertical(lipgloss.Left, infoSection, "", content),
-		)
+	if m.minimalMode {
+		return m.minimalLanding(width, remainingHeight)
+	}
+	body := lipgloss.JoinVertical(lipgloss.Left, infoSection, "", content)
+	return lipgloss.NewStyle().Width(width).Height(m.layout.main.Dy() - 1).PaddingTop(1).Render(body)
+}
+
+// minimalLanding is the empty screen: the wordmark, the project path, and
+// the three newest sessions, as one left-aligned block centered on the
+// viewport.
+func (m *UI) minimalLanding(width, height int) string {
+	t := m.com.Styles
+	col := min(48, width)
+	var lines []string
+	lines = append(lines, minimalWordmark(t, col, m.com.IsHyper()), "")
+
+	root := m.com.Workspace.WorkingDir()
+	if rel, err := filepath.Rel(m.com.Workspace.BaseDir(), root); err == nil && rel != "." {
+		root = rel
+	} else {
+		root = home.Short(root)
+	}
+	lines = append(lines, ansi.Truncate(root, col, "…"), "")
+
+	if m.leftSidebar != nil {
+		sessions := m.leftSidebar.AttachedSessions()
+		n := min(3, len(sessions))
+		rows := make([]struct{ title, ago string }, n)
+		agoWidth := 0
+		for i := range n {
+			s := sessions[i]
+			title := s.Title
+			if title == "" {
+				title = "(untitled)"
+			}
+			ago := humanize.Time(time.Unix(s.UpdatedAt, 0))
+			rows[i] = struct{ title, ago string }{title, ago}
+			agoWidth = max(agoWidth, ansi.StringWidth(ago))
+		}
+		for _, row := range rows {
+			titleWidth := max(1, col-agoWidth-3)
+			title := ansi.Truncate("- "+row.title, titleWidth, "…")
+			gap := col - ansi.StringWidth(title) - agoWidth
+			line := title + strings.Repeat(" ", max(1, gap)) + row.ago
+			lines = append(lines, t.Resource.Name.Render(line))
+		}
+	}
+
+	block := lipgloss.NewStyle().Width(col).Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
+	return lipgloss.Place(m.width, m.layout.main.Dy(), lipgloss.Center, lipgloss.Center, block)
 }
 
 // landingRecentSessions renders a compact "Recent sessions" panel for the

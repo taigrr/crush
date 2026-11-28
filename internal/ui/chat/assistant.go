@@ -171,6 +171,19 @@ func NewAssistantMessageItem(sty *styles.Styles, message *message.Message) Messa
 	return a
 }
 
+// SetStyles implements MessageItem.
+func (a *AssistantMessageItem) SetStyles(sty *styles.Styles) {
+	if a == nil || sty == nil {
+		return
+	}
+	a.sty = sty
+	if a.highlightableMessageItem != nil {
+		a.setStyles(sty)
+	}
+	a.clearCache()
+	a.Bump()
+}
+
 // Spinning implements [Animatable].
 func (a *AssistantMessageItem) Spinning() bool {
 	return a.isSpinning()
@@ -322,12 +335,12 @@ func (a *AssistantMessageItem) renderMessageContent(width int) (string, int) {
 	thinking := strings.TrimSpace(a.message.ReasoningContent().Thinking)
 	content := strings.TrimSpace(a.message.Content().Text)
 
-	if thinking != "" {
+	if thinking != "" && !a.sty.Minimal {
 		messageParts = append(messageParts, a.cachedThinking(width))
 	}
 
 	if content != "" {
-		if thinking != "" {
+		if thinking != "" && !a.sty.Minimal {
 			messageParts = append(messageParts, "")
 		}
 		messageParts = append(messageParts, a.cachedContent(width))
@@ -507,7 +520,24 @@ func (a *AssistantMessageItem) renderThinking(thinking string, width int) string
 // findSafeMarkdownBoundary.
 func (a *AssistantMessageItem) renderMarkdown(content string, width int) string {
 	renderer := common.MarkdownRenderer(a.sty, width)
-	return a.streamingContent.Render(content, width, renderer)
+	out := a.streamingContent.Render(content, width, renderer)
+	if a.sty.Minimal {
+		out = spaceBullets(out)
+	}
+	return out
+}
+
+// spaceBullets inserts a blank row between consecutive bullet lines.
+func spaceBullets(s string) string {
+	lines := strings.Split(s, "\n")
+	var out []string
+	for i, line := range lines {
+		if i > 0 && strings.HasPrefix(strings.TrimLeft(line, " "), "•") && strings.TrimSpace(lines[i-1]) != "" {
+			out = append(out, "")
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 func (a *AssistantMessageItem) renderSpinning() string {

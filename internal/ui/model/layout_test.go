@@ -12,6 +12,7 @@ import (
 	"github.com/taigrr/crush/internal/ui/attachments"
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/common"
+	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 // testMessageItem is a minimal chat item used to populate the chat list
@@ -21,11 +22,12 @@ type testMessageItem struct {
 	text string
 }
 
-func (m testMessageItem) ID() string           { return m.id }
-func (m testMessageItem) Render(int) string    { return m.text }
-func (m testMessageItem) RawRender(int) string { return m.text }
-func (m testMessageItem) Version() uint64      { return 0 }
-func (m testMessageItem) Finished() bool       { return true }
+func (m testMessageItem) ID() string               { return m.id }
+func (m testMessageItem) Render(int) string        { return m.text }
+func (m testMessageItem) RawRender(int) string     { return m.text }
+func (m testMessageItem) Version() uint64          { return 0 }
+func (m testMessageItem) Finished() bool           { return true }
+func (m testMessageItem) SetStyles(*styles.Styles) {}
 
 var _ chat.MessageItem = testMessageItem{}
 
@@ -245,4 +247,38 @@ func TestAutoExpandPillsIfReasonable(t *testing.T) {
 			t.Fatal("expected pillsExpanded to be false when there is no session")
 		}
 	})
+}
+
+func TestGenerateLayout_MinimalModeUsesFullScreen(t *testing.T) {
+	t.Parallel()
+
+	const w, h = 140, 45
+
+	normal := newTestUI()
+	normal.isCompact = true
+	normalLayout := normal.generateLayout(w, h)
+
+	minimal := newTestUI()
+	minimal.isCompact = true
+	minimal.minimalMode = true
+	minimalLayout := minimal.generateLayout(w, h)
+
+	if normalLayout.header.Empty() {
+		t.Fatal("expected normal compact layout to allocate a header")
+	}
+	if normalLayout.main.Min.X != 1 || normalLayout.main.Min.Y != 3 {
+		t.Fatalf("expected normal content inset, got origin (%d,%d)", normalLayout.main.Min.X, normalLayout.main.Min.Y)
+	}
+	if !minimalLayout.header.Empty() {
+		t.Fatalf("expected empty minimal header, got %v", minimalLayout.header)
+	}
+	if minimalLayout.main.Min.X != 0 || minimalLayout.main.Min.Y != 0 {
+		t.Fatalf("expected minimal content at origin, got (%d,%d)", minimalLayout.main.Min.X, minimalLayout.main.Min.Y)
+	}
+	if minimalLayout.status.Max.Y != h {
+		t.Fatalf("expected status on the last row, got max y %d", minimalLayout.status.Max.Y)
+	}
+	if minimalLayout.main.Dy() <= normalLayout.main.Dy() {
+		t.Fatalf("expected minimal chat to be taller: minimal %d, normal %d", minimalLayout.main.Dy(), normalLayout.main.Dy())
+	}
 }

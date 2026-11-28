@@ -14,6 +14,7 @@ import (
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/list"
+	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 // Constants for multi-click detection.
@@ -223,6 +224,18 @@ func (m *Chat) SetSize(width, height int) {
 // Len returns the number of items in the chat list.
 func (m *Chat) Len() int {
 	return m.list.Len()
+}
+
+// SetItemStyles points every message item, including nested tools, at sty.
+func (m *Chat) SetItemStyles(sty *styles.Styles) {
+	if m == nil || sty == nil {
+		return
+	}
+	for i := range m.list.Len() {
+		if item, ok := m.list.ItemAt(i).(chat.MessageItem); ok {
+			item.SetStyles(sty)
+		}
+	}
 }
 
 // InvalidateRenderCaches drops cached rendered output on every message

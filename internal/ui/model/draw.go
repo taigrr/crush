@@ -45,19 +45,23 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	// Tint the outer frame when a background session wants attention.
 	// Drawn behind the content so the reserved margin cells carry it and
 	// nothing else is displaced.
-	if m.state == uiChat || m.state == uiLanding {
+	if !m.minimalMode && (m.state == uiChat || m.state == uiLanding) {
 		m.drawAttentionBorder(scr, area)
 	}
 
 	switch m.state {
 	case uiOnboarding:
-		m.drawHeader(scr, layout.header)
+		if !m.minimalMode {
+			m.drawHeader(scr, layout.header)
+		}
 
 		// NOTE: Onboarding flow will be rendered as dialogs below, but
 		// positioned at the bottom left of the screen.
 
 	case uiLanding:
-		m.drawHeader(scr, layout.header)
+		if !m.minimalMode {
+			m.drawHeader(scr, layout.header)
+		}
 		main := uv.NewStyledString(m.landingView())
 		main.Draw(scr, layout.main)
 
@@ -66,7 +70,9 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 
 	case uiChat:
 		if m.isCompact {
-			m.drawHeader(scr, layout.header)
+			if !m.minimalMode {
+				m.drawHeader(scr, layout.header)
+			}
 		} else if layout.sidebar.Dx() > 0 {
 			m.drawSidebar(scr, layout.sidebar)
 		}
@@ -92,8 +98,15 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 		m.drawLeftSidebar(scr, layout.leftSidebar)
 	}
 
-	// Add status and help layer
+	// Add status and help layer. Minimal mode replaces the help row with
+	// the gx status line.
 	m.status.SetHideHelp(isOnboarding)
+	if m.minimalMode {
+		indent := max(0, layout.editor.Min.X-layout.status.Min.X) + 2
+		m.status.SetLine(m.minimalStatusLine(layout.status.Dx()), indent)
+	} else {
+		m.status.SetLine("", 0)
+	}
 	m.status.Draw(scr, layout.status)
 
 	// Draw completions popup if open
@@ -162,7 +175,10 @@ func (m *UI) editorCaret() *tea.Cursor {
 	// Offset by the editor's origin so the caret tracks the editor when panes
 	// to the left (app margin, session navigator) shift it horizontally.
 	cur.X += m.layout.editor.Min.X
-	cur.Y += m.layout.editor.Min.Y + 1 // Offset for attachments row
+	cur.Y += m.layout.editor.Min.Y
+	if !m.minimalMode || len(m.attachments.List()) > 0 {
+		cur.Y += 1 // Offset for attachments row
+	}
 	return cur
 }
 

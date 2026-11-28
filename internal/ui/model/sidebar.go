@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/taigrr/crush/internal/home"
 	"github.com/taigrr/crush/internal/swarm"
 	"github.com/taigrr/crush/internal/ui/common"
 	"github.com/taigrr/crush/internal/ui/logo"
@@ -153,6 +155,18 @@ func (m *UI) handleSwarmAddressClick(msg tea.MouseClickMsg) (tea.Cmd, bool) {
 	return common.CopyToClipboard(m.swarmAddr, swarmAddressCopiedMessage), true
 }
 
+// minimalWordmark is the plain "crush" line that replaces the ASCII logo
+// in minimal mode. It uses the header logo gradient colors, not the
+// diagonal field fill.
+func minimalWordmark(t *styles.Styles, width int, hyper bool) string {
+	return logo.Plain(t.Header.LogoGradCanvas, logo.Opts{
+		TitleColorA: t.Header.LogoGradFromColor,
+		TitleColorB: t.Header.LogoGradToColor,
+		Width:       width,
+		Hyper:       hyper,
+	})
+}
+
 // sidebar renders the chat sidebar containing session title, working
 // directory, model info, file list, LSP status, and MCP status.
 func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
@@ -183,6 +197,9 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	var swarmLine string
 	if sess != nil && sess.Color != "" && sess.Animal != "" {
 		square := common.SwarmSquare(sess.Color)
+		if m.minimalMode {
+			square = common.ThemeSwarmSquare(sess.Color, t.SwarmPalette, 0, 1)
+		}
 		addr := swarm.FormatAddress(
 			swarm.Identity{Color: sess.Color, Animal: sess.Animal},
 			sess.ID,
@@ -211,7 +228,15 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 		effectivePath = sess.WorkingDir
 	}
 	var cwdLine string
-	if effectivePath != cfgRootPath {
+	if m.minimalMode {
+		root := effectivePath
+		if rel, err := filepath.Rel(cfgRootPath, root); err == nil && rel != "." {
+			root = rel
+		} else {
+			root = home.Short(root)
+		}
+		cfgRoot = ansi.Truncate(root, width, "…")
+	} else if effectivePath != cfgRootPath {
 		cwdLine = common.PrettyPath(t, styles.FolderIcon+" "+effectivePath, width)
 	}
 
@@ -219,7 +244,9 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 		m.cacheSidebarLogo(m.sidebarLogoWidth)
 	}
 	sidebarLogo := m.sidebarLogo
-	if height < logoHeightBreakpoint {
+	if m.minimalMode {
+		sidebarLogo = minimalWordmark(t, width, m.com.IsHyper())
+	} else if height < logoHeightBreakpoint {
 		sidebarLogo = logo.SmallRender(m.com.Styles, width, logo.Opts{
 			Hyper: m.com.IsHyper(),
 		})
@@ -231,7 +258,8 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	if sess != nil && m.com.Workspace.WorktreesEnabled() {
 		activeWorktree, _ = m.com.Workspace.GetActiveWorktree(context.Background(), sess.ID)
 	}
-	if activeWorktree != nil {
+	if m.minimalMode {
+	} else if activeWorktree != nil {
 		gitInfo = t.Sidebar.WorkingDir.Render("⑂ " + activeWorktree.Name)
 	} else if branch := m.com.Workspace.GitBranchForDir(effectivePath); branch != "" {
 		gitInfo = t.Sidebar.WorkingDir.Render(styles.GitBranchIcon + " " + branch)
@@ -251,24 +279,18 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	if connLine := connectionStatusLine(t, m.com.Workspace.ConnectionState(), width); connLine != "" {
 		blocks = append(blocks, connLine)
 	}
-	blocks = append(
-		blocks,
-		title,
-		"",
-		cfgRoot,
-	)
+	blocks = append(blocks, title, "")
+	blocks = append(blocks, cfgRoot)
 	if cwdLine != "" {
 		blocks = append(blocks, cwdLine)
 	}
 	if gitInfo != "" {
 		blocks = append(blocks, gitInfo)
 	}
-	blocks = append(
-		blocks,
-		"",
-		m.modelInfo(width),
-		"",
-	)
+	if !m.minimalMode {
+		blocks = append(blocks, "")
+	}
+	blocks = append(blocks, m.modelInfo(width), "")
 	// Embedding backfill progress, shown under the model and above
 	// modified files, only while a backfill is running.
 	if embProgress := m.embeddingProgress(width); embProgress != "" {
@@ -314,18 +336,25 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	skillsSection := m.skillsInfo(width, maxSkills, true)
 	filesSection := m.filesInfo(sidebarFiles, m.com.Workspace.WorkingDir(), width, maxFiles, true)
 
-	// Build the full sidebar content.
-	fullContent := lipgloss.JoinVertical(
-		lipgloss.Left,
-		sidebarHeader,
-		filesSection,
-		"",
-		lspSection,
-		"",
-		mcpSection,
-		"",
-		skillsSection,
-	)
+	// Build the full sidebar content. Minimal mode is a tight list with
+	// no blank lines between sections.
+	var fullContent string
+	if m.minimalMode {
+		counts := lipgloss.JoinVertical(lipgloss.Left, lspSection, mcpSection, skillsSection)
+		fullContent = lipgloss.JoinVertical(lipgloss.Left, sidebarHeader, filesSection, "", counts)
+	} else {
+		fullContent = lipgloss.JoinVertical(
+			lipgloss.Left,
+			sidebarHeader,
+			filesSection,
+			"",
+			lspSection,
+			"",
+			mcpSection,
+			"",
+			skillsSection,
+		)
+	}
 
 	// Split into lines for virtual scrolling and update scroll bookkeeping.
 	lines := strings.Split(fullContent, "\n")

@@ -67,11 +67,9 @@ func (m *UI) drawSessionDetails(scr uv.Screen, area uv.Rectangle) {
 	height := area.Dy() - s.CompactDetails.View.GetVerticalFrameSize()
 
 	title := m.renderSessionTitle(s.CompactDetails.Title, width)
-	blocks := []string{
-		title,
-		"",
-		m.modelInfo(width),
-		"",
+	blocks := []string{title, "", m.modelInfo(width), ""}
+	if m.minimalMode {
+		blocks = append([]string{minimalWordmark(s, width, m.com.IsHyper()), ""}, blocks...)
 	}
 
 	detailsHeader := lipgloss.JoinVertical(
@@ -91,7 +89,18 @@ func (m *UI) drawSessionDetails(scr uv.Screen, area uv.Rectangle) {
 	mcpSection := m.mcpInfo(sectionWidth, maxItemsPerSection, false)
 	skillsSection := m.skillsInfo(sectionWidth, maxItemsPerSection, false)
 	filesSection := m.filesInfo(m.sidebarFiles(), m.com.Workspace.WorkingDir(), sectionWidth, maxItemsPerSection, false)
-	sections := lipgloss.JoinHorizontal(lipgloss.Top, filesSection, " ", lspSection, " ", mcpSection, " ", skillsSection)
+	var sections string
+	if m.minimalMode {
+		counts := lipgloss.JoinVertical(lipgloss.Left, lspSection, mcpSection, skillsSection)
+		sections = lipgloss.JoinVertical(lipgloss.Left, filesSection, "", counts)
+		content := lipgloss.JoinVertical(lipgloss.Left, detailsHeader, sections)
+		box := area
+		box.Max.Y = min(area.Max.Y, box.Min.Y+lipgloss.Height(content))
+		uv.NewStyledString(content).Draw(scr, box)
+		return
+	} else {
+		sections = lipgloss.JoinHorizontal(lipgloss.Top, filesSection, " ", lspSection, " ", mcpSection, " ", skillsSection)
+	}
 	uv.NewStyledString(
 		s.CompactDetails.View.
 			Width(area.Dx()).

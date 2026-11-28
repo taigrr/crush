@@ -60,6 +60,9 @@ func (m *UI) lspInfo(width, maxItems int, isSection bool) string {
 		lsps = append(lsps, LSPInfo{LSPClientInfo: state, Diagnostics: lspErrs})
 	}
 
+	if m.minimalMode {
+		return minimalCountLine(t, "LSPs", len(lsps), width)
+	}
 	title := t.Resource.Heading.Render("LSPs")
 	if isSection {
 		title = common.Section(t, title, width)

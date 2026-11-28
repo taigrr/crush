@@ -412,6 +412,14 @@ type UI struct {
 	// forceCompactMode tracks whether compact mode is forced by user toggle
 	forceCompactMode bool
 
+	// baseStyles is the theme as applied, before minimal mode flattens
+	// borders. applyMinimalStyles swaps com.Styles to a copy of it.
+	baseStyles *styles.Styles
+
+	// minimalMode drops the outer window frame: no screen margin, no
+	// header band, and no attention outline. Distinct from compact mode.
+	minimalMode bool
+
 	// yoloMode caches the currently-viewed workspace's permission
 	// skip-requests flag so the editor placeholder/prompt icon don't have
 	// to make a synchronous round trip to the server on every Update call.
@@ -578,6 +586,13 @@ func New(com *common.Common, initialSessionID string, continueLast bool, resume 
 
 	// Initialize compact mode from config
 	ui.forceCompactMode = com.Config().Options.TUI.CompactMode
+	ui.minimalMode = com.Config().Options.TUI.MinimalMode
+	if ui.minimalMode {
+		ui.textarea.MinHeight = 1
+		ui.textarea.SetPromptFunc(2, ui.normalPromptFunc)
+	}
+	ui.baseStyles = com.Styles
+	ui.applyMinimalStyles()
 
 	// Seed the navigator width from config so a previous resize persists.
 	ui.leftSidebarWidth = clampLeftSidebarWidth(com.Config().Options.TUI.SessionsSidebarWidth)

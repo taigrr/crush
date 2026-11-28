@@ -183,6 +183,20 @@ func Render(base lipgloss.Style, version string, compact bool, o Opts) string {
 	return logo
 }
 
+// Plain renders the word "crush" (or "hypercrush" when o.Hyper) as a single
+// gradient line. No letterforms, diagonal field, version, or Charm™ line.
+func Plain(base lipgloss.Style, o Opts) string {
+	name := "crush"
+	if o.Hyper {
+		name = "hypercrush"
+	}
+	out := styles.ApplyBoldForegroundGrad(base, name, o.TitleColorA, o.TitleColorB)
+	if o.Width > 0 {
+		out = ansi.Truncate(out, o.Width, "")
+	}
+	return out
+}
+
 // SmallRender renders a smaller version of the Crush logo, suitable for
 // smaller windows or sidebar usage.
 func SmallRender(t *styles.Styles, width int, o Opts) string {

@@ -92,6 +92,7 @@ type (
 	}
 	ActionToggleHelp              struct{}
 	ActionToggleCompactMode       struct{}
+	ActionToggleMinimalMode       struct{}
 	ActionToggleThinking          struct{}
 	ActionTogglePills             struct{}
 	ActionExternalEditor          struct{}

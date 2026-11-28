@@ -64,6 +64,9 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	// Regular bash command.
 	cmd := strings.ReplaceAll(params.Command, "\n", " ")
 	cmd = strings.ReplaceAll(cmd, "\t", "    ")
+	if opts.Compact {
+		cmd = bashSummary(cmd)
+	}
 	toolParams := []string{cmd}
 	if params.RunInBackground {
 		toolParams = append(toolParams, "background", "true")
@@ -93,6 +96,16 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	bodyWidth := cappedWidth - toolBodyLeftPaddingTotal
 	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, output, bodyWidth, opts.ExpandedContent))
 	return joinToolParts(header, body)
+}
+
+// bashSummary is the first word of a command, so a collapsed row says
+// what ran without the full command line.
+func bashSummary(cmd string) string {
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 {
+		return "a command"
+	}
+	return fields[0]
 }
 
 // -----------------------------------------------------------------------------

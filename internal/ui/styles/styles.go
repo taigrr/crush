@@ -66,6 +66,10 @@ const (
 )
 
 type Styles struct {
+	// Minimal is set on the copy returned by WithMinimal. Dialog titles
+	// read it to skip the decorative slash fill.
+	Minimal bool
+
 	// Header
 	Header struct {
 		Charm             lipgloss.Style // Style for "Charm™" label
@@ -146,6 +150,10 @@ type Styles struct {
 
 	// Background
 	Background color.Color
+
+	// SwarmPalette is the theme colors session squares are derived
+	// from in minimal mode.
+	SwarmPalette []color.Color
 
 	// Logo
 	Logo struct {

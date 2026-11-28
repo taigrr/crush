@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -98,6 +99,17 @@ func advanceNested(tools []ToolMessageItem) bool {
 		}
 	}
 	return changed
+}
+
+// SetStyles points the agent tool and its nested tools at sty.
+func (a *AgentToolMessageItem) SetStyles(sty *styles.Styles) {
+	if a == nil {
+		return
+	}
+	a.baseToolMessageItem.SetStyles(sty)
+	for _, nested := range a.nestedTools {
+		nested.SetStyles(sty)
+	}
 }
 
 // NestedTools returns the nested tools.
@@ -256,6 +268,17 @@ func (a *AgenticFetchToolMessageItem) Advance() bool {
 		a.Bump()
 	}
 	return changed
+}
+
+// SetStyles points the fetch tool and its nested tools at sty.
+func (a *AgenticFetchToolMessageItem) SetStyles(sty *styles.Styles) {
+	if a == nil {
+		return
+	}
+	a.baseToolMessageItem.SetStyles(sty)
+	for _, nested := range a.nestedTools {
+		nested.SetStyles(sty)
+	}
 }
 
 // NestedTools returns the nested tools.
@@ -422,6 +445,17 @@ func (a *ReviewToolMessageItem) Advance() bool {
 	return changed
 }
 
+// SetStyles points the review tool and every reviewer group's tools at sty.
+func (a *ReviewToolMessageItem) SetStyles(sty *styles.Styles) {
+	if a == nil {
+		return
+	}
+	a.baseToolMessageItem.SetStyles(sty)
+	for _, nested := range a.NestedTools() {
+		nested.SetStyles(sty)
+	}
+}
+
 // NestedTools returns the flattened set of nested tools across all
 // reviewer groups (used for ID registration and animation dispatch).
 func (a *ReviewToolMessageItem) NestedTools() []ToolMessageItem {
@@ -480,6 +514,142 @@ func (a *ReviewToolMessageItem) GroupCount() int {
 	return len(a.groups)
 }
 
+type reviewAction struct {
+	verb string
+	arg  string
+}
+
+func reviewActionFor(tool ToolMessageItem) reviewAction {
+	call := tool.ToolCall()
+	params := decodeToolInput(call.Input)
+	switch call.Name {
+	case "grep", "glob", "sourcegraph", "web_search", "search_history", "lsp_references":
+		return reviewAction{"Searched", reviewArg(params, true)}
+	case "view", "multi_view", "fetch", "web_fetch", "agentic_fetch", "read_mcp_resource":
+		return reviewAction{"Read", reviewArg(params, false)}
+	case "ls":
+		return reviewAction{"Listed", reviewArg(params, false)}
+	case "bash":
+		return reviewAction{"Ran", reviewArg(params, false)}
+	default:
+		return reviewAction{prettifyToolName(call.Name), reviewArg(params, false)}
+	}
+}
+
+func reviewArg(params map[string]any, search bool) string {
+	keys := []string{"file_path", "path", "url", "command", "prompt", "name"}
+	if search {
+		keys = []string{"pattern", "query", "file_path", "path", "url"}
+	}
+	for _, key := range keys {
+		v, ok := params[key].(string)
+		if !ok || v == "" {
+			continue
+		}
+		v = strings.TrimSpace(strings.ReplaceAll(v, "\n", " "))
+		if key == "file_path" || key == "path" {
+			v = path.Base(v)
+		}
+		if search {
+			v = reviewSearchTerms(v)
+		}
+		return v
+	}
+	if vals := toolSummaryParams(params); len(vals) > 0 {
+		return strings.TrimSpace(strings.ReplaceAll(vals[0], "\n", " "))
+	}
+	return ""
+}
+
+func reviewSearchTerms(pattern string) string {
+	if i := strings.IndexAny(pattern, "|&"); i >= 0 {
+		pattern = pattern[:i]
+	}
+	var b strings.Builder
+	for _, r := range pattern {
+		switch {
+		case r == ' ' || r == '_' || r == '-' || r == '.':
+			b.WriteRune(' ')
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+func reviewToolLine(sty *styles.Styles, tool ToolMessageItem) string {
+	action := reviewActionFor(tool)
+	name := sty.Tool.NameNested.Render(prettifyToolName(tool.ToolCall().Name))
+	if action.arg == "" {
+		return name
+	}
+	return name + " " + sty.Tool.ParamMain.Render(action.arg)
+}
+
+const (
+	reviewSummaryRows = 3
+	reviewSummaryArgs = 4
+)
+
+func reviewSummaryLines(sty *styles.Styles, group []ToolMessageItem) []string {
+	actions := make([]reviewAction, len(group))
+	for i, tool := range group {
+		actions[i] = reviewActionFor(tool)
+	}
+	var lines []string
+	shown := 0
+	for shown < len(actions) && len(lines) < reviewSummaryRows {
+		verb := actions[shown].verb
+		end := shown + 1
+		for end < len(actions) && actions[end].verb == verb {
+			end++
+		}
+		if len(lines) == reviewSummaryRows-1 && end < len(actions) {
+			lines = append(lines, sty.Tool.ParamMain.Render(fmt.Sprintf("+%d more", len(actions)-shown)))
+			return lines
+		}
+		lines = append(lines, reviewRunLine(sty, verb, actions[shown:end]))
+		shown = end
+	}
+	return lines
+}
+
+func reviewRunLine(sty *styles.Styles, verb string, run []reviewAction) string {
+	var args []string
+	seen := map[string]struct{}{}
+	extra := 0
+	for _, action := range run {
+		if action.arg == "" {
+			extra++
+			continue
+		}
+		if _, ok := seen[action.arg]; ok {
+			extra++
+			continue
+		}
+		if len(args) == reviewSummaryArgs {
+			extra++
+			continue
+		}
+		seen[action.arg] = struct{}{}
+		args = append(args, action.arg)
+	}
+	line := sty.Tool.NameNested.Render(verb)
+	if len(args) > 0 {
+		line += " " + sty.Tool.ParamMain.Render(strings.Join(args, ", "))
+	}
+	if extra > 0 {
+		line += sty.Tool.ParamMain.Render(fmt.Sprintf(" +%d more", extra))
+	}
+	return line
+}
+
+func decodeToolInput(input string) map[string]any {
+	var params map[string]any
+	_ = json.Unmarshal([]byte(input), &params)
+	return params
+}
+
 // ReviewToolRenderContext renders review tool messages.
 type ReviewToolRenderContext struct {
 	review *ReviewToolMessageItem
@@ -503,7 +673,7 @@ func (r *ReviewToolRenderContext) RenderTool(sty *styles.Styles, width int, opts
 	_ = json.Unmarshal([]byte(opts.ToolCall.Input), &params)
 
 	header := toolHeader(sty, opts.Status, "Review", cappedWidth, opts.Compact)
-	if opts.Compact {
+	if opts.Compact && !sty.Minimal {
 		return header
 	}
 
@@ -519,12 +689,18 @@ func (r *ReviewToolRenderContext) RenderTool(sty *styles.Styles, width int, opts
 	label = strings.ReplaceAll(label, "\n", " ")
 	labelText := sty.Tool.AgentPrompt.Width(remainingWidth).Render(label)
 
-	header = lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		"",
-		lipgloss.JoinHorizontal(lipgloss.Left, taskTag, " ", labelText),
-	)
+	if !sty.Minimal {
+		header = lipgloss.JoinVertical(
+			lipgloss.Left,
+			header,
+			"",
+			lipgloss.JoinHorizontal(lipgloss.Left, taskTag, " ", labelText),
+		)
+	}
+
+	if sty.Minimal {
+		return r.renderMinimal(sty, cappedWidth, opts, header)
+	}
 
 	// One sub-tree per reviewer group, so N reviewers render as N
 	// independent branches.
@@ -556,4 +732,68 @@ func (r *ReviewToolRenderContext) RenderTool(sty *styles.Styles, width int, opts
 	}
 
 	return result
+}
+
+func (r *ReviewToolRenderContext) renderMinimal(sty *styles.Styles, width int, opts *ToolRenderOpts, header string) string {
+	total := 0
+	for _, group := range r.review.groups {
+		total += len(group)
+	}
+	title := strings.TrimRight(strings.Replace(header, "●", toolIcon(sty, opts.Status), 1), " ")
+	if total > 0 {
+		title += sty.Tool.ParamMain.Render(" · " + reviewCallCount(total))
+	}
+
+	var b strings.Builder
+	b.WriteString(title)
+	const pad = "  "
+	for i, group := range r.review.groups {
+		branch := "├"
+		if i == len(r.review.groups)-1 {
+			branch = "└"
+		}
+		label := fmt.Sprintf("Reviewer %d", i+1)
+		if n := len(group); n > 0 {
+			label += " · " + reviewCallCount(n)
+		}
+		if len(group) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\n%s│\n%s%s %s", pad, pad, branch, sty.Tool.ParamMain.Render(label))
+
+		rows := reviewSummaryLines(sty, group)
+		if opts.ExpandedContent {
+			rows = make([]string, len(group))
+			for j, tool := range group {
+				rows[j] = reviewToolLine(sty, tool)
+			}
+		}
+		if len(rows) > 0 {
+			fmt.Fprintf(&b, "\n%s│ │ ", pad)
+		}
+		for j, row := range rows {
+			toolBranch := "├"
+			if j == len(rows)-1 {
+				toolBranch = "└"
+			}
+			fmt.Fprintf(&b, "\n%s│ %s %s", pad, toolBranch, row)
+		}
+	}
+
+	result := b.String()
+	if !opts.HasResult() && !opts.IsCanceled() && opts.Anim != nil {
+		result += "\n" + opts.Anim.Render()
+	}
+	if opts.HasResult() && opts.Result.Content != "" && opts.ExpandedContent {
+		body := toolOutputMarkdownContent(sty, opts.Result.Content, width-toolBodyLeftPaddingTotal, true)
+		return joinToolParts(result, body)
+	}
+	return result
+}
+
+func reviewCallCount(n int) string {
+	if n == 1 {
+		return "1 call"
+	}
+	return fmt.Sprintf("%d calls", n)
 }

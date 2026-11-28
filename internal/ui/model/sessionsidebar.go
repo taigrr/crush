@@ -161,6 +161,9 @@ type SessionsSidebar struct {
 	// bg holds sessions paged in by the background loader beyond the
 	// bounded overview, merged into every overview refresh.
 	bg backgroundSessions
+
+	// minimal swaps the high-contrast cursor bar for a single-cell marker.
+	minimal bool
 }
 
 // SetPendingSessions replaces the set of session IDs that have an
@@ -176,6 +179,18 @@ func (s *SessionsSidebar) SetPendingSessions(ids map[string]bool) {
 // permission or question request awaiting a response on this client.
 func (s *SessionsSidebar) HasPending(sessionID string) bool {
 	return s.pendingSessions[sessionID]
+}
+
+// SetMinimal toggles the flat cursor marker used in minimal mode.
+func (s *SessionsSidebar) SetMinimal(on bool) {
+	if s == nil {
+		return
+	}
+	if s.minimal == on {
+		return
+	}
+	s.minimal = on
+	s.rebuildRows()
 }
 
 // NewSessionsSidebar creates an empty sidebar bound to shared context.
@@ -592,7 +607,13 @@ func (s *SessionsSidebar) emitInboxRows() {
 		if len(refs) == 0 {
 			continue
 		}
+		if s.minimal && len(s.rows) > 0 {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSpacer})
+		}
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowSection, label: inboxSectionLabels[sec]})
+		if s.minimal {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSpacer})
+		}
 		for _, r := range refs {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: int(r.wi), sessIdx: int(r.si)})
 		}
@@ -731,12 +752,15 @@ func (s *SessionsSidebar) rebuildGroupedRows() {
 		}
 		// Blank lines separate visible workspace groups. Counting emitted
 		// groups avoids a leading spacer when earlier workspaces are empty or
-		// filtered out.
+		// filtered out. Minimal mode drops the blank rows.
 		if emittedGroups > 0 {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSpacer, wsIdx: wi})
 		}
 		emittedGroups++
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowWorkspace, wsIdx: wi})
+		if s.minimal {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSpacer, wsIdx: wi})
+		}
 		shown := len(idxs)
 		for _, si := range idxs {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: si})
@@ -786,31 +810,33 @@ func (s *SessionsSidebar) computeCaps() []int {
 	for i := range s.overviews {
 		_, c := s.filteredIdxs(q, i, 0)
 		counts[i] = c
-		if c > 0 {
-			c += s.hiddenSessions(i)
-		}
-		if c == 0 {
+		if c == 0 && s.hiddenSessions(i) == 0 {
 			continue
 		}
 		nonEmpty++
-		total += 1 + c // header + sessions
+		total += 1 + c // header + loaded sessions
+		if s.hiddenSessions(i) > 0 {
+			total++ // one overflow row, not one row per hidden session
+		}
 	}
 	if nonEmpty == 0 {
 		return caps
 	}
-	// Account for the blank spacer line between each pair of visible
-	// workspace groups.
+	// Between-group spacers, plus one under each header in minimal mode.
+	// Each is counted once; the per-workspace reserve below does not
+	// include them again.
 	spacers := nonEmpty - 1
+	if s.minimal {
+		spacers += nonEmpty
+	}
 	total += spacers
 	if total <= h {
 		copy(caps, counts)
 		return caps
 	}
 
-	// Even share: each non-empty workspace's block is
-	// (h-spacers)/nonEmpty rows. Reserve one line for the header and one for
-	// the overflow row, then floor at the minimum.
 	perWorkspace := max(0, h-spacers) / nonEmpty
+	// Header plus a possible overflow row. Spacers are already in h-spacers.
 	cap := max(minSessionsPerWorkspace, perWorkspace-2)
 	for i := range caps {
 		caps[i] = cap
@@ -1378,8 +1404,12 @@ func (s *SessionsSidebar) Render(width, height int, focused bool) string {
 	// At very small heights, drop the summary block so short terminals
 	// still show session rows: below summaryMinHeight the fixed header is
 	// just the title + blank (2 lines), matching the pre-summary layout.
-	showSummary := height >= summaryMinHeight
-	lines := []string{common.Section(t, s.title(), width)}
+	showSummary := height >= summaryMinHeight && !s.minimal
+	title := common.Section(t, s.title(), width)
+	if s.minimal {
+		title = t.Resource.Heading.Render(s.title())
+	}
+	lines := []string{title}
 	headerLines := s.fixedHeaderHeight(height)
 	// The "/" filter input renders as a fixed line directly under the
 	// title (before the summary), so it never scrolls with the rows and
@@ -1446,7 +1476,7 @@ func (s *SessionsSidebar) fixedHeaderHeight(height int) int {
 	if s.searchMode {
 		h++ // the "/" filter input line
 	}
-	if height >= summaryMinHeight {
+	if height >= summaryMinHeight && !s.minimal {
 		h += 3 // ready/working/total
 	}
 	return h
@@ -1533,6 +1563,10 @@ func (s *SessionsSidebar) renderRows(width int, focused bool, start, end int) []
 	if start >= end {
 		return nil
 	}
+	var ranks map[int64]int
+	if s.minimal {
+		ranks = s.sessionRanks()
+	}
 	out := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
 		r := s.rows[i]
@@ -1543,7 +1577,11 @@ func (s *SessionsSidebar) renderRows(width int, focused bool, start, end int) []
 		case sidebarRowWorkspace:
 			out = append(out, s.renderWorkspaceRow(t, s.overviews[r.wsIdx], width))
 		case sidebarRowSection:
-			out = append(out, common.Section(t, r.label, width))
+			label := common.Section(t, r.label, width)
+			if s.minimal {
+				label = t.Resource.Heading.Render(r.label)
+			}
+			out = append(out, label)
 		case sidebarRowSession:
 			ws := s.overviews[r.wsIdx]
 			sess := ws.Sessions[r.sessIdx]
@@ -1561,7 +1599,7 @@ func (s *SessionsSidebar) renderRows(width int, focused bool, start, end int) []
 				// cannot be reached right now.
 				tag = strings.TrimSpace("@" + sess.OwnerName + " cached " + tag)
 			}
-			out = append(out, s.renderSessionRow(t, sess, width, selected, focused, s.selected[sess.ID], tag))
+			out = append(out, s.renderSessionRow(t, sess, width, selected, focused, s.selected[sess.ID], tag, ranks))
 		case sidebarRowOverflow:
 			out = append(out, s.renderOverflowRow(t, r.remaining, width, selected, focused))
 		}
@@ -1575,7 +1613,7 @@ func (s *SessionsSidebar) renderRows(width int, focused bool, start, end int) []
 func (s *SessionsSidebar) renderOverflowRow(t *styles.Styles, remaining, width int, selected, focused bool) string {
 	bar := " "
 	if selected {
-		bar = styles.BorderThick
+		bar = s.cursorBar(t)
 	}
 	label := fmt.Sprintf("… %d more", remaining)
 	prefix := bar + "    " // bar + 4 spaces = 5-cell prefix
@@ -1596,10 +1634,13 @@ func (s *SessionsSidebar) renderWorkspaceRow(t *styles.Styles, ws proto.Workspac
 	// Leave room for the section's trailing " ──" so the header never
 	// overflows the sidebar width and wraps.
 	name = ansi.Truncate(name, max(1, width-4), "…")
+	if s.minimal {
+		return t.Resource.Heading.Render(name)
+	}
 	return common.Section(t, name, width)
 }
 
-func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, focused, marked bool, tag string) string {
+func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionOverview, width int, selected, focused, marked bool, tag string, ranks map[int64]int) string {
 	// Status glyph: pending-prompt dot (red), busy dot (yellow), unread
 	// dot (green), or blank. Pending outranks busy because a session
 	// blocked on a permission/question prompt is almost always ALSO busy
@@ -1620,7 +1661,7 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		statusStyle = t.Resource.OnlineIcon
 	}
 	marker := " "
-	if pending || sess.IsBusy || sess.Unread {
+	if !s.minimal && (pending || sess.IsBusy || sess.Unread) {
 		marker = statusStyle.String()
 	}
 	if marked {
@@ -1629,9 +1670,10 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 
 	// Active-session arrow, selection bar. The bar (▌) marks the cursor
 	// row like a focused list item without the padded dialog background.
+	// Minimal mode uses a single-cell thin marker instead.
 	bar := " "
 	if selected {
-		bar = styles.BorderThick
+		bar = s.cursorBar(t)
 	}
 	active := " "
 	if sess.ID == s.activeSessionID {
@@ -1647,7 +1689,7 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 	// when the session has no assigned color (freshly created before
 	// backfill runs, or the color name is not in the current
 	// palette).
-	square := common.SwarmSquare(sess.Color)
+	square := s.swarmSquare(sess.Color, ranks[sess.UpdatedAt], len(ranks))
 	squareCell := " "
 	if square != "" {
 		squareCell = square
@@ -1656,6 +1698,9 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 	// Build the fixed-width prefix: bar + space + active + marker + square + space.
 	// Each glyph is a single cell.
 	prefixRaw := bar + " " + active + marker + squareCell + " "
+	if s.minimal {
+		prefixRaw = squareCell + " "
+	}
 	prefixWidth := ansi.StringWidth(prefixRaw)
 
 	// Inbox mode appends a dim workspace tag suffix (basename of the
@@ -1681,6 +1726,9 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		// Full-row highlight without extra padding (the dialog selected
 		// style adds Padding(0,1) which would overflow the sidebar width).
 		line := ansi.Truncate(prefixRaw+title+favRaw+tagRaw, width, "…")
+		if s.minimal {
+			return t.Resource.Name.Background(t.Dialog.Permissions.ParamsBg).Width(width).Render(line)
+		}
 		return t.Dialog.SelectedItem.UnsetPadding().Width(width).Render(line)
 	}
 
@@ -1689,6 +1737,9 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		titleStyle = titleStyle.Bold(true)
 	}
 	styledPrefix := t.Resource.AdditionalText.Render(bar+" "+active) + marker + squareCell + " "
+	if s.minimal {
+		styledPrefix = squareCell + " "
+	}
 	styledFav := ""
 	if favRaw != "" {
 		styledFav = t.Resource.Name.Render(favRaw)
@@ -1698,4 +1749,38 @@ func (s *SessionsSidebar) renderSessionRow(t *styles.Styles, sess proto.SessionO
 		styledTag = t.Resource.AdditionalText.Render(tagRaw)
 	}
 	return ansi.Truncate(styledPrefix+titleStyle.Render(title)+styledFav+styledTag, width, "…")
+}
+
+// cursorBar is the glyph that marks the cursor row. Minimal mode uses a
+// single-cell theme-colored thin bar instead of the high-contrast block.
+func (s *SessionsSidebar) swarmSquare(color string, rank, count int) string {
+	if s.minimal && s.com != nil && s.com.Styles != nil {
+		return common.ThemeSwarmSquare(color, s.com.Styles.SwarmPalette, rank, count)
+	}
+	return common.SwarmSquare(color)
+}
+
+// sessionRanks maps each session time to its age order, oldest first.
+func (s *SessionsSidebar) sessionRanks() map[int64]int {
+	var times []int64
+	for _, ws := range s.overviews {
+		for _, sess := range ws.Sessions {
+			times = append(times, sess.UpdatedAt)
+		}
+	}
+	slices.Sort(times)
+	ranks := make(map[int64]int, len(times))
+	for i, ts := range times {
+		if _, ok := ranks[ts]; !ok {
+			ranks[ts] = i
+		}
+	}
+	return ranks
+}
+
+func (s *SessionsSidebar) cursorBar(t *styles.Styles) string {
+	if s.minimal {
+		return t.Header.Charm.Render(styles.BorderThin)
+	}
+	return styles.BorderThick
 }

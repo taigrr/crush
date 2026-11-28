@@ -63,6 +63,10 @@ func (m *UI) openEditor(value string) tea.Cmd {
 // this function does not query the server itself.
 func (m *UI) setEditorPrompt(yolo bool) {
 	m.yoloMode = yolo
+	if m.minimalMode {
+		m.textarea.SetPromptFunc(2, m.normalPromptFunc)
+		return
+	}
 	if yolo {
 		m.textarea.SetPromptFunc(4, m.yoloPromptFunc)
 		return
@@ -191,9 +195,13 @@ func (m *UI) renderEditorView(width int) string {
 	if len(m.attachments.List()) > 0 {
 		attachmentsView = m.attachments.Render(width)
 	}
-	return strings.Join([]string{
-		attachmentsView,
-		m.textarea.View(),
-		"", // margin at bottom of editor
-	}, "\n")
+	parts := []string{attachmentsView, m.textarea.View(), ""}
+	if m.minimalMode {
+		parts = parts[:0]
+		if attachmentsView != "" {
+			parts = append(parts, attachmentsView)
+		}
+		parts = append(parts, m.textarea.View(), "")
+	}
+	return strings.Join(parts, "\n")
 }

@@ -566,6 +566,12 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	}
 	commands = append(commands, NewCommandItem(c.com.Styles, "toggle_low_bandwidth", lowBandwidthLabel, "", ActionToggleLowBandwidth{}))
 
+	minimalLabel := "Enable Minimal Mode"
+	if cfg != nil && cfg.Options != nil && cfg.Options.TUI != nil && cfg.Options.TUI.MinimalMode {
+		minimalLabel = "Disable Minimal Mode"
+	}
+	commands = append(commands, NewCommandItem(c.com.Styles, "toggle_minimal_mode", minimalLabel, "", ActionToggleMinimalMode{}))
+
 	// Sound effects mute toggle. Mirrors options.sound.disabled.
 	soundLabel := "Mute Sound Effects"
 	if cfg != nil && cfg.Options != nil && cfg.Options.Sound != nil && cfg.Options.Sound.Disabled {

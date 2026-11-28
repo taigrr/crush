@@ -26,6 +26,9 @@ func (m *UI) mcpInfo(width, maxItems int, isSection bool) string {
 		}
 	}
 
+	if m.minimalMode {
+		return minimalCountLine(t, "MCPs", len(mcps), width)
+	}
 	title := t.Resource.Heading.Render("MCPs")
 	if isSection {
 		title = common.Section(t, title, width)

@@ -43,9 +43,10 @@ func (g *GenericToolRenderContext) RenderTool(sty *styles.Styles, width int, opt
 	}
 
 	var toolParams []string
-	if len(params) > 0 {
-		parsed, _ := json.Marshal(params)
-		toolParams = append(toolParams, string(parsed))
+	if sty.Minimal {
+		toolParams = toolSummaryParams(params)
+	} else if raw, err := json.Marshal(params); err == nil {
+		toolParams = []string{string(raw)}
 	}
 
 	header := toolHeader(sty, opts.Status, name, cappedWidth, opts.Compact, toolParams...)

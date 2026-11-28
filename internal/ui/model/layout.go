@@ -67,6 +67,36 @@ func (m *UI) toggleCompactMode() tea.Cmd {
 	}
 }
 
+// toggleMinimalMode flips the flat visual mode and persists it.
+func (m *UI) toggleMinimalMode() tea.Cmd {
+	m.minimalMode = !m.minimalMode
+	if m.minimalMode {
+		m.textarea.MinHeight = 1
+		m.textarea.SetPromptFunc(2, m.normalPromptFunc)
+	} else {
+		m.textarea.MinHeight = TextareaMinHeight
+		m.setEditorPrompt(m.yoloMode)
+	}
+	m.applyMinimalStyles()
+	m.updateLayoutAndSize()
+
+	enabled := m.minimalMode
+	ws := m.com.Workspace
+	if cfg := m.com.Config(); cfg != nil && cfg.Options != nil && cfg.Options.TUI != nil {
+		cfg.Options.TUI.MinimalMode = enabled
+	}
+	return func() tea.Msg {
+		if err := ws.SetConfigField(config.ScopeGlobal, "options.tui.minimal_mode", enabled); err != nil {
+			return util.ReportError(err)()
+		}
+		status := "disabled"
+		if enabled {
+			status = "enabled"
+		}
+		return util.NewInfoMsg("Minimal mode " + status)
+	}
+}
+
 // updateLayoutAndSize updates the layout and sizes of UI components.
 func (m *UI) updateLayoutAndSize() {
 	// Determine if we should be in compact mode
@@ -158,7 +188,17 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 	// The help height
 	helpHeight := 1
 	// The editor height: textarea height + margin for attachments and bottom spacing.
-	editorHeight := m.textarea.Height() + editorHeightMargin
+	// Minimal mode is one line until the text wraps, with no reserved margin.
+	editorMargin := editorHeightMargin
+	if m.minimalMode {
+		// One blank row above the composer and one below it, plus the
+		// attachments row when there is one.
+		editorMargin = 2
+		if len(m.attachments.List()) > 0 {
+			editorMargin = 3
+		}
+	}
+	editorHeight := m.textarea.Height() + editorMargin
 	// The sidebar width
 	sidebarWidth := 30
 	// The header height
@@ -175,18 +215,23 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 	var appRect, helpRect image.Rectangle
 	layout.Vertical(
 		layout.Len(area.Dy()-helpHeight),
-		layout.Fill(1),
+		layout.Len(helpHeight),
 	).Split(area).Assign(&appRect, &helpRect)
-	appRect.Min.Y += 1
-	appRect.Max.Y -= 1
-	helpRect.Min.Y -= 1
-	appRect.Min.X += 1
-	appRect.Max.X -= 1
-
-	if slices.Contains([]uiState{uiOnboarding, uiLanding}, m.state) {
-		// extra padding on left and right for these states
+	if m.minimalMode {
+		helpRect.Min.Y = helpRect.Max.Y - helpHeight
+		appRect.Max.Y = helpRect.Min.Y
+	} else {
+		appRect.Min.Y += 1
+		appRect.Max.Y -= 1
+		helpRect.Min.Y -= 1
 		appRect.Min.X += 1
 		appRect.Max.X -= 1
+
+		if slices.Contains([]uiState{uiOnboarding, uiLanding}, m.state) {
+			// extra padding on left and right for these states
+			appRect.Min.X += 1
+			appRect.Max.X -= 1
+		}
 	}
 
 	uiLayout := uiLayout{
@@ -223,12 +268,18 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 		// ------
 		// help
 
+		headerHeight := landingHeaderHeight
+		if m.minimalMode {
+			headerHeight = 0
+		}
 		var headerRect, mainRect image.Rectangle
 		layout.Vertical(
-			layout.Len(landingHeaderHeight),
+			layout.Len(headerHeight),
 			layout.Fill(1),
 		).Split(appRect).Assign(&headerRect, &mainRect)
-		uiLayout.header = headerRect
+		if headerHeight > 0 {
+			uiLayout.header = headerRect
+		}
 		uiLayout.main = mainRect
 
 	case uiLanding:
@@ -241,9 +292,13 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 		// editor
 		// ------
 		// help
+		headerHeight := landingHeaderHeight
+		if m.minimalMode {
+			headerHeight = 0
+		}
 		var headerRect, mainRect image.Rectangle
 		layout.Vertical(
-			layout.Len(landingHeaderHeight),
+			layout.Len(headerHeight),
 			layout.Fill(1),
 		).Split(appRect).Assign(&headerRect, &mainRect)
 		var editorRect image.Rectangle
@@ -251,10 +306,16 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			layout.Len(mainRect.Dy()-editorHeight),
 			layout.Fill(1),
 		).Split(mainRect).Assign(&mainRect, &editorRect)
-		// Remove extra padding from editor (but keep it for header and main)
-		editorRect.Min.X -= 1
-		editorRect.Max.X += 1
-		uiLayout.header = headerRect
+		if !m.minimalMode {
+			// Remove extra padding from editor (but keep it for header and main)
+			editorRect.Min.X -= 1
+			editorRect.Max.X += 1
+		} else if editorRect.Dy() > 0 {
+			editorRect.Min.Y++
+		}
+		if headerHeight > 0 {
+			uiLayout.header = headerRect
+		}
 		uiLayout.main = mainRect
 		uiLayout.editor = editorRect
 
@@ -269,7 +330,10 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			// editor
 			// ------
 			// help
-			const compactHeaderHeight = 1
+			compactHeaderHeight := 1
+			if m.minimalMode {
+				compactHeaderHeight = 0
+			}
 			var headerRect, mainRect image.Rectangle
 			layout.Vertical(
 				layout.Len(compactHeaderHeight),
@@ -283,17 +347,24 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			).Split(appRect).Assign(&sessionDetailsArea, new(image.Rectangle))
 			uiLayout.sessionDetails = sessionDetailsArea
 			uiLayout.sessionDetails.Min.Y += compactHeaderHeight // adjust for header
-			// Add one line gap between header and main content
-			mainRect.Min.Y += 1
+			if !m.minimalMode {
+				// Add one line gap between header and main content
+				mainRect.Min.Y += 1
+			}
 			var editorRect image.Rectangle
 			layout.Vertical(
 				layout.Len(mainRect.Dy()-editorHeight),
 				layout.Fill(1),
 			).Split(mainRect).Assign(&mainRect, &editorRect)
 			mainRect.Max.X -= 1 // Add padding right
-			uiLayout.header = headerRect
+			if compactHeaderHeight > 0 {
+				uiLayout.header = headerRect
+			}
 			pillsHeight := m.pillsAreaHeight()
 			if pillsHeight > 0 {
+				if m.minimalMode {
+					pillsHeight++
+				}
 				pillsHeight = min(pillsHeight, mainRect.Dy())
 				var chatRect, pillsRect image.Rectangle
 				layout.Vertical(
@@ -301,12 +372,18 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 					layout.Fill(1),
 				).Split(mainRect).Assign(&chatRect, &pillsRect)
 				uiLayout.main = chatRect
+				if m.minimalMode {
+					pillsRect.Min.Y++
+				}
 				uiLayout.pills = pillsRect
 			} else {
 				uiLayout.main = mainRect
 			}
-			// Add bottom margin to main
-			uiLayout.main.Max.Y -= 1
+			if !m.minimalMode {
+				uiLayout.main.Max.Y -= 1
+			} else if editorRect.Dy() > 0 {
+				editorRect.Min.Y++
+			}
 			uiLayout.editor = editorRect
 		} else {
 			// Layout
@@ -339,6 +416,9 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			mainRect.Max.X -= 1 // Add padding right
 			pillsHeight := m.pillsAreaHeight()
 			if pillsHeight > 0 {
+				if m.minimalMode {
+					pillsHeight++
+				}
 				pillsHeight = min(pillsHeight, mainRect.Dy())
 				var chatRect, pillsRect image.Rectangle
 				layout.Vertical(
@@ -346,12 +426,18 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 					layout.Fill(1),
 				).Split(mainRect).Assign(&chatRect, &pillsRect)
 				uiLayout.main = chatRect
+				if m.minimalMode {
+					pillsRect.Min.Y++
+				}
 				uiLayout.pills = pillsRect
 			} else {
 				uiLayout.main = mainRect
 			}
-			// Add bottom margin to main
-			uiLayout.main.Max.Y -= 1
+			if !m.minimalMode {
+				uiLayout.main.Max.Y -= 1
+			} else if editorRect.Dy() > 0 {
+				editorRect.Min.Y++
+			}
 			uiLayout.editor = editorRect
 		}
 	}

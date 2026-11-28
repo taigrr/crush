@@ -955,6 +955,11 @@
           "description": "Enable compact mode for the TUI interface",
           "default": false
         },
+        "minimal_mode": {
+          "type": "boolean",
+          "description": "Enable minimal mode for the TUI interface",
+          "default": false
+        },
         "diff_mode": {
           "type": "string",
           "enum": [

@@ -113,6 +113,22 @@ func (l *List) Gap() int {
 	return l.gap
 }
 
+// gapBefore returns the blank rows drawn before items[idx].
+func (l *List) gapBefore(idx int) int {
+	if idx <= 0 {
+		return 0
+	}
+	if idx >= len(l.items) {
+		return max(l.gap, 0)
+	}
+	if chooser, ok := l.items[idx].(GapChooser); ok {
+		if rows, chosen := chooser.GapBefore(l.items[idx-1]); chosen {
+			return rows
+		}
+	}
+	return max(l.gap, 0)
+}
+
 // AtBottom returns whether the list is showing the last item at the bottom.
 func (l *List) AtBottom() bool {
 	if len(l.items) == 0 {
@@ -128,8 +144,8 @@ func (l *List) AtBottom() bool {
 		}
 		item := l.getItem(idx)
 		itemHeight := item.height
-		if l.gap > 0 && idx > l.offsetIdx {
-			itemHeight += l.gap
+		if idx > l.offsetIdx {
+			itemHeight += l.gapBefore(idx)
 		}
 		totalHeight += itemHeight
 	}
@@ -163,8 +179,8 @@ func (l *List) TotalHeight() int {
 	for idx := range l.items {
 		item := l.getItem(idx)
 		total += item.height
-		if l.gap > 0 && idx < len(l.items)-1 {
-			total += l.gap
+		if idx < len(l.items)-1 {
+			total += l.gapBefore(idx + 1)
 		}
 	}
 	return total
@@ -182,8 +198,8 @@ func (l *List) Offset() int {
 	for idx := range l.offsetIdx {
 		item := l.getItem(idx)
 		offset += item.height
-		if l.gap > 0 && idx < len(l.items)-1 {
-			offset += l.gap
+		if idx < len(l.items)-1 {
+			offset += l.gapBefore(idx + 1)
 		}
 	}
 	offset += l.offsetLine
@@ -198,8 +214,8 @@ func (l *List) lastOffsetItem() (int, int, int) {
 	for idx = len(l.items) - 1; idx >= 0; idx-- {
 		item := l.getItem(idx)
 		itemHeight := item.height
-		if l.gap > 0 && idx < len(l.items)-1 {
-			itemHeight += l.gap
+		if idx < len(l.items)-1 {
+			itemHeight += l.gapBefore(idx + 1)
 		}
 		totalHeight += itemHeight
 		if totalHeight > l.height {
@@ -416,9 +432,7 @@ func (l *List) ScrollBy(lines int) {
 		currentItem := l.getItem(l.offsetIdx)
 		for l.offsetLine >= currentItem.height {
 			l.offsetLine -= currentItem.height
-			if l.gap > 0 {
-				l.offsetLine = max(0, l.offsetLine-l.gap)
-			}
+			l.offsetLine = max(0, l.offsetLine-l.gapBefore(l.offsetIdx+1))
 
 			// Move to next item
 			l.offsetIdx++
@@ -448,10 +462,7 @@ func (l *List) ScrollBy(lines int) {
 				break
 			}
 			prevItem := l.getItem(l.offsetIdx)
-			totalHeight := prevItem.height
-			if l.gap > 0 {
-				totalHeight += l.gap
-			}
+			totalHeight := prevItem.height + l.gapBefore(l.offsetIdx+1)
 			l.offsetLine += totalHeight
 		}
 	}
@@ -471,8 +482,8 @@ func (l *List) VisibleItemIndices() (startIdx, endIdx int) {
 	for currentIdx < len(l.items) {
 		item := l.getItem(currentIdx)
 		visibleHeight += item.height
-		if l.gap > 0 {
-			visibleHeight += l.gap
+		if currentIdx < len(l.items)-1 {
+			visibleHeight += l.gapBefore(currentIdx + 1)
 		}
 
 		if visibleHeight >= l.height {
@@ -536,8 +547,8 @@ func (l *List) Render() string {
 			// Gap rows after the item, capped to the
 			// remaining budget so a 30k-line item with a
 			// trailing gap can't push past the viewport.
-			if l.gap > 0 {
-				gapBudget := min(budget-len(lines), l.gap)
+			if gap := l.gapBefore(currentIdx + 1); gap > 0 {
+				gapBudget := min(budget-len(lines), gap)
 				for range gapBudget {
 					lines = append(lines, "")
 				}
@@ -545,7 +556,7 @@ func (l *List) Render() string {
 		} else {
 			// offsetLine starts inside the gap.
 			gapOffset := currentOffset - itemHeight
-			gapRemaining := l.gap - gapOffset
+			gapRemaining := l.gapBefore(currentIdx+1) - gapOffset
 			if gapRemaining > 0 {
 				gapBudget := min(budget-len(lines), gapRemaining)
 				for range gapBudget {
@@ -681,8 +692,8 @@ func (l *List) ScrollToSelected() {
 		for i := l.selectedIdx; i >= 0; i-- {
 			item := l.getItem(i)
 			totalHeight += item.height
-			if l.gap > 0 && i < l.selectedIdx {
-				totalHeight += l.gap
+			if i < l.selectedIdx {
+				totalHeight += l.gapBefore(i + 1)
 			}
 			if totalHeight >= l.height {
 				l.offsetIdx = i
@@ -899,10 +910,7 @@ func (l *List) findItemAtY(_, y int) (itemIdx int, itemY int) {
 		}
 
 		// Move to next item
-		currentLine = itemEndLine
-		if l.gap > 0 {
-			currentLine += l.gap
-		}
+		currentLine = itemEndLine + l.gapBefore(currentIdx+1)
 		currentIdx++
 	}
 

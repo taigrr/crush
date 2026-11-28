@@ -6,6 +6,14 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// GapChooser overrides the list gap drawn before an item. Items that do
+// not implement it keep the list's gap.
+type GapChooser interface {
+	// GapBefore reports the blank rows to insert before this item. ok is
+	// false when the list's gap applies.
+	GapBefore(prev Item) (rows int, ok bool)
+}
+
 // Item represents a single item in the lazy-loaded list.
 //
 // Items participate in the list-level render memo (F6). The cache key

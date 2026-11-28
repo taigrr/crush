@@ -71,6 +71,26 @@ func TestRender_CompactIncludesEditionBanner(t *testing.T) {
 		"the compact logo's top diagonal banner must show the edition label")
 }
 
+// TestPlain_Wordmark verifies the minimal wordmark is a single lowercase
+// line with no diagonal field art.
+func TestPlain_Wordmark(t *testing.T) {
+	t.Parallel()
+	base := lipgloss.NewStyle()
+
+	out := Plain(base, testOpts(""))
+	plain := ansi.Strip(out)
+	assert.Equal(t, "crush", plain)
+	assert.NotContains(t, plain, diag)
+	assert.NotContains(t, out, "\n")
+
+	hyper := ansi.Strip(Plain(base, Opts{Hyper: true, TitleColorA: lipgloss.Color("#ff0000"), TitleColorB: lipgloss.Color("#0000ff")}))
+	assert.Equal(t, "hypercrush", hyper)
+	assert.NotContains(t, hyper, diag)
+
+	truncated := ansi.Strip(Plain(base, Opts{Width: 3, TitleColorA: lipgloss.Color("#ff0000"), TitleColorB: lipgloss.Color("#0000ff")}))
+	assert.Equal(t, "cru", truncated)
+}
+
 // TestRender_WideIncludesEditionBanner verifies the wide (landing/header)
 // logo interrupts its top diagonal banner with the edition label when there
 // is room.

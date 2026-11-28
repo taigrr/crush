@@ -61,6 +61,11 @@ type MessageItem interface {
 	list.Item
 	list.RawRenderable
 	Identifiable
+
+	// SetStyles points the item at sty. Items keep the pointer they were
+	// constructed with, so a later theme or minimal-mode swap has to
+	// retarget them or they keep rendering the old palette.
+	SetStyles(sty *styles.Styles)
 }
 
 // HighlightableMessageItem is a message item that supports highlighting.
@@ -139,14 +144,25 @@ func (h *highlightableMessageItem) Highlight() (startLine int, startCol int, end
 }
 
 func defaultHighlighter(sty *styles.Styles, v *list.Versioned) *highlightableMessageItem {
-	return &highlightableMessageItem{
-		version:     v,
-		startLine:   -1,
-		startCol:    -1,
-		endLine:     -1,
-		endCol:      -1,
-		highlighter: list.ToHighlighter(sty.TextSelection),
+	h := &highlightableMessageItem{
+		version:   v,
+		startLine: -1,
+		startCol:  -1,
+		endLine:   -1,
+		endCol:    -1,
 	}
+	h.setStyles(sty)
+	return h
+}
+
+// setStyles rebuilds the selection highlighter from sty. ToHighlighter
+// copies colors into a closure, so swapping the item's styles pointer
+// is not enough on its own.
+func (h *highlightableMessageItem) setStyles(sty *styles.Styles) {
+	if h == nil || sty == nil {
+		return
+	}
+	h.highlighter = list.ToHighlighter(sty.TextSelection)
 }
 
 // cacheClearable is implemented by message items that cache rendered
@@ -166,6 +182,14 @@ func ClearItemCaches(items []MessageItem) {
 		}
 		if v, ok := item.(interface{ Bump() }); ok {
 			v.Bump()
+		}
+		if nested, ok := item.(NestedToolContainer); ok {
+			children := nested.NestedTools()
+			asMsg := make([]MessageItem, len(children))
+			for i, child := range children {
+				asMsg[i] = child
+			}
+			ClearItemCaches(asMsg)
 		}
 	}
 }
@@ -304,6 +328,16 @@ func NewAssistantInfoItem(sty *styles.Styles, message *message.Message, cfg *con
 		lastUserMessageTime: lastUserMessageTime,
 		now:                 time.Now(),
 	}
+}
+
+// SetStyles implements MessageItem.
+func (a *AssistantInfoItem) SetStyles(sty *styles.Styles) {
+	if a == nil || sty == nil {
+		return
+	}
+	a.sty = sty
+	a.clearCache()
+	a.Bump()
 }
 
 // Finished implements list.Item. Assistant info blocks render a fixed

@@ -597,6 +597,7 @@ func (m *UI) drawLeftSidebar(scr uv.Screen, area image.Rectangle) {
 		return
 	}
 	focused := m.focus == uiFocusLeftSidebar
+	m.leftSidebar.SetMinimal(m.minimalMode)
 	view := m.leftSidebar.Render(area.Dx(), area.Dy(), focused)
 	uv.NewStyledString(view).Draw(scr, area)
 }

@@ -1568,6 +1568,7 @@ func TestSidebar_SelectionHighlightOnlyWhenFocused(t *testing.T) {
 
 	s := newTestSidebar(t)
 	s.SetOverviews(sampleOverviews())
+	s.SetMinimal(false)
 
 	focused := s.Render(30, 10, true)
 	unfocused := s.Render(30, 10, false)
@@ -1589,6 +1590,23 @@ func TestSidebar_SelectionHighlightOnlyWhenFocused(t *testing.T) {
 		require.Contains(t, focused, seq, "focused render should use the selected-item style")
 		require.NotContains(t, unfocused, seq, "unfocused render should not use the selected-item style")
 	}
+}
+
+// TestSidebar_MinimalCursorOmitsThickBar verifies minimal mode marks the
+// cursor with a thin bar and never the high-contrast block.
+func TestSidebar_MinimalCursorOmitsThickBar(t *testing.T) {
+	t.Parallel()
+
+	s := newTestSidebar(t)
+	s.SetOverviews(sampleOverviews())
+	s.SetMinimal(true)
+
+	focused := s.Render(30, 10, true)
+	unfocused := s.Render(30, 10, false)
+	require.NotContains(t, focused, styles.BorderThick)
+	require.NotContains(t, unfocused, styles.BorderThick)
+	require.NotContains(t, focused, styles.BorderThin)
+	require.NotContains(t, unfocused, styles.BorderThin)
 }
 
 // TestSidebar_BlankLineBetweenWorkspaces verifies workspace groups are

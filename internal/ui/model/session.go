@@ -271,6 +271,9 @@ func (m *UI) filesInfo(files []SessionFile, cwd string, width, maxItems int, isS
 	if isSection {
 		title = common.Section(t, "Modified Files", width)
 	}
+	if m.minimalMode {
+		title = t.Files.SectionTitle.Render("Files")
+	}
 	list := t.Files.EmptyMessage.Render("None")
 	var filesWithChanges []SessionFile
 	for _, f := range files {
@@ -279,7 +282,25 @@ func (m *UI) filesInfo(files []SessionFile, cwd string, width, maxItems int, isS
 		}
 		filesWithChanges = append(filesWithChanges, f)
 	}
-	if len(filesWithChanges) > 0 {
+	if m.minimalMode && len(filesWithChanges) == 0 {
+		return ansi.Truncate(title+" "+t.Files.EmptyMessage.Render("0"), width, "…")
+	}
+	if m.minimalMode && len(filesWithChanges) > 0 {
+		var additions, deletions int
+		for _, f := range filesWithChanges {
+			additions += f.Additions
+			deletions += f.Deletions
+		}
+		var statusParts []string
+		if additions > 0 {
+			statusParts = append(statusParts, t.Files.Additions.Render(fmt.Sprintf("+%d", additions)))
+		}
+		if deletions > 0 {
+			statusParts = append(statusParts, t.Files.Deletions.Render(fmt.Sprintf("-%d", deletions)))
+		}
+		line := title + " " + strings.Join(statusParts, " ") + t.Files.Path.Render(fmt.Sprintf(" (%d)", len(filesWithChanges)))
+		return ansi.Truncate(line, width, "…")
+	} else if len(filesWithChanges) > 0 {
 		list = fileList(t, cwd, filesWithChanges, width, maxItems)
 	}
 

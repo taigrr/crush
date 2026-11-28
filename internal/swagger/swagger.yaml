@@ -591,6 +591,12 @@ definitions:
           links or when the user wants reduced motion. Toggleable from the
           command palette and forced on by the CRUSH_LOW_BANDWIDTH env var.
         type: boolean
+      minimal_mode:
+        description: |-
+          MinimalMode is a visual mode, distinct from compact mode. When
+          enabled the TUI drops the outer window frame: no screen margin,
+          no top header band, and no attention outline.
+        type: boolean
       sessions_sidebar_width:
         description: |-
           SessionsSidebarWidth is the width in columns of the left session

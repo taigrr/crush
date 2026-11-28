@@ -225,8 +225,11 @@ func Section(t *styles.Styles, text string, width int, info ...string) string {
 }
 
 // DialogTitle renders a dialog title with a decorative line filling the
-// remaining width.
+// remaining width. Minimal mode drops the line and returns the title.
 func DialogTitle(t *styles.Styles, title string, width int, fromColor, toColor color.Color) string {
+	if t != nil && t.Minimal {
+		return title
+	}
 	char := "╱"
 	length := lipgloss.Width(title) + 1
 	remainingWidth := width - length

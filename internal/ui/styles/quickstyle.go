@@ -149,6 +149,9 @@ func QuickStyle(o QuickStyleOpts) Styles {
 	genericDeleted := orColor(o.DiffRemoveText, o.Destructive)
 
 	s.Background = o.BgBase
+	s.SwarmPalette = []color.Color{
+		o.Primary, o.Secondary, o.Accent, o.Success, o.Warning, o.Error, o.Info, o.Busy,
+	}
 
 	// Populate color fields
 	s.WorkingGradFromColor = workingGradFrom
@@ -1044,4 +1047,94 @@ func QuickStyle(o QuickStyleOpts) Styles {
 	s.Pills.Area = base
 
 	return s
+}
+
+// WithMinimal returns s unchanged when on is false. When on is true it returns
+// a shallow copy whose dialog frames, pills, compact details, and focused
+// message bars are flattened. The receiver is never mutated, so the default
+// theme stays intact and toggling does not rebuild styles.
+func (s *Styles) WithMinimal(on bool) *Styles {
+	if s == nil || !on {
+		return s
+	}
+	flat := *s
+	flat.Minimal = true
+	// A dim single-line outline instead of the rounded frame, so panes
+	// like the command palette and the details panel stay visible.
+	flat.Dialog.View = faintOutline(s.Dialog.View)
+	flat.Dialog.Quit.Frame = faintOutline(s.Dialog.Quit.Frame)
+	flat.Dialog.Sessions.DeletingView = faintOutline(s.Dialog.Sessions.DeletingView)
+	flat.Dialog.Sessions.RenamingView = faintOutline(s.Dialog.Sessions.RenamingView)
+	flat.Dialog.Sessions.ArchivingView = faintOutline(s.Dialog.Sessions.ArchivingView)
+	flat.CompactDetails.View = borderless(s.CompactDetails.View)
+	// HiddenBorder still occupies a row, which would shrink the pill
+	// area. Drop the border and keep the padding so the height matches.
+	flat.Pills.Focused = borderless(s.Pills.Focused).Foreground(s.Pills.Focused.GetBorderBottomForeground())
+	thin := lipgloss.NormalBorder()
+	flat.Messages.UserFocused = restyleBorder(s.Messages.UserFocused, thin)
+	flat.Messages.AssistantFocused = restyleBorder(s.Messages.AssistantFocused, thin)
+	flat.Messages.ToolCallFocused = restyleBorder(s.Messages.ToolCallFocused, thin)
+	// Tool output sits on the same background as the rest of the screen.
+	flat.Tool.ContentLine = s.Tool.ContentLine.Background(nil)
+	flat.Tool.ContentTruncation = s.Tool.ContentTruncation.Background(nil)
+	flat.Tool.ContentCodeLine = s.Tool.ContentCodeLine.Background(nil)
+	flat.Tool.ContentCodeTruncation = s.Tool.ContentCodeTruncation.Background(nil)
+	flat.Tool.ContentCodeBg = nil
+	flat.Tool.ContentBg = s.Tool.ContentBg.Background(nil)
+	flat.Tool.ContentLineNumber = s.Tool.ContentLineNumber.Background(nil)
+	flat.Tool.DiffTruncation = s.Tool.DiffTruncation.Background(nil)
+	flat.Messages.ThinkingBox = s.Messages.ThinkingBox.Background(nil)
+	flat.Diff = diffOnBackground(s.Diff, s.Background)
+	msg := s.Messages.NoContent.GetForeground()
+	flat.Tool.NameNormal = s.Tool.NameNormal.Foreground(msg)
+	flat.Tool.NameNested = s.Tool.NameNested.Foreground(msg)
+	flat.Tool.JobToolName = s.Tool.JobToolName.Foreground(msg)
+	flat.Tool.MCPName = s.Tool.MCPName.Foreground(msg)
+	flat.Tool.MCPToolName = s.Tool.MCPToolName.Foreground(msg)
+	flat.Dialog.SelectedItem = s.Dialog.NormalItem.
+		Background(s.Dialog.Permissions.ParamsBg)
+
+	// gx composer: a bare rail instead of the "> " / "::: " prompt.
+	flat.Editor.PromptNormalIconFocused = s.Editor.PromptNormalIconFocused.SetString("┃ ")
+	flat.Editor.PromptNormalIconBlurred = s.Editor.PromptNormalIconBlurred.SetString("┃ ")
+	flat.Editor.PromptNormalFocused = s.Editor.PromptNormalFocused.SetString("┃ ")
+	flat.Editor.PromptNormalBlurred = s.Editor.PromptNormalBlurred.SetString("┃ ")
+	return &flat
+}
+
+// diffOnBackground keeps the add and delete colors and paints every other
+// diff row on the theme background.
+func diffOnBackground(d diffview.Style, bg color.Color) diffview.Style {
+	paint := func(st lipgloss.Style) lipgloss.Style { return st.Background(bg) }
+	line := func(l diffview.LineStyle) diffview.LineStyle {
+		l.LineNumber = paint(l.LineNumber)
+		l.Code = paint(l.Code)
+		l.Symbol = paint(l.Symbol)
+		return l
+	}
+	d.DividerLine = line(d.DividerLine)
+	d.MissingLine = line(d.MissingLine)
+	d.EqualLine = line(d.EqualLine)
+	d.Filename = line(d.Filename)
+	return d
+}
+
+// faintOutline replaces a rounded frame with a dim single-line box. The
+// border still occupies one cell, so layout sizes stay the same.
+func faintOutline(st lipgloss.Style) lipgloss.Style {
+	return st.BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderTop(true).BorderBottom(true).BorderLeft(true).BorderRight(true)
+}
+
+// borderless drops a style's border while keeping its padding, margins, and
+// colors, so layout that reads border size sees 0.
+func borderless(st lipgloss.Style) lipgloss.Style {
+	return st.BorderStyle(lipgloss.Border{}).
+		BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false)
+}
+
+// restyleBorder keeps a style's colors and swaps only its border glyphs.
+func restyleBorder(st lipgloss.Style, b lipgloss.Border) lipgloss.Style {
+	return st.BorderStyle(b)
 }

@@ -144,7 +144,7 @@ func (s *SessionItem) Render(width int) string {
 	// bare s.Title — stay correctly anchored. When the row is
 	// multi-selected, a ✓ replaces the square for a clear, consistent
 	// selection treatment (matching the sidebar).
-	prefix := sessionTitlePrefix(s.Color)
+	prefix := s.sessionTitlePrefix(s.Color)
 	if s.marked {
 		prefix = s.t.Tool.IconSuccess.String() + " "
 	}
@@ -168,8 +168,11 @@ func (s *SessionItem) SetMarked(marked bool) {
 // session title in the picker: the swarm color square + space,
 // matching the left session sidebar. Sessions without an assigned
 // color get a two-space pad so titles stay column-aligned.
-func sessionTitlePrefix(color string) string {
+func (s *SessionItem) sessionTitlePrefix(color string) string {
 	sq := common.SwarmSquare(color)
+	if s.t.Minimal {
+		sq = common.ThemeSwarmSquare(color, s.t.SwarmPalette, 0, 1)
+	}
 	if sq == "" {
 		return "  "
 	}
