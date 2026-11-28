@@ -373,6 +373,8 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			}
 			if !m.minimalMode {
 				uiLayout.main.Max.Y -= 1
+			} else if editorRect.Dy() > 0 {
+				editorRect.Min.Y++
 			}
 			uiLayout.editor = editorRect
 		} else {
@@ -419,6 +421,8 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			}
 			if !m.minimalMode {
 				uiLayout.main.Max.Y -= 1
+			} else if editorRect.Dy() > 0 {
+				editorRect.Min.Y++
 			}
 			uiLayout.editor = editorRect
 		}

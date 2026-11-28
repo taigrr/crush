@@ -201,7 +201,7 @@ func (m *UI) renderEditorView(width int) string {
 		if attachmentsView != "" {
 			parts = append(parts, attachmentsView)
 		}
-		parts = append(parts, "", m.textarea.View(), "")
+		parts = append(parts, m.textarea.View(), "")
 	}
 	return strings.Join(parts, "\n")
 }
