@@ -12,6 +12,7 @@ import (
 	"github.com/taigrr/crush/internal/ui/attachments"
 	"github.com/taigrr/crush/internal/ui/chat"
 	"github.com/taigrr/crush/internal/ui/common"
+	"github.com/taigrr/crush/internal/ui/styles"
 )
 
 // testMessageItem is a minimal chat item used to populate the chat list
@@ -21,11 +22,12 @@ type testMessageItem struct {
 	text string
 }
 
-func (m testMessageItem) ID() string           { return m.id }
-func (m testMessageItem) Render(int) string    { return m.text }
-func (m testMessageItem) RawRender(int) string { return m.text }
-func (m testMessageItem) Version() uint64      { return 0 }
-func (m testMessageItem) Finished() bool       { return true }
+func (m testMessageItem) ID() string               { return m.id }
+func (m testMessageItem) Render(int) string        { return m.text }
+func (m testMessageItem) RawRender(int) string     { return m.text }
+func (m testMessageItem) Version() uint64          { return 0 }
+func (m testMessageItem) Finished() bool           { return true }
+func (m testMessageItem) SetStyles(*styles.Styles) {}
 
 var _ chat.MessageItem = testMessageItem{}
 

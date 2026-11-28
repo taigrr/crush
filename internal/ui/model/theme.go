@@ -41,11 +41,15 @@ func (m *UI) applyMinimalStyles() {
 	if m.minimalMode {
 		next = m.baseStyles.WithMinimal(true)
 	}
-	if m.com.Styles != next {
+	changed := m.com.Styles != next
+	if changed {
 		m.com.Styles = next
 	}
+	if changed && m.chat != nil {
+		m.chat.SetItemStyles(m.com.Styles)
+	}
 	// NewUI calls this before status, chat, and the editor exist.
-	if m.status == nil {
+	if m.status == nil || m.header == nil || m.completions == nil {
 		return
 	}
 	m.refreshStyles()

@@ -102,7 +102,8 @@ func (m *UI) Draw(scr uv.Screen, area uv.Rectangle) *tea.Cursor {
 	// the gx status line.
 	m.status.SetHideHelp(isOnboarding)
 	if m.minimalMode {
-		m.status.SetLine(m.minimalStatusLine(layout.status.Dx()), m.layout.editor.Min.X+2)
+		indent := max(0, layout.editor.Min.X-layout.status.Min.X) + 2
+		m.status.SetLine(m.minimalStatusLine(layout.status.Dx()), indent)
 	} else {
 		m.status.SetLine("", 0)
 	}

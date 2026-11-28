@@ -62,7 +62,7 @@ func TestMinimalReviewSummary(t *testing.T) {
 	}
 	require.Greater(t, reviewer2, reviewer)
 	require.Equal(t, "    │", strings.TrimRight(lines[reviewer2-1], " "))
-	require.Equal(t, "      │", strings.TrimRight(lines[reviewer2+1], " "))
+	require.Equal(t, "    │ │", strings.TrimRight(lines[reviewer2+1], " "))
 }
 
 func TestMinimalReviewExpandedKeepsRootRail(t *testing.T) {

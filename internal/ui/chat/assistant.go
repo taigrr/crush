@@ -171,6 +171,19 @@ func NewAssistantMessageItem(sty *styles.Styles, message *message.Message) Messa
 	return a
 }
 
+// SetStyles implements MessageItem.
+func (a *AssistantMessageItem) SetStyles(sty *styles.Styles) {
+	if a == nil || sty == nil {
+		return
+	}
+	a.sty = sty
+	if a.highlightableMessageItem != nil {
+		a.highlightableMessageItem.setStyles(sty)
+	}
+	a.clearCache()
+	a.Bump()
+}
+
 // Spinning implements [Animatable].
 func (a *AssistantMessageItem) Spinning() bool {
 	return a.isSpinning()

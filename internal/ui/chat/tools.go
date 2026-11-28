@@ -77,6 +77,19 @@ type Compactable interface {
 	SetCompact(compact bool)
 }
 
+// SetStyles points the tool at sty.
+func (t *baseToolMessageItem) SetStyles(sty *styles.Styles) {
+	if t == nil || sty == nil {
+		return
+	}
+	t.sty = sty
+	if t.highlightableMessageItem != nil {
+		t.highlightableMessageItem.setStyles(sty)
+	}
+	t.clearCache()
+	t.Bump()
+}
+
 // Expanded reports whether the tool is showing its full body.
 func (t *baseToolMessageItem) Expanded() bool {
 	return t.expandedContent

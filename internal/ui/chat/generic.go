@@ -42,7 +42,12 @@ func (g *GenericToolRenderContext) RenderTool(sty *styles.Styles, width int, opt
 		return toolErrorContent(sty, &message.ToolResult{Content: "Invalid parameters"}, cappedWidth)
 	}
 
-	toolParams := toolSummaryParams(params)
+	var toolParams []string
+	if sty.Minimal {
+		toolParams = toolSummaryParams(params)
+	} else if raw, err := json.Marshal(params); err == nil {
+		toolParams = []string{string(raw)}
+	}
 
 	header := toolHeader(sty, opts.Status, name, cappedWidth, opts.Compact, toolParams...)
 	if opts.Compact {

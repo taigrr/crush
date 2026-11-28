@@ -186,7 +186,11 @@ func (s *SessionsSidebar) SetMinimal(on bool) {
 	if s == nil {
 		return
 	}
+	if s.minimal == on {
+		return
+	}
 	s.minimal = on
+	s.rebuildRows()
 }
 
 // NewSessionsSidebar creates an empty sidebar bound to shared context.
@@ -603,7 +607,13 @@ func (s *SessionsSidebar) emitInboxRows() {
 		if len(refs) == 0 {
 			continue
 		}
+		if s.minimal && len(s.rows) > 0 {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSpacer})
+		}
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowSection, label: inboxSectionLabels[sec]})
+		if s.minimal {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSpacer})
+		}
 		for _, r := range refs {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: int(r.wi), sessIdx: int(r.si)})
 		}
@@ -743,11 +753,14 @@ func (s *SessionsSidebar) rebuildGroupedRows() {
 		// Blank lines separate visible workspace groups. Counting emitted
 		// groups avoids a leading spacer when earlier workspaces are empty or
 		// filtered out. Minimal mode drops the blank rows.
-		if emittedGroups > 0 && !s.minimal {
+		if emittedGroups > 0 {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSpacer, wsIdx: wi})
 		}
 		emittedGroups++
 		s.rows = append(s.rows, sidebarRow{kind: sidebarRowWorkspace, wsIdx: wi})
+		if s.minimal {
+			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSpacer, wsIdx: wi})
+		}
 		shown := len(idxs)
 		for _, si := range idxs {
 			s.rows = append(s.rows, sidebarRow{kind: sidebarRowSession, wsIdx: wi, sessIdx: si})
@@ -797,23 +810,24 @@ func (s *SessionsSidebar) computeCaps() []int {
 	for i := range s.overviews {
 		_, c := s.filteredIdxs(q, i, 0)
 		counts[i] = c
-		if c > 0 {
-			c += s.hiddenSessions(i)
-		}
-		if c == 0 {
+		if c == 0 && s.hiddenSessions(i) == 0 {
 			continue
 		}
 		nonEmpty++
-		total += 1 + c // header + sessions
+		total += 1 + c // header + loaded sessions
+		if s.hiddenSessions(i) > 0 {
+			total++ // one overflow row, not one row per hidden session
+		}
 	}
 	if nonEmpty == 0 {
 		return caps
 	}
-	// Account for the blank spacer line between each pair of visible
-	// workspace groups. Minimal mode does not emit those rows.
+	// Between-group spacers, plus one under each header in minimal mode.
+	// Each is counted once; the per-workspace reserve below does not
+	// include them again.
 	spacers := nonEmpty - 1
 	if s.minimal {
-		spacers = 0
+		spacers += nonEmpty
 	}
 	total += spacers
 	if total <= h {
@@ -821,10 +835,8 @@ func (s *SessionsSidebar) computeCaps() []int {
 		return caps
 	}
 
-	// Even share: each non-empty workspace's block is
-	// (h-spacers)/nonEmpty rows. Reserve one line for the header and one for
-	// the overflow row, then floor at the minimum.
 	perWorkspace := max(0, h-spacers) / nonEmpty
+	// Header plus a possible overflow row. Spacers are already in h-spacers.
 	cap := max(minSessionsPerWorkspace, perWorkspace-2)
 	for i := range caps {
 		caps[i] = cap
@@ -1544,19 +1556,6 @@ func plural(n int, word string) string {
 // focused reports whether the sidebar owns keyboard focus. When it does not,
 // the cursor row is marked with the selection bar alone rather than a
 // full-row highlight, so it does not compete with the editor caret.
-// appendGroup adds a header row. In minimal mode it keeps one blank row
-// above and below, skipping the leading blank.
-func appendGroup(out []string, row string, spaced bool) []string {
-	if spaced && len(out) > 0 {
-		out = append(out, "")
-	}
-	out = append(out, row)
-	if spaced {
-		out = append(out, "")
-	}
-	return out
-}
-
 func (s *SessionsSidebar) renderRows(width int, focused bool, start, end int) []string {
 	t := s.com.Styles
 	start = max(0, start)
@@ -1576,14 +1575,13 @@ func (s *SessionsSidebar) renderRows(width int, focused bool, start, end int) []
 		case sidebarRowSpacer:
 			out = append(out, "")
 		case sidebarRowWorkspace:
-			row := s.renderWorkspaceRow(t, s.overviews[r.wsIdx], width)
-			out = appendGroup(out, row, s.minimal)
+			out = append(out, s.renderWorkspaceRow(t, s.overviews[r.wsIdx], width))
 		case sidebarRowSection:
 			label := common.Section(t, r.label, width)
 			if s.minimal {
 				label = t.Resource.Heading.Render(r.label)
 			}
-			out = appendGroup(out, label, s.minimal)
+			out = append(out, label)
 		case sidebarRowSession:
 			ws := s.overviews[r.wsIdx]
 			sess := ws.Sessions[r.sessIdx]

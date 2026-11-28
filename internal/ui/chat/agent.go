@@ -101,6 +101,17 @@ func advanceNested(tools []ToolMessageItem) bool {
 	return changed
 }
 
+// SetStyles points the agent tool and its nested tools at sty.
+func (a *AgentToolMessageItem) SetStyles(sty *styles.Styles) {
+	if a == nil {
+		return
+	}
+	a.baseToolMessageItem.SetStyles(sty)
+	for _, nested := range a.nestedTools {
+		nested.SetStyles(sty)
+	}
+}
+
 // NestedTools returns the nested tools.
 func (a *AgentToolMessageItem) NestedTools() []ToolMessageItem {
 	return a.nestedTools
@@ -257,6 +268,17 @@ func (a *AgenticFetchToolMessageItem) Advance() bool {
 		a.Bump()
 	}
 	return changed
+}
+
+// SetStyles points the fetch tool and its nested tools at sty.
+func (a *AgenticFetchToolMessageItem) SetStyles(sty *styles.Styles) {
+	if a == nil {
+		return
+	}
+	a.baseToolMessageItem.SetStyles(sty)
+	for _, nested := range a.nestedTools {
+		nested.SetStyles(sty)
+	}
 }
 
 // NestedTools returns the nested tools.
@@ -423,6 +445,17 @@ func (a *ReviewToolMessageItem) Advance() bool {
 	return changed
 }
 
+// SetStyles points the review tool and every reviewer group's tools at sty.
+func (a *ReviewToolMessageItem) SetStyles(sty *styles.Styles) {
+	if a == nil {
+		return
+	}
+	a.baseToolMessageItem.SetStyles(sty)
+	for _, nested := range a.NestedTools() {
+		nested.SetStyles(sty)
+	}
+}
+
 // NestedTools returns the flattened set of nested tools across all
 // reviewer groups (used for ID registration and animation dispatch).
 func (a *ReviewToolMessageItem) NestedTools() []ToolMessageItem {
@@ -571,11 +604,12 @@ func reviewSummaryLines(sty *styles.Styles, group []ToolMessageItem) []string {
 		for end < len(actions) && actions[end].verb == verb {
 			end++
 		}
+		if len(lines) == reviewSummaryRows-1 && end < len(actions) {
+			lines = append(lines, sty.Tool.ParamMain.Render(fmt.Sprintf("+%d more", len(actions)-shown)))
+			return lines
+		}
 		lines = append(lines, reviewRunLine(sty, verb, actions[shown:end]))
 		shown = end
-	}
-	if left := len(group) - shown; left > 0 {
-		lines = append(lines, sty.Tool.ParamMain.Render(fmt.Sprintf("+%d more", left)))
 	}
 	return lines
 }
@@ -714,16 +748,18 @@ func (r *ReviewToolRenderContext) renderMinimal(sty *styles.Styles, width int, o
 	b.WriteString(title)
 	const pad = "  "
 	for i, group := range r.review.groups {
-		last := i == len(r.review.groups)-1
-		branch, nest := "├", "│ "
-		if last {
-			branch, nest = "└", "  "
+		branch := "├"
+		if i == len(r.review.groups)-1 {
+			branch = "└"
 		}
 		label := fmt.Sprintf("Reviewer %d", i+1)
 		if n := len(group); n > 0 {
 			label += " · " + reviewCallCount(n)
 		}
-		fmt.Fprintf(&b, "\n%s│\n%s%s %s\n%s│ ", pad, pad, branch, sty.Tool.ParamMain.Render(label), pad+nest)
+		if len(group) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\n%s│\n%s%s %s", pad, pad, branch, sty.Tool.ParamMain.Render(label))
 
 		rows := reviewSummaryLines(sty, group)
 		if opts.ExpandedContent {
@@ -732,12 +768,15 @@ func (r *ReviewToolRenderContext) renderMinimal(sty *styles.Styles, width int, o
 				rows[j] = reviewToolLine(sty, tool)
 			}
 		}
+		if len(rows) > 0 {
+			fmt.Fprintf(&b, "\n%s│ │ ", pad)
+		}
 		for j, row := range rows {
 			toolBranch := "├"
 			if j == len(rows)-1 {
 				toolBranch = "└"
 			}
-			fmt.Fprintf(&b, "\n%s%s%s %s", pad, nest, toolBranch, row)
+			fmt.Fprintf(&b, "\n%s│ %s %s", pad, toolBranch, row)
 		}
 	}
 

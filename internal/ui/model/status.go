@@ -95,13 +95,10 @@ func (m *UI) minimalStatusLine(width int) string {
 		}
 	}
 	line := strings.Join(parts, " · ")
-	// The composer text starts after the "┃ " rail (2 cells) plus the
-	// editor pane's own left edge.
-	indent := m.layout.editor.Min.X + 2
 	if width > 0 {
-		line = ansi.Truncate(line, max(1, width-indent), "…")
+		line = ansi.Truncate(line, width, "…")
 	}
-	return strings.Repeat(" ", indent) + t.Resource.AdditionalText.Render(line)
+	return t.Resource.AdditionalText.Render(line)
 }
 
 // Draw draws the status bar onto the screen.
@@ -145,7 +142,11 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 	ind := indStyle.String()
 	indWidth := lipgloss.Width(ind)
 	msgPad := msgStyle.GetPaddingLeft() + msgStyle.GetPaddingRight()
-	avail := max(0, area.Dx()-indWidth-msgPad)
+	indent := 0
+	if s.line != "" {
+		indent = min(max(0, s.indent), max(0, area.Dx()-1))
+	}
+	avail := max(0, area.Dx()-indent-indWidth-msgPad)
 	msg := strings.Join(strings.Split(s.msg.Msg, "\n"), " ")
 	msg = ansi.Truncate(msg, avail, "…")
 	if w := lipgloss.Width(msg); w < avail {
@@ -157,8 +158,6 @@ func (s *Status) Draw(scr uv.Screen, area uv.Rectangle) {
 	// exactly one row so the background cannot fill a taller area.
 	banner := ind + info
 	if s.line != "" {
-		// The composer text starts after the rail and the sidebar.
-		indent := max(0, s.indent)
 		banner = strings.Repeat(" ", indent) + strings.Split(banner, "\n")[0]
 		area.Min.Y = area.Max.Y - 1
 		area.Max.Y = area.Min.Y + 1

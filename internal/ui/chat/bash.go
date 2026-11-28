@@ -64,7 +64,7 @@ func (b *BashToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *
 	// Regular bash command.
 	cmd := strings.ReplaceAll(params.Command, "\n", " ")
 	cmd = strings.ReplaceAll(cmd, "\t", "    ")
-	if sty.Minimal {
+	if opts.Compact {
 		cmd = bashSummary(cmd)
 	}
 	toolParams := []string{cmd}

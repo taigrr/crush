@@ -68,6 +68,19 @@ func NewUserMessageItem(sty *styles.Styles, message *message.Message, attachment
 	}
 }
 
+// SetStyles implements MessageItem.
+func (m *UserMessageItem) SetStyles(sty *styles.Styles) {
+	if m == nil || sty == nil {
+		return
+	}
+	m.sty = sty
+	if m.highlightableMessageItem != nil {
+		m.highlightableMessageItem.setStyles(sty)
+	}
+	m.clearCache()
+	m.Bump()
+}
+
 // Finished implements list.Item. User messages are immutable once
 // submitted, so the entry is always safe to freeze.
 func (m *UserMessageItem) Finished() bool {

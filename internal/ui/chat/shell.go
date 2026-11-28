@@ -39,6 +39,19 @@ func NewShellMessageItem(sty *styles.Styles, msg *message.Message) MessageItem {
 	}
 }
 
+// SetStyles implements MessageItem.
+func (m *ShellMessageItem) SetStyles(sty *styles.Styles) {
+	if m == nil || sty == nil {
+		return
+	}
+	m.sty = sty
+	if m.highlightableMessageItem != nil {
+		m.highlightableMessageItem.setStyles(sty)
+	}
+	m.clearCache()
+	m.Bump()
+}
+
 // Finished implements list.Item.
 func (m *ShellMessageItem) Finished() bool {
 	return true

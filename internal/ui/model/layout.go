@@ -371,8 +371,9 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			} else {
 				uiLayout.main = mainRect
 			}
-			// Add bottom margin to main
-			uiLayout.main.Max.Y -= 1
+			if !m.minimalMode {
+				uiLayout.main.Max.Y -= 1
+			}
 			uiLayout.editor = editorRect
 		} else {
 			// Layout
@@ -416,8 +417,9 @@ func (m *UI) generateLayout(w, h int) uiLayout {
 			} else {
 				uiLayout.main = mainRect
 			}
-			// Add bottom margin to main
-			uiLayout.main.Max.Y -= 1
+			if !m.minimalMode {
+				uiLayout.main.Max.Y -= 1
+			}
 			uiLayout.editor = editorRect
 		}
 	}
