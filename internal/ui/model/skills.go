@@ -3,11 +3,11 @@ package model
 import (
 	"fmt"
 	"path/filepath"
-
-	"github.com/charmbracelet/x/ansi"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"charm.land/lipgloss/v2"
 	"github.com/taigrr/crush/internal/skills"

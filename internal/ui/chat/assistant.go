@@ -178,7 +178,7 @@ func (a *AssistantMessageItem) SetStyles(sty *styles.Styles) {
 	}
 	a.sty = sty
 	if a.highlightableMessageItem != nil {
-		a.highlightableMessageItem.setStyles(sty)
+		a.setStyles(sty)
 	}
 	a.clearCache()
 	a.Bump()

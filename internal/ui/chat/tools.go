@@ -84,7 +84,7 @@ func (t *baseToolMessageItem) SetStyles(sty *styles.Styles) {
 	}
 	t.sty = sty
 	if t.highlightableMessageItem != nil {
-		t.highlightableMessageItem.setStyles(sty)
+		t.setStyles(sty)
 	}
 	t.clearCache()
 	t.Bump()

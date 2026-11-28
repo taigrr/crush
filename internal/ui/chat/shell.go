@@ -46,7 +46,7 @@ func (m *ShellMessageItem) SetStyles(sty *styles.Styles) {
 	}
 	m.sty = sty
 	if m.highlightableMessageItem != nil {
-		m.highlightableMessageItem.setStyles(sty)
+		m.setStyles(sty)
 	}
 	m.clearCache()
 	m.Bump()
