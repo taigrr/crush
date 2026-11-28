@@ -297,6 +297,29 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			return util.NewInfoMsg("Thinking mode " + status)
 		})
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionToggleFastMode:
+		cmds = append(cmds, func() tea.Msg {
+			cfg := m.com.Config()
+			if cfg == nil {
+				return util.ReportError(errors.New("configuration not found"))()
+			}
+			agentCfg, ok := cfg.Agents[config.AgentCoder]
+			if !ok {
+				return util.ReportError(errors.New("agent configuration not found"))()
+			}
+			currentModel := cfg.Models[agentCfg.Model]
+			currentModel.Fast = !currentModel.Fast
+			if err := m.com.Workspace.UpdatePreferredModel(config.ScopeGlobal, agentCfg.Model, currentModel); err != nil {
+				return util.ReportError(err)()
+			}
+			m.com.Workspace.UpdateAgentModel(context.TODO())
+			status := "disabled"
+			if currentModel.Fast {
+				status = "enabled"
+			}
+			return util.NewInfoMsg("Fast mode " + status)
+		})
+		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionToggleTransparentBackground:
 		cmds = append(cmds, func() tea.Msg {
 			cfg := m.com.Config()

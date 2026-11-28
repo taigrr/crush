@@ -454,6 +454,9 @@
         "default_reasoning_effort": {
           "type": "string"
         },
+        "supports_fast": {
+          "type": "boolean"
+        },
         "supports_attachments": {
           "type": "boolean"
         },
@@ -830,6 +833,10 @@
         "think": {
           "type": "boolean",
           "description": "Enable thinking mode for Anthropic models that support reasoning"
+        },
+        "fast": {
+          "type": "boolean",
+          "description": "Use the fast serving tier on models that support it"
         },
         "max_tokens": {
           "type": "integer",

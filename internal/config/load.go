@@ -723,9 +723,9 @@ func (c *Config) defaultModelSelection(knownProviders []catwalk.Provider) (large
 // applyModelOverrides copies user-configured override fields from override
 // onto target, falling back to the resolved catwalk model's defaults where the
 // override is unset. target.Provider and target.Model are assumed to already
-// be resolved. Think is copied unconditionally because it is a plain bool with
-// no "unset" sentinel: a user who toggles it off must be able to override an
-// on-by-default value.
+// be resolved. Think and Fast are copied unconditionally because they are
+// plain bools with no "unset" sentinel: a user who toggles one off must be
+// able to override an on-by-default value.
 func applyModelOverrides(target *SelectedModel, override SelectedModel, model *catwalk.Model) {
 	if override.MaxTokens > 0 {
 		target.MaxTokens = override.MaxTokens
@@ -736,6 +736,7 @@ func applyModelOverrides(target *SelectedModel, override SelectedModel, model *c
 		target.ReasoningEffort = override.ReasoningEffort
 	}
 	target.Think = override.Think
+	target.Fast = override.Fast
 	if override.Temperature != nil {
 		target.Temperature = override.Temperature
 	}

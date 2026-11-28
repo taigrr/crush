@@ -95,6 +95,9 @@ type SelectedModel struct {
 	// Used by anthropic models that can reason to indicate if the model should think.
 	Think bool `json:"think,omitempty" jsonschema:"description=Enable thinking mode for Anthropic models that support reasoning"`
 
+	// Used by models that advertise a fast serving tier.
+	Fast bool `json:"fast,omitempty" jsonschema:"description=Use the fast serving tier on models that support it"`
+
 	// Overrides the default model configuration.
 	MaxTokens        int64    `json:"max_tokens,omitempty" jsonschema:"description=Maximum number of tokens for model responses,maximum=200000,example=4096"`
 	Temperature      *float64 `json:"temperature,omitempty" jsonschema:"description=Sampling temperature,minimum=0,maximum=1,example=0.7"`
@@ -180,6 +183,7 @@ func (c *ProviderConfig) ToProvider() catwalk.Provider {
 			CanReason:              model.CanReason,
 			ReasoningLevels:        model.ReasoningLevels,
 			DefaultReasoningEffort: model.DefaultReasoningEffort,
+			SupportsFast:           model.SupportsFast,
 			SupportsImages:         model.SupportsImages,
 		}
 	}
