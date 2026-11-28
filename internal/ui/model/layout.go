@@ -67,6 +67,34 @@ func (m *UI) toggleCompactMode() tea.Cmd {
 	}
 }
 
+// togglePersistSidebar keeps the left navigator open across session
+// switches, or restores the default of closing it on each switch.
+func (m *UI) togglePersistSidebar() tea.Cmd {
+	m.persistLeftSidebar = !m.persistLeftSidebar
+	if cfg := m.com.Config(); cfg != nil && cfg.Options != nil && cfg.Options.TUI != nil {
+		cfg.Options.TUI.PersistSessionsSidebar = m.persistLeftSidebar
+	}
+	ws, enabled := m.com.Workspace, m.persistLeftSidebar
+	return func() tea.Msg {
+		if err := ws.SetConfigField(config.ScopeGlobal, "options.tui.persist_sessions_sidebar", enabled); err != nil {
+			return util.ReportError(err)()
+		}
+		return nil
+	}
+}
+
+// closeLeftSidebarForSwitch hides the navigator after a session switch
+// unless persistence is on. Focus returns to the editor either way so
+// the composer is ready.
+func (m *UI) closeLeftSidebarForSwitch() {
+	if m.persistLeftSidebar {
+		m.setFocusAfterSidebarClose()
+		return
+	}
+	m.leftSidebarVisible = false
+	m.setFocusAfterSidebarClose()
+}
+
 // updateLayoutAndSize updates the layout and sizes of UI components.
 func (m *UI) updateLayoutAndSize() {
 	// Determine if we should be in compact mode

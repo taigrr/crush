@@ -7635,6 +7635,10 @@
                     "description": "LowBandwidth, when true, swaps the animated spinner for a simple\n\"Generating .\", \"..\", \"...\" cycle, halves the renderer FPS, and\ndisables the session-title reveal animation. Useful over slow\nlinks or when the user wants reduced motion. Toggleable from the\ncommand palette and forced on by the CRUSH_LOW_BANDWIDTH env var.",
                     "type": "boolean"
                 },
+                "persist_sessions_sidebar": {
+                    "description": "PersistSessionsSidebar keeps the left session navigator open after\nswitching chats. Off by default, so selecting a session still\ncloses it.",
+                    "type": "boolean"
+                },
                 "sessions_sidebar_width": {
                     "description": "SessionsSidebarWidth is the width in columns of the left session\nnavigator, persisted so a resize survives restarts. Zero means use\nthe built-in default.",
                     "type": "integer"

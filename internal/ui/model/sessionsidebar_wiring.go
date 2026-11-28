@@ -216,8 +216,9 @@ func (m *UI) handleLeftSidebarKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	case "esc", "h":
 		// Esc first exits visual selection / clears a pending multi-
 		// selection; only when there is nothing selected does it close
-		// the sidebar. "h" always closes.
-		if msg.String() == "esc" && (m.leftSidebar.VisualMode() || m.leftSidebar.SelectionCount() > 0) {
+		// the sidebar. "h" always closes. A persistent navigator stays
+		// open on esc and only closes on an explicit hide.
+		if msg.String() == "esc" && (m.persistLeftSidebar || m.leftSidebar.VisualMode() || m.leftSidebar.SelectionCount() > 0) {
 			m.leftSidebar.ClearSelection()
 			return nil, true
 		}
@@ -516,8 +517,7 @@ func (m *UI) activateLeftSidebarSelection() tea.Cmd {
 	// Overflow row ("…N more"): open the full session picker for that
 	// workspace instead of switching to a specific session.
 	if root, ok := m.leftSidebar.SelectedOverflowWorkspace(); ok {
-		m.leftSidebarVisible = false
-		m.setFocusAfterSidebarClose()
+		m.closeLeftSidebarForSwitch()
 		m.updateLayoutAndSize()
 		if m.isCurrentWorkspace(root) {
 			return m.openSessionsDialog()
@@ -532,9 +532,9 @@ func (m *UI) activateLeftSidebarSelection() tea.Cmd {
 		return nil
 	}
 
-	// Collapse the sidebar and return focus to the editor after switching.
-	m.leftSidebarVisible = false
-	m.setFocusAfterSidebarClose()
+	// Collapse the sidebar and return focus to the editor after switching,
+	// unless the navigator is set to stay open.
+	m.closeLeftSidebarForSwitch()
 	m.updateLayoutAndSize()
 
 	// Compare against THIS client's current workspace, not the server-side
