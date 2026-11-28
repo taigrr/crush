@@ -987,6 +987,11 @@
           "minimum": 20,
           "description": "Width in columns of the left session navigator",
           "default": 30
+        },
+        "persist_sessions_sidebar": {
+          "type": "boolean",
+          "description": "Keep the left session navigator open when switching chats",
+          "default": false
         }
       },
       "additionalProperties": false,

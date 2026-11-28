@@ -292,6 +292,10 @@ type TUIOptions struct {
 	// navigator, persisted so a resize survives restarts. Zero means use
 	// the built-in default.
 	SessionsSidebarWidth int `json:"sessions_sidebar_width,omitempty" jsonschema:"description=Width in columns of the left session navigator,default=30,minimum=20,maximum=80"`
+	// PersistSessionsSidebar keeps the left session navigator open after
+	// switching chats. Off by default, so selecting a session still
+	// closes it.
+	PersistSessionsSidebar bool `json:"persist_sessions_sidebar,omitempty" jsonschema:"description=Keep the left session navigator open when switching chats,default=false"`
 }
 
 // Completions defines options for the completions UI.

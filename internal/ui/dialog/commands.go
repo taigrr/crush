@@ -456,6 +456,11 @@ func (c *Commands) defaultCommands() []*CommandItem {
 	if c.windowWidth >= sidebarCompactModeBreakpoint && c.hasSession {
 		commands = append(commands, NewCommandItem(c.com.Styles, "toggle_sidebar", "Toggle Sidebar", "", ActionToggleCompactMode{}))
 	}
+	persistLabel := "Enable Persistent Sidebar"
+	if c.com.Config().Options.TUI.PersistSessionsSidebar {
+		persistLabel = "Disable Persistent Sidebar"
+	}
+	commands = append(commands, NewCommandItem(c.com.Styles, "toggle_persist_sidebar", persistLabel, "", ActionTogglePersistSidebar{}))
 
 	// Theme picker is always available.
 	commands = append(commands, NewCommandItem(c.com.Styles, "select_theme", "Select Theme", "", ActionOpenDialog{

@@ -299,6 +299,8 @@ type UI struct {
 	// sidebar after the bounded first overview.
 	bgLoad             backgroundLoader
 	leftSidebarVisible bool
+	// persistLeftSidebar keeps the navigator open across session switches.
+	persistLeftSidebar bool
 	// leftSidebarWidth is the navigator's width in columns. Seeded from
 	// config so a resize persists across restarts.
 	leftSidebarWidth int
@@ -581,6 +583,7 @@ func New(com *common.Common, initialSessionID string, continueLast bool, resume 
 
 	// Seed the navigator width from config so a previous resize persists.
 	ui.leftSidebarWidth = clampLeftSidebarWidth(com.Config().Options.TUI.SessionsSidebarWidth)
+	ui.persistLeftSidebar = com.Config().Options.TUI.PersistSessionsSidebar
 
 	desiredState := uiLanding
 	desiredFocus := uiFocusEditor
